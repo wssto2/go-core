@@ -46,6 +46,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/goccy/go-json"
+	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/validation"
 )
 
 // BindJSON parses and validates the request body into v.
@@ -103,10 +105,11 @@ func bind[T any](v *T, raw map[string]any, isMultipart bool) error {
 	}
 
 	if len(validationErrors) > 0 {
-		return ErrValidation{
-			Fields:      validationErrors,
-			DebugFields: debugErrors,
-		}
+		return validation.NewValidationError(
+			"validation failed",
+			validationErrors,
+			debugErrors,
+		)
 	}
 
 	return nil
@@ -123,21 +126,21 @@ func parseRequest(r *http.Request) (map[string]any, bool, error) {
 func parseJSON(r *http.Request) (map[string]any, bool, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return nil, false, ErrBadRequest{Message: "failed to read request body: " + err.Error()}
+		return nil, false, apperr.BadRequest("failed to read request body: " + err.Error())
 	}
 	if len(body) == 0 {
 		return make(map[string]any), false, nil
 	}
 	var raw map[string]any
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, false, ErrBadRequest{Message: "invalid JSON: " + err.Error()}
+		return nil, false, apperr.BadRequest("invalid JSON: " + err.Error())
 	}
 	return raw, false, nil
 }
 
 func parseMultipart(r *http.Request) (map[string]any, bool, error) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		return nil, true, ErrBadRequest{Message: "failed to parse multipart form: " + err.Error()}
+		return nil, true, apperr.BadRequest("failed to parse multipart form: " + err.Error())
 	}
 	raw := make(map[string]any, len(r.Form))
 	for key, values := range r.Form {

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -80,21 +81,5 @@ func IssueToken(claims Claims, cfg TokenConfig) (string, error) {
 }
 
 func isExpiredError(err error) bool {
-	return err != nil && err.Error() != "" &&
-		(containsString(err.Error(), "token is expired") ||
-			containsString(err.Error(), "expired"))
-}
-
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr ||
-		len(s) > 0 && findSubstring(s, substr))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return errors.Is(err, jwt.ErrTokenExpired)
 }

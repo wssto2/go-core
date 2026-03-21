@@ -3,10 +3,11 @@ package binders
 import (
 	"fmt"
 	"reflect"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/wssto2/go-core/utils"
 )
 
 // validateField runs all stateless validation rules for a single field.
@@ -152,11 +153,6 @@ func validateIn(field reflect.Value, param string) string {
 	return "must be one of: " + param
 }
 
-// validEmailRegexp is the single source of truth for email validation.
-// Shared with validator.IsValidEmail via the same regexp — both must stay in sync.
-// If you change this, update the copy in validator/helpers.go too.
-var validEmailRegexp = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
-
 // validateEmail: empty string passes (combine with "required" for mandatory fields).
 func validateEmail(field reflect.Value) string {
 	if field.Kind() != reflect.String {
@@ -166,7 +162,7 @@ func validateEmail(field reflect.Value) string {
 	if val == "" {
 		return ""
 	}
-	if !validEmailRegexp.MatchString(val) {
+	if !utils.IsValidEmail(val) {
 		return "must be a valid email address"
 	}
 	return ""

@@ -13,7 +13,7 @@ import (
 
 var testCfg = auth.TokenConfig{
 	SecretKey:     "test-secret-key-32-bytes-minimum!",
-	Issuer:        "arv-test",
+	Issuer:        "issuer-test",
 	TokenDuration: time.Hour,
 }
 
@@ -26,31 +26,31 @@ func issueTestToken(t *testing.T, claims auth.Claims) string {
 
 // --- User ---
 
-func TestUser_HasRole(t *testing.T) {
+func TestUser_HasPolicy(t *testing.T) {
 	user := &auth.User[struct{}]{
-		Roles: []string{"customers.customers:view", "customers.customers:update"},
+		Policies: []string{"customers.customers:view", "customers.customers:update"},
 	}
 
-	require.True(t, user.HasRole("customers.customers:view"))
-	require.False(t, user.HasRole("customers.customers:delete"))
+	require.True(t, user.HasPolicy("customers.customers:view"))
+	require.False(t, user.HasPolicy("customers.customers:delete"))
 }
 
-func TestUser_HasAnyRole(t *testing.T) {
+func TestUser_HasAnyPolicy(t *testing.T) {
 	user := &auth.User[struct{}]{
-		Roles: []string{"customers.customers:view"},
+		Policies: []string{"customers.customers:view"},
 	}
 
-	require.True(t, user.HasAnyRole("customers.customers:view", "admin"))
-	require.False(t, user.HasAnyRole("admin", "super"))
+	require.True(t, user.HasAnyPolicy("customers.customers:view", "admin"))
+	require.False(t, user.HasAnyPolicy("admin", "super"))
 }
 
-func TestUser_HasAllRoles(t *testing.T) {
+func TestUser_HasAllPolicies(t *testing.T) {
 	user := &auth.User[struct{}]{
-		Roles: []string{"customers.customers:view", "customers.customers:update"},
+		Policies: []string{"customers.customers:view", "customers.customers:update"},
 	}
 
-	require.True(t, user.HasAllRoles("customers.customers:view", "customers.customers:update"))
-	require.False(t, user.HasAllRoles("customers.customers:view", "customers.customers:delete"))
+	require.True(t, user.HasAllPolicies("customers.customers:view", "customers.customers:update"))
+	require.False(t, user.HasAllPolicies("customers.customers:view", "customers.customers:delete"))
 }
 
 // --- JWT ---
@@ -107,7 +107,7 @@ func TestParseToken_Expired(t *testing.T) {
 
 func TestIsAuthorized_ExactRole(t *testing.T) {
 	user := &auth.User[struct{}]{
-		Roles: []string{"customers.customers:view"},
+		Policies: []string{"customers.customers:view"},
 	}
 
 	policy := auth.GeneratePolicy("customers.customers", "view")
@@ -116,7 +116,7 @@ func TestIsAuthorized_ExactRole(t *testing.T) {
 
 func TestIsAuthorized_WildcardRole(t *testing.T) {
 	user := &auth.User[struct{}]{
-		Roles: []string{"customers.customers:*"},
+		Policies: []string{"customers.customers:*"},
 	}
 
 	require.True(t, auth.IsAuthorized(user, auth.GeneratePolicy("customers.customers", "view")))
@@ -125,7 +125,7 @@ func TestIsAuthorized_WildcardRole(t *testing.T) {
 
 func TestIsAuthorized_SuperAdmin(t *testing.T) {
 	user := &auth.User[struct{}]{
-		Roles: []string{"super-admin"},
+		Policies: []string{"super-admin"},
 	}
 
 	// Super-admin can do anything
@@ -134,7 +134,7 @@ func TestIsAuthorized_SuperAdmin(t *testing.T) {
 
 func TestIsAuthorized_NoMatchingRole(t *testing.T) {
 	user := &auth.User[struct{}]{
-		Roles: []string{"customers.customers:view"},
+		Policies: []string{"customers.customers:view"},
 	}
 
 	require.False(t, auth.IsAuthorized(user, auth.GeneratePolicy("customers.customers", "delete")))

@@ -1,86 +1,95 @@
 package auth
 
-// User is the base authenticated user. T is the app-specific data payload —
-// each application defines its own type and passes it here.
-//
-// Example (arv-next):
-//
-//	type AppData struct {
-//	    Dealer          Dealer
-//	    VehicleTypes    []VehicleType
-//	    KoncesionariID  int
-//	}
-//	type User = auth.User[AppData]
-type User[T any] struct {
-	// Core identity — always present regardless of application
-	ID       int      `json:"id"`
-	Email    string   `json:"email"`
-	Name     string   `json:"name"`
-	Roles    []string `json:"roles"`
-	Language string   `json:"language"`
+import (
+	"slices"
 
-	// App-specific payload — defined and loaded by each application
-	Data T `json:"data"`
+	"golang.org/x/crypto/bcrypt"
+)
+
+// Identifiable is the interface for any entity that can be authenticated.
+type Identifiable interface {
+	GetID() int
+	GetEmail() string
+	GetPolicies() []string
+	HasPolicy(policy string) bool
+	HasAnyPolicy(policy ...string) bool
+	HasAllPolicies(policy ...string) bool
 }
 
-// GetID returns the user's ID. Satisfies the Identifiable interface.
+// User is a generic authenticated user.
+type User[T any] struct {
+	ID       int      `json:"id" gorm:"primaryKey"`
+	Email    string   `json:"email"`
+	Policies []string `json:"policies" gorm:"-"`
+	Data     T        `json:"data,omitempty" gorm:"-"` // Application-specific user data (e.g. Dealer, Preferences)
+}
+
 func (u *User[T]) GetID() int {
 	return u.ID
 }
 
-// GetEmail returns the user's email. Satisfies the Identifiable interface.
 func (u *User[T]) GetEmail() string {
 	return u.Email
 }
 
-// GetName returns the user's display name. Satisfies the Identifiable interface.
-func (u *User[T]) GetName() string {
-	return u.Name
+func (u *User[T]) GetPolicies() []string {
+	return u.Policies
 }
 
-// GetRoles returns the user's roles. Satisfies the Identifiable interface.
-func (u *User[T]) GetRoles() []string {
-	return u.Roles
+func (u *User[T]) HasPolicy(policy string) bool {
+	return slices.Contains(u.Policies, policy)
 }
 
-// HasRole returns true if the user has the given role.
-func (u *User[T]) HasRole(role string) bool {
-	for _, r := range u.Roles {
-		if r == role {
-			return true
-		}
-	}
-	return false
+func (u *User[T]) HasAnyPolicy(policy ...string) bool {
+	return slices.ContainsFunc(policy, u.HasPolicy)
 }
 
-// HasAnyRole returns true if the user has at least one of the given roles.
-func (u *User[T]) HasAnyRole(roles ...string) bool {
-	for _, role := range roles {
-		if u.HasRole(role) {
-			return true
-		}
-	}
-	return false
-}
-
-// HasAllRoles returns true if the user has all of the given roles.
-func (u *User[T]) HasAllRoles(roles ...string) bool {
-	for _, role := range roles {
-		if !u.HasRole(role) {
+func (u *User[T]) HasAllPolicies(policy ...string) bool {
+	for _, p := range policy {
+		if !u.HasPolicy(p) {
 			return false
 		}
 	}
 	return true
 }
 
-// Identifiable is the interface guards and middleware depend on.
-// Using an interface means arv-core never needs to know the concrete User[T] type.
-type Identifiable interface {
-	GetID() int
-	GetEmail() string
-	GetName() string
-	GetRoles() []string
-	HasRole(role string) bool
-	HasAnyRole(roles ...string) bool
-	HasAllRoles(roles ...string) bool
+// --- Pluggable Password Hashing ---
+
+// Hasher defines the interface for password hashing strategies.
+type Hasher interface {
+	Hash(password string) (string, error)
+	Compare(password, hash string) bool
+}
+
+// DefaultHasher is used by the HashPassword and CheckPasswordHash helpers.
+// It defaults to BcryptHasher.
+var DefaultHasher Hasher = &BcryptHasher{}
+
+// BcryptHasher implements Hasher using industry-standard bcrypt.
+type BcryptHasher struct {
+	Cost int
+}
+
+func (b *BcryptHasher) Hash(password string) (string, error) {
+	cost := b.Cost
+	if cost == 0 {
+		cost = bcrypt.DefaultCost
+	}
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), cost)
+	return string(bytes), err
+}
+
+func (b *BcryptHasher) Compare(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
+}
+
+// HashPassword creates a hash of the password using the DefaultHasher.
+func HashPassword(password string) (string, error) {
+	return DefaultHasher.Hash(password)
+}
+
+// CheckPasswordHash compares a hashed password with its plaintext equivalent using the DefaultHasher.
+func CheckPasswordHash(password, hash string) bool {
+	return DefaultHasher.Compare(password, hash)
 }

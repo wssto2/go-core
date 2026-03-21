@@ -1,7 +1,6 @@
 package logger
 
 import (
-	"context"
 	"io"
 	"log/slog"
 	"os"

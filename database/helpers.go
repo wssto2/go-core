@@ -5,46 +5,55 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wssto2/go-core/utils"
 	"gorm.io/gorm"
 )
 
-// GetNextOrderNumber calculates the next order number for a given table (T).
-// It checks the maximum existing 'order_number' and increments it.
-// Optional: parentColumn/parentID to scope the query (e.g. order number within a category).
+// GetNextOrderNumber returns the next available order_number for the given table,
+// optionally scoped to a parent record. The read is wrapped in a serialisable
+// SELECT … FOR UPDATE to prevent duplicate numbers under concurrent inserts.
+//
+// The caller must call this within an open transaction — the lock is only held
+// for the duration of that transaction. Passing a non-transactional *gorm.DB
+// is safe but provides no isolation guarantee.
 func GetNextOrderNumber[T any](db *gorm.DB, parentColumn string, parentID int) (int, error) {
 	var maxOrderNumber int
 	var model T
 
-	query := db.Model(&model).Select("COALESCE(MAX(order_number), 0)")
+	query := db.Model(&model).
+		Select("COALESCE(MAX(order_number), 0)").
+		Set("gorm:query_option", "FOR UPDATE") // row-level lock
 
 	if parentColumn != "" && parentID > 0 {
-		query = query.Where(fmt.Sprintf("%s = ?", parentColumn), parentID)
+		query = query.Where(fmt.Sprintf("`%s` = ?", parentColumn), parentID)
 	}
 
-	err := query.Scan(&maxOrderNumber).Error
-	if err != nil {
+	if err := query.Scan(&maxOrderNumber).Error; err != nil {
 		return 0, err
 	}
+
 	return maxOrderNumber + 1, nil
 }
 
-// GetFormOrderNumberAndYear calculates the next form number for the current year.
-// Assumes columns: 'br_obrasca' (int) and 'godina_obrasca' (int).
-func GetFormOrderNumberAndYear[T any](db *gorm.DB) (orderNumber int, year int, err error) {
+// GetNextDocumentNumberAndYear returns the next document number for the current
+// calendar year. The read is wrapped in SELECT … FOR UPDATE to prevent two
+// concurrent requests from receiving the same number.
+//
+// Call this inside a transaction so the lock is held until the INSERT completes.
+func GetNextDocumentNumberAndYear[T any](db *gorm.DB, numberColumn string, yearColumn string) (documentNumber int, year int, err error) {
 	var model T
 	year = time.Now().Year()
 
 	err = db.Model(&model).
-		Select("COALESCE(MAX(br_obrasca), 0)").
-		Where("godina_obrasca = ?", year).
-		Scan(&orderNumber).Error
-	
+		Select(fmt.Sprintf("COALESCE(MAX(`%s`), 0)", numberColumn)).
+		Where(fmt.Sprintf("`%s` = ?", yearColumn), year).
+		Set("gorm:query_option", "FOR UPDATE").
+		Scan(&documentNumber).Error
+
 	if err != nil {
 		return 0, 0, err
 	}
 
-	return orderNumber + 1, year, nil
+	return documentNumber + 1, year, nil
 }
 
 // ApplyFullTextSearch adds WHERE clauses for a "search all columns" feature.
@@ -55,23 +64,32 @@ func ApplyFullTextSearch(query *gorm.DB, columns []string, searchTerm string) *g
 		return query
 	}
 
-	safeSearchTerm := utils.EscapeLike(searchTerm)
-	parts := strings.Fields(safeSearchTerm)
+	parts := strings.Fields(strings.TrimSpace(searchTerm))
 
 	for _, part := range parts {
-		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
+		part = EscapeLike(part)
 
 		var likeConditions []string
+		var values []any
+
 		for _, column := range columns {
-			likeConditions = append(likeConditions, fmt.Sprintf("%s LIKE '%%%s%%'", column, part))
+			// Backtick-quote the column name — never interpolate user-controlled strings
+			likeConditions = append(likeConditions, fmt.Sprintf("`%s` LIKE ?", column))
+			values = append(values, "%"+part+"%")
 		}
-		
-		// (col1 LIKE %part% OR col2 LIKE %part%)
-		query = query.Where(strings.Join(likeConditions, " OR "))
+
+		query = query.Where("("+strings.Join(likeConditions, " OR ")+")", values...)
 	}
-	
+
 	return query
+}
+
+func EscapeLike(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "%", "\\%")
+	s = strings.ReplaceAll(s, "_", "\\_")
+	return s
 }

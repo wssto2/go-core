@@ -11,7 +11,7 @@ type AuditLog struct {
 	EntityID      int             `gorm:"not null"`
 	Action        string          `gorm:"not null"`
 	ActorID       int             `gorm:"not null"`
-	DealerID      int             `gorm:"not null"`
+	Metadata      map[string]any  `gorm:"type:json"`
 	BeforeState   json.RawMessage `gorm:"type:json"`
 	AfterState    json.RawMessage `gorm:"type:json"`
 	ChangedFields json.RawMessage `gorm:"type:json"`

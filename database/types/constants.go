@@ -1,5 +1,7 @@
 package types
 
+type I18n map[string]string
+
 const (
 	Null               = "null"
 	Sqlite             = "sqlite"
@@ -19,14 +21,3 @@ const (
 	SqliteJSONType     = "json"
 	MysqlJSONType      = "json"
 )
-
-type ConnectionParams struct {
-	Host            string
-	Port            string
-	Database        string
-	Username        string
-	Password        string
-	MaxIdleConns    int
-	MaxOpenConns    int
-	ConnMaxLifetime int
-}

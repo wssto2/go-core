@@ -41,6 +41,15 @@ func NewRegistry(cfg RegistryConfig) *Registry {
 	}
 }
 
+// NewRegistryFromConfigs creates a new Registry with the given options and pre-registered connections.
+func NewRegistryFromConfigs(rcfg RegistryConfig, conns []ConnectionConfig) *Registry {
+	reg := NewRegistry(rcfg)
+	for _, conn := range conns {
+		reg.MustRegister(conn)
+	}
+	return reg
+}
+
 // Register opens a connection pool for the given config and stores it under cfg.Name.
 // Returns an error if the config is invalid or the connection cannot be opened.
 // Safe to call concurrently.

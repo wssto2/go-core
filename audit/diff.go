@@ -13,7 +13,20 @@ func Diff(before, after any) []string {
 
 	bv := reflect.ValueOf(before)
 	av := reflect.ValueOf(after)
-	bt := reflect.TypeOf(before)
+
+	if bv.Kind() == reflect.Ptr {
+		bv = bv.Elem()
+	}
+
+	if av.Kind() == reflect.Ptr {
+		av = av.Elem()
+	}
+
+	bt := bv.Type()
+
+	if bv.Type() != av.Type() {
+		return nil // or return an error variant
+	}
 
 	for i := range bt.NumField() {
 		if !reflect.DeepEqual(bv.Field(i).Interface(), av.Field(i).Interface()) {

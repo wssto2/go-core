@@ -12,12 +12,11 @@ import (
 	"gorm.io/gorm/schema"
 )
 
-// NullString wraps string but handles JSON null as empty string?
-// Wait, original code says: "NullString wraps string but handles JSON null as empty string".
-// No, looking at UnmarshalJSON: if data is "null", value becomes "".
-// BUT if value is empty string, Value() returns NULL??
-// Original: if i.value == "" { return clause.Expr{SQL: "NULL"} }
-// This means empty string in code -> NULL in DB.
+// NullString stores a string that is written to the DB as NULL when empty.
+// JSON null and JSON "" both deserialise to the empty string.
+// The empty string serialises back to JSON null.
+// Use this for optional text columns where empty and absent are equivalent.
+// If you need to distinguish "" from NULL, use a *string field instead.
 type NullString struct {
 	value string
 }
@@ -27,7 +26,6 @@ func NewNullString(value string) NullString {
 }
 
 func (s NullString) Value() (driver.Value, error) {
-	// Logic from original code: treat empty string as NULL (or wait, let's check Scan)
 	return s.value, nil
 }
 
