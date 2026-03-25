@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/wssto2/go-core/database"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/schema"
@@ -57,21 +58,21 @@ func (d *NullDate) Scan(value interface{}) error {
 }
 
 func (d NullDate) GormDataType() string {
-	return MysqlDateType
+	return database.MySQLDate
 }
 
 func (d NullDate) GormDBDataType(db *gorm.DB, field *schema.Field) string {
-	if db.Name() == Sqlite && field.TagSettings["DEFAULT"] == "0000-00-00" {
+	if db.Name() == database.DriverSQLite && field.TagSettings["DEFAULT"] == "0000-00-00" {
 		field.DefaultValue = "null"
 		field.NotNull = false
 	}
 	if t := field.TagSettings["TYPE"]; t != "" {
 		return t
 	}
-	if db.Name() == Sqlite {
-		return SqliteDateType
+	if db.Name() == database.DriverSQLite {
+		return database.SQLiteDate
 	}
-	return MysqlDateType
+	return database.MySQLDate
 }
 
 func (d NullDate) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
@@ -83,13 +84,13 @@ func (d NullDate) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
 
 func (d NullDate) MarshalJSON() ([]byte, error) {
 	if d.value == nil {
-		return []byte(Null), nil
+		return []byte(database.Null), nil
 	}
 	return json.Marshal(d.value.Format("2006-01-02"))
 }
 
 func (d *NullDate) UnmarshalJSON(data []byte) error {
-	if string(data) == Null {
+	if string(data) == database.Null {
 		d.value = nil
 		return nil
 	}

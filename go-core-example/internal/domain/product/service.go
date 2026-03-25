@@ -3,7 +3,7 @@ package product
 import (
 	"context"
 	"errors"
-	"net/http"
+	"log/slog"
 	"time"
 
 	"github.com/wssto2/go-core/apperr"
@@ -11,8 +11,9 @@ import (
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/types"
+	"github.com/wssto2/go-core/datatable"
 	"github.com/wssto2/go-core/event"
-	"github.com/wssto2/go-core/logger"
+	"github.com/wssto2/go-core/resource"
 	"gorm.io/gorm"
 )
 
@@ -20,11 +21,13 @@ import (
 // Handlers call the service; the service calls the repository and other
 // infrastructure (audit log, event bus). Nothing in this layer touches gin.
 type Service interface {
+	GetDatatable(ctx context.Context, params datatable.QueryParams) (*datatable.DatatableResult[Product], error)
+	GetResource(ctx context.Context, id int) (resource.Response[Product], error)
 	List(ctx context.Context) ([]Product, error)
 	GetByID(ctx context.Context, id int) (Product, error)
 	GetMany(ctx context.Context, ids []int) ([]Product, error)
-	Create(ctx context.Context, req CreateProductRequest, actor auth.Identifiable) (*Product, error)
-	Update(ctx context.Context, id int, req UpdateProductRequest, actor auth.Identifiable) (*Product, error)
+	Create(ctx context.Context, opts CreateProductOptions, actor auth.Identifiable) (*Product, error)
+	Update(ctx context.Context, id int, opts UpdateProductOptions, actor auth.Identifiable) (*Product, error)
 	Delete(ctx context.Context, id int, actor auth.Identifiable) error
 }
 
@@ -33,17 +36,27 @@ type service struct {
 	transactor database.Transactor
 	auditRepo  audit.Repository
 	bus        event.Bus
+	log        *slog.Logger
 }
 
 // NewService constructs the product service.
 // All dependencies are injected — no globals, no package-level singletons.
-func NewService(repo Repository, transactor database.Transactor, auditRepo audit.Repository, bus event.Bus) Service {
+func NewService(repo Repository, transactor database.Transactor, auditRepo audit.Repository, bus event.Bus, log *slog.Logger) Service {
 	return &service{
 		repo:       repo,
 		transactor: transactor,
 		auditRepo:  auditRepo,
 		bus:        bus,
+		log:        log,
 	}
+}
+
+func (s *service) GetDatatable(ctx context.Context, params datatable.QueryParams) (*datatable.DatatableResult[Product], error) {
+	return s.repo.GetDatatable(ctx, params)
+}
+
+func (s *service) GetResource(ctx context.Context, id int) (resource.Response[Product], error) {
+	return s.repo.FindForResource(ctx, id)
 }
 
 func (s *service) List(ctx context.Context) ([]Product, error) {
@@ -69,30 +82,34 @@ func (s *service) GetMany(ctx context.Context, ids []int) ([]Product, error) {
 	return products, nil
 }
 
-func (s *service) Create(ctx context.Context, req CreateProductRequest, actor auth.Identifiable) (*Product, error) {
+func (s *service) Create(ctx context.Context, opts CreateProductOptions, actor auth.Identifiable) (*Product, error) {
+	if err := opts.Validate(); err != nil {
+		return nil, err
+	}
+
 	// Business rule: SKU must be unique across all non-deleted products.
-	exists, err := s.repo.ExistsBySKU(ctx, req.SKU, 0)
+	exists, err := s.repo.ExistsBySKU(ctx, opts.SKU, 0)
 	if err != nil {
 		return nil, apperr.Internal(err)
 	}
 	if exists {
-		return nil, apperr.New(nil, "a product with this SKU already exists", http.StatusConflict).
+		return nil, apperr.New(nil, "a product with this SKU already exists", apperr.CodeAlreadyExists).
 			WithLog(apperr.LevelWarn)
 	}
 
 	product := &Product{
-		Name:        req.Name,
-		SKU:         req.SKU,
-		Description: types.NewNullString(req.Description),
-		Price:       types.NewFloat(req.Price),
-		Stock:       req.Stock,
+		Name:        opts.Name,
+		SKU:         opts.SKU,
+		Description: types.NewNullString(opts.Description),
+		Price:       types.NewFloat(opts.Price),
+		Stock:       opts.Stock,
 		Active:      types.NewBool(false), // new products start inactive
 		CreatedBy:   actor.GetID(),
 		CreatedAt:   time.Now(),
 	}
 
-	if req.CategoryID > 0 {
-		product.CategoryID = types.NewNullInt(req.CategoryID)
+	if opts.CategoryID > 0 {
+		product.CategoryID = types.NewNullInt(opts.CategoryID)
 	}
 
 	// Wrap create + audit in a single transaction using go-core's Transactor.
@@ -114,48 +131,56 @@ func (s *service) Create(ctx context.Context, req CreateProductRequest, actor au
 		ProductID: product.ID,
 		SKU:       product.SKU,
 	}); err != nil {
-		logger.Log.WarnContext(ctx, "failed to publish ProductCreatedEvent", "error", err)
+		s.log.WarnContext(ctx, "failed to publish ProductCreatedEvent", "error", err)
 	}
 
 	return &created, nil
 }
 
-func (s *service) Update(ctx context.Context, id int, req UpdateProductRequest, actor auth.Identifiable) (*Product, error) {
+func (s *service) Update(ctx context.Context, id int, opts UpdateProductOptions, actor auth.Identifiable) (*Product, error) {
+
+	if err := opts.Validate(); err != nil {
+		return nil, err
+	}
+
 	product, err := s.repo.FindByID(ctx, id)
 	if err != nil {
-		return nil, apperr.NotFound("product not found")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperr.NotFound("product not found")
+		}
+		return nil, apperr.Internal(err)
 	}
 
 	// Business rule: if SKU is being changed, it must still be unique.
-	if req.SKU != "" && req.SKU != product.SKU {
-		exists, err := s.repo.ExistsBySKU(ctx, req.SKU, id)
+	if opts.SKU != "" && opts.SKU != product.SKU {
+		exists, err := s.repo.ExistsBySKU(ctx, opts.SKU, id)
 		if err != nil {
 			return nil, apperr.Internal(err)
 		}
 		if exists {
-			return nil, apperr.New(nil, "a product with this SKU already exists", http.StatusConflict).
+			return nil, apperr.New(nil, "a product with this SKU already exists", apperr.CodeAlreadyExists).
 				WithLog(apperr.LevelWarn)
 		}
-		product.SKU = req.SKU
+		product.SKU = opts.SKU
 	}
 
 	// Capture before-state for the audit diff.
 	before := *product
 
-	if req.Name != "" {
-		product.Name = req.Name
+	if opts.Name != "" {
+		product.Name = opts.Name
 	}
-	if req.Description != "" {
-		product.Description = types.NewNullString(req.Description)
+	if opts.Description != "" {
+		product.Description = types.NewNullString(opts.Description)
 	}
-	if req.Price > 0 {
-		product.Price = types.NewFloat(req.Price)
+	if opts.Price > 0 {
+		product.Price = types.NewFloat(opts.Price)
 	}
-	if req.Stock >= 0 {
-		product.Stock = req.Stock
+	if opts.Stock >= 0 {
+		product.Stock = opts.Stock
 	}
-	if req.CategoryID > 0 {
-		product.CategoryID = types.NewNullInt(req.CategoryID)
+	if opts.CategoryID > 0 {
+		product.CategoryID = types.NewNullInt(opts.CategoryID)
 	}
 
 	now := time.Now()

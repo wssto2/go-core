@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/types"
 	"gorm.io/gorm"
 )
@@ -11,26 +12,30 @@ import (
 type AuthorLoader func(db *gorm.DB, ids []int) ([]any, error)
 
 type Count struct {
-	TableName  string `json:"table_name"`
-	Count      int64  `json:"count"`
-	ForeignKey string `json:"foreign_key"`
-	Clause     string `json:"clause"`
+	table      string
+	count      int64
+	foreignKey string
+	clause     string
 }
 
 type Resource[T any] struct {
-	db                   *gorm.DB
-	shouldIncludeAuthors bool
-	counts               []Count
-	tableName            string
-	authorLoader         AuthorLoader
-	authorColumn         string
-	editorColumn         string
-	err                  error
+	db           *gorm.DB
+	counts       []Count
+	tableName    string
+	authorLoader AuthorLoader
+	authorColumn string
+	editorColumn string
+	err          error
 }
 
 type Response[T any] struct {
 	Data T              `json:"data"`
 	Meta map[string]any `json:"meta"`
+}
+
+type authorIDs struct {
+	creatorID int
+	editorID  int
 }
 
 func New[T any](db *gorm.DB) *Resource[T] {
@@ -43,7 +48,6 @@ func New[T any](db *gorm.DB) *Resource[T] {
 }
 
 func (r *Resource[T]) WithAuthorLoader(authorField, editorField string, loader AuthorLoader) *Resource[T] {
-	r.shouldIncludeAuthors = true
 	r.authorColumn = authorField
 	r.editorColumn = editorField
 	r.authorLoader = loader
@@ -52,7 +56,7 @@ func (r *Resource[T]) WithAuthorLoader(authorField, editorField string, loader A
 
 // WithQuery.
 func (r *Resource[T]) WithQuery(callback func(query *gorm.DB, tableName string) *gorm.DB) *Resource[T] {
-	r.db = callback(r.db.Session(&gorm.Session{NewDB: true}), r.tableName)
+	r.db = callback(r.db.Session(&gorm.Session{}), r.tableName)
 
 	return r
 }
@@ -68,9 +72,9 @@ func (r *Resource[T]) WithCount(tableName string, foreignKey string, clause stri
 	}
 
 	r.counts = append(r.counts, Count{
-		TableName:  tableName,
-		ForeignKey: foreignKey,
-		Clause:     clause,
+		table:      tableName,
+		foreignKey: foreignKey,
+		clause:     clause,
 	})
 
 	return r
@@ -79,7 +83,7 @@ func (r *Resource[T]) WithCount(tableName string, foreignKey string, clause stri
 // WithoutDeleted filters soft-deleted records using the given column name.
 // For standard GORM soft-delete (deleted_at IS NULL), pass "deleted_at".
 func (r *Resource[T]) WithoutDeleted(column string) *Resource[T] {
-	r.db = r.db.Where(fmt.Sprintf("%s.%s IS NULL", r.tableName, column))
+	r.db = r.db.Where(fmt.Sprintf("%s.%s IS NULL", r.tableName, database.EscapeColumn(column)))
 	return r
 }
 
@@ -98,78 +102,40 @@ func (r *Resource[T]) FindByID(id int) (Response[T], error) {
 	}
 
 	// Get Created By and Updated By and include them in the result
-	if r.shouldIncludeAuthors {
-		createdByOriginal := reflect.ValueOf(result).FieldByName(r.authorColumn)
-		updatedByOriginal := reflect.ValueOf(result).FieldByName(r.editorColumn)
+	if r.authorLoader != nil {
 
 		response.Meta["author"] = nil
 		response.Meta["editor"] = nil
 
-		pendingIDs := make(map[string]int, 0)
-
-		if createdByOriginal.IsValid() {
-			// CreatedBy can be int, database.NullInt or pointer to int
-			var createdByID int
-			switch createdByOriginal.Kind() {
-			case reflect.Int:
-				createdByID = createdByOriginal.Interface().(int)
-			case reflect.Ptr:
-				createdByID = createdByOriginal.Elem().Interface().(int)
-			case reflect.Struct:
-				switch t := createdByOriginal.Interface().(type) {
-				case types.NullInt:
-					if ptr := t.Get(); ptr != nil {
-						createdByID = *ptr
-					}
-				}
-			}
-
-			if createdByID > 0 {
-				pendingIDs["author"] = createdByID
-			}
+		ids := authorIDs{
+			creatorID: extractIntField(result, r.authorColumn),
+			editorID:  extractIntField(result, r.editorColumn),
 		}
 
-		if updatedByOriginal.IsValid() {
-			// UpdatedBy can be int, database.NullInt or pointer to int
-			var updatedByID int
-			switch updatedByOriginal.Kind() {
-			case reflect.Int:
-				updatedByID = updatedByOriginal.Interface().(int)
-			case reflect.Ptr:
-				updatedByID = updatedByOriginal.Elem().Interface().(int)
-			case reflect.Struct:
-				switch t := updatedByOriginal.Interface().(type) {
-				case types.NullInt:
-					if ptr := t.Get(); ptr != nil {
-						updatedByID = *ptr
-					}
-				}
-			}
-
-			if updatedByID > 0 {
-				pendingIDs["editor"] = updatedByID
-			}
-		}
-
-		if len(pendingIDs) > 0 {
-			var authors []any
+		if ids.creatorID > 0 || ids.editorID > 0 {
 
 			pendingIDsSlice := make([]int, 0)
-			for _, pendingID := range pendingIDs {
-				pendingIDsSlice = append(pendingIDsSlice, pendingID)
+			if ids.creatorID > 0 {
+				pendingIDsSlice = append(pendingIDsSlice, ids.creatorID)
+			}
+			if ids.editorID > 0 {
+				pendingIDsSlice = append(pendingIDsSlice, ids.editorID)
 			}
 
-			authors, err := r.authorLoader(r.db, pendingIDsSlice)
-			if err != nil {
-				return response, err
+			var authors []any
+			var authorsErr error
+
+			authors, authorsErr = r.authorLoader(r.db, pendingIDsSlice)
+			if authorsErr != nil {
+				return response, authorsErr
 			}
 
 			for _, a := range authors {
 				if author, ok := a.(interface{ GetID() int }); ok {
-					if author.GetID() == pendingIDs["author"] {
+					if author.GetID() == ids.creatorID {
 						response.Meta["author"] = a
 					}
-					if author.GetID() == pendingIDs["editor"] {
+					if author.GetID() == ids.editorID {
 						response.Meta["editor"] = a
 					}
 				}
@@ -181,12 +147,13 @@ func (r *Resource[T]) FindByID(id int) (Response[T], error) {
 	for _, count := range r.counts {
 		var total int64
 
-		countQuery := r.db.Table(count.TableName).
+		countQuery := r.db.Session(&gorm.Session{NewDB: true}).
+			Table(count.table).
 			Select("COUNT(*)").
-			Where(fmt.Sprintf("`%s` = ?", count.ForeignKey), id)
+			Where(fmt.Sprintf("`%s` = ?", count.foreignKey), id)
 
-		if count.Clause != "" {
-			countQuery = countQuery.Where(count.Clause)
+		if count.clause != "" {
+			countQuery = countQuery.Where(count.clause)
 		}
 
 		err := countQuery.Count(&total).Error
@@ -194,11 +161,35 @@ func (r *Resource[T]) FindByID(id int) (Response[T], error) {
 			return response, err
 		}
 
-		countKey := count.TableName + "_count"
+		countKey := count.table + "_count"
 		response.Meta[countKey] = total
 	}
 
 	response.Data = result
 
 	return response, nil
+}
+
+func extractIntField(v any, fieldName string) int {
+	rv := reflect.ValueOf(v)
+	fv := rv.FieldByName(fieldName)
+	if !fv.IsValid() {
+		return 0
+	}
+	switch fv.Kind() {
+	case reflect.Int:
+		return int(fv.Int())
+	case reflect.Ptr:
+		if fv.IsNil() {
+			return 0
+		}
+		return int(fv.Elem().Int())
+	case reflect.Struct:
+		if ni, ok := fv.Interface().(types.NullInt); ok {
+			if p := ni.Get(); p != nil {
+				return *p
+			}
+		}
+	}
+	return 0
 }

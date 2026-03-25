@@ -45,7 +45,7 @@ func GetNextDocumentNumberAndYear[T any](db *gorm.DB, numberColumn string, yearC
 
 	err = db.Model(&model).
 		Select(fmt.Sprintf("COALESCE(MAX(`%s`), 0)", numberColumn)).
-		Where(fmt.Sprintf("`%s` = ?", yearColumn), year).
+		Where(fmt.Sprintf("%s = ?", EscapeColumn(yearColumn)), year).
 		Set("gorm:query_option", "FOR UPDATE").
 		Scan(&documentNumber).Error
 
@@ -91,5 +91,10 @@ func EscapeLike(s string) string {
 	s = strings.ReplaceAll(s, "\\", "\\\\")
 	s = strings.ReplaceAll(s, "%", "\\%")
 	s = strings.ReplaceAll(s, "_", "\\_")
+	return s
+}
+
+func EscapeColumn(s string) string {
+	s = strings.ReplaceAll(s, "`", "\\`")
 	return s
 }

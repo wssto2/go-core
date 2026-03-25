@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/database"
-	"github.com/wssto2/go-core/logger"
 	"gorm.io/gorm"
 )
 
@@ -62,18 +62,15 @@ func (r *gormRepository) db(ctx context.Context) *gorm.DB {
 func (r *gormRepository) Write(ctx context.Context, entry Entry) error {
 	before, err := json.Marshal(entry.BeforeState)
 	if err != nil {
-		logger.Log.ErrorContext(ctx, "audit: failed to marshal before state", "error", err, "entity_type", entry.EntityType)
-		return err
+		return apperr.Wrap(err, "failed to marshal before state", apperr.CodeInternal)
 	}
 	after, err := json.Marshal(entry.AfterState)
 	if err != nil {
-		logger.Log.ErrorContext(ctx, "audit: failed to marshal after state", "error", err, "entity_type", entry.EntityType)
-		return err
+		return apperr.Wrap(err, "failed to marshal after state", apperr.CodeInternal)
 	}
 	fields, err := json.Marshal(entry.ChangedFields)
 	if err != nil {
-		logger.Log.ErrorContext(ctx, "audit: failed to marshal changed fields", "error", err, "entity_type", entry.EntityType)
-		return err
+		return apperr.Wrap(err, "failed to marshal changed fields", apperr.CodeInternal)
 	}
 
 	log := AuditLog{
@@ -89,8 +86,7 @@ func (r *gormRepository) Write(ctx context.Context, entry Entry) error {
 	}
 
 	if err := r.db(ctx).Create(&log).Error; err != nil {
-		logger.Log.ErrorContext(ctx, "audit: failed to create log entry", "error", err, "entity_type", entry.EntityType)
-		return err
+		return apperr.Wrap(err, "failed to write audit log", apperr.CodeInternal)
 	}
 
 	return nil

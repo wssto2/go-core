@@ -7,32 +7,8 @@ import (
 	"github.com/wssto2/go-core/database"
 )
 
-type AppConfig struct {
-	AppName string
-	Env     string
-	Port    int
-
-	ReadTimeoutSec     int
-	WriteTimeoutSec    int
-	IdleTimeoutSec     int
-	ShutdownTimeoutSec int
-
-	Databases []database.ConnectionConfig
-
-	JWT struct {
-		Secret   string
-		Issuer   string
-		Duration time.Duration
-	}
-
-	I18nDir    string
-	StorageDir string
-
-	CORSOrigins []string
-}
-
-func loadConfig() AppConfig {
-	var cfg AppConfig
+func loadConfig() bootstrap.Config {
+	var cfg bootstrap.Config
 
 	cfg.AppName = bootstrap.EnvStr("APP_NAME", "go-core-example")
 	cfg.Env = bootstrap.EnvStr("APP_ENV", "development")
@@ -77,10 +53,14 @@ func loadConfig() AppConfig {
 	cfg.JWT.Issuer = bootstrap.EnvStr("JWT_ISSUER", "go-core-example")
 	cfg.JWT.Duration = time.Duration(bootstrap.EnvInt("JWT_DURATION_HOURS", 24)) * time.Hour
 
-	cfg.I18nDir = bootstrap.EnvStr("I18N_DIR", "./i18n")
+	cfg.I18n.I18nDir = bootstrap.EnvStr("I18N_DIR", "./i18n")
+	cfg.I18n.FallbackLang = bootstrap.EnvStr("I18N_FALLBACK_LANG", "en")
+
 	cfg.StorageDir = bootstrap.EnvStr("STORAGE_BASE_DIR", "/tmp/go-core-example/uploads")
 
-	cfg.CORSOrigins = []string{bootstrap.EnvStr("CORS_ORIGIN", "http://localhost:3000")}
+	cfg.CORS.Origins = []string{bootstrap.EnvStr("CORS_ORIGIN", "http://localhost:3000")}
+	cfg.CORS.Methods = []string{bootstrap.EnvStr("CORS_METHODS", "GET,POST,PUT,DELETE")}
+	cfg.CORS.Headers = []string{bootstrap.EnvStr("CORS_HEADERS", "Content-Type,Authorization")}
 
 	return cfg
 }

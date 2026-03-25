@@ -1,91 +1,106 @@
 package bootstrap
 
 import (
+	"log/slog"
+
 	"github.com/wssto2/go-core/audit"
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/cache"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/event"
+	"github.com/wssto2/go-core/i18n"
 	"gorm.io/gorm"
 )
 
 // Container holds every piece of shared infrastructure that modules need.
-// It is built once in main.go and passed to every module's Register method.
-// Modules read from it; they never mutate it after construction.
+// It is built once at startup and passed read-only to every module.
 //
-// When the application needs a second database connection, add it here.
-// No module signature or main.go wiring changes -- modules simply call
-// c.DB("shared") instead of c.DB("local").
-type Container struct {
-	registry      *database.Registry
-	primaryDBName string
-	cache         cache.Cache
-	bus           event.Bus
-	auditRepo     audit.Repository
-	tokenConfig   auth.TokenConfig
-	resolver      auth.Resolver
+// T is the application's concrete user type (e.g. auth.User).
+// It must satisfy auth.Identifiable.
+//
+// No HTTP framework types appear here. Container is framework-agnostic.
+type Container[T auth.Identifiable] struct {
+	registry     *database.Registry
+	log          *slog.Logger
+	i18n         *i18n.Translator
+	bus          event.Bus
+	cache        cache.Cache
+	authProvider auth.AuthProvider[T]
+	auditRepo    audit.Repository
 }
 
 // NewContainer builds and returns a fully initialised Container.
-func NewContainer(
+func NewContainer[T auth.Identifiable](
 	registry *database.Registry,
-	primaryDB string,
-	tokenConfig auth.TokenConfig,
-	resolver auth.Resolver,
-) *Container {
-	// The primary DB is the source of truth for the audit log and transactor.
-	// Modules that need a different connection call c.DB("shared") or c.DB("etx_hr").
-	primary := registry.MustGet(primaryDB)
+	log *slog.Logger,
+	i18n *i18n.Translator,
+	bus event.Bus,
+	cache cache.Cache,
+) *Container[T] {
 
-	return &Container{
-		registry:      registry,
-		primaryDBName: primaryDB,
-		cache:         cache.NewInMemoryCache(),
-		bus:           event.NewInMemoryBus(),
-		auditRepo:     audit.NewRepository(primary),
-		tokenConfig:   tokenConfig,
-		resolver:      resolver,
+	return &Container[T]{
+		registry:  registry,
+		log:       log,
+		i18n:      i18n,
+		bus:       bus,
+		cache:     cache,
+		auditRepo: audit.NewRepository(registry.Primary()),
 	}
 }
 
 // DB returns the named *gorm.DB from the registry.
 // Panics at startup (during module construction) if the name is not registered,
 // which is the correct behaviour -- a misconfigured connection is unrecoverable.
-func (c *Container) DB(name string) *gorm.DB {
+func (c *Container[T]) DB(name string) *gorm.DB {
 	return c.registry.MustGet(name)
 }
 
-func (c *Container) PrimaryDB() *gorm.DB {
-	return c.DB(c.primaryDBName)
+// PrimaryDB returns the primary *gorm.DB connection.
+func (c *Container[T]) PrimaryDB() *gorm.DB {
+	return c.DB(c.registry.PrimaryName())
 }
 
 // Transactor returns a new Transactor scoped to the named connection.
 // Each module that needs transactions calls this with its own connection name.
-func (c *Container) Transactor(dbName string) database.Transactor {
+func (c *Container[T]) Transactor(dbName string) database.Transactor {
 	return database.NewTransactor(c.DB(dbName))
 }
 
+func (c *Container[T]) PrimaryTransactor() database.Transactor {
+	return database.NewTransactor(c.PrimaryDB())
+}
+
 // Registry exposes the raw registry for the shutdown closer in main.go.
-func (c *Container) Registry() *database.Registry {
+func (c *Container[T]) Registry() *database.Registry {
 	return c.registry
 }
 
-func (c *Container) Cache() cache.Cache {
-	return c.cache
+// Log returns the application-wide logger.
+func (c *Container[T]) Log() *slog.Logger {
+	return c.log
 }
 
-func (c *Container) Bus() event.Bus {
+// I18n returns the application-wide i18n translator.
+func (c *Container[T]) I18n() *i18n.Translator {
+	return c.i18n
+}
+
+// Bus returns the application-wide event bus.
+func (c *Container[T]) Bus() event.Bus {
 	return c.bus
 }
 
-func (c *Container) AuditRepo() audit.Repository {
+// Cache returns the application-wide cache.
+func (c *Container[T]) Cache() cache.Cache {
+	return c.cache
+}
+
+// AuthProvider returns the application-wide auth provider.
+func (c *Container[T]) AuthProvider() auth.AuthProvider[T] {
+	return c.authProvider
+}
+
+// AuditRepo returns the application-wide audit repository.
+func (c *Container[T]) AuditRepo() audit.Repository {
 	return c.auditRepo
-}
-
-func (c *Container) TokenConfig() auth.TokenConfig {
-	return c.tokenConfig
-}
-
-func (c *Container) Resolver() auth.Resolver {
-	return c.resolver
 }

@@ -11,8 +11,7 @@ import (
 
 type Datatable[T any] struct {
 	db               *gorm.DB
-	data             []T
-	total            int64
+	err              error
 	tableName        string
 	columns          map[string]bool
 	queryParams      QueryParams
@@ -20,48 +19,23 @@ type Datatable[T any] struct {
 	filters          []Filter
 	views            []View
 	mapper           func(*T) T
-	from             int
-	to               int
-	lastPage         int
-}
-
-type DatatableResult[T any] struct {
-	Data     []T            `json:"data"`
-	Meta     map[string]any `json:"meta"`
-	Total    int64          `json:"total"`
-	PerPage  int            `json:"per_page"`
-	Page     int            `json:"current_page"`
-	LastPage int            `json:"last_page"`
-	From     int            `json:"from"`
-	To       int            `json:"to"`
-}
-
-type Filter struct {
-	URIKey string
-	Query  func(query *gorm.DB, value string, tableName string) *gorm.DB
-}
-
-type View struct {
-	URIKey string
-	Query  func(query *gorm.DB, tableName string) *gorm.DB
 }
 
 func New[T any](db *gorm.DB, queryParams QueryParams) *Datatable[T] {
 	var model T
 	stmt := &gorm.Statement{DB: db}
-	_ = stmt.Parse(&model)
+	if err := stmt.Parse(&model); err != nil || stmt.Schema == nil {
+		// Return a datatable in an error state; Get() will surface it.
+		return &Datatable[T]{err: fmt.Errorf("datatable: failed to parse schema for %T: %v", model, err)}
+	}
+
 	tableName := stmt.Schema.Table
 
 	return &Datatable[T]{
 		db:          db,
-		data:        []T{},
 		queryParams: queryParams,
 		tableName:   tableName,
 	}
-}
-
-func (d *Datatable[T]) IsEmpty() bool {
-	return len(d.data) == 0
 }
 
 func (d *Datatable[T]) WithColumns(columns []string) *Datatable[T] {
@@ -96,7 +70,9 @@ func (d *Datatable[T]) WithDefaultOrder(column, direction string) *Datatable[T] 
 	return d
 }
 
-// WithView
+// WithView registers a named query variant that is activated when the request
+// contains view=<uriKey> in the query string. Multiple views can be registered;
+// only the one matching the active view key is applied.
 func (d *Datatable[T]) WithView(uriKey string, callback func(query *gorm.DB, tableName string) *gorm.DB) *Datatable[T] {
 	view := View{
 		URIKey: uriKey,
@@ -108,7 +84,7 @@ func (d *Datatable[T]) WithView(uriKey string, callback func(query *gorm.DB, tab
 	return d
 }
 
-// WithViews
+// WithViews registers multiple views at once.
 func (d *Datatable[T]) WithViews(views []View) *Datatable[T] {
 	d.views = views
 
@@ -163,7 +139,7 @@ func (d *Datatable[T]) WithStatusFilter(column string) *Datatable[T] {
 // are accumulated on the datatable's query builder.
 // If called multiple times, constraints are additive.
 func (d *Datatable[T]) WithQuery(callback func(query *gorm.DB, tableName string) *gorm.DB) *Datatable[T] {
-	d.db = callback(d.db.Session(&gorm.Session{NewDB: true}), d.tableName)
+	d.db = callback(d.db.Session(&gorm.Session{}), d.tableName)
 	return d
 }
 
@@ -176,17 +152,21 @@ func (d *Datatable[T]) WithMapper(mapper func(*T) T) *Datatable[T] {
 // WithoutDeleted filters soft-deleted records using the given column name.
 // For standard GORM soft-delete (deleted_at IS NULL), pass "deleted_at".
 func (d *Datatable[T]) WithoutDeleted(column string) *Datatable[T] {
-	d.db = d.db.Where(fmt.Sprintf("%s.%s IS NULL", d.tableName, column))
+	d.db = d.db.Where(fmt.Sprintf("%s.%s IS NULL", d.tableName, database.EscapeColumn(column)))
 	return d
 }
 
 func (d *Datatable[T]) Get() (*DatatableResult[T], error) {
-	if d.columns == nil {
-		return nil, fmt.Errorf("columns not set")
+	if d.err != nil {
+		return nil, d.err
 	}
 
-	query := d.db.Session(&gorm.Session{NewDB: true})
-	countQuery := d.db.Session(&gorm.Session{NewDB: true})
+	if d.columns == nil {
+		return nil, fmt.Errorf("datatable[%s]: WithColumns must be called before Get()", d.tableName)
+	}
+
+	query := d.db.Session(&gorm.Session{})
+	countQuery := d.db.Session(&gorm.Session{})
 
 	// Search
 	if d.queryParams.Search != "" && len(d.searchableFields) > 0 {
@@ -198,12 +178,12 @@ func (d *Datatable[T]) Get() (*DatatableResult[T], error) {
 				if after, ok := strings.CutPrefix(field, "concat:"); ok {
 					cols := strings.Split(after, ",")
 					var concatExpr []string
-					for _, c := range cols {
-						concatExpr = append(concatExpr, fmt.Sprintf("IFNULL(%s.%s, '')", d.tableName, c))
+					for _, column := range cols {
+						concatExpr = append(concatExpr, fmt.Sprintf("IFNULL(%s.%s, '')", d.tableName, database.EscapeColumn(column)))
 					}
 					wordConditions = append(wordConditions, "CONCAT("+strings.Join(concatExpr, ", ' ', ")+") LIKE ?")
 				} else {
-					wordConditions = append(wordConditions, fmt.Sprintf("%s.%s LIKE ?", d.tableName, field))
+					wordConditions = append(wordConditions, fmt.Sprintf("%s.%s LIKE ?", d.tableName, database.EscapeColumn(field)))
 				}
 				escaped := database.EscapeLike(word)
 				values = append(values, "%"+escaped+"%")
@@ -250,36 +230,39 @@ func (d *Datatable[T]) Get() (*DatatableResult[T], error) {
 		d.queryParams.OrderCol = "id" // fallback to default
 	}
 
-	query = query.Order(fmt.Sprintf("`%s`.`%s` %s", d.tableName, d.queryParams.OrderCol, safeDirection))
+	query = query.Order(fmt.Sprintf("%s.%s %s", d.tableName, d.queryParams.OrderCol, safeDirection))
+
+	var total int64
+	data := make([]T, 0, d.queryParams.GetPerPage())
+	var lastPage int
+	var from, to int
 
 	// Count
 	var model T
-	if err := countQuery.Model(&model).Count(&d.total).Error; err != nil {
+	if err := countQuery.Model(&model).Count(&total).Error; err != nil {
 		return nil, err
 	}
 
 	// Paginate
-	if err := query.Limit(d.queryParams.GetPerPage()).Offset((d.queryParams.GetPage() - 1) * d.queryParams.GetPerPage()).Find(&d.data).Error; err != nil {
+	if err := query.Limit(d.queryParams.GetPerPage()).Offset((d.queryParams.GetPage() - 1) * d.queryParams.GetPerPage()).Find(&data).Error; err != nil {
 		return nil, err
 	}
 
 	// Metadata
-	d.lastPage = (int(d.total) + d.queryParams.GetPerPage() - 1) / d.queryParams.GetPerPage()
-	d.from = (d.queryParams.GetPage()-1)*d.queryParams.GetPerPage() + 1
-	d.to = d.from + len(d.data) - 1
+	if len(data) > 0 {
+		lastPage = (int(total) + d.queryParams.GetPerPage() - 1) / d.queryParams.GetPerPage()
+		from = (d.queryParams.GetPage()-1)*d.queryParams.GetPerPage() + 1
+		to = from + len(data) - 1
+	}
 
 	return &DatatableResult[T]{
-		Data:     d.data,
+		Data:     data,
 		Meta:     make(map[string]any),
-		Total:    d.total,
+		Total:    total,
 		PerPage:  d.queryParams.GetPerPage(),
 		Page:     d.queryParams.GetPage(),
-		LastPage: d.lastPage,
-		From:     d.from,
-		To:       d.to,
+		LastPage: lastPage,
+		From:     from,
+		To:       to,
 	}, nil
-}
-
-func NewFilter(key string, fn func(q *gorm.DB, v, t string) *gorm.DB) Filter {
-	return Filter{URIKey: key, Query: fn}
 }

@@ -7,9 +7,8 @@ import (
 )
 
 type Validator struct {
-	Errors      map[string][]string
+	Errors      map[string][]Failure
 	DebugErrors map[string][]string
-	ctx         ValidationContext
 	registry    map[string]Rule // per-instance, not global
 }
 
@@ -18,12 +17,12 @@ var defaultRegistry = map[string]Rule{
 	"email":    EmailRule,
 }
 
-func New(ctx ValidationContext) *Validator {
-	return NewWithRules(ctx, nil)
+func New() *Validator {
+	return NewWithRules(nil)
 }
 
 // NewWithRules creates a Validator with custom rules merged on top of the defaults.
-func NewWithRules(ctx ValidationContext, extra map[string]Rule) *Validator {
+func NewWithRules(extra map[string]Rule) *Validator {
 	r := make(map[string]Rule, len(defaultRegistry)+len(extra))
 	for k, v := range defaultRegistry {
 		r[k] = v
@@ -32,9 +31,8 @@ func NewWithRules(ctx ValidationContext, extra map[string]Rule) *Validator {
 		r[k] = v
 	}
 	return &Validator{
-		ctx:         ctx,
 		registry:    r,
-		Errors:      make(map[string][]string),
+		Errors:      make(map[string][]Failure),
 		DebugErrors: make(map[string][]string),
 	}
 }
@@ -86,13 +84,12 @@ func (v *Validator) Validate(subject any) error {
 			}
 
 			ruleFunc(
-				v.ctx,
 				attribute,
 				field.Interface(),
 				r.args,
 				isRequired,
-				func(message string) {
-					v.Errors[attribute] = append(v.Errors[attribute], message)
+				func(f Failure) {
+					v.Errors[attribute] = append(v.Errors[attribute], f)
 					v.DebugErrors[attribute] = append(v.DebugErrors[attribute], r.name)
 				},
 				subject,
@@ -107,7 +104,7 @@ func (v *Validator) Validate(subject any) error {
 	return NewValidationError("validation failed", v.Errors, v.DebugErrors)
 }
 
-func (v *Validator) GetErrors() map[string][]string {
+func (v *Validator) GetErrors() map[string][]Failure {
 	return v.Errors
 }
 

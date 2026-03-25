@@ -3,12 +3,12 @@ package product
 import (
 	"context"
 	"fmt"
+	"go-core-example/internal/domain/auth"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/audit"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
-	"github.com/wssto2/go-core/logger"
 	"gorm.io/gorm"
 )
 
@@ -20,12 +20,10 @@ func NewModule() *Module { return &Module{} }
 // Register constructs the full product dependency chain, attaches routes,
 // and subscribes to all events this domain cares about.
 // Everything the product domain needs is contained here.
-func (m *Module) Register(c *bootstrap.Container, _, protected *gin.RouterGroup) {
-	db := c.DB("local")
-
-	repo := NewRepository(db)
-	svc := NewService(repo, c.Transactor("local"), c.AuditRepo(), c.Bus())
-	h := newHandler(svc, db)
+func (m *Module) Register(c *bootstrap.Container[auth.User], _, protected *gin.RouterGroup) {
+	repo := NewRepository(c.PrimaryDB())
+	svc := NewService(repo, c.PrimaryTransactor(), c.AuditRepo(), c.Bus(), c.Log())
+	h := newHandler(svc)
 
 	h.registerRoutes(protected.Group("/products"))
 
@@ -44,13 +42,10 @@ func (m *Module) Migrate(db *gorm.DB) error {
 // onProductCreated reacts to a successfully created product.
 // In production: send confirmation email, warm cache, notify webhook, etc.
 func onProductCreated(ctx context.Context, e any) error {
-	ev, ok := e.(ProductCreatedEvent)
+	_, ok := e.(ProductCreatedEvent)
 	if !ok {
 		return fmt.Errorf("onProductCreated: unexpected event type %T", e)
 	}
-	logger.Log.InfoContext(ctx, "product.created",
-		"product_id", ev.ProductID,
-		"sku", ev.SKU,
-	)
+
 	return nil
 }

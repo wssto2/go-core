@@ -30,6 +30,7 @@ import (
 type Registry struct {
 	mu          sync.RWMutex
 	connections map[string]*gorm.DB
+	primaryName string
 	cfg         RegistryConfig
 }
 
@@ -75,6 +76,12 @@ func (r *Registry) Register(cfg ConnectionConfig) error {
 	}
 
 	r.connections[cfg.Name] = conn
+
+	// First registered connection becomes the primary automatically
+	if r.primaryName == "" {
+		r.primaryName = cfg.Name
+	}
+
 	return nil
 }
 
@@ -109,6 +116,28 @@ func (r *Registry) MustGet(name string) *gorm.DB {
 		panic(fmt.Sprintf("database.Registry.MustGet: %v", err))
 	}
 	return conn
+}
+
+// Primary returns the default database connection.
+// Panics if no connections have been registered.
+func (r *Registry) Primary() *gorm.DB {
+	r.mu.RLock()
+	name := r.primaryName
+	r.mu.RUnlock()
+
+	if name == "" {
+		panic("database.Registry: no connections registered, cannot get Primary")
+	}
+
+	return r.MustGet(name)
+}
+
+func (r *Registry) PrimaryName() string {
+	r.mu.RLock()
+	name := r.primaryName
+	r.mu.RUnlock()
+
+	return name
 }
 
 // Has returns true if a connection with the given name is registered.
@@ -216,7 +245,7 @@ func (r *Registry) buildLogger() logger.Interface {
 			SlowThreshold:             r.cfg.SlowQueryThreshold,
 			LogLevel:                  level,
 			IgnoreRecordNotFoundError: true,
-			ParameterizedQueries:      false,
+			ParameterizedQueries:      true,
 			Colorful:                  false,
 		},
 	)

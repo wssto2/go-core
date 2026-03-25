@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/wssto2/go-core/database"
+	"github.com/wssto2/go-core/datatable"
+	"github.com/wssto2/go-core/resource"
 	"gorm.io/gorm"
 )
 
@@ -11,6 +13,8 @@ import (
 // Handlers and services depend on this interface, never on the concrete type,
 // making the implementation swappable for tests (SQLite in-memory) or caching layers.
 type Repository interface {
+	GetDatatable(ctx context.Context, params datatable.QueryParams) (*datatable.DatatableResult[Product], error)
+	FindForResource(ctx context.Context, id int) (resource.Response[Product], error)
 	FindAll(ctx context.Context) ([]Product, error)
 	FindByID(ctx context.Context, id int) (*Product, error)
 	FindByIDs(ctx context.Context, ids []int) ([]Product, error)
@@ -31,6 +35,29 @@ type gormRepository struct {
 // Inject the connection from the database.Registry, not a global.
 func NewRepository(conn *gorm.DB) Repository {
 	return &gormRepository{BaseRepository: database.BaseRepository{Conn: conn}}
+}
+
+func (r *gormRepository) GetDatatable(ctx context.Context, params datatable.QueryParams) (*datatable.DatatableResult[Product], error) {
+	return datatable.New[Product](r.DB(ctx), params).
+		WithColumns([]string{"id", "name", "sku", "price", "stock", "active", "created_at"}).
+		WithSearchableFields([]string{"name", "sku"}).
+		WithDefaultOrder("id", "desc").
+		WithFilter(datatable.NewFilter("active", func(q *gorm.DB, val, table string) *gorm.DB {
+			return q.Where(table+".active = ?", val)
+		})).
+		WithQuery(func(q *gorm.DB, table string) *gorm.DB {
+			return q.Where(table + ".deleted_at IS NULL")
+		}).
+		Get()
+}
+
+func (r *gormRepository) FindForResource(ctx context.Context, id int) (resource.Response[Product], error) {
+	return resource.New[Product](r.DB(ctx)).
+		WithCount("audit_logs", "entity_id", "entity_type = 'products'").
+		WithQuery(func(q *gorm.DB, table string) *gorm.DB {
+			return q.Where(table + ".deleted_at IS NULL")
+		}).
+		FindByID(id)
 }
 
 func (r *gormRepository) FindAll(ctx context.Context) ([]Product, error) {

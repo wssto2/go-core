@@ -79,7 +79,7 @@ func bind[T any](v *T, raw map[string]any, isMultipart bool) error {
 	rt := rv.Type()
 
 	fields := getFieldMeta(rt)
-	validationErrors := make(map[string][]string)
+	validationErrors := make(map[string][]validation.Failure)
 	debugErrors := make(map[string][]string)
 
 	for i := range fields {
@@ -87,20 +87,12 @@ func bind[T any](v *T, raw map[string]any, isMultipart bool) error {
 		rawVal, present := raw[meta.formKey]
 		fieldVal := rv.Field(meta.index)
 
-		// Coerce first — no point validating a field we can't set.
 		if present && rawVal != nil {
-			if msg := coerceValue(fieldVal, rawVal, isMultipart); msg != "" {
-				validationErrors[meta.formKey] = append(validationErrors[meta.formKey], msg)
+			if f := coerceValue(fieldVal, rawVal, isMultipart); f != nil {
+				validationErrors[meta.formKey] = append(validationErrors[meta.formKey], *f)
 				debugErrors[meta.formKey] = append(debugErrors[meta.formKey], "coerce")
 				continue
 			}
-		}
-
-		// Run stateless validation rules.
-		msgs, rules := validateField(meta, fieldVal, rawVal, raw)
-		if len(msgs) > 0 {
-			validationErrors[meta.formKey] = append(validationErrors[meta.formKey], msgs...)
-			debugErrors[meta.formKey] = append(debugErrors[meta.formKey], rules...)
 		}
 	}
 

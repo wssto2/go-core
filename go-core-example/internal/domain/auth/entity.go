@@ -1,20 +1,39 @@
 package auth
 
-import "github.com/wssto2/go-core/auth"
+import "slices"
 
-// AppUserData is the app-specific payload attached to every authenticated user.
-// Stored in auth.User[AppUserData].Data — not in the JWT, loaded from DB.
-type AppUserData struct {
-	Role     string `json:"role"      gorm:"-"`
-	DealerID int    `json:"dealer_id" gorm:"-"`
+type User struct {
+	ID           int      `json:"id" gorm:"primaryKey"`
+	Username     string   `json:"username" gorm:"size:255;not null"`
+	PasswordHash string   `json:"-" gorm:"size:255;not null"`
+	Policies     []string `json:"policies"   gorm:"type:json;serializer:json"`
 }
 
-// AppUser is the concrete GORM-backed user type for this application.
-// It embeds auth.User[AppUserData] and adds DB-persisted fields.
-type AppUser struct {
-	auth.User[AppUserData]
+func (u User) GetID() int {
+	return u.ID
+}
 
-	// DB columns beyond the base User fields.
-	PasswordHash string   `json:"-"          gorm:"size:255;not null"`
-	Policies     []string `json:"policies"   gorm:"type:json;serializer:json"`
+func (u User) GetEmail() string {
+	return u.Username
+}
+
+func (u User) GetPolicies() []string {
+	return u.Policies
+}
+
+func (u User) HasPolicy(policy string) bool {
+	return slices.Contains(u.Policies, policy)
+}
+
+func (u User) HasAnyPolicy(policy ...string) bool {
+	return slices.ContainsFunc(policy, u.HasPolicy)
+}
+
+func (u User) HasAllPolicies(policy ...string) bool {
+	for _, p := range policy {
+		if !u.HasPolicy(p) {
+			return false
+		}
+	}
+	return true
 }

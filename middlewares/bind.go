@@ -4,7 +4,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/binders"
 	"github.com/wssto2/go-core/validation"
-	"github.com/wssto2/go-core/web"
 )
 
 const requestKey = "go-core.middlewares.request"
@@ -24,10 +23,8 @@ func BindRequest[T any]() gin.HandlerFunc {
 			return
 		}
 
-		validationCtx := web.NewGinValidationContext(ctx)
-
 		// Step 2: Pure Syntactic Validation (struct tags)
-		v := validation.New(validationCtx)
+		v := validation.New()
 		if err := v.Validate(&request); err != nil {
 			_ = ctx.Error(err)
 			ctx.Abort()

@@ -3,7 +3,6 @@ package validation
 import (
 	"errors"
 	"fmt"
-	"net/http"
 
 	"github.com/wssto2/go-core/apperr"
 )
@@ -28,19 +27,19 @@ func NewErrUnknownRule(name, field string) ErrUnknownRule {
 
 type ValidationError struct {
 	*apperr.AppError
-	Errors      map[string][]string
+	Failures    map[string][]Failure
 	DebugFields map[string][]string
 }
 
-func NewValidationError(msg string, fieldErrors map[string][]string, debugFields map[string][]string) *ValidationError {
+func NewValidationError(msg string, fieldFailures map[string][]Failure, debugFields map[string][]string) *ValidationError {
 	return &ValidationError{
 		AppError: &apperr.AppError{
-			Err:        errors.New("validation failed"),
-			StatusCode: http.StatusUnprocessableEntity,
-			Message:    msg,
-			LogLevel:   apperr.LevelWarn,
+			Err:      errors.New("validation failed"),
+			Code:     apperr.CodeValidationError,
+			Message:  msg,
+			LogLevel: apperr.LevelWarn,
 		},
-		Errors:      fieldErrors,
+		Failures:    fieldFailures,
 		DebugFields: debugFields,
 	}
 }

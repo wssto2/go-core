@@ -2,6 +2,7 @@
 package i18n
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/goccy/go-json"
 )
+
+type ctxKey struct{}
 
 // Translator holds translations for a configured set of languages.
 // Create one at startup and inject it into services that need it.
@@ -26,6 +29,15 @@ func New(cfg Config) (*Translator, error) {
 	}
 	t := &Translator{cfg: cfg}
 	return t, t.Load()
+}
+
+// MustNew creates and initializes a Translator. Panics if loading fails.
+func MustNew(cfg Config) *Translator {
+	t, err := New(cfg)
+	if err != nil {
+		panic(err)
+	}
+	return t
 }
 
 // T translates a key into the target language.
@@ -45,6 +57,15 @@ func (t *Translator) T(key, lang string) string {
 		}
 	}
 	return key
+}
+
+// TWith translates a key into the target language with parameters.
+func (t *Translator) TWith(key, lang string, params map[string]any) string {
+	msg := t.T(key, lang)
+	for k, v := range params {
+		msg = strings.ReplaceAll(msg, ":"+k, fmt.Sprintf("%v", v))
+	}
+	return msg
 }
 
 // Load (re)loads translations from disk. Safe to call at runtime for hot-reload.
@@ -73,7 +94,7 @@ func (t *Translator) Load() error {
 			return fmt.Errorf("i18n: failed to read file %s: %w", path, err)
 		}
 
-		var data map[string]interface{}
+		var data map[string]any
 		if err := json.Unmarshal(content, &data); err != nil {
 			return fmt.Errorf("i18n: failed to parse file %s: %w", path, err)
 		}
@@ -86,28 +107,9 @@ func (t *Translator) Load() error {
 	return nil
 }
 
-// --- Package-level convenience (backward compatibility) ---
-// If you want to keep the old `i18n.T(key, lang)` API during migration,
-// expose a default instance. But this is optional — prefer injection.
-
-var Default *Translator
-
-// Init initializes the package-level default Translator.
-// Kept for backward compatibility. Prefer i18n.New() + injection.
-func Init(cfg Config) error {
-	t, err := New(cfg)
-	if err != nil {
-		return err
+func GetFromContext(ctx context.Context) *Translator {
+	if t := ctx.Value(ctxKey{}); t != nil {
+		return t.(*Translator)
 	}
-	Default = t
 	return nil
-}
-
-// T translates using the package-level default Translator.
-// Panics if Init has not been called.
-func T(key, lang string) string {
-	if Default == nil {
-		return key // graceful degradation instead of panic
-	}
-	return Default.T(key, lang)
 }

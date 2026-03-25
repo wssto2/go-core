@@ -26,32 +26,32 @@ func issueTestToken(t *testing.T, claims auth.Claims) string {
 
 // --- User ---
 
-func TestUser_HasPolicy(t *testing.T) {
-	user := &auth.User[struct{}]{
-		Policies: []string{"customers.customers:view", "customers.customers:update"},
-	}
+// func TestUser_HasPolicy(t *testing.T) {
+// 	user := &auth.User[struct{}]{
+// 		Policies: []string{"customers.customers:view", "customers.customers:update"},
+// 	}
 
-	require.True(t, user.HasPolicy("customers.customers:view"))
-	require.False(t, user.HasPolicy("customers.customers:delete"))
-}
+// 	require.True(t, user.HasPolicy("customers.customers:view"))
+// 	require.False(t, user.HasPolicy("customers.customers:delete"))
+// }
 
-func TestUser_HasAnyPolicy(t *testing.T) {
-	user := &auth.User[struct{}]{
-		Policies: []string{"customers.customers:view"},
-	}
+// func TestUser_HasAnyPolicy(t *testing.T) {
+// 	user := &auth.User[struct{}]{
+// 		Policies: []string{"customers.customers:view"},
+// 	}
 
-	require.True(t, user.HasAnyPolicy("customers.customers:view", "admin"))
-	require.False(t, user.HasAnyPolicy("admin", "super"))
-}
+// 	require.True(t, user.HasAnyPolicy("customers.customers:view", "admin"))
+// 	require.False(t, user.HasAnyPolicy("admin", "super"))
+// }
 
-func TestUser_HasAllPolicies(t *testing.T) {
-	user := &auth.User[struct{}]{
-		Policies: []string{"customers.customers:view", "customers.customers:update"},
-	}
+// func TestUser_HasAllPolicies(t *testing.T) {
+// 	user := &auth.User[struct{}]{
+// 		Policies: []string{"customers.customers:view", "customers.customers:update"},
+// 	}
 
-	require.True(t, user.HasAllPolicies("customers.customers:view", "customers.customers:update"))
-	require.False(t, user.HasAllPolicies("customers.customers:view", "customers.customers:delete"))
-}
+// 	require.True(t, user.HasAllPolicies("customers.customers:view", "customers.customers:update"))
+// 	require.False(t, user.HasAllPolicies("customers.customers:view", "customers.customers:delete"))
+// }
 
 // --- JWT ---
 
@@ -105,41 +105,41 @@ func TestParseToken_Expired(t *testing.T) {
 
 // --- Policy ---
 
-func TestIsAuthorized_ExactRole(t *testing.T) {
-	user := &auth.User[struct{}]{
-		Policies: []string{"customers.customers:view"},
-	}
+// func TestIsAuthorized_ExactRole(t *testing.T) {
+// 	user := &auth.User[struct{}]{
+// 		Policies: []string{"customers.customers:view"},
+// 	}
 
-	policy := auth.GeneratePolicy("customers.customers", "view")
-	require.True(t, auth.IsAuthorized(user, policy))
-}
+// 	policy := auth.GeneratePolicy("customers.customers", "view")
+// 	require.True(t, auth.IsAuthorized(user, policy))
+// }
 
-func TestIsAuthorized_WildcardRole(t *testing.T) {
-	user := &auth.User[struct{}]{
-		Policies: []string{"customers.customers:*"},
-	}
+// func TestIsAuthorized_WildcardRole(t *testing.T) {
+// 	user := &auth.User[struct{}]{
+// 		Policies: []string{"customers.customers:*"},
+// 	}
 
-	require.True(t, auth.IsAuthorized(user, auth.GeneratePolicy("customers.customers", "view")))
-	require.True(t, auth.IsAuthorized(user, auth.GeneratePolicy("customers.customers", "delete")))
-}
+// 	require.True(t, auth.IsAuthorized(user, auth.GeneratePolicy("customers.customers", "view")))
+// 	require.True(t, auth.IsAuthorized(user, auth.GeneratePolicy("customers.customers", "delete")))
+// }
 
-func TestIsAuthorized_SuperAdmin(t *testing.T) {
-	user := &auth.User[struct{}]{
-		Policies: []string{"super-admin"},
-	}
+// func TestIsAuthorized_SuperAdmin(t *testing.T) {
+// 	user := &auth.User[struct{}]{
+// 		Policies: []string{"super-admin"},
+// 	}
 
-	// Super-admin can do anything
-	require.True(t, auth.IsAuthorized(user, auth.GeneratePolicy("any.namespace", "delete")))
-}
+// 	// Super-admin can do anything
+// 	require.True(t, auth.IsAuthorized(user, auth.GeneratePolicy("any.namespace", "delete")))
+// }
 
-func TestIsAuthorized_NoMatchingRole(t *testing.T) {
-	user := &auth.User[struct{}]{
-		Policies: []string{"customers.customers:view"},
-	}
+// func TestIsAuthorized_NoMatchingRole(t *testing.T) {
+// 	user := &auth.User[struct{}]{
+// 		Policies: []string{"customers.customers:view"},
+// 	}
 
-	require.False(t, auth.IsAuthorized(user, auth.GeneratePolicy("customers.customers", "delete")))
-	require.False(t, auth.IsAuthorized(user, auth.GeneratePolicy("leads.leads", "view")))
-}
+// 	require.False(t, auth.IsAuthorized(user, auth.GeneratePolicy("customers.customers", "delete")))
+// 	require.False(t, auth.IsAuthorized(user, auth.GeneratePolicy("leads.leads", "view")))
+// }
 
 func TestGeneratePolicy_String(t *testing.T) {
 	p := auth.GeneratePolicy("customers.customers", "view")

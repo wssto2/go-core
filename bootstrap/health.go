@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/wssto2/go-core/utils"
 	"gorm.io/gorm"
 )
 
@@ -33,11 +32,11 @@ func (c *DBHealthChecker) Check(ctx context.Context) error {
 }
 
 // HealthHandler returns a standard health check endpoint.
-
 func HealthHandler(checkers ...HealthChecker) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		results := map[string]string{}
 		status := http.StatusOK
+
 		for _, c := range checkers {
 			if err := c.Check(ctx.Request.Context()); err != nil {
 				results[c.Name()] = "down: " + err.Error()
@@ -46,6 +45,15 @@ func HealthHandler(checkers ...HealthChecker) gin.HandlerFunc {
 				results[c.Name()] = "up"
 			}
 		}
-		ctx.JSON(status, gin.H{"status": utils.IfThenElse(status == 200, "up", "degraded"), "checks": results})
+
+		statusText := "up"
+		if status != http.StatusOK {
+			statusText = "degraded"
+		}
+
+		ctx.JSON(status, gin.H{
+			"status": statusText,
+			"checks": results,
+		})
 	}
 }

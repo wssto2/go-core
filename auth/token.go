@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"time"
 )
 
@@ -23,4 +24,17 @@ func (t *Token) IsExpired() bool {
 
 func (t *Token) IsValid() bool {
 	return !t.Revoked && !t.IsExpired()
+}
+
+// TokenMetadata contains info we want to update on every touch
+type TokenMetadata struct {
+	LastUsedAt time.Time
+	LastUsedIP string
+}
+
+// TokenStore is the "Port" in Hexagonal Architecture.
+// It doesn't care IF you use GORM, SQL, or Mongo.
+type TokenStore interface {
+	FindValidToken(ctx context.Context, tokenValue string) (*Token, error)
+	UpdateTouch(ctx context.Context, tokenID uint64, meta TokenMetadata) error
 }

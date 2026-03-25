@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,53 +11,80 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/wssto2/go-core/logger"
-	"gorm.io/gorm"
+	"github.com/wssto2/go-core/auth"
 )
 
-// App defines the entry point for an enterprise Go application.
-type App struct {
-	Config Config
-	Router *gin.Engine
-	Server *http.Server
+// AppBuilder constructs an App using a fluent chain of calls.
+//
+// The builder is framework-agnostic. It does not import Gin, Chi, or any HTTP
+// library. The HTTP adapter (e.g. adapters/coregin.GinAdapter) is injected via
+// WithServer, which provides:
+//   - An http.Handler for the *http.Server
+//   - A Router implementation for public and protected route groups
+//
+// Typical usage:
+//
+//	adapter := coregin.New(coregin.Config{Env: cfg.Env, CORSOrigins: cfg.CORSOrigins})
+//	adapter.RegisterHealth(bootstrap.NewDBHealthChecker(container.PrimaryDB()))
+//
+//	app, err := bootstrap.New[appauth.User](cfg).
+//	    DefaultInfrastructure().
+//	    WithServer(adapter).
+//	    WithJWTAuth(appauth.IdentityResolver).
+//	    Register(product.NewModule()).
+//	    Build()
+type App[T auth.Identifiable] struct {
+	config    Config
+	container *Container[T]
+	server    *http.Server
+	engine    *gin.Engine
 
 	// Closers holds functions to be called during shutdown (e.g. closing DB, Redis)
 	closers []func(ctx context.Context) error
 }
 
-type Migrator interface {
-	Migrate(db *gorm.DB) error
-}
+// NewApp constructs an App. Prefer AppBuilder over calling this directly.
+func NewApp[T auth.Identifiable](cfg Config, container *Container[T], handler *gin.Engine) *App[T] {
+	readTimeout := durationOrDefault(cfg.ReadTimeoutSec, 15)
+	writeTimeout := durationOrDefault(cfg.WriteTimeoutSec, 15)
+	idleTimeout := durationOrDefault(cfg.IdleTimeoutSec, 60)
+	port := cfg.Port
+	if port == 0 {
+		port = 8080
+	}
 
-// NewApp creates a new application instance.
-func NewApp(cfg Config, router *gin.Engine) *App {
-	return &App{
-		Config: cfg,
-		Router: router,
+	return &App[T]{
+		config:    cfg,
+		container: container,
+		engine:    handler,
+		server: &http.Server{
+			Addr:         fmt.Sprintf(":%d", port),
+			Handler:      handler,
+			ReadTimeout:  readTimeout,
+			WriteTimeout: writeTimeout,
+			IdleTimeout:  idleTimeout,
+		},
 	}
 }
 
-// AddCloser registers a function to be called during graceful shutdown.
-func (a *App) AddCloser(fn func(ctx context.Context) error) {
+// AddCloser registers a cleanup function called on Shutdown.
+// Closers are called in reverse registration order (LIFO).
+func (a *App[T]) AddCloser(fn func(ctx context.Context) error) {
 	a.closers = append(a.closers, fn)
 }
 
 // Run starts the HTTP server and blocks until an OS interrupt signal is received.
-func (a *App) Run() error {
-	a.Server = &http.Server{
-		Addr:         fmt.Sprintf(":%d", a.Config.Port),
-		Handler:      a.Router,
-		ReadTimeout:  time.Duration(a.Config.ReadTimeoutSec) * time.Second,
-		WriteTimeout: time.Duration(a.Config.WriteTimeoutSec) * time.Second,
-		IdleTimeout:  time.Duration(a.Config.IdleTimeoutSec) * time.Second,
-	}
-
+func (a *App[T]) Run() error {
 	serverErr := make(chan error, 1)
 
 	// Start server in background
 	go func() {
-		logger.Log.Info("starting server", "port", a.Config.Port, "env", a.Config.Env)
-		if err := a.Server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		a.container.Log().Info("starting server",
+			"port", a.config.Port,
+			"env", a.config.Env,
+		)
+
+		if err := a.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			serverErr <- err
 		}
 	}()
@@ -67,7 +95,7 @@ func (a *App) Run() error {
 
 	select {
 	case err := <-serverErr:
-		logger.Log.Error("server failed to start", "error", err)
+		a.container.Log().Error("server failed to start", "error", err)
 		_ = a.Shutdown()
 		return err
 	case <-stop:
@@ -76,11 +104,11 @@ func (a *App) Run() error {
 }
 
 // Shutdown performs a graceful cleanup of all resources.
-func (a *App) Shutdown() error {
-	logger.Log.Info("shutting down gracefully...")
+func (a *App[T]) Shutdown() error {
+	a.container.Log().Info("shutting down gracefully...")
 
 	// Default 10s timeout for cleanup
-	timeout := a.Config.ShutdownTimeoutSec
+	timeout := a.config.ShutdownTimeoutSec
 	if timeout == 0 {
 		timeout = 10
 	}
@@ -88,47 +116,56 @@ func (a *App) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()
 
+	var errs []error
+
 	// 1. Stop accepting new HTTP requests
-	if err := a.Server.Shutdown(ctx); err != nil {
-		logger.Log.Error("http shutdown error", "error", err)
+	if err := a.server.Shutdown(ctx); err != nil {
+		a.container.Log().Error("http shutdown error", "error", err)
+		errs = append(errs, fmt.Errorf("http shutdown: %w", err))
 	}
 
 	// 2. Call all registered closers (DB, Cache, etc.) in reverse order
 	for i := len(a.closers) - 1; i >= 0; i-- {
 		if err := a.closers[i](ctx); err != nil {
-			logger.Log.Error("cleanup error", "error", err)
+			a.container.Log().Error("cleanup error", "error", err)
+			errs = append(errs, err)
 		}
 	}
 
-	logger.Log.Info("shutdown complete")
-	return nil
+	a.container.Log().Info("shutdown complete")
+	return errors.Join(errs...)
 }
 
-func (a *App) RegisterModules(
-	engine *gin.Engine,
-	c *Container,
-	apiPrefix string,
-	protectedMiddleware []gin.HandlerFunc,
-	modules []Module,
-) {
-	// Health check -- outside the versioned API, no auth required.
-	engine.GET("/health", HealthHandler(
-		NewDBHealthChecker(c.PrimaryDB()),
-	))
+// runMigrations calls Migrate on every module that implements Migrator.
+// Returns an error if any migration fails; never panics.
+func (a *App[T]) runMigrations(c *Container[T], modules []Module[T]) error {
+	var errs []error
+	for _, m := range modules {
+		mg, ok := m.(Migrator)
+		if !ok {
+			continue
+		}
+		if err := mg.Migrate(c.PrimaryDB()); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
 
-	v1 := engine.Group(apiPrefix)
-	public := v1.Group("")
-
-	protected := v1.Group("")
-	protected.Use(protectedMiddleware...)
+// registerModules calls Register on every module, passing the public and
+// protected routers provided by the adapter.
+func (a *App[T]) registerModules(c *Container[T], router *gin.Engine, modules []Module[T]) {
+	public := router.Group("")
+	protected := router.Group("/api")
 
 	for _, m := range modules {
-		if mg, ok := m.(Migrator); ok {
-			if err := mg.Migrate(c.PrimaryDB()); err != nil {
-				panic("migration failed: " + err.Error())
-			}
-		}
-
 		m.Register(c, public, protected)
 	}
+}
+
+func durationOrDefault(seconds, defaultSeconds int) time.Duration {
+	if seconds == 0 {
+		return time.Duration(defaultSeconds) * time.Second
+	}
+	return time.Duration(seconds) * time.Second
 }

@@ -6,14 +6,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type authContextKey string
+type ctxKey struct{}
 
-const userCtxKey authContextKey = "user"
+var userCtxKey = ctxKey{}
 
 // SetUser stores the authenticated user in the gin context.
 // Called by the Authenticated middleware after successful resolution.
 func SetUser(ctx *gin.Context, user Identifiable) {
 	ctx.Set(userCtxKey, user)
+
+	// Also inject into the standard context so services can read it
+	ctx.Request = ctx.Request.WithContext(
+		context.WithValue(ctx.Request.Context(), userCtxKey, user),
+	)
 }
 
 // GetUser retrieves the authenticated user from the gin context.
@@ -23,20 +28,20 @@ func SetUser(ctx *gin.Context, user Identifiable) {
 //
 //	user, ok := auth.GetUser[AppData](ctx)
 //	if !ok { ... }
-func GetUser[T any](ctx *gin.Context) (*User[T], bool) {
+func GetUser[T Identifiable](ctx *gin.Context) (*T, bool) {
 	raw, exists := ctx.Get(userCtxKey)
 	if !exists {
 		return nil, false
 	}
 
-	user, ok := raw.(*User[T])
+	user, ok := raw.(*T)
 	return user, ok
 }
 
 // MustGetUser retrieves the authenticated user from the gin context.
 // Panics if the user is not present — use only in handlers protected
 // by the Authenticated middleware.
-func MustGetUser[T any](ctx *gin.Context) *User[T] {
+func MustGetUser[T Identifiable](ctx *gin.Context) *T {
 	user, ok := GetUser[T](ctx)
 	if !ok {
 		panic("auth.MustGetUser: no user in context — is the Authenticated middleware applied?")

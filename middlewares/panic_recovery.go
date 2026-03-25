@@ -11,7 +11,9 @@ import (
 // PanicRecovery handles panics and logs them using the core logger.
 func PanicRecovery() gin.HandlerFunc {
 	return gin.CustomRecovery(func(ctx *gin.Context, recovered any) {
-		logger.Log.ErrorContext(ctx, "panic recovered",
+
+		log := logger.GetFromContext(ctx)
+		log.ErrorContext(ctx, "panic recovered",
 			"error", recovered,
 			"stack", string(debug.Stack()),
 		)

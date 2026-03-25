@@ -4,17 +4,31 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/wssto2/go-core/i18n"
+	"github.com/wssto2/go-core/utils"
 )
 
-func RequiredRule(ctx ValidationContext, attribute string, value any, args string, required bool, fail func(string), subject any) {
-	lang := ctx.Locale()
-	if lang == "" {
-		lang = "en"
+func RequiredRule(attribute string, value any, args string, required bool, fail func(Failure), subject any) {
+	if !isPresent(value) {
+		fail(Fail(CodeRequired))
+	}
+}
+
+func EmailRule(attribute string, value any, args string, required bool, fail func(Failure), subject any) {
+	valueStr, ok := value.(string)
+	if !ok {
+		if value == nil && !required {
+			return
+		}
+		fail(Fail(CodeEmail))
+		return
 	}
 
-	if !isPresent(value) {
-		fail(i18n.T("validation_errors.required", lang))
+	if valueStr == "" && !required {
+		return
+	}
+
+	if !utils.IsValidEmail(valueStr) {
+		fail(Fail(CodeEmail))
 	}
 }
 

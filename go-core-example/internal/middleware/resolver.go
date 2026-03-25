@@ -19,7 +19,7 @@ type userResolver struct {
 // NewUserResolver constructs an auth.Resolver backed by the given *gorm.DB.
 func NewUserResolver(db *gorm.DB) coreauth.Resolver {
 	return coreauth.ResolverFunc(func(ctx *gin.Context, claims *coreauth.Claims) (coreauth.Identifiable, error) {
-		var user auth.AppUser
+		var user auth.User
 
 		err := db.WithContext(ctx.Request.Context()).
 			Where("id = ? AND active = 1", claims.UserID).
@@ -32,9 +32,6 @@ func NewUserResolver(db *gorm.DB) coreauth.Resolver {
 			return nil, apperr.Internal(err)
 		}
 
-		// Populate policies from the DB record onto the embedded User.
-		user.User.Policies = user.Policies
-
-		return &user.User, nil
+		return &user, nil
 	})
 }

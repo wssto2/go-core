@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/goccy/go-json"
+	"github.com/wssto2/go-core/database"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/schema"
@@ -52,17 +53,17 @@ func (f *Float) Scan(value interface{}) error {
 }
 
 func (f Float) GormDataType() string {
-	return MysqlFloatType
+	return database.MySQLFloat
 }
 
 func (f Float) GormDBDataType(db *gorm.DB, field *schema.Field) string {
-	if db.Name() == Mysql && field.TagSettings["TYPE"] == "" {
+	if db.Name() == database.DriverMySQL && field.TagSettings["TYPE"] == "" {
 		return "decimal(10,2)" // Default preference from original code
 	}
 	if t := field.TagSettings["TYPE"]; t != "" {
 		return t
 	}
-	return MysqlFloatType
+	return database.MySQLFloat
 }
 
 func (f Float) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
@@ -74,7 +75,7 @@ func (f Float) MarshalJSON() ([]byte, error) {
 }
 
 func (f *Float) UnmarshalJSON(data []byte) error {
-	if string(data) == Null {
+	if string(data) == database.Null {
 		f.value = 0
 		return nil
 	}

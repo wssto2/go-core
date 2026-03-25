@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/goccy/go-json"
+	"github.com/wssto2/go-core/database"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/schema"
@@ -34,9 +35,9 @@ func (e Enum) GormDataType() string {
 
 func (e Enum) GormDBDataType(db *gorm.DB, field *schema.Field) string {
 	switch db.Name() {
-	case Sqlite:
+	case database.DriverSQLite:
 		return "varchar(255)"
-	case Mysql:
+	case database.DriverMySQL:
 		return fmt.Sprintf("enum(%s)", field.TagSettings["ENUM"])
 	}
 	return fmt.Sprintf("varchar(255) check (%s in (%s))", field.Name, field.TagSettings["ENUM"])

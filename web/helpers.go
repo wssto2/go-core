@@ -180,10 +180,21 @@ func UploadFile(ctx *gin.Context, formKey string, config UploadConfig) (Uploaded
 	if err != nil {
 		return UploadedFile{}, err
 	}
-	defer dst.Close()
+	defer func() {
+		dst.Close()
+		if err != nil {
+			os.Remove(fullPath) // clean up on any error path
+		}
+	}()
 
-	if _, err = io.Copy(dst, file); err != nil {
-		return UploadedFile{}, err
+	limitedFile := io.LimitReader(file, maxBytes+1)
+	written, copyErr := io.Copy(dst, limitedFile)
+	if int64(written) > maxBytes {
+		_ = os.Remove(fullPath)
+		return UploadedFile{}, fmt.Errorf("file exceeds %d MB limit", limitMB)
+	}
+	if copyErr != nil {
+		return UploadedFile{}, copyErr
 	}
 
 	// Return relative path for storage in DB

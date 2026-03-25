@@ -1,11 +1,12 @@
 package frontend
 
 import (
+	"log/slog"
+	"strings"
 	"text/template"
 
 	"github.com/gin-gonic/gin"
 	"github.com/goccy/go-json"
-	"github.com/wssto2/go-core/logger"
 )
 
 // SPAConfig configures the SPA catch-all handler.
@@ -29,6 +30,11 @@ type SPAConfig struct {
 	// ExtraFuncs allows the application to add template functions
 	// on top of the built-in toJSON that go-core provides.
 	ExtraFuncs template.FuncMap
+
+	// DevMode resolves assets on every request instead of once at startup.
+	// Set to true when Env is "development" so Vite start/stop is detected automatically.
+	// In production this should always be false.
+	DevMode bool
 }
 
 func (c SPAConfig) withDefaults() SPAConfig {
@@ -63,16 +69,37 @@ func BuiltinFuncMap() template.FuncMap {
 //
 // Template authors are responsible for injecting .AppState into the page.
 // go-core does not mandate the variable name or the injection mechanism.
-func RegisterSPA(engine *gin.Engine, cfg SPAConfig) {
+func RegisterSPA(engine *gin.Engine, cfg SPAConfig, log *slog.Logger) {
 	cfg = cfg.withDefaults()
 
-	assets := ResolveAssets(cfg.Vite)
+	// In production, resolve once — the dist files never change at runtime.
+	// In dev, resolve per-request so Vite start/stop is detected automatically.
+	var productionAssets *Assets
+	if !cfg.DevMode {
+		a := ResolveAssets(cfg.Vite)
+		if !a.IsDev {
+			productionAssets = &a
+		}
+	}
+
+	if log != nil {
+		log.Info("frontend: SPA registered with app state builder",
+			"template", cfg.TemplateName,
+			"api_prefix", cfg.APIPrefix,
+			"dev_mode", cfg.DevMode,
+		)
+	}
 
 	engine.NoRoute(func(ctx *gin.Context) {
-		if len(ctx.Request.URL.Path) >= len(cfg.APIPrefix) &&
-			ctx.Request.URL.Path[:len(cfg.APIPrefix)] == cfg.APIPrefix {
+		if strings.HasPrefix(ctx.Request.URL.Path, cfg.APIPrefix) {
 			ctx.JSON(404, gin.H{"error": "not found"})
 			return
+		}
+
+		assets := productionAssets
+		if assets == nil {
+			a := ResolveAssets(cfg.Vite)
+			assets = &a
 		}
 
 		var appState any
@@ -87,11 +114,11 @@ func RegisterSPA(engine *gin.Engine, cfg SPAConfig) {
 	})
 }
 
-// MustRegisterSPA is like RegisterSPA but also sets the template FuncMap
+// RegisterSPAWithTemplates is like RegisterSPA but also sets the template FuncMap
 // and loads templates from the given glob. Use this if you want go-core
 // to own the full template setup. If you manage templates yourself,
 // call RegisterSPA directly.
-func MustRegisterSPA(engine *gin.Engine, templateGlob string, cfg SPAConfig) {
+func RegisterSPAWithTemplates(engine *gin.Engine, templateGlob string, cfg SPAConfig, log *slog.Logger) {
 	funcs := BuiltinFuncMap()
 	for k, v := range cfg.ExtraFuncs {
 		funcs[k] = v
@@ -99,13 +126,13 @@ func MustRegisterSPA(engine *gin.Engine, templateGlob string, cfg SPAConfig) {
 	engine.SetFuncMap(funcs)
 	engine.LoadHTMLGlob(templateGlob)
 
-	if cfg.StateBuilder != nil && logger.Log != nil {
-		logger.Log.Info("frontend: SPA registered with app state builder",
-			"template", cfg.TemplateName,
-			"api_prefix", cfg.APIPrefix,
-			"vite_dev", ResolveAssets(cfg.Vite).IsDev,
-		)
-	}
-
-	RegisterSPA(engine, cfg)
+	RegisterSPA(engine, cfg, log)
 }
+
+// AppStateBuilder is a function the application provides.
+// It receives the current request context and returns any value
+// that can be serialised to JSON. The result is injected into
+// the HTML template as window.APP_STATE.
+//
+// Keep it cheap: this runs on every non-API page load.
+type AppStateBuilder func(ctx *gin.Context) any

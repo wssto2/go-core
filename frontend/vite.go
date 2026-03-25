@@ -12,9 +12,11 @@ import (
 type ViteConfig struct {
 	// Port is the Vite dev server port. Defaults to 5173.
 	Port string
+
 	// EntryPoint is the file Vite serves as the main entry.
 	// Used only for the health check probe. Defaults to "main.ts".
 	EntryPoint string
+
 	// DistDir is the directory containing production build output.
 	// Defaults to "./static/dist".
 	DistDir string
@@ -57,9 +59,10 @@ func IsViteRunning(cfg ViteConfig) bool {
 
 // Assets holds the resolved CSS and JS paths for the current environment.
 type Assets struct {
-	CSSPath string
-	JSPath  string
-	IsDev   bool
+	CSSPath       string
+	JSPath        string
+	IsDev         bool
+	ViteClientURL string
 }
 
 // ResolveAssets detects whether Vite is running and returns the
@@ -73,9 +76,10 @@ func ResolveAssets(cfg ViteConfig) Assets {
 	if IsViteRunning(cfg) {
 		base := "http://localhost:" + cfg.Port
 		return Assets{
-			CSSPath: base + "/css/main.css",
-			JSPath:  base + "/" + cfg.EntryPoint,
-			IsDev:   true,
+			CSSPath:       base + "/css/main.css",
+			JSPath:        base + "/" + cfg.EntryPoint,
+			IsDev:         true,
+			ViteClientURL: base + "/@vite/client",
 		}
 	}
 

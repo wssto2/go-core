@@ -16,6 +16,8 @@ func RequestLogger() gin.HandlerFunc {
 
 		ctx.Next()
 
+		log := logger.GetFromContext(ctx)
+
 		latency := time.Since(start)
 		status := ctx.Writer.Status()
 
@@ -31,9 +33,9 @@ func RequestLogger() gin.HandlerFunc {
 
 		if len(ctx.Errors) > 0 {
 			attrs = append(attrs, "error", ctx.Errors.String())
-			logger.Log.ErrorContext(ctx, "request failed", attrs...)
+			log.ErrorContext(ctx, "request failed", attrs...)
 		} else {
-			logger.Log.InfoContext(ctx, "request completed", attrs...)
+			log.InfoContext(ctx, "request completed", attrs...)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -33,14 +34,18 @@ func Authenticated(cfg TokenConfig, resolver Resolver) gin.HandlerFunc {
 		claims, err := ParseToken(tokenString, cfg)
 		if err != nil {
 			// ParseToken returns ErrMissingToken, ErrInvalidToken, ErrExpiredToken
-			_ = ctx.Error(apperr.Wrap(err, "invalid or expired token", 401))
+			if errors.Is(err, ErrExpiredToken) {
+				_ = ctx.Error(apperr.Unauthorized("token has expired"))
+			} else {
+				_ = ctx.Error(apperr.Wrap(err, "invalid token", apperr.CodeUnauthenticated))
+			}
 			ctx.Abort()
 			return
 		}
 
 		user, err := resolver.Resolve(ctx, claims)
 		if err != nil {
-			_ = ctx.Error(apperr.Wrap(err, "failed to resolve user", 401))
+			_ = ctx.Error(apperr.Wrap(err, "failed to resolve user", apperr.CodeUnauthenticated))
 			ctx.Abort()
 			return
 		}
@@ -87,10 +92,8 @@ func extractBearerToken(ctx *gin.Context) string {
 		return ""
 	}
 
-	parts := strings.SplitN(header, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+	if !strings.HasPrefix(header, "Bearer ") {
 		return ""
 	}
-
-	return strings.TrimSpace(parts[1])
+	return strings.TrimSpace(header[len("Bearer "):])
 }
