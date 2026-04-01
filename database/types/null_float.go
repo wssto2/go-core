@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/goccy/go-json"
+	"github.com/wssto2/go-core/database"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/schema"
@@ -61,20 +62,20 @@ func (f *NullFloat) Scan(value interface{}) error {
 }
 
 func (f NullFloat) GormDataType() string {
-	return MysqlFloatType
+	return database.MySQLFloat
 }
 
 func (f NullFloat) GormDBDataType(db *gorm.DB, field *schema.Field) string {
-	if db.Name() == Mysql && field.TagSettings["TYPE"] == "" {
+	if db.Name() == database.DriverMySQL && field.TagSettings["TYPE"] == "" {
 		return "decimal(10,2)"
 	}
 	if t := field.TagSettings["TYPE"]; t != "" {
 		return t
 	}
-	if db.Name() == Sqlite {
-		return SqliteFloatType
+	if db.Name() == database.DriverSQLite {
+		return database.SQLiteFloat
 	}
-	return MysqlFloatType
+	return database.MySQLFloat
 }
 
 func (f NullFloat) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
@@ -86,13 +87,13 @@ func (f NullFloat) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
 
 func (f NullFloat) MarshalJSON() ([]byte, error) {
 	if f.value == nil {
-		return []byte(Null), nil
+		return []byte(database.Null), nil
 	}
 	return json.Marshal(*f.value)
 }
 
 func (f *NullFloat) UnmarshalJSON(data []byte) error {
-	if string(data) == Null {
+	if string(data) == database.Null {
 		f.value = nil
 		return nil
 	}

@@ -1,3 +1,4 @@
+// Package utils provides utility functions for converting types to strings and integers.
 package utils
 
 import (
@@ -6,94 +7,92 @@ import (
 )
 
 // ToString converts various types to string.
-func ToString[T any](value T) string {
-	switch v := any(value).(type) {
+func ToString[T any](value T) string { //nolint:cyclop
+	switch typedValue := any(value).(type) {
 	case int:
-		return strconv.Itoa(v)
+		return strconv.Itoa(typedValue)
 	case int8:
-		return strconv.FormatInt(int64(v), 10)
+		return strconv.FormatInt(int64(typedValue), 10)
 	case int16:
-		return strconv.FormatInt(int64(v), 10)
+		return strconv.FormatInt(int64(typedValue), 10)
 	case int32:
-		return strconv.FormatInt(int64(v), 10)
+		return strconv.FormatInt(int64(typedValue), 10)
 	case int64:
-		return strconv.FormatInt(v, 10)
+		return strconv.FormatInt(typedValue, 10)
 	case uint:
-		return strconv.FormatUint(uint64(v), 10)
+		return strconv.FormatUint(uint64(typedValue), 10)
 	case uint8:
-		return strconv.FormatUint(uint64(v), 10)
+		return strconv.FormatUint(uint64(typedValue), 10)
 	case uint16:
-		return strconv.FormatUint(uint64(v), 10)
+		return strconv.FormatUint(uint64(typedValue), 10)
 	case uint32:
-		return strconv.FormatUint(uint64(v), 10)
+		return strconv.FormatUint(uint64(typedValue), 10)
 	case uint64:
-		return strconv.FormatUint(v, 10)
+		return strconv.FormatUint(typedValue, 10)
 	case float32:
-		return strconv.FormatFloat(float64(v), 'f', -1, 32)
+		return strconv.FormatFloat(float64(typedValue), 'f', -1, 32)
 	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64)
+		return strconv.FormatFloat(typedValue, 'f', -1, 64)
 	case string:
-		return v
+		return typedValue
 	case bool:
-		if v {
+		if typedValue {
 			return "true"
 		}
+
 		return "false"
 	case []byte:
-		return string(v)
+		return string(typedValue)
 	case nil:
 		return ""
 	default:
-		return fmt.Sprintf("%v", v)
+		return fmt.Sprintf("%v", typedValue)
 	}
 }
 
 // ToInt converts various types to int.
-func ToInt[T any](value T) int {
-	switch v := any(value).(type) {
+func ToInt[T int | int8 | int16 | int32 | int64 | uint8 | uint16 | uint32 | float32 | float64 | string](value T) int { //nolint:cyclop,lll
+	switch typedValue := any(value).(type) {
 	case int:
-		return v
+		return typedValue
 	case int8:
-		return int(v)
+		return int(typedValue)
 	case int16:
-		return int(v)
+		return int(typedValue)
 	case int32:
-		return int(v)
+		return int(typedValue)
 	case int64:
-		return int(v)
-	case uint:
-		return int(v)
+		return int(typedValue)
 	case uint8:
-		return int(v)
+		return int(typedValue)
 	case uint16:
-		return int(v)
+		return int(typedValue)
 	case uint32:
-		return int(v)
-	case uint64:
-		return int(v)
+		return int(typedValue)
 	case float32:
-		return int(v)
+		return int(typedValue)
 	case float64:
-		return int(v)
+		return int(typedValue)
 	case string:
-		i, err := strconv.Atoi(v)
+		i, err := strconv.Atoi(typedValue)
 		if err != nil {
 			return 0
 		}
+
 		return i
 	case bool:
-		if v {
+		if typedValue {
 			return 1
 		}
+
 		return 0
 	case []byte:
-		i, err := strconv.Atoi(string(v))
+		i, err := strconv.Atoi(string(typedValue))
 		if err != nil {
 			return 0
 		}
+
 		return i
-	case nil:
-		return 0
 	default:
 		return 0
 	}

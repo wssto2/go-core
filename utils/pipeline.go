@@ -1,25 +1,25 @@
 package utils
 
 type PipelineContext struct {
-	values map[string]interface{}
+	values map[string]any
 }
 
 func NewPipelineContext() *PipelineContext {
 	return &PipelineContext{
-		values: make(map[string]interface{}),
+		values: make(map[string]any),
 	}
 }
 
-func (pc *PipelineContext) Set(key string, value interface{}) {
+func (pc *PipelineContext) Set(key string, value any) {
 	pc.values[key] = value
 }
 
-func (pc *PipelineContext) Get(key string) (interface{}, bool) {
+func (pc *PipelineContext) Get(key string) (any, bool) {
 	value, exists := pc.values[key]
 	return value, exists
 }
 
-func (pc *PipelineContext) Is(key string, value interface{}) bool {
+func (pc *PipelineContext) Is(key string, value any) bool {
 	v, exists := pc.values[key]
 	if !exists {
 		return false

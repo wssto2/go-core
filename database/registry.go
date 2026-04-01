@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"sync"
 
@@ -30,15 +31,27 @@ import (
 type Registry struct {
 	mu          sync.RWMutex
 	connections map[string]*gorm.DB
+	primaryName string
 	cfg         RegistryConfig
+	log         *slog.Logger
 }
 
 // NewRegistry creates a new empty Registry with the given options.
-func NewRegistry(cfg RegistryConfig) *Registry {
+func NewRegistry(log *slog.Logger, cfg RegistryConfig) *Registry {
 	return &Registry{
 		connections: make(map[string]*gorm.DB),
 		cfg:         cfg.withDefaults(),
+		log:         log,
 	}
+}
+
+// NewRegistryFromConfigs creates a new Registry with the given options and pre-registered connections.
+func NewRegistryFromConfigs(log *slog.Logger, rcfg RegistryConfig, conns []ConnectionConfig) *Registry {
+	reg := NewRegistry(log, rcfg)
+	for _, conn := range conns {
+		reg.MustRegister(conn)
+	}
+	return reg
 }
 
 // Register opens a connection pool for the given config and stores it under cfg.Name.
@@ -66,6 +79,12 @@ func (r *Registry) Register(cfg ConnectionConfig) error {
 	}
 
 	r.connections[cfg.Name] = conn
+
+	// First registered connection becomes the primary automatically
+	if r.primaryName == "" {
+		r.primaryName = cfg.Name
+	}
+
 	return nil
 }
 
@@ -100,6 +119,28 @@ func (r *Registry) MustGet(name string) *gorm.DB {
 		panic(fmt.Sprintf("database.Registry.MustGet: %v", err))
 	}
 	return conn
+}
+
+// Primary returns the default database connection.
+// Panics if no connections have been registered.
+func (r *Registry) Primary() *gorm.DB {
+	r.mu.RLock()
+	name := r.primaryName
+	r.mu.RUnlock()
+
+	if name == "" {
+		panic("database.Registry: no connections registered, cannot get Primary")
+	}
+
+	return r.MustGet(name)
+}
+
+func (r *Registry) PrimaryName() string {
+	r.mu.RLock()
+	name := r.primaryName
+	r.mu.RUnlock()
+
+	return name
 }
 
 // Has returns true if a connection with the given name is registered.
@@ -147,15 +188,15 @@ func (r *Registry) CloseAll() error {
 	return nil
 }
 
-// RegisterRaw lets you inject a pre-built *gorm.DB directly.
+// AddConnection lets you inject a pre-built *gorm.DB directly.
 // Useful in tests where you want to inject a SQLite in-memory connection
 // without going through the MySQL driver.
 //
 // Example:
 //
 //	conn, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-//	reg.RegisterRaw("local", conn)
-func (r *Registry) RegisterRaw(name string, conn *gorm.DB) {
+//	reg.AddConnection("local", conn)
+func (r *Registry) AddConnection(name string, conn *gorm.DB) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.connections[name] = conn
@@ -183,9 +224,7 @@ func (r *Registry) openMySQL(cfg ConnectionConfig) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
-	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
-	sqlDB.SetConnMaxLifetime(cfg.connMaxLifetimeDuration())
+	ApplyPoolSettings(sqlDB, cfg)
 
 	return conn, nil
 }
@@ -207,7 +246,7 @@ func (r *Registry) buildLogger() logger.Interface {
 			SlowThreshold:             r.cfg.SlowQueryThreshold,
 			LogLevel:                  level,
 			IgnoreRecordNotFoundError: true,
-			ParameterizedQueries:      false,
+			ParameterizedQueries:      true,
 			Colorful:                  false,
 		},
 	)

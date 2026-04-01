@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const contextKey = "db"
+const contextKey = "go-core.database.connection"
 
 // UseDatabaseConnection returns a gin middleware that retrieves the named
 // connection from the registry and stores it in the request context.

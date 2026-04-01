@@ -2,6 +2,7 @@ package logger
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -9,6 +10,8 @@ import (
 
 	"gopkg.in/natefinch/lumberjack.v2"
 )
+
+type ctxKey struct{}
 
 type LogLevel string
 
@@ -29,12 +32,7 @@ type Config struct {
 	MaxAgeDays int
 }
 
-var (
-	// Default global logger
-	Log *slog.Logger
-)
-
-func Init(cfg Config) error {
+func New(cfg Config) (*slog.Logger, error) {
 	if cfg.LogDir == "" {
 		cfg.LogDir = "logs"
 	}
@@ -50,7 +48,7 @@ func Init(cfg Config) error {
 
 	perm := os.FileMode(0755)
 	if err := os.MkdirAll(cfg.LogDir, perm); err != nil {
-		return err
+		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
 
 	appLogPath := filepath.Join(cfg.LogDir, "app.log")
@@ -72,8 +70,6 @@ func Init(cfg Config) error {
 	var handler slog.Handler
 
 	if cfg.Env != "production" {
-		// In dev: write to file AND console, use DEBUG level
-		opts.Level = slog.LevelDebug
 		multiWriter := io.MultiWriter(fileWriter, os.Stdout)
 		handler = slog.NewJSONHandler(multiWriter, opts)
 	} else {
@@ -84,10 +80,18 @@ func Init(cfg Config) error {
 	// Wrap with SourceHandler for context extraction
 	handler = NewSourceHandler(handler)
 
-	Log = slog.New(handler)
-	slog.SetDefault(Log)
+	log := slog.New(handler)
+	slog.SetDefault(log)
 
-	return nil
+	return log, nil
+}
+
+func MustNew(cfg Config) *slog.Logger {
+	log, err := New(cfg)
+	if err != nil {
+		panic(err)
+	}
+	return log
 }
 
 func parseLevel(l LogLevel) slog.Level {
@@ -103,4 +107,11 @@ func parseLevel(l LogLevel) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+func GetFromContext(ctx context.Context) *slog.Logger {
+	if log := ctx.Value(ctxKey{}); log != nil {
+		return log.(*slog.Logger)
+	}
+	return slog.Default()
 }

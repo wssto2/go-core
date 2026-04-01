@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/goccy/go-json"
+	"github.com/wssto2/go-core/database"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/schema"
@@ -50,17 +51,17 @@ func (i *Int) Scan(value interface{}) error {
 }
 
 func (i Int) GormDataType() string {
-	return MysqlIntType
+	return database.MySQLInt
 }
 
 func (i Int) GormDBDataType(db *gorm.DB, field *schema.Field) string {
-	if db.Name() == Sqlite {
-		return SqliteIntType
+	if db.Name() == database.DriverSQLite {
+		return database.SQLiteInt
 	}
 	if t := field.TagSettings["TYPE"]; t != "" {
 		return t
 	}
-	return MysqlIntType
+	return database.MySQLInt
 }
 
 func (i Int) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
@@ -72,7 +73,7 @@ func (i Int) MarshalJSON() ([]byte, error) {
 }
 
 func (i *Int) UnmarshalJSON(data []byte) error {
-	if string(data) == Null {
+	if string(data) == database.Null {
 		i.value = 0
 		return nil
 	}

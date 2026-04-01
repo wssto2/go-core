@@ -3,7 +3,6 @@ package apperr
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"runtime"
 )
 
@@ -20,13 +19,12 @@ const (
 // AppError is the standard error type for the application.
 // It wraps the original error and adds context like HTTP status, user message, and log level.
 type AppError struct {
-	Err        error             // The original error
-	StatusCode int               // HTTP Status Code
-	Message    string            // User-friendly message
-	LogLevel   Level             // Suggestion for logging level
-	File       string            // Source file
-	Line       int               // Source line
-	Fields     map[string]string // specific error fields (e.g. validation)
+	Err      error  // The original error
+	Code     Code   // Semantic error code
+	Message  string // User-friendly message
+	LogLevel Level  // Suggestion for logging level
+	File     string // Source file
+	Line     int    // Source line
 }
 
 func (e *AppError) Error() string {
@@ -40,34 +38,61 @@ func (e *AppError) Unwrap() error {
 	return e.Err
 }
 
-// New creates a generic AppError.
-func New(err error, message string, code int) *AppError {
+func newWithSkip(err error, message string, code Code, skip int) *AppError {
 	if err == nil {
 		err = errors.New(message)
 	}
-	
-	_, file, line, _ := runtime.Caller(1)
-
+	_, file, line, _ := runtime.Caller(skip)
 	return &AppError{
-		Err:        err,
-		StatusCode: code,
-		Message:    message,
-		LogLevel:   LevelError,
-		File:       file,
-		Line:       line,
-		Fields:     make(map[string]string),
+		Err:      err,
+		Code:     code,
+		Message:  message,
+		LogLevel: LevelError,
+		File:     file,
+		Line:     line,
 	}
 }
 
-// Wrap wraps an existing error into an AppError.
-// If the error is already an AppError, it returns it (optionally updating the message).
-func Wrap(err error, message string, code int) *AppError {
+// New creates a generic AppError.
+func New(err error, message string, code Code) *AppError {
+	return newWithSkip(err, message, code, 2)
+}
+
+// Wrap wraps err in a new AppError with the given message and code.
+// If err is already an AppError, it is preserved as the cause.
+// Unlike the old behavior, the new message and code are ALWAYS applied —
+// use this when you want to add context at a higher layer.
+func Wrap(err error, message string, code Code) *AppError {
+	if err == nil {
+		return New(nil, message, code)
+	}
+	_, file, line, _ := runtime.Caller(1)
+	return &AppError{
+		Err:      err, // preserve original as cause, accessible via errors.As/Is
+		Code:     code,
+		Message:  message,
+		LogLevel: LevelError,
+		File:     file,
+		Line:     line,
+	}
+}
+
+// WrapPreserve wraps err but preserves the original AppError's status code and log level.
+// Use this when you want to add a message without changing how the error is classified.
+func WrapPreserve(err error, message string) *AppError {
 	var appErr *AppError
 	if errors.As(err, &appErr) {
-		return appErr
+		_, file, line, _ := runtime.Caller(1)
+		return &AppError{
+			Err:      err,
+			Code:     appErr.Code,
+			Message:  message + ": " + appErr.Message,
+			LogLevel: appErr.LogLevel,
+			File:     file,
+			Line:     line,
+		}
 	}
-	
-	return New(err, message, code)
+	return New(err, message, CodeInternal)
 }
 
 // WithLog sets the log level.
@@ -76,52 +101,24 @@ func (e *AppError) WithLog(level Level) *AppError {
 	return e
 }
 
-// WithField adds a field to the error (useful for validation).
-func (e *AppError) WithField(key, value string) *AppError {
-	if e.Fields == nil {
-		e.Fields = make(map[string]string)
-	}
-	e.Fields[key] = value
-	return e
-}
-
 // Common Constructors
 
 func NotFound(message string) *AppError {
-	return New(nil, message, http.StatusNotFound).WithLog(LevelInfo)
+	return New(nil, message, CodeNotFound).WithLog(LevelInfo)
 }
 
 func BadRequest(message string) *AppError {
-	return New(nil, message, http.StatusBadRequest).WithLog(LevelWarn)
+	return New(nil, message, CodeBadRequest).WithLog(LevelWarn)
 }
 
 func Internal(err error) *AppError {
-	return New(err, "internal server error", http.StatusInternalServerError).WithLog(LevelError)
+	return New(err, "internal server error", CodeInternal).WithLog(LevelError)
 }
 
 func Unauthorized(message string) *AppError {
-	return New(nil, message, http.StatusUnauthorized).WithLog(LevelWarn)
+	return New(nil, message, CodeUnauthenticated).WithLog(LevelWarn)
 }
 
 func Forbidden(message string) *AppError {
-	return New(nil, message, http.StatusForbidden).WithLog(LevelWarn)
-}
-
-// Validation Error Helpers
-
-type ValidationError struct {
-	*AppError
-	Errors map[string][]string
-}
-
-func NewValidationError(msg string, fieldErrors map[string][]string) *ValidationError {
-	return &ValidationError{
-		AppError: &AppError{
-			Err:        errors.New("validation failed"),
-			StatusCode: http.StatusUnprocessableEntity,
-			Message:    msg,
-			LogLevel:   LevelWarn,
-		},
-		Errors: fieldErrors,
-	}
+	return New(nil, message, CodePermissionDenied).WithLog(LevelWarn)
 }

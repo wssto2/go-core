@@ -1,0 +1,16 @@
+version: "2"
+sql:
+  - schema: "database/schema.sql"
+    queries: "database/queries/"
+    engine: "mysql"
+    gen:
+      go:
+        package: "dbgen"
+        out: "database/dbgen"
+        emit_json_tags: true
+        emit_prepared_queries: false
+        emit_interface: true
+        emit_exact_table_names: false
+        overrides:
+          - db_type: "json"
+            go_type: "github.com/wssto2/go-core/database/types.JSON"

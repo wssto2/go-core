@@ -1,0 +1,28 @@
+version: "2"
+linters:
+  # Default set of linters.
+  # The value can be:
+  # - `standard`: the "Default" linters https://golangci-lint.run/docs/linters/#all-linters
+  # - `all`: enables all linters by default.
+  # - `none`: disables all linters by default.
+  # - `fast`: enables only linters considered as "fast" (`golangci-lint help linters --json | jq '[ .[] | select(.fast==true) ] | map(.name)'`).
+  # Default: standard
+  default: all
+
+  disable:
+    - wsl
+
+  settings:
+    wsl_v5:
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 2
+
+    depguard:
+      rules:
+        main:
+          files:
+            - "!$test" # exclude tests
+          deny:
+            - pkg: github.com/stretchr/testify/assert
+            - pkg: github.com/stretchr/testify/require

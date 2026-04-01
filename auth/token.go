@@ -1,0 +1,46 @@
+package auth
+
+import (
+	"context"
+	"time"
+)
+
+type Token struct {
+	ID            int       `json:"id" gorm:"primarykey"`
+	UserID        int       `json:"user_id" gorm:"index;not null"`
+	TokenValue    string    `json:"token_value" gorm:"size:255;not null;uniqueIndex"`
+	Name          string    `json:"name" gorm:"size:255"`
+	LastUsedAt    time.Time `json:"last_used_at"`
+	LastUsedIP    string    `json:"last_used_ip" gorm:"size:45"`
+	ExpiresAt     time.Time `json:"expires_at" gorm:"index;not null"`
+	CreatedAt     time.Time `json:"created_at"`
+	RefreshPrefix string    `json:"refresh_prefix" gorm:"size:8;index"`
+	RefreshToken  string    `json:"refresh_token" gorm:"size:255"`
+	Revoked       bool      `json:"revoked" gorm:"default:false"`
+}
+
+func (t *Token) IsExpired() bool {
+	return t.ExpiresAt.Before(time.Now())
+}
+
+func (t *Token) IsValid() bool {
+	return !t.Revoked && !t.IsExpired()
+}
+
+// TokenMetadata contains info we want to update on every touch
+type TokenMetadata struct {
+	LastUsedAt time.Time
+	LastUsedIP string
+}
+
+// TokenStore is the "Port" in Hexagonal Architecture.
+// It doesn't care IF you use GORM, SQL, or Mongo.
+//
+// Minimal set extended to support refresh token rotation.
+type TokenStore interface {
+	FindValidToken(ctx context.Context, tokenValue string) (*Token, error)
+	FindByRefreshToken(ctx context.Context, refresh string) (*Token, error)
+	UpdateTouch(ctx context.Context, tokenID uint64, meta TokenMetadata) error
+	// RotateRefreshToken atomically replaces the refresh token and updates expiry.
+	RotateRefreshToken(ctx context.Context, tokenID uint64, newRefresh string, newExpiry time.Time) error
+}

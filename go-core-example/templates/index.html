@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+  <head>
+    {{ if .Assets.CSSPath }}
+    <link rel="stylesheet" href="{{ .Assets.CSSPath }}" />
+    {{ end }}
+  </head>
+  <body>
+    <div id="app"></div>
+
+    {{ if .AppState }}
+    <script>
+      window.APP_STATE = JSON.parse({{ .AppState | toJSON }});
+    </script>
+    {{ end }} {{ if .Assets.ViteClientURL }}
+    <script type="module" src="{{ .Assets.ViteClientURL }}"></script>
+    {{ end }}
+
+    <script type="module" src="{{ .Assets.JSPath }}"></script>
+  </body>
+</html>

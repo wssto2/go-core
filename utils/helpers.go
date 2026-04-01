@@ -1,11 +1,10 @@
 package utils
 
 import (
-	"fmt"
 	"math"
 	"reflect"
 	"regexp"
-	"strconv"
+	"slices"
 	"strings"
 	"time"
 )
@@ -46,34 +45,6 @@ func Ptr[T any](value T) *T {
 }
 
 // --- Conversion Helpers ---
-
-func StringToInt(str string) int {
-	i, _ := strconv.Atoi(str)
-	return i
-}
-
-func StringToFloat(str string) float64 {
-	f, _ := strconv.ParseFloat(str, 64)
-	return f
-}
-
-func StringToBool(str string) bool {
-	b, _ := strconv.ParseBool(str)
-	return b
-}
-
-func IntToString[T int | int16 | int32 | int64](i T) string {
-	return strconv.Itoa(int(i))
-}
-
-func FloatToString(f float64) string {
-	return strconv.FormatFloat(f, 'f', -1, 64)
-}
-
-func BoolToString(b bool) string {
-	return strconv.FormatBool(b)
-}
-
 func BoolToByte(b bool) byte {
 	if b {
 		return 1
@@ -87,6 +58,13 @@ func ByteToBool(b byte) bool {
 
 // --- String Helpers ---
 
+// ValidEmailRegexp is the standard email validation pattern.
+var ValidEmailRegexp = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+
+func IsValidEmail(email string) bool {
+	return ValidEmailRegexp.MatchString(email)
+}
+
 // StringClean truncates a string to a given limit and trims it.
 func StringClean(str string, limit int) string {
 	if len(str) > limit {
@@ -99,37 +77,11 @@ func StringContainsIgnoreCase(str, substr string) bool {
 	return strings.Contains(strings.ToLower(str), strings.ToLower(substr))
 }
 
-func EscapeLike(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "%", "\\%")
-	s = strings.ReplaceAll(s, "_", "\\_")
-	return s
-}
-
 // --- Slice Helpers ---
-
-func IntInSlice(a int, list []int) bool {
-	for _, b := range list {
-		if b == a {
-			return true
-		}
-	}
-	return false
-}
-
-func StringInSlice(a string, list []string) bool {
-	for _, b := range list {
-		if b == a {
-			return true
-		}
-	}
-	return false
-}
-
 func StringSliceMergeUnique(original, slice *[]string) []string {
 	result := append([]string{}, *original...)
 	for _, item := range *slice {
-		if !StringInSlice(item, result) {
+		if !slices.Contains(result, item) {
 			result = append(result, item)
 		}
 	}
@@ -147,7 +99,7 @@ func CurrentTimeStr() string {
 // Supported: "today", "yesterday", "this_week", "last_week", "this_month", "last_month", "this_year", "last_year".
 func GetDateRange(value string) (fromDate, toDate string) {
 	now := time.Now()
-	
+
 	switch value {
 	case "today":
 		fromDate = now.Format("2006-01-02 00:00:00")
@@ -256,7 +208,7 @@ func ToJsonMap[T any](item T) map[string]any {
 	for i := 0; i < val.NumField(); i++ {
 		field := val.Field(i)
 		fieldType := typ.Field(i)
-		
+
 		// Skip unexported fields
 		if !fieldType.IsExported() {
 			continue
@@ -266,7 +218,7 @@ func ToJsonMap[T any](item T) map[string]any {
 		if jsonTag == "-" {
 			continue
 		}
-		
+
 		fieldName := strings.Split(jsonTag, ",")[0]
 		if fieldName == "" {
 			fieldName = fieldType.Name
@@ -276,59 +228,6 @@ func ToJsonMap[T any](item T) map[string]any {
 	}
 
 	return itemMap
-}
-
-// --- User Agent Helpers ---
-
-func GetUserAgentDeviceType(ua string) string {
-	if strings.Contains(ua, "Mobi") {
-		return "Mobile"
-	} else if strings.Contains(ua, "Tablet") {
-		return "Tablet"
-	}
-	return "Desktop"
-}
-
-func GetUserAgentOS(ua string) string {
-	osPatterns := map[string]string{
-		"Windows NT 10.0": "Windows 10",
-		"Windows NT 6.1":  "Windows 7",
-		"Mac OS X 10":     "macOS",
-		"Macintosh":       "macOS",
-		"Android":         "Android",
-		"iPhone":          "iOS",
-		"iPad":            "iOS",
-		"Linux":           "Linux",
-	}
-
-	for pattern, osName := range osPatterns {
-		if strings.Contains(ua, pattern) {
-			return osName
-		}
-	}
-	return "Unknown OS"
-}
-
-func GetUserAgentBrowser(userAgent string) (string, string) {
-	browserPatterns := []struct {
-		Name    string
-		Pattern string
-	}{
-		{"Chrome", `Chrome/([\d.]+)`},
-		{"Firefox", `Firefox/([\d.]+)`},
-		{"Safari", `Version/([\d.]+) Safari/`},
-		{"Edge", `Edg/([\d.]+)`},
-		{"Opera", `OPR/([\d.]+)`},
-	}
-
-	for _, b := range browserPatterns {
-		re := regexp.MustCompile(b.Pattern)
-		match := re.FindStringSubmatch(userAgent)
-		if len(match) > 1 {
-			return b.Name, match[1]
-		}
-	}
-	return "Unknown Browser", ""
 }
 
 // --- Math Helpers ---

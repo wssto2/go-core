@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/wssto2/go-core/database"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/schema"
@@ -45,7 +46,7 @@ func NewDateFromString(value string) Date {
 		// Fallback or panic? Original panicked. Let's return zero value and log error?
 		// Keeping original behavior for compatibility but maybe safer?
 		// panic(fmt.Sprintf("failed to parse date: %s", value))
-		return Date{} 
+		return Date{}
 	}
 	return NewDate(t)
 }
@@ -84,22 +85,22 @@ func (d *Date) Scan(value interface{}) error {
 }
 
 func (d Date) GormDataType() string {
-	return MysqlDateType
+	return database.MySQLDate
 }
 
 func (d Date) GormDBDataType(db *gorm.DB, field *schema.Field) string {
-	if db.Name() == Sqlite && field.TagSettings["DEFAULT"] == "0000-00-00" {
+	if db.Name() == database.DriverSQLite && field.TagSettings["DEFAULT"] == "0000-00-00" {
 		field.DefaultValue = "null"
 		field.NotNull = false
 	}
 	switch db.Name() {
-	case Sqlite:
-		return SqliteDateType
-	case Mysql:
+	case database.DriverSQLite:
+		return database.SQLiteDate
+	case database.DriverMySQL:
 		if t := field.TagSettings["TYPE"]; t != "" {
 			return t
 		}
-		return MysqlDateType
+		return database.MySQLDate
 	}
 	return field.TagSettings["TYPE"]
 }
@@ -113,13 +114,13 @@ func (d Date) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
 
 func (d Date) MarshalJSON() ([]byte, error) {
 	if d.value.IsZero() {
-		return []byte(Null), nil
+		return []byte(database.Null), nil
 	}
 	return json.Marshal(d.value.Format("2006-01-02"))
 }
 
 func (d *Date) UnmarshalJSON(data []byte) error {
-	if string(data) == Null {
+	if string(data) == database.Null {
 		d.value = time.Time{}
 		return nil
 	}

@@ -3,6 +3,8 @@ package logger
 import (
 	"context"
 	"log/slog"
+
+	"github.com/wssto2/go-core/observability/tracing"
 )
 
 type contextKey string
@@ -46,14 +48,18 @@ func (h *SourceHandler) Handle(ctx context.Context, record slog.Record) error {
 	userID, hasUserID := ctx.Value(ctxKeyUserID).(int)
 	requestID, hasRequestID := ctx.Value(ctxKeyRequestID).(string)
 
+	// Extract trace/span if present using the tracing helper
+	traceID, hasTrace := tracing.TraceIDFromContext(ctx)
+	spanID, hasSpan := tracing.SpanIDFromContext(ctx)
+
 	// If no context values, just pass through
-	if !hasSourceFile && !hasSourceLine && !hasUserID && !hasRequestID {
+	if !hasSourceFile && !hasSourceLine && !hasUserID && !hasRequestID && !hasTrace && !hasSpan {
 		return h.Handler.Handle(ctx, record)
 	}
 
 	// Create new record with additional attributes
 	newRecord := slog.NewRecord(record.Time, record.Level, record.Message, record.PC)
-	
+
 	// Copy existing attributes
 	record.Attrs(func(attr slog.Attr) bool {
 		newRecord.AddAttrs(attr)
@@ -72,6 +78,12 @@ func (h *SourceHandler) Handle(ctx context.Context, record slog.Record) error {
 	}
 	if hasRequestID {
 		newRecord.AddAttrs(slog.String("request_id", requestID))
+	}
+	if hasTrace {
+		newRecord.AddAttrs(slog.String("trace_id", traceID))
+	}
+	if hasSpan {
+		newRecord.AddAttrs(slog.String("span_id", spanID))
 	}
 
 	return h.Handler.Handle(ctx, newRecord)
