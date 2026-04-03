@@ -3,7 +3,10 @@ package memory
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"sort"
+	"strings"
 	"sync"
 
 	"github.com/wssto2/go-core/apperr"
@@ -36,6 +39,11 @@ func (d *Driver) Put(ctx context.Context, key string, r io.Reader, size int64, m
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	const maxSize = 100 * 1024 * 1024 // 100 MiB hard cap
+	if size < 0 || size > maxSize {
+		return apperr.BadRequest(fmt.Sprintf("storage: size %d exceeds maximum allowed (%d bytes)", size, maxSize))
+	}
+
 	data := make([]byte, size)
 	_, err := io.ReadFull(r, data)
 	if err != nil {
@@ -64,11 +72,11 @@ func (d *Driver) List(ctx context.Context, prefix string) ([]string, error) {
 
 	var keys []string
 	for key := range d.data {
-		if key == prefix || key > prefix {
-			break
+		if strings.HasPrefix(key, prefix) {
+			keys = append(keys, key)
 		}
-		keys = append(keys, key)
 	}
+	sort.Strings(keys)
 	return keys, nil
 }
 

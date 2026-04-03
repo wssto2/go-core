@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"reflect"
+	"sync"
 
 	"github.com/wssto2/go-core/apperr"
 )
@@ -27,6 +28,9 @@ type Subscription interface {
 type NATSBus struct {
 	client NatsClient
 	log    *slog.Logger
+
+	mu   sync.Mutex
+	subs map[string]Subscription
 }
 
 // Ping verifies the NATS connection by publishing a zero-byte probe to a
@@ -37,7 +41,11 @@ func (n *NATSBus) Ping(ctx context.Context) error {
 
 // NewNATSBus constructs a NATS-backed Bus adapter.
 func NewNATSBus(client NatsClient, log *slog.Logger) *NATSBus {
-	return &NATSBus{client: client, log: log}
+	return &NATSBus{
+		client: client,
+		log:    log,
+		subs:   make(map[string]Subscription),
+	}
 }
 
 // Publish marshals the event as JSON and publishes to a subject derived from the type.
@@ -80,10 +88,20 @@ func unmarshalIntoType(data []byte, t reflect.Type) (any, error) {
 // Subscribe registers a subscription for the given event type. The provided event
 // parameter is only used for its type (pass a zero value). Handlers are invoked with
 // a background context since NATS delivery is asynchronous.
+// If a subscription for the same subject already exists it is unsubscribed first,
+// preventing duplicate handler invocations on re-registration.
 func (n *NATSBus) Subscribe(event any, handler func(ctx context.Context, event any) error) error {
 	t := reflect.TypeOf(event)
 	subject := t.String()
-	_, err := n.client.Subscribe(subject, func(data []byte) {
+
+	n.mu.Lock()
+	if existing, ok := n.subs[subject]; ok {
+		_ = existing.Unsubscribe()
+		delete(n.subs, subject)
+	}
+	n.mu.Unlock()
+
+	sub, err := n.client.Subscribe(subject, func(data []byte) {
 		// Attempt to decode an Envelope first (newer messages). If it isn't an
 		// envelope, fall back to decoding the raw event JSON for backward compatibility.
 		var recv any
@@ -125,5 +143,30 @@ func (n *NATSBus) Subscribe(event any, handler func(ctx context.Context, event a
 	if err != nil {
 		return apperr.Internal(err)
 	}
+
+	n.mu.Lock()
+	if _, ok := n.subs[subject]; ok {
+		// Another goroutine concurrently registered a subscription for the same subject.
+		// Discard ours to avoid a leak; the other subscription is already stored.
+		n.mu.Unlock()
+		_ = sub.Unsubscribe()
+		return nil
+	}
+	n.subs[subject] = sub
+	n.mu.Unlock()
 	return nil
+}
+
+// Close unsubscribes all tracked subscriptions. Call this during application shutdown.
+func (n *NATSBus) Close() error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	var lastErr error
+	for subject, sub := range n.subs {
+		if err := sub.Unsubscribe(); err != nil {
+			lastErr = err
+		}
+		delete(n.subs, subject)
+	}
+	return lastErr
 }

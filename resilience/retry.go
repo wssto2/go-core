@@ -38,8 +38,12 @@ func Retry(ctx context.Context, attempts int, initial time.Duration, op func(con
 			break
 		}
 
-		// exponential backoff: initial * 2^i
+		// exponential backoff: initial * 2^i, capped to prevent overflow after many attempts
+		const maxBackoff = 30 * time.Second
 		backoff := time.Duration(float64(initial) * math.Pow(2, float64(i)))
+		if backoff > maxBackoff || backoff < 0 {
+			backoff = maxBackoff
+		}
 		// wait for backoff or context cancellation
 		timer := time.NewTimer(backoff)
 		select {

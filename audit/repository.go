@@ -74,7 +74,7 @@ func (r *transactorRepository) Write(ctx context.Context, entry Entry) error {
 		EntityID:      entry.EntityID,
 		Action:        entry.Action,
 		ActorID:       entry.ActorID,
-		Metadata:      toJSON(entry.Metadata),
+		Metadata:      toJSON(Mask(entry.Metadata)),
 		BeforeState:   before,
 		AfterState:    after,
 		ChangedFields: fields,

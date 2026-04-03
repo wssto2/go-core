@@ -1,3 +1,16 @@
+// Package middlewares provides HTTP middleware for the gin framework.
+//
+// # Idempotency (HTTP level)
+//
+// The Idempotency middleware deduplicates HTTP requests that share the same
+// Idempotency-Key header. It captures the full HTTP response (status line,
+// headers, body) on the first request and replays the stored bytes to any
+// subsequent request with the same key.
+//
+// This is a fundamentally different concern from event-level deduplication
+// (see event.ProcessedStore / event.DBProcessedStore): the HTTP middleware
+// operates on serialised HTTP responses, while event-level stores track only
+// whether an event identifier has been processed.
 package middlewares
 
 import (
@@ -23,7 +36,8 @@ type idEntry struct {
 	timer *time.Timer
 }
 
-// IdempotencyStore stores responses for idempotency keys.
+// IdempotencyStore stores captured HTTP responses keyed by idempotency key.
+// It is safe for concurrent use. Use NewInMemoryIdempotencyStore to construct one.
 type IdempotencyStore struct {
 	mu  sync.Mutex
 	m   map[string]*idEntry
@@ -94,6 +108,12 @@ func Idempotency(store *IdempotencyStore) gin.HandlerFunc {
 			return
 		}
 
+		// Task 6.2: reject oversized keys before touching the store.
+		if len(key) > 256 {
+			ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Idempotency-Key too long (max 256 bytes)"})
+			return
+		}
+
 		entry, created := store.getOrCreate(key)
 		if created {
 			// first request: capture response
@@ -103,13 +123,15 @@ func Idempotency(store *IdempotencyStore) gin.HandlerFunc {
 			cw := &captureWriter{ResponseWriter: w, body: buf}
 			ctx.Writer = cw
 
-			ctx.Next()
+			// Always call setResponse, even if the handler panics.
+			// This closes the channel so waiting duplicates are not blocked forever.
+			// Restore the original writer so gin's recovery middleware sees the real writer.
+			defer func() {
+				ctx.Writer = w
+				store.setResponse(key, cw.Status(), cw.Header(), cw.body.Bytes())
+			}()
 
-			// after handler finished, record response
-			status := cw.Status()
-			head := cw.Header().Clone()
-			body := cw.body.Bytes()
-			store.setResponse(key, status, head, body)
+			ctx.Next()
 			return
 		}
 
@@ -128,8 +150,12 @@ func Idempotency(store *IdempotencyStore) gin.HandlerFunc {
 
 func writeStoredResponse(ctx *gin.Context, e *idEntry) {
 	for k, vals := range e.head {
-		for _, v := range vals {
-			ctx.Writer.Header().Add(k, v)
+		for i, v := range vals {
+			if i == 0 {
+				ctx.Writer.Header().Set(k, v)
+			} else {
+				ctx.Writer.Header().Add(k, v)
+			}
 		}
 	}
 	ctx.Writer.WriteHeader(e.status)

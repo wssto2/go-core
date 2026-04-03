@@ -3,6 +3,7 @@ package resilience
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -65,10 +66,16 @@ func (cb *CircuitBreaker) State() State {
 // will receive ErrOpen until the trial finishes.
 // runTrial encapsulates the logic for executing a trial call in HALF-OPEN state.
 func (cb *CircuitBreaker) runTrial(ctx context.Context, op func(context.Context) error) error {
+	// Always reset trialInProgress, even if op panics.
+	defer func() {
+		cb.mu.Lock()
+		cb.trialInProgress = false
+		cb.mu.Unlock()
+	}()
+
 	err := op(ctx)
 
 	cb.mu.Lock()
-	cb.trialInProgress = false
 	if err == nil {
 		cb.state = StateClosed
 		cb.failures = 0
@@ -118,11 +125,27 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, op func(context.Context) 
 	case StateClosed:
 		cb.mu.Unlock()
 
-		// normal execution
-		err := op(ctx)
+		// Wrap execution to count panics as failures so the breaker can trip.
+		var opErr error
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					opErr = fmt.Errorf("panic: %v", r)
+					cb.mu.Lock()
+					cb.failures++
+					if cb.failures >= cb.failureThreshold {
+						cb.state = StateOpen
+						cb.openedAt = time.Now()
+					}
+					cb.mu.Unlock()
+					panic(r) // re-panic so the caller's recovery middleware sees it
+				}
+			}()
+			opErr = op(ctx)
+		}()
 
 		cb.mu.Lock()
-		if err == nil {
+		if opErr == nil {
 			cb.failures = 0
 		} else {
 			cb.failures++
@@ -132,7 +155,7 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, op func(context.Context) 
 			}
 		}
 		cb.mu.Unlock()
-		return err
+		return opErr
 
 	default:
 		cb.mu.Unlock()

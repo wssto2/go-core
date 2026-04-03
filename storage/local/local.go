@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/wssto2/go-core/apperr"
 )
@@ -27,9 +28,31 @@ func New(root string) (*Driver, error) {
 	return &Driver{Root: root}, nil
 }
 
+// safePath validates key and returns the absolute path within d.Root.
+// It rejects empty keys and keys that escape the root directory.
+func (d *Driver) safePath(key string) (string, error) {
+	if key == "" {
+		return "", apperr.BadRequest("storage key must not be empty")
+	}
+	sep := string(filepath.Separator)
+	p := filepath.Join(d.Root, key)
+	root := filepath.Clean(d.Root)
+	if !strings.HasPrefix(p+sep, root+sep) {
+		return "", apperr.BadRequest("storage key escapes root directory")
+	}
+	return p, nil
+}
+
 // Put writes the provided reader to disk at key.
 func (d *Driver) Put(ctx context.Context, key string, r io.Reader, size int64, mime string) error {
-	p := filepath.Join(d.Root, key)
+	p, err := d.safePath(key)
+	if err != nil {
+		return err
+	}
+	// Reject symlinks to prevent write-through attacks on pre-planted symlinks.
+	if info, lerr := os.Lstat(p); lerr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return apperr.BadRequest("storage key refers to a symlink")
+	}
 	dir := filepath.Dir(p)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return apperr.Internal(err)
@@ -39,7 +62,19 @@ func (d *Driver) Put(ctx context.Context, key string, r io.Reader, size int64, m
 		return apperr.Internal(err)
 	}
 	defer func() { _ = f.Close() }()
-	if _, err := io.Copy(f, r); err != nil {
+
+	// Limit reader to declared size to prevent unbounded disk writes.
+	var reader io.Reader = r
+	if size > 0 {
+		reader = io.LimitReader(r, size)
+	}
+	if _, err := io.Copy(f, reader); err != nil {
+		_ = os.Remove(p) // clean up partial file on write error
+		return apperr.Internal(err)
+	}
+	// Flush to underlying storage before returning to ensure durability.
+	if err := f.Sync(); err != nil {
+		_ = os.Remove(p)
 		return apperr.Internal(err)
 	}
 	return nil
@@ -47,7 +82,14 @@ func (d *Driver) Put(ctx context.Context, key string, r io.Reader, size int64, m
 
 // Get opens the object for reading.
 func (d *Driver) Get(ctx context.Context, key string) (io.ReadCloser, error) {
-	p := filepath.Join(d.Root, key)
+	p, err := d.safePath(key)
+	if err != nil {
+		return nil, err
+	}
+	// Reject symlinks to prevent traversal to files outside the storage root.
+	if info, lerr := os.Lstat(p); lerr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return nil, apperr.BadRequest("storage key refers to a symlink")
+	}
 	f, err := os.Open(p)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -60,7 +102,14 @@ func (d *Driver) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 
 // Delete removes the object from disk.
 func (d *Driver) Delete(ctx context.Context, key string) error {
-	p := filepath.Join(d.Root, key)
+	p, err := d.safePath(key)
+	if err != nil {
+		return err
+	}
+	// Reject symlinks to prevent deletion of files outside the storage root.
+	if info, lerr := os.Lstat(p); lerr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return apperr.BadRequest("storage key refers to a symlink")
+	}
 	if err := os.Remove(p); err != nil {
 		if os.IsNotExist(err) {
 			return apperr.NotFound(fmt.Sprintf("object %s not found", key))
@@ -72,7 +121,10 @@ func (d *Driver) Delete(ctx context.Context, key string) error {
 
 // URL returns a file:// URL to the object on disk.
 func (d *Driver) URL(ctx context.Context, key string) (string, error) {
-	p := filepath.Join(d.Root, key)
+	p, err := d.safePath(key)
+	if err != nil {
+		return "", err
+	}
 	abs, err := filepath.Abs(p)
 	if err != nil {
 		return "", apperr.Internal(err)
@@ -84,8 +136,11 @@ func (d *Driver) URL(ctx context.Context, key string) (string, error) {
 // List returns all keys with the given prefix.
 func (d *Driver) List(ctx context.Context, prefix string) ([]string, error) {
 	var keys []string
-	rootPrefix := filepath.Join(d.Root, prefix)
-	err := filepath.Walk(rootPrefix, func(path string, info os.FileInfo, err error) error {
+	rootPrefix, err := d.safePath(prefix)
+	if err != nil {
+		return nil, err
+	}
+	err = filepath.Walk(rootPrefix, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -110,9 +165,15 @@ func (d *Driver) List(ctx context.Context, prefix string) ([]string, error) {
 
 // Exists checks if the key exists.
 func (d *Driver) Exists(ctx context.Context, key string) (bool, error) {
-	p := filepath.Join(d.Root, key)
-	_, err := os.Stat(p)
+	p, err := d.safePath(key)
+	if err != nil {
+		return false, err
+	}
+	info, err := os.Lstat(p)
 	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return false, apperr.BadRequest("storage key refers to a symlink")
+		}
 		return true, nil
 	}
 	if os.IsNotExist(err) {

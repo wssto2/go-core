@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"reflect"
 	"sync"
 	"time"
@@ -19,26 +20,51 @@ type DeadLetterEntry struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// DeadLetterQueue is a minimal, testable DLQ abstraction.
+// DeadLetterQueue is a minimal DLQ abstraction. Implementations are responsible
+// for durable storage or forwarding of failed messages.
 type DeadLetterQueue interface {
 	Enqueue(ctx context.Context, subject string, data []byte, cause error) error
-	Entries() []DeadLetterEntry
 }
 
 // InMemoryDLQ is a simple in-memory dead-letter queue suitable for tests and
-// low-volume usage. It is intentionally minimal.
+// low-volume usage. When the queue is at capacity the oldest entry is dropped.
 type InMemoryDLQ struct {
 	mu      sync.Mutex
 	entries []DeadLetterEntry
+	maxSize int
+	dropped int64
+	log     *slog.Logger
 }
 
-// NewInMemoryDLQ constructs an empty in-memory DLQ.
+// NewInMemoryDLQ constructs an unbounded in-memory DLQ (maxSize=0).
+// Prefer NewInMemoryDLQWithSize for production use.
 func NewInMemoryDLQ() *InMemoryDLQ { return &InMemoryDLQ{} }
+
+// NewInMemoryDLQWithSize constructs a bounded DLQ. When len(entries) >= maxSize,
+// the oldest entry is evicted and Dropped() is incremented. maxSize <= 0 means
+// unbounded.
+func NewInMemoryDLQWithSize(maxSize int, log *slog.Logger) *InMemoryDLQ {
+	return &InMemoryDLQ{maxSize: maxSize, log: log}
+}
+
+// Dropped returns the number of entries that were silently evicted due to overflow.
+func (d *InMemoryDLQ) Dropped() int64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.dropped
+}
 
 // Enqueue stores the failed message into the DLQ.
 func (d *InMemoryDLQ) Enqueue(ctx context.Context, subject string, data []byte, cause error) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.maxSize > 0 && len(d.entries) >= d.maxSize {
+		d.entries = d.entries[1:] // drop oldest
+		d.dropped++
+		if d.log != nil {
+			d.log.Warn("dlq: capacity exceeded, oldest entry dropped", "max_size", d.maxSize, "dropped_total", d.dropped)
+		}
+	}
 	entry := DeadLetterEntry{
 		Subject:   subject,
 		Data:      append([]byte(nil), data...), // copy
@@ -104,6 +130,11 @@ func (r *RetryBus) Publish(ctx context.Context, event any) error {
 		if j, jmErr := json.Marshal(event); jmErr == nil {
 			data = j
 		}
+	}
+	if len(data) == 0 {
+		// Both serialization attempts failed: enqueuing would create an unrecoverable
+		// DLQ entry with no payload. Return the original publish error directly.
+		return apperr.Internal(err)
 	}
 
 	subject := reflect.TypeOf(event).String()

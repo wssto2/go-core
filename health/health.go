@@ -2,8 +2,10 @@ package health
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -20,11 +22,20 @@ type HealthRegistry struct {
 	mu       sync.RWMutex
 	checkers []HealthChecker
 	draining bool
+	log      *slog.Logger
 }
 
 // NewHealthRegistry creates a new HealthRegistry.
 func NewHealthRegistry() *HealthRegistry {
-	return &HealthRegistry{}
+	return &HealthRegistry{log: slog.Default()}
+}
+
+// NewHealthRegistryWithLogger creates a HealthRegistry with the given logger.
+func NewHealthRegistryWithLogger(log *slog.Logger) *HealthRegistry {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &HealthRegistry{log: log}
 }
 
 // SetDraining toggles the registry draining state. When draining, readiness will return 503.
@@ -55,10 +66,21 @@ func (r *HealthRegistry) Checkers() []HealthChecker {
 }
 
 // DBHealthChecker checks the database connectivity.
-type DBHealthChecker struct{ db *gorm.DB }
+type DBHealthChecker struct {
+	db      *gorm.DB
+	timeout time.Duration // per-ping timeout; defaults to 3s
+}
 
 func NewDBHealthChecker(db *gorm.DB) HealthChecker {
-	return &DBHealthChecker{db: db}
+	return &DBHealthChecker{db: db, timeout: 3 * time.Second}
+}
+
+// NewDBHealthCheckerWithTimeout creates a DBHealthChecker with a custom ping timeout.
+func NewDBHealthCheckerWithTimeout(db *gorm.DB, timeout time.Duration) HealthChecker {
+	if timeout <= 0 {
+		timeout = 3 * time.Second
+	}
+	return &DBHealthChecker{db: db, timeout: timeout}
 }
 
 func (c *DBHealthChecker) Name() string {
@@ -70,7 +92,9 @@ func (c *DBHealthChecker) Check(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return sqlDB.PingContext(ctx)
+	pingCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	return sqlDB.PingContext(pingCtx)
 }
 
 // Pinger is an optional interface that event bus implementations may
@@ -111,8 +135,15 @@ func LivenessHandler() gin.HandlerFunc {
 }
 
 // ReadinessHandler runs all registered checks and returns their status.
+// Internal error details are logged but never included in the HTTP response
+// to prevent information disclosure.
 func ReadinessHandler(registry *HealthRegistry) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if registry == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded", "error": "health registry not configured"})
+			return
+		}
+
 		// If we're draining (zero-downtime deploy), immediately report not ready.
 		if registry.IsDraining() {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
@@ -128,7 +159,9 @@ func ReadinessHandler(registry *HealthRegistry) gin.HandlerFunc {
 
 		for _, checker := range checkers {
 			if err := checker.Check(c.Request.Context()); err != nil {
-				results[checker.Name()] = "down: " + err.Error()
+				registry.log.ErrorContext(c.Request.Context(), "health: checker failed",
+					"checker", checker.Name(), "error", err)
+				results[checker.Name()] = "down"
 				status = http.StatusServiceUnavailable
 			} else {
 				results[checker.Name()] = "up"

@@ -206,7 +206,7 @@ func (r *Registry) AddConnection(name string, conn *gorm.DB) {
 
 func (r *Registry) openMySQL(cfg ConnectionConfig) (*gorm.DB, error) {
 	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local&sql_mode=ALLOW_INVALID_DATES",
+		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local",
 		cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database,
 	)
 
@@ -221,6 +221,11 @@ func (r *Registry) openMySQL(cfg ConnectionConfig) (*gorm.DB, error) {
 
 	sqlDB, err := conn.DB()
 	if err != nil {
+		// Attempt best-effort cleanup to avoid leaking the underlying connection pool.
+		// conn.DB() failing after a successful gorm.Open is unusual, but guard anyway.
+		if db, e := conn.DB(); e == nil {
+			_ = db.Close()
+		}
 		return nil, err
 	}
 

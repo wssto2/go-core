@@ -2,6 +2,7 @@ package resilience
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -28,6 +29,11 @@ func WithTimeout(ctx context.Context, timeout time.Duration, op func(context.Con
 
 	errCh := make(chan error, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errCh <- fmt.Errorf("resilience.WithTimeout: panic in operation: %v", r)
+			}
+		}()
 		errCh <- op(ctx2)
 	}()
 

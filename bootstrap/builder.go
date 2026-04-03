@@ -180,6 +180,12 @@ func (b *AppBuilder) WithNATSBus(client event.NatsClient) *AppBuilder {
 }
 
 func (b *AppBuilder) WithJWTAuth(resolver auth.IdentityResolver) *AppBuilder {
+	if b.cfg.JWT.Secret == "" {
+		panic("WithJWTAuth: JWT_SECRET must not be empty")
+	}
+	if len(b.cfg.JWT.Secret) < 32 {
+		panic("WithJWTAuth: JWT_SECRET must be at least 32 characters for HS256 security")
+	}
 	tokenCfg := auth.TokenConfig{
 		SecretKey:     b.cfg.JWT.Secret,
 		Issuer:        b.cfg.JWT.Issuer,
@@ -213,12 +219,29 @@ func (b *AppBuilder) WithHttp() *AppBuilder {
 		b.engine.Static(b.cfg.Engine.StaticURL, b.cfg.Engine.StaticPath)
 	}
 
+	readHeaderTimeout := time.Duration(b.cfg.ReadHeaderTimeoutSec) * time.Second
+	if readHeaderTimeout <= 0 {
+		readHeaderTimeout = 10 * time.Second
+	}
+	readTimeout := time.Duration(b.cfg.ReadTimeoutSec) * time.Second
+	if readTimeout <= 0 {
+		readTimeout = 30 * time.Second
+	}
+	writeTimeout := time.Duration(b.cfg.WriteTimeoutSec) * time.Second
+	if writeTimeout <= 0 {
+		writeTimeout = 30 * time.Second
+	}
+	idleTimeout := time.Duration(b.cfg.IdleTimeoutSec) * time.Second
+	if idleTimeout <= 0 {
+		idleTimeout = 120 * time.Second
+	}
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", port),
-		Handler:      b.engine,
-		ReadTimeout:  time.Duration(b.cfg.ReadTimeoutSec) * time.Second,
-		WriteTimeout: time.Duration(b.cfg.WriteTimeoutSec) * time.Second,
-		IdleTimeout:  time.Duration(b.cfg.IdleTimeoutSec) * time.Second,
+		Addr:              fmt.Sprintf(":%d", port),
+		Handler:           b.engine,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 	b.server = &serverWrapper{srv: srv}
 
