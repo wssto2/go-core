@@ -32,6 +32,9 @@ import (
 	"github.com/wssto2/go-core/validation"
 )
 
+// maxBodyBytes is the maximum allowed JSON request body size (10 MB).
+const maxBodyBytes int64 = 10 << 20
+
 // BindRequest parses and validates the request body into v.
 // Supports Content-Type: application/json and multipart/form-data.
 //
@@ -101,9 +104,13 @@ func parseRequest(r *http.Request) (map[string]any, bool, error) {
 }
 
 func parseJSON(r *http.Request) (map[string]any, bool, error) {
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
 	if err != nil {
 		return nil, false, apperr.BadRequest("failed to read request body: " + err.Error())
+	}
+
+	if int64(len(body)) > maxBodyBytes {
+		return nil, false, apperr.BadRequest("request body too large")
 	}
 
 	if len(body) == 0 {

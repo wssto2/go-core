@@ -1,12 +1,14 @@
 package frontend
 
 import (
+	"bytes"
+	"encoding/json"
+	"html/template"
 	"log/slog"
 	"strings"
-	"text/template"
+	htmpl "text/template"
 
 	"github.com/gin-gonic/gin"
-	"github.com/goccy/go-json"
 )
 
 // SPAConfig configures the SPA catch-all handler.
@@ -31,7 +33,7 @@ type SPAConfig struct {
 
 	// ExtraFuncs allows the application to add template functions
 	// on top of the built-in toJSON that go-core provides.
-	ExtraFuncs template.FuncMap
+	ExtraFuncs htmpl.FuncMap
 
 	// DevMode resolves assets on every request instead of once at startup.
 	// Set to true when Env is "development" so Vite start/stop is detected automatically.
@@ -57,11 +59,17 @@ func (c SPAConfig) withDefaults() SPAConfig {
 
 // BuiltinFuncMap returns the template functions go-core always provides.
 // Applications can merge extra functions via SPAConfig.ExtraFuncs.
-func BuiltinFuncMap() template.FuncMap {
-	return template.FuncMap{
-		"toJSON": func(v any) string {
-			b, _ := json.Marshal(v)
-			return string(b)
+func BuiltinFuncMap() htmpl.FuncMap {
+	return htmpl.FuncMap{
+		"toJSON": func(v any) template.JS {
+			var buf bytes.Buffer
+			enc := json.NewEncoder(&buf)
+			enc.SetEscapeHTML(false)
+			if err := enc.Encode(v); err != nil {
+				return template.JS("null")
+			}
+			// Encode appends a trailing newline; trim it.
+			return template.JS(bytes.TrimRight(buf.Bytes(), "\n"))
 		},
 	}
 }
@@ -78,6 +86,9 @@ func BuiltinFuncMap() template.FuncMap {
 // Template authors are responsible for injecting .AppState into the page.
 // go-core does not mandate the variable name or the injection mechanism.
 func RegisterSPA(engine *gin.Engine, cfg SPAConfig, log *slog.Logger) {
+	if log == nil {
+		log = slog.Default()
+	}
 	cfg = cfg.withDefaults()
 
 	// In production, resolve once — the dist files never change at runtime.
@@ -90,13 +101,11 @@ func RegisterSPA(engine *gin.Engine, cfg SPAConfig, log *slog.Logger) {
 		}
 	}
 
-	if log != nil {
-		log.Info("frontend: SPA registered with app state builder",
-			"template", cfg.TemplateName,
-			"api_prefix", cfg.APIPrefix,
-			"dev_mode", cfg.DevMode,
-		)
-	}
+	log.Info("frontend: SPA registered with app state builder",
+		"template", cfg.TemplateName,
+		"api_prefix", cfg.APIPrefix,
+		"dev_mode", cfg.DevMode,
+	)
 
 	engine.NoRoute(func(ctx *gin.Context) {
 		if strings.HasPrefix(ctx.Request.URL.Path, cfg.APIPrefix) {

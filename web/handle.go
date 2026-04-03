@@ -24,4 +24,5 @@ func HandleCreate[T any](ctx *gin.Context, result T, err error) {
 
 func Fail(ctx *gin.Context, err error) {
 	_ = ctx.Error(err)
+	ctx.Abort()
 }

@@ -50,11 +50,10 @@ func (c *Cache) FieldsByType(t reflect.Type) []FieldInfo {
 	c.mu.RLock()
 
 	if e, ok := c.m[t]; ok {
-		fields := e.fields
-
+		result := make([]FieldInfo, len(e.fields))
+		copy(result, e.fields)
 		c.mu.RUnlock()
-
-		return fields
+		return result
 	}
 
 	c.mu.RUnlock()
@@ -96,7 +95,9 @@ func (c *Cache) FieldsByType(t reflect.Type) []FieldInfo {
 	c.m[t] = &cacheEntry{fields: fields}
 	c.mu.Unlock()
 
-	return fields
+	result := make([]FieldInfo, len(fields))
+	copy(result, fields)
+	return result
 }
 
 // Fields returns cached FieldInfo for the dynamic value's type.

@@ -4,6 +4,9 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type inner struct {
@@ -59,4 +62,26 @@ func TestFieldsConcurrency(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestCache_ReturnedSlice_IsIndependent(t *testing.T) {
+type item struct {
+A string
+B int
+}
+
+c := New()
+typ := reflect.TypeOf(item{})
+
+first := c.FieldsByType(typ)
+require.Len(t, first, 2)
+
+// Sort the returned slice in reverse order.
+first[0], first[1] = first[1], first[0]
+
+// A second call must return the original order, not the mutated one.
+second := c.FieldsByType(typ)
+require.Len(t, second, 2)
+assert.Equal(t, "A", second[0].Name, "cache must not be affected by caller mutation")
+assert.Equal(t, "B", second[1].Name)
 }

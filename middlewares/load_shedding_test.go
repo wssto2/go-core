@@ -3,6 +3,7 @@ package middlewares
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,10 +26,15 @@ func TestLoadShedding_RejectsWhenOverLimit(t *testing.T) {
 	})
 
 	recs := make([]*httptest.ResponseRecorder, 3)
+	var wg sync.WaitGroup
 	for i := 0; i < 3; i++ {
 		recs[i] = httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/test", nil)
-		go r.ServeHTTP(recs[i], req)
+		wg.Add(1)
+		go func(rec *httptest.ResponseRecorder, req *http.Request) {
+			defer wg.Done()
+			r.ServeHTTP(rec, req)
+		}(recs[i], req)
 	}
 
 	require.Eventually(t, func() bool { return started.Load() == 2 }, 2*time.Second, 10*time.Millisecond)
@@ -37,8 +43,8 @@ func TestLoadShedding_RejectsWhenOverLimit(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	close(done)
 
-	// wait for handlers to finish
-	time.Sleep(50 * time.Millisecond)
+	// wait for all goroutines to finish before reading recorder state
+	wg.Wait()
 
 	okCount := 0
 	svcCount := 0
@@ -69,7 +75,12 @@ func TestLoadShedding_Returns429WhenConfigured(t *testing.T) {
 
 	rec1 := httptest.NewRecorder()
 	req1 := httptest.NewRequest("GET", "/t2", nil)
-	go r.ServeHTTP(rec1, req1)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		r.ServeHTTP(rec1, req1)
+	}()
 
 	// give the first request time to start
 	require.Eventually(t, func() bool { return started.Load() == 1 }, time.Second, 10*time.Millisecond)
@@ -79,7 +90,8 @@ func TestLoadShedding_Returns429WhenConfigured(t *testing.T) {
 	r.ServeHTTP(rec2, req2) // synchronous call for second request; should be rejected
 
 	close(done)
-	time.Sleep(10 * time.Millisecond)
+	// wait for the first goroutine to finish before reading rec1.Code
+	wg.Wait()
 
 	require.Equal(t, http.StatusOK, rec1.Code)
 	require.Equal(t, http.StatusTooManyRequests, rec2.Code)

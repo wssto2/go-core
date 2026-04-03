@@ -74,3 +74,30 @@ func (f *fakeExec) Eval(ctx context.Context, script string, keys []string, args 
 	}
 	return v, nil
 }
+
+func TestInMemoryLimiter_ExpiredEntries_AreEvicted(t *testing.T) {
+window := 50 * time.Millisecond
+limiter := ratelimit.NewInMemoryLimiter(10, window)
+defer limiter.Stop()
+
+ctx := context.Background()
+for i := 0; i < 20; i++ {
+_, _ = limiter.Allow(ctx, "ip"+string(rune('A'+i)))
+}
+
+before := limiter.Len()
+if before == 0 {
+t.Fatal("expected non-empty map before sweep")
+}
+
+time.Sleep(window * 4)
+
+after := limiter.Len()
+if after != 0 {
+t.Fatalf("expected empty map after sweep, got %d entries", after)
+}
+
+// Stop must be idempotent.
+limiter.Stop()
+limiter.Stop()
+}

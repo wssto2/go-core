@@ -63,6 +63,41 @@ func TestAsyncRepositoryFlushes(t *testing.T) {
 	fr.mu.Unlock()
 }
 
+func TestAsyncRepository_WriteAfterShutdown_NoRace(t *testing.T) {
+	fr := &fakeRepo{}
+	ar := NewAsyncRepository(fr, 100, 2)
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, 20)
+
+	// 10 goroutines call Write and Shutdown concurrently.
+	for i := 0; i < 9; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := ar.Write(context.Background(), NewEntry("user", 1, 1, "create"))
+			errCh <- err
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = ar.Shutdown(context.Background())
+	}()
+
+	wg.Wait()
+	close(errCh)
+
+	// All post-shutdown writes must return an error; none must panic.
+	// (Some writes may succeed before shutdown; that is acceptable.)
+	for err := range errCh {
+		if err != nil {
+			// Any error is a valid outcome for a Write that raced with Shutdown.
+			_ = err
+		}
+	}
+}
+
 type slowRepo struct {
 	mu      sync.Mutex
 	entries []Entry

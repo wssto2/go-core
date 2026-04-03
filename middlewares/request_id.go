@@ -1,6 +1,8 @@
 package middlewares
 
 import (
+	"regexp"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/wssto2/go-core/logger"
@@ -8,13 +10,17 @@ import (
 
 const HeaderXRequestID = "X-Request-ID"
 
+// validRequestID accepts only safe alphanumeric/hyphen/underscore values up to 128 chars.
+var validRequestID = regexp.MustCompile(`^[a-zA-Z0-9\-_]{1,128}$`)
+
 // RequestID middleware ensures every request has a unique ID.
-// It checks the X-Request-ID header; if missing, it generates a new UUID.
+// It checks the X-Request-ID header; if missing or invalid, it generates a new UUID.
 // The ID is then set in the response headers and the gin context.
 func RequestID() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		requestID := ctx.GetHeader(HeaderXRequestID)
-		if requestID == "" {
+		if !validRequestID.MatchString(requestID) {
+			// Discard invalid or empty values to prevent CRLF injection and log inflation.
 			requestID = uuid.New().String()
 		}
 

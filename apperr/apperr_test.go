@@ -2,6 +2,7 @@ package apperr_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -49,4 +50,21 @@ func TestWrapAddsContext(t *testing.T) {
 	require.Error(t, w.Err)
 	require.Equal(t, err, w.Err)
 	require.Contains(t, w.Error(), "higher level")
+}
+
+func TestGetHTTPStatus_WrappedAppError_Unwraps(t *testing.T) {
+t.Parallel()
+
+inner := apperr.NotFound("resource not found")
+wrapped := fmt.Errorf("service layer: %w", inner)
+
+status := apperr.GetHTTPStatus(wrapped)
+require.Equal(t, 404, status, "GetHTTPStatus must unwrap wrapped AppError")
+}
+
+func TestGetHTTPStatus_PlainError_Returns500(t *testing.T) {
+t.Parallel()
+
+status := apperr.GetHTTPStatus(errors.New("plain error"))
+require.Equal(t, 500, status)
 }

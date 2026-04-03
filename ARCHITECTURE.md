@@ -1,31 +1,35 @@
-# GO-CORE ARCHITECTURE — v2 Refactoring
+# GO-CORE ARCHITECTURE — v3 Security & Reliability Fix Guide
 
 ## 1. Purpose of This Document
 
-This document describes the architectural principles, package-level impact map,
-and patterns that govern the v2 refactoring work defined in PLAN.md. Every task
-in PLAN.md must conform to the rules here. When a task description and this
-document conflict, this document wins. Re-read this document at the start of
-every new phase.
+This document describes the engineering principles, package dependency rules,
+security patterns, and fix constraints that govern the v3 work defined in
+PLAN.md. Every task in PLAN.md must conform to the rules here. When a task
+description and this document conflict, this document wins.
+
+Re-read this document at the start of every new phase.
 
 ---
 
-## 2. What This Refactoring Covers
+## 2. What This Work Covers
 
-The review identified 48 distinct issues across ten categories:
+The April 2026 production-readiness audit identified 22 blocking issues across
+six categories. This plan addresses all of them plus the highest-impact warnings.
 
-| Category              | Risk   | Examples                                                     |
-|-----------------------|--------|--------------------------------------------------------------|
-| Bug Fixes             | 🔴 High | Write-after-Shutdown panic, double registration, bad errors  |
-| Dead Code             | 🟡 Med  | Unparsed binder rules, internal/config, worker example file  |
-| Duplicate Logic       | 🟡 Med  | Two idempotency stores, two test-helper files, two DI impls  |
-| Performance           | 🟠 Med  | Sequential count queries, unquoted ORDER BY, string isPanic  |
-| DI Container          | 🟠 Med  | Replace bootstrap.Container with cycle-detecting version     |
-| Naming / DX           | 🟡 Med  | BindJSON handles multipart, NewTestDB returns Registry       |
-| Logic Relocation      | 🟡 Med  | Health pkg, upload pkg, ResolveTransactor in wrong place     |
-| Feature Additions     | 🟢 Low  | Logger in NATS, List/Exists on Driver, audit error callback  |
-| Auth Globals          | 🔴 High | Mutable DefaultAuthorizer, package-level HashPassword        |
-| Error Typing          | 🟠 Med  | fmt.Errorf used where apperr.* is required                   |
+| Phase | Focus | Blocking count |
+|-------|-------|---------------|
+| 1 | Security | 5 |
+| 2 | Crash / Panic | 6 |
+| 3 | Race Conditions | 3 |
+| 4 | Critical Reliability | 7 |
+| 5 | High-Priority Warnings | 9 |
+| 6 | Remaining Warnings | 10 |
+
+Additional blocking issues found late in the audit and tracked as Phase 4 addenda:
+- `database/types`: `driver.Value()` returns `int` not `int64` (pgx panics)
+- `auth/refresh.go`: refresh token rotation has no transaction / SELECT FOR UPDATE
+- `auth/oidc_provider.go`: JWKS fetch propagates request context cancellation
+  through singleflight, causing mass auth failures on client disconnect
 
 ---
 
@@ -33,79 +37,62 @@ The review identified 48 distinct issues across ten categories:
 
 ### 3.1 Read Before You Write
 
-Before modifying any file, read the ENTIRE file using the read_file tool.
-Do not rely on summaries shown earlier in the conversation. Import paths, struct
-field names, function signatures, and constant names must be verified from the
-live file, not from memory.
+Before modifying any file, read the ENTIRE file. Import paths, struct field
+names, function signatures, and constant names must be verified from the live
+file — not from memory or prior conversation summaries.
 
 ### 3.2 One Task at a Time
 
-Each PLAN.md task is atomic. Do not combine tasks. Do not start task N+1 before
-task N is verified by a passing test and explicitly approved by the user.
+Each PLAN.md task is atomic. Do not combine tasks. Do not start Task N+1 before
+Task N has a passing test and explicit user approval.
 
 ### 3.3 No Logic Deletions Without Verified Zero References
 
-Before deleting any exported symbol (function, type, var, const, interface method),
-run: grep -r "SymbolName" go-core/ --include="*.go"
-Only delete when that command returns zero lines outside the owning file.
+Before deleting any exported symbol, run:
+  grep -r "SymbolName" . --include="*.go"
+Only delete when the command returns zero lines outside the owning file.
 
-### 3.4 No Deprecated Aliases in v2
+### 3.4 Zero Warnings
 
-The framework is not published. There are no external callers. Renamed symbols
-must be updated at every call site in the same task. Do NOT add deprecated
-one-liner wrappers pointing to the new name. Delete the old name entirely and
-update all callers.
-
-### 3.5 No App Logic in Framework Core
-
-go-core packages must never contain hardcoded business concepts (User, Order,
-AccountRole). The framework provides interfaces; applications provide
-implementations. The go-core-example/ directory is the only place for app logic.
-
-### 3.6 Zero Warnings
-
-After every task, both of these commands must exit with code 0 and print nothing:
+After every task, both of these commands must exit 0 and print nothing:
   go build ./...
   go vet ./...
 
-### 3.7 Every Code Change Requires a Test
+### 3.5 Every Code Change Requires a Test
 
-Every task that modifies production code must add or update a _test.go file.
-The test must assert the specific behavior the task fixes or adds.
-Tests live in the same directory as the code, same package name.
+Every task that modifies production code must add or update a `_test.go` file.
+The test must assert the specific behaviour the task fixes. Tests live in the
+same directory as the production code, same package name (or `_test` suffix for
+black-box tests only).
 
-### 3.8 Exact Module Path
+### 3.6 Exact Module Path
 
-The Go module path is: github.com/wssto2/go-core
-Every internal import starts with this prefix. Verify in go.mod before writing
-any import block. Never shorten or guess the path.
+The Go module path is: `github.com/wssto2/go-core`
+Verify in `go.mod` before writing any import block.
 
-### 3.9 Use apperr for Cross-Package Errors
+### 3.7 Use apperr for Cross-Package Errors
 
-Any error that crosses a package boundary or is handled by the HTTP ErrorHandler
-middleware must be an *apperr.AppError. Use:
+Errors that cross a package boundary or reach the HTTP ErrorHandler must be
+`*apperr.AppError`. Use:
   apperr.BadRequest(message)      — invalid client input
   apperr.NotFound(message)        — missing resource
   apperr.Internal(err)            — unexpected system failure
-  apperr.Wrap(err, message, code) — wrapping with new context
-  apperr.WrapPreserve(err, msg)   — wrapping, preserving original code
+  apperr.Wrap(err, message, code) — wrap with new context
 
-fmt.Errorf is only acceptable for internal sentinel errors consumed within the
-same package and never reaching the HTTP layer.
+`fmt.Errorf` is acceptable only for sentinel errors consumed within the same
+package and never reaching the HTTP layer.
 
-### 3.10 Never Silently Drop Errors
+### 3.8 Never Silently Drop Errors
 
-The pattern _ = someFunc() is forbidden unless:
-  a) The function is a deferred cleanup (e.g., defer resp.Body.Close()), OR
-  b) A comment immediately after the line explains exactly why the error is safe
-     to ignore in this specific context.
+`_ = someFunc()` is forbidden without a comment explaining exactly why the
+error is safe to ignore in that specific context.
 
 ---
 
 ## 4. Package Dependency Rules (INVARIANT)
 
-These import relationships must hold true after every task. A violation means you
-have made an architecture error.
+These import relationships must hold after every task. A violation means an
+architecture error was introduced.
 
 ```
 Layer 0 — no internal imports:
@@ -127,322 +114,415 @@ Layer 5 — example only:
   go-core-example
 ```
 
-Verify after any import change with: go build ./...
-An import cycle produces: "import cycle not allowed".
+Specific prohibitions:
+- `auth`     MUST NOT import `database`, `bootstrap`, or `event`
+- `event`    MUST NOT import `bootstrap`, `auth`, or `database`
+- `audit`    MUST NOT import `bootstrap` or `auth`
+- `database` MUST NOT import `event`, `auth`, or `bootstrap`
+- `health`   MUST NOT import `bootstrap`
+- `resilience` MUST NOT import anything from go-core (pure algorithms)
 
-Specific rules:
-  - auth     MUST NOT import database, bootstrap, or event
-  - event    MUST NOT import bootstrap, auth, or database
-  - audit    MUST NOT import bootstrap or auth
-  - database MUST NOT import event, auth, or bootstrap
-  - health   MUST NOT import bootstrap (bootstrap imports health, not the reverse)
-  - resilience MUST NOT import anything from go-core (pure algorithms)
+Verify with: `go build ./...` — an import cycle produces "import cycle not allowed".
 
 ---
 
-## 5. The New DI Container Design (Task 5.1)
+## 5. Security Fix Patterns
 
-### 5.1 Two Storage Maps
+### 5.1 Path Traversal Prevention (Task 1.1)
 
-The new bootstrap.Container has exactly two internal storage maps:
-
-```
-direct    map[reflect.Type]any            — values registered via Bind[S]
-providers map[reflect.Type]*providerInfo  — functions registered via Register()
-```
-
-These maps are NEVER mixed. Bind writes only to direct. Register writes only to
-providers. There is no third map.
-
-### 5.2 Resolution Order
-
-resolveByType(typ reflect.Type) checks in this EXACT order:
-
-  1. Check direct[typ]. If found, return it immediately. No lock needed beyond RLock.
-  2. Check a lazy singleton cache instances[typ]. If found, return it.
-  3. Look up providers[typ]. If not found, return "service not found" error.
-  4. Resolve all deps recursively by calling resolveByType for each dep type.
-  5. Call the provider function with the resolved dep values.
-  6. Store the result in instances[typ] for future calls.
-  7. Return the result.
-
-### 5.3 What Bind[S] Does
-
-Bind[S any](c *Container, val S):
-  - Acquires write lock
-  - Checks strict mode: if c.strict && direct[typ] already exists → panic
-  - Stores val in c.direct[typ]
-  - Does NOT touch c.providers
-
-### 5.4 What Rebind[S] Does
-
-Rebind[S any](c *Container, val S):
-  - Same as Bind but skips the strict-mode duplicate check
-  - Used ONLY for intentional overwrites (e.g., swapping InMemoryBus → NATSBus)
-  - builder.go WithNATSBus, WithJWTAuth, WithDBTokenAuth must use Rebind
-
-### 5.5 What Register() Does
-
-Register(providerFn any) error:
-  - Validates that providerFn is a func with signature: func(...deps) (T, error)
-  - Stores in c.providers[retType]
-  - Does NOT resolve anything yet (lazy)
-
-### 5.6 What Build() Does
-
-Build() error:
-  - Reads c.providers (NOT c.direct — direct bindings have zero deps)
-  - Builds an adjacency graph: for each provider, for each dep type, if that dep
-    type also has a provider, add an edge
-  - Runs DFS cycle detection on that graph
-  - Returns nil if no cycle, or an error describing the cycle path
-
-### 5.7 providerInfo Struct
+All storage key validation must use the following canonical pattern. There are
+no acceptable shortcuts.
 
 ```go
-type providerInfo struct {
-    fn   reflect.Value  // the provider function as a reflect.Value
-    out  reflect.Type   // the return type T (key in providers map)
-    deps []reflect.Type // the input types (dependencies)
+func safePath(root, key string) (string, error) {
+    if key == "" {
+        return "", apperr.BadRequest("storage key must not be empty")
+    }
+    // Clean("/"+key) normalises traversal sequences before join
+    p := filepath.Join(root, filepath.Clean("/"+key))
+    // Require the resolved path to be a child of root
+    rootClean := filepath.Clean(root) + string(os.PathSeparator)
+    if !strings.HasPrefix(p+string(os.PathSeparator), rootClean) {
+        return "", apperr.BadRequest("storage key escapes root directory")
+    }
+    return p, nil
 }
 ```
 
-deps is an empty slice for zero-argument providers. It is NEVER nil for safety.
+Apply to: `storage/local/local.go` — all six methods.
 
-### 5.8 Mutex Strategy
+### 5.2 Untrusted Header Sanitisation (Tasks 1.2, 1.3)
 
-All reads from direct or providers use c.mu.RLock() / RUnlock().
-All writes to direct, providers, or instances use c.mu.Lock() / Unlock().
-When resolveByType upgrades from RLock to Lock (to write instances), it must
-release RLock first, then acquire Lock, then re-check if the instance was added
-by a concurrent goroutine (double-checked locking pattern):
+The rule: **any client-controlled value that is written into a response header,
+log field, or used for access control must be validated before use.**
 
-  c.mu.RLock()
-  if inst, ok := c.instances[typ]; ok { c.mu.RUnlock(); return inst, nil }
-  c.mu.RUnlock()
-  // ... resolve deps ...
-  c.mu.Lock()
-  if inst, ok := c.instances[typ]; ok { c.mu.Unlock(); return inst, nil } // re-check
-  c.instances[typ] = inst
-  c.mu.Unlock()
+For X-Request-ID reflection:
+```go
+var validRequestID = regexp.MustCompile(`^[a-zA-Z0-9\-_]{1,128}$`)
+```
+If the header fails validation, discard it and generate a UUID. Never truncate
+or sanitise in-place — generate fresh.
 
----
+For rate-limit identity: never use `X-User-ID` or similar client headers.
+Identity for rate-limiting must come from the authenticated principal in context
+(`auth.UserFromContext`) or from the network layer (`ctx.ClientIP()`).
 
-## 6. Health Package Design (Task 7.2)
+### 5.3 Request Body Size Limits (Task 1.4)
 
-After Task 7.2, the health infrastructure moves from bootstrap/health.go to a
-new top-level go-core/health/ package. The dependency direction is:
+All paths that call `io.ReadAll(r.Body)` must be wrapped:
+```go
+const maxBodyBytes int64 = 10 << 20 // 10 MB
+body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
+if err != nil { ... }
+if int64(len(body)) > maxBodyBytes {
+    return apperr.BadRequest("request body too large")
+}
+```
 
-  bootstrap → health    (bootstrap imports health)
-  health    → database  (DBHealthChecker imports *gorm.DB)
-  health    → apperr    (optional)
+The +1 trick lets us distinguish "exactly at limit" from "over limit" without
+a separate stat call.
 
-The health package exports:
-  - Checker interface { Check(ctx context.Context) error }
-  - Registry struct   { Add(Checker), SetDraining(bool), IsDraining() bool }
-  - DBChecker struct  { NewDBChecker(db *gorm.DB) *DBChecker }
-  - LivenessHandler(registry *Registry) gin.HandlerFunc
-  - ReadinessHandler(registry *Registry) gin.HandlerFunc
+### 5.4 JWT Secrets (Task 1.5)
 
-bootstrap.App.Shutdown() and bootstrap.AppBuilder.setupHealth() resolve
-*health.Registry from the container to call SetDraining(true).
+- The `JWT.Secret` field must carry `validate:"required"`.
+- `WithJWTAuth` must guard against the empty string at startup (panic is
+  appropriate — it is a programmer error, not a runtime condition).
+- Audience validation (`aud` claim) must be checked wherever JWT tokens are
+  verified. Use the `jwt-go/v5` `WithAudience` parse option.
 
----
+### 5.5 Template Safety (Task 4.6)
 
-## 7. Upload Sub-Package Design (Task 7.3)
+Functions in a `template.FuncMap` that output into `<script>` blocks must return
+`template.JS` (from `html/template`), not `string`. Returning `string` causes
+the template engine to JS-escape the output. Developers who encounter mangled
+JSON inevitably work around it with `template.HTML`, which bypasses all XSS
+protection.
 
-After Task 7.3, file upload logic moves to go-core/web/upload/upload.go.
-
-The upload package (package upload) exports:
-  - Config struct  (was UploadConfig)
-  - File struct    (was UploadedFile)
-  - Upload(ctx *gin.Context, formKey string, cfg Config) (File, error)
-  - Delete(basePath, relativePath string) error
-
-web/helpers.go retains ONLY:
-  - GetParamInt(ctx *gin.Context, key string) (int, bool)
-  - GetQueryInt(ctx *gin.Context, key string) (int, bool)
-  - GetPathID(ctx *gin.Context) (int, bool)
+Rule: if the function is named `toJSON`, `toJS`, or similar, its return type is
+`template.JS`. Period.
 
 ---
 
-## 8. Error Typing Rules for web/helpers.go (Task 1.4)
+## 6. Concurrency Fix Patterns
 
-UploadFile returns errors that reach the HTTP ErrorHandler. All must be *apperr.AppError:
+### 6.1 Channel Close Race (Tasks 2.1, 3.1)
 
-  Client errors (HTTP 400):     apperr.BadRequest(message)
-    - BaseDir is empty
-    - File too large
-    - MIME type not allowed
-    - Path escapes upload directory
-    - Directory traversal in DeleteFile
+The canonical pattern for a guarded channel send where the channel may be closed
+concurrently:
 
-  System errors (HTTP 500):     apperr.Internal(err)
-    - Failed to read file bytes
-    - Failed to seek file
-    - Failed to create directory
-    - Failed to create destination file
+**Option A — keep the mutex held across both the check and the send:**
+```go
+p.mu.Lock()
+if p.closed {
+    p.mu.Unlock()
+    return ErrClosed
+}
+select {
+case p.ch <- item:
+    p.mu.Unlock()
+    return nil
+default:
+    p.mu.Unlock()
+    return ErrFull
+}
+```
+Use this when the send is non-blocking (`default` branch exists) so holding
+the mutex cannot deadlock.
 
-  Not found (HTTP 404):         apperr.NotFound(message)
-    - File does not exist in DeleteFile
+**Option B — recover from the panic:**
+```go
+func safeSend(ch chan<- T, item T) (panicked bool) {
+    defer func() {
+        if r := recover(); r != nil { panicked = true }
+    }()
+    ch <- item
+    return false
+}
+```
+Use this only when holding the mutex across the send would deadlock (e.g.,
+the receiver also acquires the same mutex).
 
-fmt.Errorf is NOT acceptable for any of these paths.
+**WaitGroup race pattern (Task 3.1):** The `wg.Add(1)` and the closed check
+must be atomic under the same mutex. There is no safe way to do this with
+atomics alone when `wg.Wait()` is called from a different goroutine.
 
----
+### 6.2 Struct Field Data Race (Task 3.3)
 
-## 9. NATS Error Handling Rules (Task 8.1)
+Struct fields written by a `finish` closure and read by a concurrent
+`FinishedSpans()` call must be protected by the same mutex. The correct pattern:
 
-After Task 8.1, NATSBus has a *slog.Logger field.
-NewNATSBus(client NatsClient, log *slog.Logger) *NATSBus
+```go
+finish := func(err error) {
+    t.mu.Lock()
+    rec.End = time.Now()        // write under lock
+    rec.Errored = err != nil    // write under lock
+    t.spans = append(t.spans, rec)
+    t.mu.Unlock()
+}
+```
 
-In the Subscribe callback, errors are logged at Error level:
-  - Unmarshal of Envelope fails AND fallback raw unmarshal also fails:
-    log.Error("nats: failed to unmarshal message", "subject", subject, "error", err)
-  - handler(ctx, recv) returns a non-nil error:
-    log.Error("nats: handler returned error", "subject", subject, "error", err)
+```go
+func (t *T) FinishedSpans() []SpanRecord {
+    t.mu.RLock()
+    result := make([]SpanRecord, len(t.spans))
+    copy(result, t.spans)   // copy under lock
+    t.mu.RUnlock()
+    return result           // return copy, not slice alias
+}
+```
 
-The handler error is logged but NOT propagated (NATS delivery is async; there
-is no caller to propagate to). This is intentional and the comment must say so.
+### 6.3 singleflight and Context Propagation (Auth OIDC)
 
----
+When using `singleflight.Group`, the context passed to the shared call must NOT
+be the individual request context. If it is, a single client disconnect cancels
+the in-flight fetch for all goroutines waiting on the same key.
 
-## 10. Testing Strategy
-
-### 10.1 Test File Location and Package Name
-
-Unit tests for foo.go live in foo_test.go in the same directory, same package name.
-Example: database/registry.go → database/registry_test.go, package database.
-
-### 10.2 No Real Network or Disk in Unit Tests
-
-Unit tests must not open real TCP connections. Use:
-  - database.PrepareTestDB() or database.NewTestRegistry() for SQLite in-memory
-  - testhelpers.NewLocalTempDriver() for storage tests
-  - testhelpers.NewInMemoryBus() for event tests
-  - httptest.Server for HTTP client tests (OIDC provider, NATS envelope)
-
-### 10.3 Race Detector
-
-Any task that adds or modifies goroutines, channels, sync.Mutex, sync.RWMutex,
-sync.Map, sync.Once, atomic, or singleflight MUST be verified with:
-  go test -race ./path/to/package/...
-
-### 10.4 Benchmarks
-
-Phase 4 performance tasks must include at least one Benchmark* function.
-Report the full output of:
-  go test -bench=. -benchmem ./path/to/package/...
-
-### 10.5 Test Function Naming
-
-Descriptive. Follow the pattern:
-  Test[Type]_[Method]_[Condition]_[ExpectedOutcome]
-Examples:
-  TestAsyncRepository_Write_AfterShutdown_ReturnsError
-  TestContainer_Build_WithCycle_ReturnsError
-  TestNATSBus_Subscribe_UnmarshalError_IsLogged
-
----
-
-## 11. Package-Level Impact Map
-
-This section lists exactly which files are touched by each phase. No file outside
-this map should change unless a task description explicitly requires it.
-
-### Phase 1 — Bug Fixes
-- audit/async.go, audit/async_test.go
-- bootstrap/builder.go, bootstrap/app.go, bootstrap/app_test.go
-- web/helpers.go, web/helpers_test.go
-- bootstrap/config_loader.go, bootstrap/config_loader_test.go
-- event/envelope.go, event/nats_adapter.go, event/nats_envelope_test.go
-
-### Phase 2 — Dead Code Removal
-- binders/cache.go, binders/json.go (no test changes needed)
-- internal/config/ (entire directory deleted)
-- worker/worker.go_example (file deleted)
-- auth/hasher.go, auth/rbac.go, auth/rbac_test.go
-- database/migrator.go, database/migrator_safe_test.go
-
-### Phase 3 — Duplicate Elimination
-- database/testutil.go + database/testing.go → database/test_helpers.go
-- database/testing_test.go → database/test_helpers_test.go
-- auth/provider.go, auth/oidc_provider.go
-- datatable/datatable.go
-
-### Phase 4 — Performance
-- resource/resource.go, resource/resource_test.go
-- datatable/datatable.go
-- worker/manager.go, worker/manager_test.go
-
-### Phase 5 — DI Container Promotion
-- bootstrap/container.go (rewritten)
-- bootstrap/builder.go (Bind → Rebind for intentional overwrites)
-- bootstrap/container_test.go (updated)
-- internal/di/ (deleted after zero-reference grep)
-- internal/di/di_test.go (deleted with the directory)
-
-### Phase 6 — Naming and DX
-- binders/json.go, middlewares/bind.go (renamed BindJSON → BindRequest)
-- testhelpers/db.go and all callers (rename NewTestDB → NewTestRegistry)
-- validation/validator.go (Register → MustRegister, add Register returning error)
-- datatable/datatable.go (WithQuery → WithScope)
-- datatable/result.go (add PageMeta() method)
-- web/response.go (Paginated uses PageMeta())
-
-### Phase 7 — Logic Relocation
-- database/transactor.go (add NewTransactorFromRegistry)
-- bootstrap/container.go (ResolveTransactor delegates to database)
-- health/ (new package: health.go, handlers.go, health_test.go, handlers_test.go)
-- bootstrap/health.go (deleted after content moved to health/)
-- bootstrap/builder.go (imports health/ instead of inline)
-- bootstrap/app.go (imports health/ for SetDraining)
-- web/upload/ (new package: upload.go, upload_test.go)
-- web/helpers.go (upload functions removed, only URL helpers remain)
-
-### Phase 8 — Feature Additions
-- event/nats_adapter.go (logger injection)
-- event/nats_test.go (updated for new NewNATSBus signature)
-- storage/driver.go (List + Exists added to interface)
-- storage/local/local.go (List + Exists implemented)
-- storage/local/local_test.go (new tests for List + Exists)
-- audit/async.go (onError callback field)
-- audit/async_test.go (test for onError invocation)
-- bootstrap/app.go (parallel registerModules)
-- bootstrap/app_test.go (test for parallel registration)
+Pattern: use `context.Background()` (or a server-lifecycle context) for the
+shared fetch, and apply a separate timeout:
+```go
+fetchCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
+result, err, _ = sf.Do(key, func() (any, error) {
+    return fetchJWKS(fetchCtx, url)
+})
+```
 
 ---
 
-## 12. Forbidden Actions (All Phases)
+## 7. Reliability Fix Patterns
 
-1. Do not use error string matching (strings.Contains(err.Error(), "...")) to
-   determine error type. Use errors.As, errors.Is, or type assertions.
+### 7.1 Deferred Resource Release (Task 6.1)
 
-2. Do not use fmt.Println, log.Print, log.Fatal, or log.Println in any
+Any resource that MUST be released when a handler exits — including channel
+writes that unblock waiting requests — must be in a `defer`, not after
+`ctx.Next()`:
+
+```go
+// WRONG — skipped if handler panics:
+ctx.Next()
+store.setResponse(key, status, header, body)
+
+// CORRECT:
+defer func() {
+    store.setResponse(key, cw.Status(), cw.Header(), cw.Body())
+}()
+ctx.Next()
+```
+
+### 7.2 Partial File Cleanup (Task 6.7)
+
+Any code path that creates a file and fails before completing the write MUST
+remove the partial file:
+
+```go
+written, copyErr := io.Copy(dst, src)
+if copyErr != nil {
+    _ = dst.Close()
+    _ = os.Remove(fullPath) // best-effort cleanup of partial file
+    return apperr.Internal(copyErr)
+}
+```
+
+The `_ =` on `os.Remove` is intentional and must be commented. The original
+error takes precedence; a remove failure at this point is secondary.
+
+### 7.3 Infinite Retry Loop Prevention (Task 4.3)
+
+Any worker that skips a queue item with `continue` must also advance the item's
+state so it is not re-fetched on the next poll. The canonical dead-letter pattern:
+
+```go
+if ev.EventType == "" {
+    log.Error("outbox: dead-lettering event", "event_id", ev.ID)
+    _ = repo.MarkProcessed(ctx, ev.ID) // best-effort; intentionally ignored
+    continue
+}
+```
+
+### 7.4 Circuit Breaker Panic Safety (Task 5.1)
+
+State that guards re-entry into a half-open circuit breaker must be reset in a
+`defer` to ensure it is cleared even when the probed operation panics:
+
+```go
+func (cb *CircuitBreaker) runTrial(ctx context.Context, op func(context.Context) error) error {
+    defer func() {
+        cb.mu.Lock()
+        cb.trialInProgress = false
+        cb.mu.Unlock()
+    }()
+    return op(ctx)
+}
+```
+
+---
+
+## 8. Observability Fix Patterns
+
+### 8.1 Prometheus Label Cardinality (Task 2.6)
+
+The number of `WithLabelValues(...)` arguments must EXACTLY match the number of
+label names in the metric's `Opts`. This is not caught at compile time — only at
+runtime (panic).
+
+Before writing `WithLabelValues(a, b, c)`, read the metric registration and
+count the label names. There is no exception.
+
+### 8.2 HTTP Error Spans (Task 4.7 / OBS-03)
+
+A tracing middleware must record span errors for HTTP 5xx responses. This
+requires a `statusRecorder` wrapper around the response writer:
+
+```go
+type statusRecorder struct {
+    gin.ResponseWriter
+    status int
+}
+func (r *statusRecorder) WriteHeader(code int) {
+    r.status = code
+    r.ResponseWriter.WriteHeader(code)
+}
+```
+
+Pass the recorded status to `finish` after `ctx.Next()`.
+
+---
+
+## 9. Package-Level Impact Map for v3
+
+Only files listed here should change unless a task description explicitly
+requires a change outside this map.
+
+```
+Phase 1 — Security
+  storage/local/local.go, storage/local/local_test.go
+  middlewares/ratelimit_middleware.go, middlewares/ratelimit_middleware_test.go
+  middlewares/request_id.go, middlewares/request_id_test.go
+  binders/json.go, binders/json_test.go
+  bootstrap/config.go, bootstrap/builder.go, bootstrap/config_test.go
+
+Phase 2 — Crash / Panic
+  storage/pool/pool.go, storage/pool/pool_test.go
+  utils/helpers.go, utils/helpers_test.go
+  event/outbox_worker.go, event/outbox_worker_test.go
+  frontend/spa.go, frontend/spa_test.go
+  observability/metrics/middleware.go, observability/metrics/middleware_test.go
+  observability/metrics/metrics.go
+
+Phase 3 — Race Conditions
+  audit/async.go, audit/async_test.go
+  storage/memory/memory.go, storage/memory/memory_test.go
+  observability/tracing/tracing.go, observability/tracing/tracing_test.go
+
+Phase 4 — Critical Reliability
+  event/nats_adapter.go, event/nats_adapter_test.go
+  event/idempotency.go, event/idempotency_test.go
+  event/processed.go
+  event/outbox_worker.go, event/outbox_worker_test.go
+  bootstrap/app.go, bootstrap/app_test.go
+  bootstrap/builder.go, bootstrap/builder_test.go
+  bootstrap/config.go
+  frontend/spa.go, frontend/spa_test.go
+  observability/tracing/otel.go, observability/tracing/otel_test.go
+
+Phase 5 — High-Priority Warnings
+  resilience/circuitbreaker.go, resilience/circuitbreaker_test.go
+  event/reliable_bus.go, event/reliable_bus_test.go
+  health/health.go, health/health_test.go
+  validation/rules.go, validation/rules_test.go
+  ratelimit/ratelimit.go, ratelimit/ratelimit_test.go
+  worker/manager.go, worker/manager_test.go
+  utils/helpers.go, utils/helpers_test.go
+  tenancy/scope.go, tenancy/scope_test.go
+
+Phase 6 — Remaining Warnings
+  middlewares/idempotency.go, middlewares/idempotency_test.go
+  web/handle.go, web/handle_test.go
+  web/ua.go, web/ua_test.go
+  engine/gin.go, engine/gin_test.go
+  middlewares/security.go, middlewares/security_test.go
+  web/upload/upload.go, web/upload/upload_test.go
+  apperr/http.go, apperr/http_test.go
+  logger/logger.go, logger/logger_test.go
+  internal/reflectioncache/cache.go, internal/reflectioncache/cache_test.go
+```
+
+---
+
+## 10. Additional Blocking Issues (Post-Audit Addenda)
+
+The following issues were found in the final code-review pass and are NOT yet
+in PLAN.md phases 1–6. They should be triaged into a Phase 7 before those tasks
+are declared complete.
+
+### A1 — `database/types` driver.Value returns `int` not `int64`
+File: `database/types/int.go:25`, `database/types/null_int.go:26`
+The `database/sql/driver.Value` interface requires `int64` for integers.
+Returning a plain `int` causes pgx (and some other drivers) to panic at scan
+time. Fix: cast to `int64` in `Value()`.
+
+### A2 — Refresh token rotation has no transaction
+File: `auth/refresh.go:24`, `auth/gormstore/token_store.go:31`
+`RotateRefreshToken` does a find-then-update without a transaction or
+`SELECT ... FOR UPDATE`. Two concurrent requests with the same refresh token
+can both succeed (token replay). Fix: wrap find+delete+insert in a single DB
+transaction with a row-level lock.
+
+### A3 — JWKS fetch propagates cancellation through singleflight
+File: `auth/oidc_provider.go:110`
+`singleflight.Do` is called with the HTTP request context. If the triggering
+client disconnects, the context is cancelled and ALL goroutines waiting on the
+same singleflight key receive a cancellation error, causing a mass auth failure.
+Fix: use `context.Background()` with an explicit timeout for the shared fetch
+(see Section 6.3).
+
+### A4 — JWT audience never validated
+File: `auth/provider.go:70`
+`resolveFromClaims` checks issuer but ignores the `aud` claim. A token issued
+for service A is silently accepted by service B. Fix: pass expected audience(s)
+to the JWT parse options (`jwt.WithAudience`).
+
+### A5 — `auth/provider.go` goroutine leak
+File: `auth/provider.go:113`
+`DBTokenProvider.Verify` spawns a fire-and-forget goroutine on every
+authenticated request with no lifecycle, backpressure, or error handling.
+Under load this creates unbounded goroutine growth.
+Fix: use a worker pool or move the background work to an existing worker manager.
+
+---
+
+## 11. Forbidden Actions (All Phases)
+
+1. Do not use error string matching (`strings.Contains(err.Error(), "...")`) to
+   determine error type. Use `errors.As`, `errors.Is`, or typed assertions.
+
+2. Do not use `fmt.Println`, `log.Print`, `log.Fatal`, or `log.Println` in any
    non-test file.
 
-3. Do not introduce new package-level var that is a pointer and is mutated after
+3. Do not introduce new package-level `var` that is a pointer mutated after
    program start. Constants and zero-value structs are fine.
 
-4. Do not call panic() outside a function named Must*.
+4. Do not call `panic()` outside a function named `Must*`.
 
-5. Do not add any new entry to go.mod that is not already present.
+5. Do not add any new entry to `go.mod`.
 
-6. Do not change database migration files (*.sql) or GORM AutoMigrate call lists
-   unless a task explicitly requires it.
+6. Do not change the `Bus` interface (Publish, Subscribe signatures).
 
-7. Do not change the Bus interface (Publish, Subscribe signatures).
+7. Do not change the `Module` interface (Name, Register, Boot, Shutdown).
 
-8. Do not change the Module interface (Name, Register, Boot, Shutdown signatures).
+8. Do not change the `Transactor` interface (WithinTransaction signature).
 
-9. Do not change the Transactor interface (WithinTransaction signature).
+9. Do not trust any HTTP header supplied by an unauthenticated client for
+   identity, rate-limit bucketing, or access control decisions.
 
-10. Do not change the storage.Driver interface except in Task 8.2, which is the
-    one task explicitly permitted to extend it.
+10. Do not return `string` from a `template.FuncMap` function that outputs
+    into a `<script>` block or JS event handler attribute.
 
 ---
 
-## 13. File Header Convention
+## 12. File Header Convention
 
-Every new .go file starts with the package declaration on line 1, followed
-immediately by the import block (if any imports are needed). No copyright headers.
-No build tags unless the task explicitly requires them. No author or date comments.
+Every new `.go` file starts with the package declaration on line 1, followed
+immediately by the import block (if any imports are needed). No copyright
+headers. No build tags unless a task explicitly requires them. No author or
+date comments.

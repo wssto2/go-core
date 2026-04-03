@@ -1,6 +1,9 @@
 package apperr
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+)
 
 var codeToHTTP = map[Code]int{
 	CodeInternal:         http.StatusInternalServerError,
@@ -13,9 +16,11 @@ var codeToHTTP = map[Code]int{
 	CodeValidationError:  http.StatusUnprocessableEntity,
 }
 
-// GetHTTPStatus extracts the status code from an error
+// GetHTTPStatus extracts the HTTP status code from an error.
+// It unwraps error chains, so errors wrapped with fmt.Errorf("%w", appErr) work correctly.
 func GetHTTPStatus(err error) int {
-	if ae, ok := err.(*AppError); ok {
+	var ae *AppError
+	if errors.As(err, &ae) {
 		if status, exists := codeToHTTP[ae.Code]; exists {
 			return status
 		}

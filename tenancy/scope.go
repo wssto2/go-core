@@ -24,7 +24,7 @@ func ScopeByTenant(ctx context.Context, column string) func(*gorm.DB) *gorm.DB {
 		if !ok {
 			return db // no tenant scope — caller sees all rows (super-admin)
 		}
-		return db.Where(fmt.Sprintf("`%s` = ?", column), tenantID)
+		return db.Where(db.Statement.Quote(column)+" = ?", tenantID)
 	}
 }
 
@@ -38,6 +38,6 @@ func RequireTenantScope(ctx context.Context, column string) (func(*gorm.DB) *gor
 		return nil, fmt.Errorf("tenancy: operation requires a tenant scope but no tenant ID is in context")
 	}
 	return func(db *gorm.DB) *gorm.DB {
-		return db.Where(fmt.Sprintf("`%s` = ?", column), tenantID)
+		return db.Where(db.Statement.Quote(column)+" = ?", tenantID)
 	}, nil
 }

@@ -53,7 +53,7 @@ type SpanRecord struct {
 // SimpleTracer is an in-memory tracer useful for tests and as a default.
 // It is intentionally minimal and not a full OpenTelemetry replacement.
 type SimpleTracer struct {
-	mu       sync.Mutex
+	mu       sync.RWMutex
 	spans    map[string]*SpanRecord
 	finished []*SpanRecord
 }
@@ -78,13 +78,12 @@ func (t *SimpleTracer) StartSpan(ctx context.Context, name string) (context.Cont
 	t.mu.Lock()
 	t.spans[spanID] = rec
 	t.mu.Unlock()
-
 	finish := func(err error) {
+		t.mu.Lock()
 		rec.End = time.Now()
 		if err != nil {
 			rec.Errored = true
 		}
-		t.mu.Lock()
 		delete(t.spans, spanID)
 		t.finished = append(t.finished, rec)
 		t.mu.Unlock()
@@ -94,10 +93,10 @@ func (t *SimpleTracer) StartSpan(ctx context.Context, name string) (context.Cont
 
 // FinishedSpans returns a copy of finished spans.
 func (t *SimpleTracer) FinishedSpans() []*SpanRecord {
-	t.mu.Lock()
+	t.mu.RLock()
 	sel := make([]*SpanRecord, len(t.finished))
 	copy(sel, t.finished)
-	t.mu.Unlock()
+	t.mu.RUnlock()
 	return sel
 }
 

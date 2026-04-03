@@ -20,6 +20,7 @@ type Pool struct {
 	wg      sync.WaitGroup
 	mu      sync.Mutex
 	started bool
+	closed  bool
 	logger  *slog.Logger
 	metrics Metrics
 }
@@ -135,7 +136,15 @@ func (p *Pool) executeJob(ctx context.Context, job func(context.Context) error) 
 
 // Submit enqueues a job for execution. If the queue is full, ErrQueueFull is returned.
 // Submit never spawns goroutines; it either enqueues the job or returns an error.
+// After Close is called, Submit returns ErrQueueFull immediately.
 func (p *Pool) Submit(ctx context.Context, job func(context.Context) error) error {
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return ErrQueueFull
+	}
+	p.mu.Unlock()
+
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -149,7 +158,20 @@ func (p *Pool) Submit(ctx context.Context, job func(context.Context) error) erro
 }
 
 // Wait waits until all worker goroutines have exited (after the start context
-// has been cancelled).
+// has been cancelled or Close has been called).
 func (p *Pool) Wait() {
 	p.wg.Wait()
+}
+
+// Close closes the job queue, signalling workers to drain any remaining jobs
+// and then exit. It is safe to call Close concurrently and it is idempotent.
+// After Close, Submit will return ErrQueueFull for new jobs.
+// Call Wait after Close to block until all workers have stopped.
+func (p *Pool) Close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.started && !p.closed {
+		p.closed = true
+		close(p.queue)
+	}
 }

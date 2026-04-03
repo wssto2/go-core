@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -65,7 +66,8 @@ func TestReadinessHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 		assert.Contains(t, w.Body.String(), `"status":"degraded"`)
-		assert.Contains(t, w.Body.String(), `"db":"down: timeout"`)
+		assert.Contains(t, w.Body.String(), `"db":"down"`)
+		assert.NotContains(t, w.Body.String(), "timeout", "error details must not leak in HTTP response")
 	})
 }
 
@@ -160,4 +162,66 @@ func TestHealthEndpointsAndReadinessDegraded(t *testing.T) {
 	if _, found := checks["fail"]; !found {
 		t.Fatalf("expected failing checker 'fail' present in checks: %+v", checks)
 	}
+}
+
+// TestReadinessHandler_CheckerError_DoesNotLeakDetails ensures that error
+// details from failing checkers are NOT exposed in the HTTP response body.
+func TestReadinessHandler_CheckerError_DoesNotLeakDetails(t *testing.T) {
+gin.SetMode(gin.TestMode)
+reg := NewHealthRegistry()
+reg.Add(&mockChecker{name: "db", err: errors.New("secret connection string: host=internal-db")})
+
+router := gin.New()
+router.GET("/ready", ReadinessHandler(reg))
+
+w := httptest.NewRecorder()
+req := httptest.NewRequest("GET", "/ready", nil)
+router.ServeHTTP(w, req)
+
+assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+body := w.Body.String()
+assert.Contains(t, body, `"down"`)
+assert.NotContains(t, body, "secret", "internal error details must not appear in response")
+assert.NotContains(t, body, "connection string", "internal error details must not appear in response")
+}
+
+// slowPinger blocks for longer than the timeout to simulate a hung DB.
+type slowPinger struct{ delay time.Duration }
+
+func (s *slowPinger) PingContext(ctx context.Context) error {
+select {
+case <-time.After(s.delay):
+return nil
+case <-ctx.Done():
+return ctx.Err()
+}
+}
+
+// slowDBChecker wraps slowPinger to test the timeout without a real DB.
+type slowDBChecker struct{ delay time.Duration }
+
+func (s *slowDBChecker) Name() string { return "slow-db" }
+func (s *slowDBChecker) Check(ctx context.Context) error {
+pingCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+defer cancel()
+select {
+case <-time.After(s.delay):
+return nil
+case <-pingCtx.Done():
+return pingCtx.Err()
+}
+}
+
+// TestDBHealthChecker_SlowPing_TimesOut verifies that a slow DB ping is
+// bounded by the configured timeout, not the caller's context.
+func TestDBHealthChecker_SlowPing_TimesOut(t *testing.T) {
+checker := &slowDBChecker{delay: 10 * time.Second}
+ctx := context.Background()
+
+start := time.Now()
+err := checker.Check(ctx)
+elapsed := time.Since(start)
+
+assert.Error(t, err, "slow ping must return deadline-exceeded error")
+assert.Less(t, elapsed, 1*time.Second, "check must return well within 1s, not block for 10s")
 }

@@ -152,6 +152,8 @@ func UploadFile(ctx *gin.Context, formKey string, config Config) (UploadedFile, 
 		return UploadedFile{}, apperr.BadRequest(fmt.Sprintf("file exceeds %d MB limit", limitMB))
 	}
 	if copyErr != nil {
+		_ = dst.Close()
+		_ = os.Remove(fullPath)
 		return UploadedFile{}, apperr.Internal(copyErr)
 	}
 	relativePath := filepath.Join(config.StorePath, filename)
@@ -159,7 +161,7 @@ func UploadFile(ctx *gin.Context, formKey string, config Config) (UploadedFile, 
 	return UploadedFile{
 		Name:     header.Filename,
 		Path:     relativePath,
-		Size:     header.Size,
+		Size:     written,
 		Ext:      extFromMIME(sniffed, safeName),
 		MimeType: sniffed,
 	}, nil

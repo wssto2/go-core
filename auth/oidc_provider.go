@@ -106,9 +106,13 @@ func (p *OIDCProvider) getKey(ctx context.Context, kid string) (*rsa.PublicKey, 
 	}
 	p.mu.RUnlock()
 
-	// Coalesce all concurrent fetches into one HTTP call
+	// Coalesce all concurrent fetches into one HTTP call.
+	// Use a fresh context (not the request context) so a client disconnect does not
+	// cancel the shared fetch and cause auth failures for all waiting callers.
+	fetchCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	_, err, _ := p.sfGroup.Do("jwks", func() (any, error) {
-		return nil, p.fetch(ctx)
+		return nil, p.fetch(fetchCtx)
 	})
 	if err != nil {
 		return nil, err

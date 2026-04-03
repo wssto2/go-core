@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 )
 
@@ -26,6 +27,39 @@ func TestStartSpanRecordsFinishedSpan(t *testing.T) {
 	if spans[0].Name != "test-span" {
 		t.Fatalf("unexpected span name: %s", spans[0].Name)
 	}
+}
+
+func TestSimpleTracer_ConcurrentFinish_NoRace(t *testing.T) {
+	tr := NewSimpleTracer()
+	ctx := context.Background()
+
+	const goroutines = 20
+	finishFns := make([]func(error), goroutines)
+	for i := range finishFns {
+		_, finish := tr.StartSpan(ctx, "span")
+		finishFns[i] = finish
+	}
+
+	var wg sync.WaitGroup
+	// 20 goroutines call finish concurrently.
+	for _, fn := range finishFns {
+		wg.Add(1)
+		fn := fn
+		go func() {
+			defer wg.Done()
+			fn(nil)
+		}()
+	}
+	// Another goroutine reads FinishedSpans concurrently.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			_ = tr.FinishedSpans()
+		}
+	}()
+
+	wg.Wait()
 }
 
 func TestMiddlewareInjectsTraceID(t *testing.T) {

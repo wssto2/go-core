@@ -36,9 +36,11 @@ type ProcessedStore interface {
 // InMemoryProcessedStore is a minimal in-memory implementation of ProcessedStore.
 // It is suitable for testing and low-volume usage.
 type InMemoryProcessedStore struct {
-	mu      sync.Mutex
-	entries map[string]time.Time // zero time == reserved but not confirmed
-	ttl     time.Duration
+	mu             sync.Mutex
+	entries        map[string]time.Time // zero time == reserved but not confirmed
+	reservedAt     map[string]time.Time // when each id was reserved
+	ttl            time.Duration
+	reservationTTL time.Duration // max time a reservation may remain unconfirmed
 }
 
 // NewInMemoryProcessedStore constructs a new in-memory store.
@@ -50,8 +52,10 @@ func NewInMemoryProcessedStore() *InMemoryProcessedStore {
 // older than ttl. A ttl of 0 disables eviction.
 func NewInMemoryProcessedStoreWithTTL(ttl time.Duration) *InMemoryProcessedStore {
 	return &InMemoryProcessedStore{
-		entries: make(map[string]time.Time),
-		ttl:     ttl,
+		entries:        make(map[string]time.Time),
+		reservedAt:     make(map[string]time.Time),
+		ttl:            ttl,
+		reservationTTL: ttl, // default: same as confirmed TTL
 	}
 }
 
@@ -67,6 +71,7 @@ func (s *InMemoryProcessedStore) Reserve(ctx context.Context, id string) (bool, 
 		return false, nil
 	}
 	s.entries[id] = time.Time{}
+	s.reservedAt[id] = time.Now().UTC()
 	return true, nil
 }
 
@@ -77,6 +82,7 @@ func (s *InMemoryProcessedStore) Confirm(ctx context.Context, id string) error {
 	}
 	s.mu.Lock()
 	s.entries[id] = time.Now().UTC()
+	delete(s.reservedAt, id)
 	s.mu.Unlock()
 	return nil
 }
@@ -88,23 +94,30 @@ func (s *InMemoryProcessedStore) Release(ctx context.Context, id string) error {
 	}
 	s.mu.Lock()
 	delete(s.entries, id)
+	delete(s.reservedAt, id)
 	s.mu.Unlock()
 	return nil
 }
 
-// evictExpired deletes entries that have been confirmed and are older than ttl.
+// evictExpired deletes entries that have been confirmed and are older than ttl,
+// and also removes reserved-but-never-confirmed entries older than reservationTTL.
 // Must be called with s.mu held.
 func (s *InMemoryProcessedStore) evictExpired() {
-	if s.ttl <= 0 {
-		return
-	}
 	now := time.Now()
 	for id, confirmedAt := range s.entries {
 		if confirmedAt.IsZero() {
-			continue // not yet confirmed; keep it
+			// Reservation not yet confirmed — evict if stale.
+			if s.reservationTTL > 0 {
+				if ra, ok := s.reservedAt[id]; ok && now.Sub(ra) > s.reservationTTL {
+					delete(s.entries, id)
+					delete(s.reservedAt, id)
+				}
+			}
+			continue
 		}
-		if now.Sub(confirmedAt) > s.ttl {
+		if s.ttl > 0 && now.Sub(confirmedAt) > s.ttl {
 			delete(s.entries, id)
+			delete(s.reservedAt, id)
 		}
 	}
 }

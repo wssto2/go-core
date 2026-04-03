@@ -28,19 +28,14 @@ func TestOutbox_InsertWithinTransaction(t *testing.T) {
 	if err := EnsureOutboxSchema(db); err != nil {
 		t.Fatalf("ensure schema: %v", err)
 	}
-	// create marker table
 	if err := db.Exec("CREATE TABLE tx_marker (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT)").Error; err != nil {
 		t.Fatalf("create marker table: %v", err)
 	}
 
 	trans := database.NewTransactor(db)
 
-	env, err := WrapEventWithMetadata(context.Background(), struct{ Msg string }{Msg: "hello"})
-	if err != nil {
-		t.Fatalf("wrap: %v", err)
-	}
+	type testMsg struct{ Msg string }
 
-	// within transaction: insert marker and outbox
 	if err := trans.WithinTransaction(context.Background(), func(ctx context.Context) error {
 		tx, ok := database.TxFromContext(ctx)
 		if !ok {
@@ -49,15 +44,11 @@ func TestOutbox_InsertWithinTransaction(t *testing.T) {
 		if err := tx.Exec("INSERT INTO tx_marker (val) VALUES (?)", "v1").Error; err != nil {
 			return err
 		}
-		if err := InsertOutboxEvent(ctx, tx, env); err != nil {
-			return err
-		}
-		return nil
+		return InsertOutboxEvent(ctx, tx, testMsg{Msg: "hello"})
 	}); err != nil {
 		t.Fatalf("transaction failed: %v", err)
 	}
 
-	// verify marker present
 	var cnt int64
 	if err := db.Raw("SELECT COUNT(*) FROM tx_marker").Scan(&cnt).Error; err != nil {
 		t.Fatalf("count marker: %v", err)
@@ -66,16 +57,17 @@ func TestOutbox_InsertWithinTransaction(t *testing.T) {
 		t.Fatalf("expected 1 marker, got %d", cnt)
 	}
 
-	// verify outbox present
 	var outs []OutboxEvent
 	if err := db.Find(&outs).Error; err != nil {
 		t.Fatalf("find outbox: %v", err)
 	}
 	if len(outs) != 1 {
-		t.Fatalf("expected 1 outbox, got %d", len(outs))
+		t.Fatalf("expected 1 outbox event, got %d", len(outs))
+	}
+	if outs[0].EventType == "" {
+		t.Fatalf("expected EventType to be set")
 	}
 
-	// ensure envelope can be unmarshalled
 	var got Envelope
 	if err := json.Unmarshal(outs[0].Envelope, &got); err != nil {
 		t.Fatalf("unmarshal envelope: %v", err)
@@ -91,44 +83,45 @@ func TestOutbox_WorkerPublishesAndMarksProcessed(t *testing.T) {
 		t.Fatalf("ensure schema: %v", err)
 	}
 
-	// create and insert an envelope directly
-	env, err := WrapEventWithMetadata(context.Background(), struct{ Msg string }{Msg: "world"})
-	if err != nil {
-		t.Fatalf("wrap: %v", err)
-	}
-	if err := InsertOutboxEvent(context.Background(), db, env); err != nil {
+	type testMsg struct{ Msg string }
+	if err := InsertOutboxEvent(context.Background(), db, testMsg{Msg: "world"}); err != nil {
 		t.Fatalf("insert outbox: %v", err)
 	}
 
-	bus := NewInMemoryBus()
-	ch := make(chan Envelope, 1)
-	if err := bus.Subscribe(Envelope{}, func(ctx context.Context, ev any) error {
-		ch <- ev.(Envelope)
+	type delivery struct {
+		subject string
+		data    []byte
+	}
+	ch := make(chan delivery, 1)
+	publish := func(ctx context.Context, subject string, data []byte) error {
+		ch <- delivery{subject: subject, data: data}
 		return nil
-	}); err != nil {
-		t.Fatalf("subscribe: %v", err)
 	}
 
-	log := slog.Default()
-
-	worker := NewOutboxWorker(db, bus, log, 50*time.Millisecond, 10)
+	worker := NewOutboxWorker(db, publish, slog.Default(), 50*time.Millisecond, 10)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	// run worker in goroutine
-	go func() {
-		_ = worker.Run(ctx)
-	}()
+	go func() { _ = worker.Run(ctx) }()
 
 	select {
 	case got := <-ch:
-		if got.RequestID != env.RequestID {
-			t.Fatalf("mismatched request id: %s != %s", got.RequestID, env.RequestID)
+		if got.subject == "" {
+			t.Fatalf("expected non-empty subject")
+		}
+		var env Envelope
+		if err := json.Unmarshal(got.data, &env); err != nil {
+			t.Fatalf("unmarshal envelope: %v", err)
+		}
+		if env.RequestID == "" {
+			t.Fatalf("envelope missing request id")
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatalf("timeout waiting for published event")
 	}
 
-	// verify processed_at is set
+	// give worker time to call markProcessed before reading
+	time.Sleep(200 * time.Millisecond)
+
 	var out OutboxEvent
 	if err := db.First(&out).Error; err != nil {
 		t.Fatalf("fetch outbox: %v", err)

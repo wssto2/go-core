@@ -14,11 +14,15 @@ func InstrumentHTTP(m *Metrics) gin.HandlerFunc {
 		start := time.Now()
 		ctx.Next()
 
-		status := strconv.Itoa(ctx.Writer.Status())
+		status := ctx.Writer.Status()
+		statusStr := strconv.Itoa(status)
 		path := ctx.FullPath() // uses route pattern, not raw URL — avoids cardinality explosion
 		method := ctx.Request.Method
 
-		m.requestDuration.WithLabelValues(method, path, status).Observe(time.Since(start).Seconds())
-		m.requestCount.WithLabelValues(method, path, status).Inc()
+		m.requestDuration.WithLabelValues(method, path).Observe(time.Since(start).Seconds())
+		m.requestCount.WithLabelValues(method, path, statusStr).Inc()
+		if status >= 500 {
+			m.requestErrors.WithLabelValues(method, path, statusStr).Inc()
+		}
 	}
 }

@@ -65,12 +65,15 @@ func IsValidEmail(email string) bool {
 	return ValidEmailRegexp.MatchString(email)
 }
 
-// StringClean truncates a string to a given limit and trims it.
+// StringClean truncates a string to a given rune-count limit and trims whitespace.
+// Truncation is performed at rune (Unicode code point) boundaries to avoid
+// producing invalid UTF-8.
 func StringClean(str string, limit int) string {
-	if len(str) > limit {
-		return strings.TrimSpace(str[:limit])
+	runes := []rune(str)
+	if len(runes) > limit {
+		runes = runes[:limit]
 	}
-	return strings.TrimSpace(str)
+	return strings.TrimSpace(string(runes))
 }
 
 func StringContainsIgnoreCase(str, substr string) bool {
@@ -153,7 +156,9 @@ func Pluck[T any, K any](subject *[]T, key string, destination *[]K) {
 		if val.Kind() == reflect.Struct {
 			fieldVal := val.FieldByName(key)
 			if fieldVal.IsValid() {
-				*destination = append(*destination, fieldVal.Interface().(K))
+				if v, ok := fieldVal.Interface().(K); ok {
+				*destination = append(*destination, v)
+			}
 			}
 		}
 	}
@@ -183,6 +188,9 @@ func ToMap[T any](item T) map[string]any {
 
 	typ := val.Type()
 	for i := 0; i < val.NumField(); i++ {
+		if !typ.Field(i).IsExported() {
+			continue
+		}
 		field := val.Field(i)
 		fieldName := typ.Field(i).Name
 		itemMap[fieldName] = field.Interface()

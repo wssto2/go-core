@@ -9,7 +9,7 @@ import (
 
 func TestInitOpenTelemetry_StartSpan(t *testing.T) {
 	ctx := context.Background()
-	tr, shutdown, err := InitOpenTelemetry(ctx, "go-core-test")
+	tr, shutdown, err := InitOpenTelemetry(ctx, OTelConfig{ServiceName: "go-core-test", Exporter: ExporterNoop})
 	if err != nil {
 		t.Fatalf("init failed: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestInitOpenTelemetry_StartSpan(t *testing.T) {
 
 func TestOTelMiddlewareInjectsTraceID(t *testing.T) {
 	ctx := context.Background()
-	tr, shutdown, err := InitOpenTelemetry(ctx, "go-core-test")
+	tr, shutdown, err := InitOpenTelemetry(ctx, OTelConfig{ServiceName: "go-core-test", Exporter: ExporterNoop})
 	if err != nil {
 		t.Fatalf("init failed: %v", err)
 	}
@@ -60,4 +60,41 @@ func TestOTelMiddlewareInjectsTraceID(t *testing.T) {
 	if hdr := rr.Header().Get("X-Trace-ID"); hdr == "" {
 		t.Fatalf("expected X-Trace-ID header set")
 	}
+}
+
+func TestInitOpenTelemetry_NoopExporter_NoError(t *testing.T) {
+	ctx := context.Background()
+	tr, shutdown, err := InitOpenTelemetry(ctx, OTelConfig{ServiceName: "test-svc", Exporter: ExporterNoop})
+	if err != nil {
+		t.Fatalf("noop exporter init failed: %v", err)
+	}
+	if tr == nil {
+		t.Fatal("expected non-nil OTelTracer")
+	}
+	if err := shutdown(ctx); err != nil {
+		t.Errorf("shutdown failed: %v", err)
+	}
+}
+
+func TestInitOpenTelemetry_StdoutExporter_NoError(t *testing.T) {
+	ctx := context.Background()
+	tr, shutdown, err := InitOpenTelemetry(ctx, OTelConfig{ServiceName: "test-svc", Exporter: ExporterStdout})
+	if err != nil {
+		t.Fatalf("stdout exporter init failed: %v", err)
+	}
+	if tr == nil {
+		t.Fatal("expected non-nil OTelTracer")
+	}
+	if err := shutdown(ctx); err != nil {
+		t.Errorf("shutdown failed: %v", err)
+	}
+}
+
+func TestInitOpenTelemetry_EmptyExporter_DefaultsToNoop(t *testing.T) {
+	ctx := context.Background()
+	_, shutdown, err := InitOpenTelemetry(ctx, OTelConfig{ServiceName: "test-svc"})
+	if err != nil {
+		t.Fatalf("empty exporter should default to noop, got error: %v", err)
+	}
+	_ = shutdown(ctx)
 }

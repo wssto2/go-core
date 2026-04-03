@@ -11,10 +11,10 @@ type browserPattern struct {
 }
 
 var compiledBrowserPatterns = []browserPattern{
+	{name: "Edge", re: regexp.MustCompile(`Edg/([\d.]+)`)},
 	{name: "Chrome", re: regexp.MustCompile(`Chrome/([\d.]+)`)},
 	{name: "Firefox", re: regexp.MustCompile(`Firefox/([\d.]+)`)},
 	{name: "Safari", re: regexp.MustCompile(`Version/([\d.]+) Safari/`)},
-	{name: "Edge", re: regexp.MustCompile(`Edg/([\d.]+)`)},
 	{name: "Opera", re: regexp.MustCompile(`OPR/([\d.]+)`)},
 }
 

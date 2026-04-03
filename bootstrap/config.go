@@ -15,10 +15,11 @@ type Config struct {
 	Env     string `env:"APP_ENV"` // "production", "development"
 	Port    int    `env:"APP_PORT"`
 
-	ReadTimeoutSec     int `env:"HTTP_READ_TIMEOUT_SEC"`
-	WriteTimeoutSec    int `env:"HTTP_WRITE_TIMEOUT_SEC"`
-	IdleTimeoutSec     int `env:"HTTP_IDLE_TIMEOUT_SEC"`
-	ShutdownTimeoutSec int `env:"HTTP_SHUTDOWN_TIMEOUT_SEC"`
+	ReadTimeoutSec        int `env:"HTTP_READ_TIMEOUT_SEC"`
+	WriteTimeoutSec       int `env:"HTTP_WRITE_TIMEOUT_SEC"`
+	IdleTimeoutSec        int `env:"HTTP_IDLE_TIMEOUT_SEC"`
+	ShutdownTimeoutSec    int `env:"HTTP_SHUTDOWN_TIMEOUT_SEC"`
+	ReadHeaderTimeoutSec  int `env:"HTTP_READ_HEADER_TIMEOUT_SEC"`
 
 	DatabaseRegistry database.RegistryConfig
 	Databases        []database.ConnectionConfig
@@ -26,7 +27,7 @@ type Config struct {
 	Log logger.Config
 
 	JWT struct {
-		Secret   string        `env:"JWT_SECRET"`
+		Secret   string        `env:"JWT_SECRET" validation:"required"`
 		Issuer   string        `env:"JWT_ISSUER"`
 		Duration time.Duration `env:"JWT_DURATION"`
 	}
@@ -44,9 +45,10 @@ func DefaultConfig() Config {
 	return Config{
 		Port:               8080,
 		Env:                "development",
-		ReadTimeoutSec:     15,
-		WriteTimeoutSec:    15,
-		IdleTimeoutSec:     60,
-		ShutdownTimeoutSec: 10,
+		ReadTimeoutSec:        15,
+		WriteTimeoutSec:       15,
+		IdleTimeoutSec:        60,
+		ShutdownTimeoutSec:    10,
+		ReadHeaderTimeoutSec:  10,
 	}
 }

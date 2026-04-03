@@ -110,8 +110,10 @@ func parseLevel(l LogLevel) slog.Level {
 }
 
 func GetFromContext(ctx context.Context) *slog.Logger {
-	if log := ctx.Value(ctxKey{}); log != nil {
-		return log.(*slog.Logger)
+	if val := ctx.Value(ctxKey{}); val != nil {
+		if l, ok := val.(*slog.Logger); ok {
+			return l
+		}
 	}
 	return slog.Default()
 }

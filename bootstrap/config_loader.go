@@ -21,11 +21,25 @@ func LoadConfig(cfg any) error {
 		return err
 	}
 
-	validator := validation.New()
-	if err := validator.Validate(cfg); err != nil {
+	return validateDeep(rv.Elem())
+}
+
+// validateDeep validates a struct value and recurses into nested struct fields.
+func validateDeep(rv reflect.Value) error {
+	ptr := reflect.New(rv.Type())
+	ptr.Elem().Set(rv)
+	v := validation.New()
+	if err := v.Validate(ptr.Interface()); err != nil {
 		return err
 	}
-
+	for i := 0; i < rv.NumField(); i++ {
+		field := rv.Field(i)
+		if field.Kind() == reflect.Struct && field.Type() != reflect.TypeOf(time.Time{}) {
+			if err := validateDeep(field); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

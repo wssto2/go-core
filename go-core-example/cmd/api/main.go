@@ -18,10 +18,15 @@ func main() {
 	cfg := loadConfig()
 	ctx := context.Background()
 
-	// Initialize OpenTelemetry (stdout exporter) when available. This is
-	// optional for local development; set DISABLE_OTEL=1 to skip.
+	// Initialize OpenTelemetry when available.
+	// Use ExporterStdout for local development; switch to ExporterNoop (or OTLP)
+	// in production via config.
 	if os.Getenv("DISABLE_OTEL") == "" {
-		if _, shutdown, err := tracing.InitOpenTelemetry(ctx, cfg.AppName); err != nil {
+		otelCfg := tracing.OTelConfig{
+			ServiceName: cfg.AppName,
+			Exporter:    tracing.ExporterStdout,
+		}
+		if _, shutdown, err := tracing.InitOpenTelemetry(ctx, otelCfg); err != nil {
 			log.Printf("tracing init failed: %v (continuing with noop tracer)", err)
 		} else {
 			defer func() { _ = shutdown(context.Background()) }()

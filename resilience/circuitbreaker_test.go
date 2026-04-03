@@ -107,3 +107,46 @@ func TestCircuitBreaker_ConcurrentHalfOpenSingleTrial(t *testing.T) {
 	assert.Equal(t, int32(1), atomic.LoadInt32(&success))
 	assert.True(t, atomic.LoadInt32(&calls) >= 1)
 }
+
+// TestCircuitBreaker_PanicInOp_ResetsTrial verifies that a panicking op in HALF-OPEN
+// state does not permanently set trialInProgress=true, which would block all future
+// trial calls.
+func TestCircuitBreaker_PanicInOp_ResetsTrial(t *testing.T) {
+cb := NewCircuitBreaker(1, 50*time.Millisecond)
+ctx := context.Background()
+
+// Trip the breaker open.
+_ = cb.Execute(ctx, func(ctx context.Context) error { return errors.New("fail") })
+assert.Equal(t, StateOpen, cb.State())
+
+// Wait for open timeout.
+time.Sleep(60 * time.Millisecond)
+
+// First Execute attempt in HALF-OPEN: panicking op. We recover the panic externally.
+func() {
+defer func() { recover() }() //nolint:errcheck
+_ = cb.Execute(ctx, func(ctx context.Context) error {
+panic("op panicked")
+})
+}()
+
+// trialInProgress must be reset so the next trial is accepted (not rejected with ErrOpen).
+// The breaker may be in any state after the panic; what matters is that the next
+// Execute call is NOT immediately rejected due to trialInProgress still being true.
+var nextErr error
+func() {
+defer func() {
+if r := recover(); r != nil {
+// panic propagated from op — acceptable, trial slot was allocated
+}
+}()
+nextErr = cb.Execute(ctx, func(ctx context.Context) error {
+return nil // success
+})
+}()
+// After a successful trial the breaker should close, or it was open and we need another wait.
+// The key assertion: we did NOT get ErrOpen due to trialInProgress.
+if nextErr == ErrOpen {
+t.Fatal("expected trial to be accepted after panic reset, got ErrOpen")
+}
+}

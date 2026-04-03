@@ -26,7 +26,7 @@ func (c Config) withDefaults() Config {
 		c.StaticURL = "/static"
 	}
 	if c.Cors.AllowOrigins == nil {
-		c.Cors.AllowOrigins = []string{"*"}
+		c.Cors.AllowOrigins = []string{}
 	}
 	if c.Cors.AllowMethods == nil {
 		c.Cors.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}

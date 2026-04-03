@@ -26,7 +26,7 @@ func (i NullInt) Value() (driver.Value, error) {
 	if i.value == nil {
 		return nil, nil
 	}
-	return *i.value, nil
+	return int64(*i.value), nil
 }
 
 func (i *NullInt) Scan(value interface{}) error {

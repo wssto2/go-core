@@ -154,6 +154,48 @@ func TestChannelPool_Close(t *testing.T) {
 	}
 }
 
+func TestPool_Put_ConcurrentClose_NoPanic(t *testing.T) {
+	factory := func(ctx context.Context) (io.Closer, error) {
+		return &fakeConn{}, nil
+	}
+	const goroutines = 50
+	for trial := 0; trial < 5; trial++ {
+		p, err := NewChannelPool(factory, goroutines)
+		if err != nil {
+			t.Fatalf("NewChannelPool: %v", err)
+		}
+		ctx := context.Background()
+
+		// Pre-borrow all connections so Put has real connections to return.
+		conns := make([]io.Closer, goroutines)
+		for i := range conns {
+			conns[i], err = p.Get(ctx)
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+		}
+
+		var wg sync.WaitGroup
+		// goroutines calling Put
+		for i := 0; i < goroutines; i++ {
+			wg.Add(1)
+			c := conns[i]
+			go func() {
+				defer wg.Done()
+				_ = p.Put(ctx, c)
+			}()
+		}
+		// goroutine calling Close concurrently
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = p.Close(ctx)
+		}()
+
+		wg.Wait()
+	}
+}
+
 func TestChannelPool_Put_AfterClose_NoRace(t *testing.T) {
 	factory := func(ctx context.Context) (io.Closer, error) {
 		return &fakeConn{}, nil

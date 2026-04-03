@@ -43,4 +43,8 @@ type TokenStore interface {
 	UpdateTouch(ctx context.Context, tokenID uint64, meta TokenMetadata) error
 	// RotateRefreshToken atomically replaces the refresh token and updates expiry.
 	RotateRefreshToken(ctx context.Context, tokenID uint64, newRefresh string, newExpiry time.Time) error
+	// FindAndRotateRefreshToken atomically finds the token by oldRefresh and replaces it
+	// with newRefresh inside a single transaction, preventing replay attacks from
+	// concurrent requests. Returns ErrUnauthorized if the token is not found or invalid.
+	FindAndRotateRefreshToken(ctx context.Context, oldRefresh, newRefresh string, newExpiry time.Time) (*Token, error)
 }

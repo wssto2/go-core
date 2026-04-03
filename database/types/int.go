@@ -23,7 +23,7 @@ func NewInt(value int) Int {
 }
 
 func (i Int) Value() (driver.Value, error) {
-	return i.value, nil
+	return int64(i.value), nil
 }
 
 func (i *Int) Scan(value interface{}) error {

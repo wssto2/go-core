@@ -72,6 +72,56 @@ func TestLocalDriver_PutGetDelete(t *testing.T) {
 	}
 }
 
+func TestLocalDriver_SafePath_RejectsTraversal(t *testing.T) {
+	tmpdir, err := os.MkdirTemp("", "localdriver_traversal_test")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpdir) }()
+
+	d, err := New(tmpdir)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	_, err = d.safePath("../../etc/passwd")
+	if err == nil {
+		t.Fatal("expected error for traversal key, got nil")
+	}
+	var aerr *apperr.AppError
+	if !errors.As(err, &aerr) {
+		t.Fatalf("expected apperr.AppError, got %T", err)
+	}
+	if aerr.Code != apperr.CodeBadRequest {
+		t.Fatalf("expected CodeBadRequest, got %s", aerr.Code)
+	}
+}
+
+func TestLocalDriver_SafePath_RejectsEmptyKey(t *testing.T) {
+	tmpdir, err := os.MkdirTemp("", "localdriver_emptykey_test")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpdir) }()
+
+	d, err := New(tmpdir)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	_, err = d.safePath("")
+	if err == nil {
+		t.Fatal("expected error for empty key, got nil")
+	}
+	var aerr *apperr.AppError
+	if !errors.As(err, &aerr) {
+		t.Fatalf("expected apperr.AppError, got %T", err)
+	}
+	if aerr.Code != apperr.CodeBadRequest {
+		t.Fatalf("expected CodeBadRequest, got %s", aerr.Code)
+	}
+}
+
 func TestLocalDriver_ListAndExists(t *testing.T) {
 	tmpdir, err := os.MkdirTemp("", "localdriver_list_exists_test")
 	if err != nil {

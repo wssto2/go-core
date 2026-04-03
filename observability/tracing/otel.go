@@ -13,24 +13,47 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
+// ExporterType selects the span exporter used by InitOpenTelemetry.
+type ExporterType string
+
+const (
+	// ExporterStdout pretty-prints spans to stdout. Suitable for development.
+	ExporterStdout ExporterType = "stdout"
+	// ExporterNoop discards all spans. Suitable for production when a real
+	// backend (e.g. OTLP) is not yet configured.
+	ExporterNoop ExporterType = "noop"
+)
+
+// OTelConfig holds the configuration for InitOpenTelemetry.
+type OTelConfig struct {
+	// ServiceName is used as the OTel resource service.name attribute.
+	ServiceName string
+	// Exporter selects the span exporter. Defaults to ExporterNoop when empty.
+	Exporter ExporterType
+}
+
 // OTelTracer adapts OpenTelemetry to the local Tracer interface.
 type OTelTracer struct {
 	tp *sdktrace.TracerProvider
 	tr oteltrace.Tracer
 }
 
-// InitOpenTelemetry initializes a basic OpenTelemetry tracer provider using the
-// stdout exporter (pretty print). It returns a Tracer implementation and a
-// shutdown function to call at process exit.
-func InitOpenTelemetry(ctx context.Context, serviceName string) (*OTelTracer, func(context.Context) error, error) {
-	exporter, err := stdouttrace.New(stdouttrace.WithPrettyPrint())
+// InitOpenTelemetry initialises an OpenTelemetry tracer provider.
+// The exporter is selected via cfg.Exporter:
+//   - "stdout" — pretty-prints spans to stdout (development)
+//   - "noop" or "" — discards all spans (safe production default)
+//
+// OTLP exporters are not yet included; add them once the corresponding
+// go.opentelemetry.io/otel/exporters/otlp/* packages are in go.mod.
+func InitOpenTelemetry(ctx context.Context, cfg OTelConfig) (*OTelTracer, func(context.Context) error, error) {
+	exporter, err := buildExporter(cfg.Exporter)
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating stdout exporter: %w", err)
+		return nil, nil, err
 	}
 
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
-			attribute.String("service.name", serviceName),
+			attribute.String("service.name", cfg.ServiceName),
 		),
 	)
 	if err != nil {
@@ -43,12 +66,28 @@ func InitOpenTelemetry(ctx context.Context, serviceName string) (*OTelTracer, fu
 	)
 
 	otel.SetTracerProvider(tp)
-	ot := &OTelTracer{tp: tp, tr: tp.Tracer(serviceName)}
+	ot := &OTelTracer{tp: tp, tr: tp.Tracer(cfg.ServiceName)}
 	shutdown := func(ctx context.Context) error {
 		return tp.Shutdown(ctx)
 	}
 	return ot, shutdown, nil
 }
+
+func buildExporter(t ExporterType) (sdktrace.SpanExporter, error) {
+	switch t {
+	case ExporterStdout:
+		return stdouttrace.New(stdouttrace.WithPrettyPrint())
+	default: // ExporterNoop or empty
+		return &noopExporter{}, nil
+	}
+}
+
+// noopExporter discards all spans.
+type noopExporter struct{}
+
+func (*noopExporter) ExportSpans(_ context.Context, _ []sdktrace.ReadOnlySpan) error { return nil }
+func (*noopExporter) Shutdown(_ context.Context) error                               { return nil }
+
 
 // StartSpan implements Tracer. It starts an OpenTelemetry span and stores the
 // trace/span ids in the returned context so other parts of the system can

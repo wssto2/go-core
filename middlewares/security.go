@@ -10,6 +10,7 @@ import (
 
 type SecurityConfig struct {
 	ContentSecurityPolicy string // if empty, use a safe default
+	TrustProxy            bool   // if true, trust X-Forwarded-Proto header for HSTS
 }
 
 // Helper to generate a random string
@@ -59,7 +60,12 @@ func Security(isDev bool, cfg ...SecurityConfig) gin.HandlerFunc {
 		ctx.Header("X-Content-Type-Options", "nosniff")
 		ctx.Header("Referrer-Policy", "strict-origin-when-cross-origin")
 		ctx.Header("Content-Security-Policy", csp)
-		ctx.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		// HSTS must only be sent over HTTPS (RFC 6797 §7.2).
+		isHTTPS := ctx.Request.TLS != nil ||
+			(len(cfg) > 0 && cfg[0].TrustProxy && ctx.GetHeader("X-Forwarded-Proto") == "https")
+		if isHTTPS {
+			ctx.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		}
 		ctx.Next()
 	}
 }

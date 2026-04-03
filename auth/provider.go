@@ -36,6 +36,10 @@ func (p *JWTProvider) Verify(ctx context.Context, tokenString string) (Identifia
 	}
 
 	claims := &Claims{}
+	parseOpts := []jwt.ParserOption{}
+	if p.cfg.Audience != "" {
+		parseOpts = append(parseOpts, jwt.WithAudience(p.cfg.Audience))
+	}
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
 		alg := p.cfg.Algorithm
 		if alg == "" {
@@ -59,7 +63,7 @@ func (p *JWTProvider) Verify(ctx context.Context, tokenString string) (Identifia
 		default:
 			return nil, fmt.Errorf("unsupported signing algorithm: %s", alg)
 		}
-	})
+	}, parseOpts...)
 	if err != nil {
 		if isExpiredError(err) {
 			return nil, ErrExpiredToken
@@ -96,11 +100,26 @@ func resolveFromClaims(
 type DBTokenProvider struct {
 	store    TokenStore
 	resolver IdentityResolver
+	pool     workerPool
+}
+
+// workerPool is a minimal interface for submitting background jobs,
+// satisfied by *worker.Pool.
+type workerPool interface {
+	Submit(ctx context.Context, job func(context.Context) error) error
 }
 
 // NewDBTokenProvider returns a new DBTokenProvider.
+// Pass a non-nil pool to route background UpdateTouch calls through the pool
+// instead of spawning an unbounded goroutine per request.
 func NewDBTokenProvider(store TokenStore, res IdentityResolver) *DBTokenProvider {
 	return &DBTokenProvider{store: store, resolver: res}
+}
+
+// NewDBTokenProviderWithPool returns a DBTokenProvider that uses pool for
+// background UpdateTouch jobs. Prefer this over NewDBTokenProvider in production.
+func NewDBTokenProviderWithPool(store TokenStore, res IdentityResolver, pool workerPool) *DBTokenProvider {
+	return &DBTokenProvider{store: store, resolver: res, pool: pool}
 }
 
 // Verify validates the token against the store and resolves the user.
@@ -110,11 +129,27 @@ func (p *DBTokenProvider) Verify(ctx context.Context, token string) (Identifiabl
 		return nil, errors.New("unauthorized: invalid or expired token")
 	}
 
-	go func() {
-		_ = p.store.UpdateTouch(context.Background(), uint64(ut.ID), TokenMetadata{
-			LastUsedAt: time.Now(),
-		})
-	}()
+	p.touchAsync(ut.ID)
 
 	return p.resolver(ctx, strconv.Itoa(int(ut.UserID)))
+}
+
+// touchAsync updates the token's last-used timestamp in the background.
+// If a worker pool is configured, the job is submitted there (bounded).
+// If the queue is full, the update is skipped — it is non-critical.
+// If no pool is configured, a goroutine is used as a fallback.
+func (p *DBTokenProvider) touchAsync(tokenID int) {
+	job := func(_ context.Context) error {
+		return p.store.UpdateTouch(context.Background(), uint64(tokenID), TokenMetadata{
+			LastUsedAt: time.Now(),
+		})
+	}
+	if p.pool != nil {
+		if err := p.pool.Submit(context.Background(), job); err != nil {
+			// ErrQueueFull: best-effort, skip the update
+			return
+		}
+		return
+	}
+	go func() { _ = job(context.Background()) }()
 }

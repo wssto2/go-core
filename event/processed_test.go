@@ -111,3 +111,32 @@ func TestIdempotentHandler_ReleaseOnError(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, int32(2), atomic.LoadInt32(&calls))
 }
+
+func TestInMemoryProcessedStore_StaleReservationEviction(t *testing.T) {
+s := &InMemoryProcessedStore{
+entries:        make(map[string]time.Time),
+reservedAt:     make(map[string]time.Time),
+ttl:            time.Hour,
+reservationTTL: time.Millisecond, // very short
+}
+ctx := context.Background()
+
+ok, err := s.Reserve(ctx, "evict-me")
+assert.NoError(t, err)
+assert.True(t, ok)
+
+// Backdate the reservation to appear stale.
+s.mu.Lock()
+s.reservedAt["evict-me"] = time.Now().Add(-time.Second)
+s.mu.Unlock()
+
+// Next call to Reserve triggers evictExpired; now "evict-me" should be evictable.
+ok, err = s.Reserve(ctx, "trigger-evict")
+assert.NoError(t, err)
+assert.True(t, ok)
+
+// "evict-me" was stale so it should have been evicted, allowing re-reservation.
+ok, err = s.Reserve(ctx, "evict-me")
+assert.NoError(t, err)
+assert.True(t, ok, "stale reservation should be evictable and re-reservable")
+}

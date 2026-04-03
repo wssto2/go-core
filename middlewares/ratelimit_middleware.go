@@ -13,7 +13,7 @@ import (
 // RateLimit returns a Gin middleware that enforces the provided Limiter.
 // It supports three scopes:
 //   - global: applies to all requests (always checked)
-//   - perUser: when enabled, applies limits per authenticated user (uses auth.UserFromContext or X-User-ID header)
+//   - perUser: when enabled, applies limits per authenticated user (falls back to client IP when unauthenticated)
 //   - perEndpoint: when enabled, applies limits per endpoint (method + route full path)
 func RateLimit(l rl.Limiter, perUser bool, perEndpoint bool) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
@@ -27,27 +27,21 @@ func RateLimit(l rl.Limiter, perUser bool, perEndpoint bool) gin.HandlerFunc {
 			id := ""
 			if u, ok := auth.UserFromContext(ctx.Request.Context()); ok {
 				id = strconv.Itoa(u.GetID())
-			} else if h := ctx.GetHeader("X-User-ID"); h != "" {
-				id = h
+			} else {
+				// Fall back to client IP when no authenticated user is present.
+				id = ctx.ClientIP()
 			}
 			path := ctx.FullPath()
 			if path == "" {
 				path = ctx.Request.URL.Path
 			}
-			if id != "" {
-				keys = append(keys, "user:"+id+"|endpoint:"+ctx.Request.Method+":"+path)
-			} else {
-				// no user info: fall back to endpoint
-				keys = append(keys, "endpoint:"+ctx.Request.Method+":"+path)
-			}
+			keys = append(keys, "user:"+id+"|endpoint:"+ctx.Request.Method+":"+path)
 		} else if perUser {
 			if u, ok := auth.UserFromContext(ctx.Request.Context()); ok {
 				keys = append(keys, "user:"+strconv.Itoa(u.GetID()))
-			} else if id := ctx.GetHeader("X-User-ID"); id != "" {
-				keys = append(keys, "user:"+id)
 			} else {
-				// no user info -> treat as global
-				keys = append(keys, "global")
+				// Fall back to client IP when no authenticated user is present.
+				keys = append(keys, "user:"+ctx.ClientIP())
 			}
 		} else if perEndpoint {
 			path := ctx.FullPath()

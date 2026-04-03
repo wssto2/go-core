@@ -3,6 +3,8 @@ package event
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 	"testing"
@@ -89,4 +91,23 @@ func TestRetryBus_SucceedsBeforeExhaust(t *testing.T) {
 	// expected: one failure then one success
 	assert.Equal(t, 2, calls)
 	assert.Len(t, dlq.Entries(), 0)
+}
+
+func TestInMemoryDLQ_Overflow_DropsOldest(t *testing.T) {
+dlq := NewInMemoryDLQWithSize(3, nil)
+ctx := context.Background()
+err := errors.New("fail")
+
+for i := 0; i < 5; i++ {
+subject := fmt.Sprintf("evt-%d", i)
+_ = dlq.Enqueue(ctx, subject, []byte(`{}`), err)
+}
+
+assert.Equal(t, int64(2), dlq.Dropped(), "expected 2 dropped entries")
+
+entries := dlq.Entries()
+assert.Len(t, entries, 3, "queue must stay at maxSize")
+// Oldest 2 entries (evt-0, evt-1) should be gone; remaining are evt-2..evt-4.
+assert.Equal(t, "evt-2", entries[0].Subject)
+assert.Equal(t, "evt-4", entries[2].Subject)
 }

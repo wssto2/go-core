@@ -95,6 +95,11 @@ func (p *channelPool) Get(ctx context.Context) (io.Closer, error) {
 
 // Put returns a connection to the pool. If the pool is closed or full the connection
 // is closed and discarded.
+//
+// The mutex is held across the closed-check and the non-blocking channel send so
+// that a concurrent Close() cannot close the channel between those two operations
+// (which would cause a "send on closed channel" panic). The send is always
+// non-blocking (select/default), so holding the mutex here cannot deadlock.
 func (p *channelPool) Put(ctx context.Context, c io.Closer) error {
 	p.mu.Lock()
 	if p.closed {
@@ -108,23 +113,22 @@ func (p *channelPool) Put(ctx context.Context, c io.Closer) error {
 		}
 		return apperr.Internal(fmt.Errorf("pool closed"))
 	}
-	p.mu.Unlock()
 
 	select {
 	case p.conns <- c:
 		// returned to the pool
+		p.mu.Unlock()
 		return nil
 	default:
 		// channel full: close and discard
-		if c != nil {
-			_ = c.Close()
-		}
-		p.mu.Lock()
 		p.total--
 		if p.total < 0 {
 			p.total = 0
 		}
 		p.mu.Unlock()
+		if c != nil {
+			_ = c.Close()
+		}
 		return nil
 	}
 }

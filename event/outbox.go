@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"time"
 
 	"gorm.io/gorm"
@@ -13,23 +14,31 @@ type OutboxEvent struct {
 	ID        uint   `gorm:"primaryKey"`
 	RequestID string `gorm:"index:idx_request_id"`
 	Source    string
+	// EventType is the Go type string (reflect.Type.String()) of the original event,
+	// used by the outbox worker as the delivery subject.
+	EventType string
 	Envelope  json.RawMessage `gorm:"type:json"`
 	CreatedAt time.Time
 	// ProcessedAt is set when the event has been successfully published.
 	ProcessedAt *time.Time `gorm:"index:idx_processed"`
 }
 
-// EnsureOutboxSchema creates the outbox table if it doesn't exist.
+// EnsureOutboxSchema creates or migrates the outbox table.
 func EnsureOutboxSchema(db *gorm.DB) error {
 	return db.AutoMigrate(&OutboxEvent{})
 }
 
-// InsertOutboxEvent inserts the provided envelope into the outbox using the
-// given transaction. This is designed to be called inside an existing DB
-// transaction so application writes and outbox writes commit atomically.
-func InsertOutboxEvent(ctx context.Context, tx *gorm.DB, env *Envelope) error {
+// InsertOutboxEvent wraps event in an Envelope, records the Go type as the
+// delivery subject, and inserts atomically using the provided transaction.
+// Call this inside an existing DB transaction so application writes and outbox
+// writes commit together.
+func InsertOutboxEvent(ctx context.Context, tx *gorm.DB, event any) error {
 	if tx == nil {
 		return gorm.ErrInvalidDB
+	}
+	env, err := WrapEventWithMetadata(ctx, event)
+	if err != nil {
+		return err
 	}
 	b, err := json.Marshal(env)
 	if err != nil {
@@ -38,6 +47,7 @@ func InsertOutboxEvent(ctx context.Context, tx *gorm.DB, env *Envelope) error {
 	e := OutboxEvent{
 		RequestID: env.RequestID,
 		Source:    env.Source,
+		EventType: reflect.TypeOf(event).String(),
 		Envelope:  b,
 	}
 	return tx.WithContext(ctx).Create(&e).Error

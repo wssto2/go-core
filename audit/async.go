@@ -3,7 +3,6 @@ package audit
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 
 	"github.com/wssto2/go-core/apperr"
 )
@@ -15,9 +14,10 @@ type AsyncRepository struct {
 	ch         chan Entry
 	wg         sync.WaitGroup
 	closeOnce  sync.Once
+	mu         sync.Mutex // guards closed, wg.Add, and ch send atomically
+	closed     bool
 	workers    int
 	OnError    func(Entry, error) // called on failed write
-	closed     uint32             // atomic flag: 0=open, 1=closed
 }
 
 // NewAsyncRepository creates an AsyncRepository with the given buffer size and
@@ -53,29 +53,40 @@ func (a *AsyncRepository) loop() {
 }
 
 // Write enqueues an audit entry for asynchronous persistence. Returns an
-// AppError if the internal buffer is full.
+// AppError if the repository is shut down or the internal buffer is full.
+//
+// The mutex is held across the closed-check, wg.Add(1), and the non-blocking
+// channel send so that Shutdown cannot close the channel between any of those
+// three steps (which would cause a WaitGroup panic or a send-on-closed panic).
 func (a *AsyncRepository) Write(ctx context.Context, entry Entry) error {
-	if atomic.LoadUint32(&a.closed) == 1 {
+	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
 		return apperr.New(nil, "audit repository is shut down", apperr.CodeInternal)
 	}
-	// Account for this item before attempting to enqueue. If enqueue fails
-	// we decrement the counter to keep the wait group balanced.
 	a.wg.Add(1)
 	select {
 	case a.ch <- entry:
+		a.mu.Unlock()
 		return nil
 	default:
 		a.wg.Done()
+		a.mu.Unlock()
 		return apperr.New(nil, "audit queue full", apperr.CodeInternal)
 	}
 }
 
 // Shutdown closes the queue and waits for pending items to be processed. If the
 // provided context expires before flush completes an AppError is returned.
+//
+// closed is set under mu (same mutex Write uses) so that no new wg.Add(1) calls
+// can race with wg.Wait().
 func (a *AsyncRepository) Shutdown(ctx context.Context) error {
 	a.closeOnce.Do(func() {
-		atomic.StoreUint32(&a.closed, 1)
+		a.mu.Lock()
+		a.closed = true
 		close(a.ch)
+		a.mu.Unlock()
 	})
 	done := make(chan struct{})
 	go func() {

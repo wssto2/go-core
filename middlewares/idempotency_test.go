@@ -107,3 +107,54 @@ func TestIdempotency_CachedResponseUsed(t *testing.T) {
 	assert.Equal(t, "created", strings.TrimSpace(w2.Body.String()))
 	assert.Equal(t, http.StatusCreated, w2.Code)
 }
+
+func TestIdempotencyMiddleware_HandlerPanic_ChannelClosed(t *testing.T) {
+gin.SetMode(gin.TestMode)
+store := NewInMemoryIdempotencyStore(0)
+r := gin.New()
+// Recovery middleware so the panic doesn't crash the test server.
+r.Use(gin.Recovery())
+r.Use(Idempotency(store))
+
+r.POST("/panic", func(c *gin.Context) {
+panic("simulated handler panic")
+})
+
+key := "panic-key-1"
+w1 := httptest.NewRecorder()
+req1 := httptest.NewRequest("POST", "/panic", nil)
+req1.Header.Set(HeaderIdempotencyKey, key)
+r.ServeHTTP(w1, req1)
+
+// The second request must not block; it should receive the stored (empty) response.
+done := make(chan struct{})
+go func() {
+w2 := httptest.NewRecorder()
+req2 := httptest.NewRequest("POST", "/panic", nil)
+req2.Header.Set(HeaderIdempotencyKey, key)
+r.ServeHTTP(w2, req2)
+close(done)
+}()
+
+select {
+case <-done:
+// second request completed — channel was properly closed after panic
+case <-time.After(2 * time.Second):
+t.Fatal("second request blocked after handler panic — channel was not closed")
+}
+}
+
+func TestIdempotencyMiddleware_LongKey_Returns400(t *testing.T) {
+gin.SetMode(gin.TestMode)
+store := NewInMemoryIdempotencyStore(0)
+r := gin.New()
+r.Use(Idempotency(store))
+r.POST("/do", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+
+w := httptest.NewRecorder()
+req := httptest.NewRequest("POST", "/do", nil)
+req.Header.Set(HeaderIdempotencyKey, strings.Repeat("x", 257))
+r.ServeHTTP(w, req)
+
+assert.Equal(t, http.StatusBadRequest, w.Code)
+}

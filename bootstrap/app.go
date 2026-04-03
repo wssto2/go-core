@@ -2,8 +2,10 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -59,14 +61,19 @@ func (a *App) Run() error {
 
 	// Start HTTP server if configured
 	if a.httpServer != nil {
-		// run server in background
+		errCh := make(chan error, 1)
 		go func() {
-			if err := a.httpServer.Start(); err != nil {
-				// http.ErrServerClosed is expected on graceful shutdown
-				// Log unexpected errors
-				log.Error("http_server_failed", "error", err)
+			if err := a.httpServer.Start(); err != nil &&
+				!errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
 			}
 		}()
+		// Give the server a short window to detect immediate failures (e.g. port in use).
+		select {
+		case err := <-errCh:
+			return fmt.Errorf("http server failed to start: %w", err)
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
 
 	log.Info("application_running")
