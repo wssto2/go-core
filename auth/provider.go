@@ -34,6 +34,9 @@ func (p *JWTProvider) Verify(ctx context.Context, tokenString string) (Identifia
 	if tokenString == "" {
 		return nil, ErrMissingToken
 	}
+	if err := validateTokenConfig(p.cfg); err != nil {
+		return nil, err
+	}
 
 	claims := &Claims{}
 	parseOpts := []jwt.ParserOption{}
@@ -89,6 +92,9 @@ func resolveFromClaims(
 		return nil, ErrInvalidClaims
 	}
 	if issuer != "" && claims.Issuer != issuer {
+		return nil, ErrInvalidClaims
+	}
+	if claims.Subject == "" {
 		return nil, ErrInvalidClaims
 	}
 	return resolver(ctx, claims.Subject)

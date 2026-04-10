@@ -35,7 +35,7 @@ func (m *MockModule) Shutdown(ctx context.Context) error {
 
 func TestAppLifecycle(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.I18n.Dir = "/tmp/go-core-i18n"
+	cfg.I18n.Dir = tempI18nDir(t)
 	builder := New(cfg).DefaultInfrastructure()
 	app, _ := builder.Build()
 

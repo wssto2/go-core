@@ -1,9 +1,11 @@
 package auth
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -16,6 +18,7 @@ func TestIssueAndParseToken_WithAudienceAndIssuer(t *testing.T) {
 	}
 
 	claims := Claims{UserID: 1, Email: "a@x.com"}
+	claims.Subject = "1"
 	tok, err := IssueToken(claims, cfg)
 	assert.NoError(t, err)
 
@@ -29,6 +32,7 @@ func TestIssueAndParseToken_WithAudienceAndIssuer(t *testing.T) {
 func TestParseToken_InvalidAudience(t *testing.T) {
 	cfg1 := TokenConfig{SecretKey: "secret", Issuer: "iss", Audience: "aud1", TokenDuration: time.Hour}
 	claims := Claims{UserID: 2}
+	claims.Subject = "2"
 	tok, err := IssueToken(claims, cfg1)
 	assert.NoError(t, err)
 
@@ -40,9 +44,48 @@ func TestParseToken_InvalidAudience(t *testing.T) {
 func TestParseToken_Expired(t *testing.T) {
 	cfg := TokenConfig{SecretKey: "secret", Issuer: "iss", TokenDuration: -time.Hour}
 	claims := Claims{UserID: 3}
+	claims.Subject = "3"
 	tok, err := IssueToken(claims, cfg)
 	assert.NoError(t, err)
 
 	_, err = ParseToken(tok, cfg)
 	assert.ErrorIs(t, err, ErrExpiredToken)
+}
+
+func TestParseToken_EmptySubject_IsInvalid(t *testing.T) {
+	cfg := TokenConfig{SecretKey: "secret", Issuer: "iss", TokenDuration: time.Hour}
+	tok, err := IssueToken(Claims{}, cfg)
+	assert.NoError(t, err)
+
+	_, err = ParseToken(tok, cfg)
+	assert.ErrorIs(t, err, ErrInvalidClaims)
+}
+
+func TestJWTProvider_EmptySubject_DoesNotCallResolver(t *testing.T) {
+	cfg := TokenConfig{SecretKey: "secret", Issuer: "iss", TokenDuration: time.Hour}
+	tok, err := IssueToken(Claims{}, cfg)
+	assert.NoError(t, err)
+
+	called := false
+	provider := NewJWTProvider(cfg, func(_ context.Context, _ string) (Identifiable, error) {
+		called = true
+		return nil, nil
+	})
+
+	_, err = provider.Verify(context.Background(), tok)
+	assert.ErrorIs(t, err, ErrInvalidClaims)
+	assert.False(t, called)
+}
+
+func TestIssueToken_EmptyHS256Secret_IsInvalidConfig(t *testing.T) {
+	_, err := IssueToken(Claims{RegisteredClaims: jwt.RegisteredClaims{Subject: "1"}}, TokenConfig{
+		Issuer:        "iss",
+		TokenDuration: time.Hour,
+	})
+	assert.ErrorIs(t, err, ErrInvalidConfig)
+}
+
+func TestParseToken_EmptyHS256Secret_IsInvalidConfig(t *testing.T) {
+	_, err := ParseToken("abc", TokenConfig{})
+	assert.ErrorIs(t, err, ErrInvalidConfig)
 }

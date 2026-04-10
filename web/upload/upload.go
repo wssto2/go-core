@@ -1,6 +1,7 @@
 package upload
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/apperr"
 )
+
+const multipartOverheadLimit int64 = 1 << 20
 
 type Config struct {
 	MaxSize     int64    // in MB (default 5MB)
@@ -174,45 +177,122 @@ func UploadFile(ctx *gin.Context, formKey string, config Config) (UploadedFile, 
 // Use this when the file should be passed to a storage backend (S3, GCS, etc.)
 // rather than saved directly to the local filesystem.
 func ValidateFile(ctx *gin.Context, formKey string, config Config) (FileInput, error) {
-	file, header, err := ctx.Request.FormFile(formKey)
-	if err != nil {
-		return FileInput{}, apperr.Internal(err)
-	}
-
 	limitMB := config.MaxSize
 	if limitMB <= 0 {
 		limitMB = 5
 	}
 	maxBytes := limitMB * 1024 * 1024
-	if header.Size > maxBytes {
-		_ = file.Close()
-		return FileInput{}, apperr.BadRequest(fmt.Sprintf("file size exceeds %dMB limit", limitMB))
+
+	if ctx.Request == nil || ctx.Request.Body == nil {
+		return FileInput{}, apperr.BadRequest("invalid multipart form data")
 	}
 
-	buf := make([]byte, 512)
-	n, err := file.Read(buf)
-	if err != nil && err != io.EOF {
-		_ = file.Close()
-		return FileInput{}, apperr.Internal(err)
-	}
-	sniffed := http.DetectContentType(buf[:n])
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		_ = file.Close()
-		return FileInput{}, apperr.Internal(err)
+	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, maxBytes+multipartOverheadLimit)
+	reader, err := ctx.Request.MultipartReader()
+	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			return FileInput{}, apperr.BadRequest(fmt.Sprintf("file size exceeds %dMB limit", limitMB))
+		}
+		return FileInput{}, apperr.BadRequest("invalid multipart form data")
 	}
 
-	if !slices.Contains(resolveAllowedMime(config), sniffed) {
-		_ = file.Close()
-		return FileInput{}, apperr.BadRequest(fmt.Sprintf("file type '%s' is not allowed", sniffed))
-	}
+	for {
+		part, err := reader.NextPart()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return FileInput{}, apperr.BadRequest(fmt.Sprintf("missing file field %q", formKey))
+			}
+			var maxErr *http.MaxBytesError
+			if errors.As(err, &maxErr) {
+				return FileInput{}, apperr.BadRequest(fmt.Sprintf("file size exceeds %dMB limit", limitMB))
+			}
+			return FileInput{}, apperr.BadRequest("invalid multipart form data")
+		}
+		if part.FormName() != formKey || part.FileName() == "" {
+			_ = part.Close()
+			continue
+		}
 
-	return FileInput{
-		File:     file,
-		Filename: header.Filename,
-		Size:     header.Size,
-		MimeType: sniffed,
-		Ext:      extFromMIME(sniffed, header.Filename),
-	}, nil
+		tmp, err := os.CreateTemp("", "go-core-upload-*")
+		if err != nil {
+			_ = part.Close()
+			return FileInput{}, apperr.Internal(err)
+		}
+		cleanup := func() {
+			_ = tmp.Close()
+			_ = os.Remove(tmp.Name())
+			_ = part.Close()
+		}
+
+		sniffBuf := make([]byte, 512)
+		n, readErr := part.Read(sniffBuf)
+		if readErr != nil && readErr != io.EOF {
+			cleanup()
+			var maxErr *http.MaxBytesError
+			if errors.As(readErr, &maxErr) {
+				return FileInput{}, apperr.BadRequest(fmt.Sprintf("file size exceeds %dMB limit", limitMB))
+			}
+			return FileInput{}, apperr.Internal(readErr)
+		}
+		total := int64(n)
+		if total > 0 {
+			if _, err := tmp.Write(sniffBuf[:n]); err != nil {
+				cleanup()
+				return FileInput{}, apperr.Internal(err)
+			}
+		}
+		if total > maxBytes {
+			cleanup()
+			return FileInput{}, apperr.BadRequest(fmt.Sprintf("file size exceeds %dMB limit", limitMB))
+		}
+
+		written, copyErr := io.Copy(tmp, io.LimitReader(part, maxBytes-total+1))
+		total += written
+		if total > maxBytes {
+			cleanup()
+			return FileInput{}, apperr.BadRequest(fmt.Sprintf("file size exceeds %dMB limit", limitMB))
+		}
+		if copyErr != nil {
+			cleanup()
+			var maxErr *http.MaxBytesError
+			if errors.As(copyErr, &maxErr) {
+				return FileInput{}, apperr.BadRequest(fmt.Sprintf("file size exceeds %dMB limit", limitMB))
+			}
+			return FileInput{}, apperr.Internal(copyErr)
+		}
+
+		sniffed := http.DetectContentType(sniffBuf[:n])
+		if !slices.Contains(resolveAllowedMime(config), sniffed) {
+			cleanup()
+			return FileInput{}, apperr.BadRequest(fmt.Sprintf("file type '%s' is not allowed", sniffed))
+		}
+		if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+			cleanup()
+			return FileInput{}, apperr.Internal(err)
+		}
+
+		return FileInput{
+			File:     &tempReadSeekCloser{File: tmp},
+			Filename: part.FileName(),
+			Size:     total,
+			MimeType: sniffed,
+			Ext:      extFromMIME(sniffed, part.FileName()),
+		}, nil
+	}
+}
+
+type tempReadSeekCloser struct {
+	*os.File
+}
+
+func (t *tempReadSeekCloser) Close() error {
+	name := t.Name()
+	err := t.File.Close()
+	if removeErr := os.Remove(name); removeErr != nil && !os.IsNotExist(removeErr) && err == nil {
+		err = removeErr
+	}
+	return err
 }
 
 func DeleteFile(basePath, relativePath string) error {

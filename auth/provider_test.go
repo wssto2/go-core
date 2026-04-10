@@ -24,6 +24,7 @@ func TestJWTProvider_WrongAudience_ReturnsUnauthorized(t *testing.T) {
 		TokenDuration: time.Hour,
 	}
 	claims := auth.Claims{}
+	claims.Subject = "42"
 	tok, err := auth.IssueToken(claims, cfg)
 	require.NoError(t, err)
 
@@ -53,6 +54,7 @@ func TestJWTProvider_CorrectAudience_Succeeds(t *testing.T) {
 		TokenDuration: time.Hour,
 	}
 	claims := auth.Claims{}
+	claims.Subject = "1"
 	tok, err := auth.IssueToken(claims, cfg)
 	require.NoError(t, err)
 

@@ -40,7 +40,10 @@ func LoadShedding(maxConcurrent int, statusCode int) gin.HandlerFunc {
 		if cur > int32(maxConcurrent) {
 			// exceeded limit; decrement and reject immediately
 			atomic.AddInt32(&inFlight, -1)
-			ctx.AbortWithStatusJSON(statusCode, gin.H{"error": "service overloaded"})
+			ctx.AbortWithStatusJSON(statusCode, gin.H{
+				"success": false,
+				"error":   "service overloaded",
+			})
 			return
 		}
 		defer atomic.AddInt32(&inFlight, -1)

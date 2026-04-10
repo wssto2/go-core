@@ -31,7 +31,7 @@ func (f *fakeServerWithRegistry) Shutdown(ctx context.Context) error {
 
 func TestReadinessDraining(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.I18n.Dir = "/tmp/go-core-i18n"
+	cfg.I18n.Dir = tempI18nDir(t)
 	builder := New(cfg).DefaultInfrastructure()
 	app, _ := builder.Build()
 
@@ -59,7 +59,7 @@ func TestReadinessDraining(t *testing.T) {
 
 func TestAppShutdownSetsDrainingBeforeHTTPShutdown(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.I18n.Dir = "/tmp/go-core-i18n"
+	cfg.I18n.Dir = tempI18nDir(t)
 	builder := New(cfg).DefaultInfrastructure()
 	app, _ := builder.Build()
 

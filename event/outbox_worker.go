@@ -118,4 +118,3 @@ func (w *OutboxWorker) markProcessed(ctx context.Context, id uint) error {
 		return MarkProcessed(ctx, tx, id)
 	})
 }
-

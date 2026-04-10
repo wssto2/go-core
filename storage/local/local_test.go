@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/wssto2/go-core/apperr"
@@ -175,5 +176,31 @@ func TestLocalDriver_ListAndExists(t *testing.T) {
 	}
 	if notExists {
 		t.Fatalf("expected Exists to return false for notfound.txt")
+	}
+}
+
+func TestLocalDriver_RejectsSymlinkedParentDirectory(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	d, err := New(root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	err = d.Put(context.Background(), "escape/pwned.txt", bytes.NewReader([]byte("x")), 1, "text/plain")
+	if err == nil {
+		t.Fatal("expected Put to reject symlinked parent path")
+	}
+	var aerr *apperr.AppError
+	if !errors.As(err, &aerr) {
+		t.Fatalf("expected apperr.AppError, got %T", err)
+	}
+	if aerr.Code != apperr.CodeBadRequest {
+		t.Fatalf("expected CodeBadRequest, got %s", aerr.Code)
 	}
 }

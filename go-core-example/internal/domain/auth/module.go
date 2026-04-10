@@ -10,6 +10,7 @@ import (
 	coreauth "github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Module wires the auth domain into the application container.
@@ -37,13 +38,21 @@ func (m *Module) Register(c *bootstrap.Container) error {
 	// Seed a demo admin user if the table is empty.
 	// Remove or replace with proper onboarding in production.
 	var count int64
-	db.Model(&User{}).Count(&count)
+	if err := db.Model(&User{}).Count(&count).Error; err != nil {
+		return fmt.Errorf("auth: count users: %w", err)
+	}
 	if count == 0 {
-		db.Create(&User{
+		passwordHash, err := bcrypt.GenerateFromPassword([]byte("demo"), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("auth: hash demo password: %w", err)
+		}
+		if err := db.Create(&User{
 			Username:     "admin",
-			PasswordHash: "demo", // replace with bcrypt hash in production
+			PasswordHash: string(passwordHash),
 			Policies:     []string{"products:create", "products:update", "products:delete"},
-		})
+		}).Error; err != nil {
+			return fmt.Errorf("auth: seed demo admin: %w", err)
+		}
 	}
 
 	m.svc = newService(db, m.tokenCfg)

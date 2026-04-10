@@ -5,8 +5,9 @@ import (
 	"errors"
 	"strconv"
 
-	coreauth "github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/apperr"
+	coreauth "github.com/wssto2/go-core/auth"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -39,10 +40,9 @@ func (s *service) Login(ctx context.Context, username, password string) (string,
 		return "", apperr.Internal(err)
 	}
 
-	// TODO: verify password hash in production:
-	// if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-	// 	return "", apperr.Unauthorized("invalid credentials")
-	// }
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return "", apperr.Unauthorized("invalid credentials")
+	}
 
 	claims := coreauth.Claims{
 		UserID: user.ID,

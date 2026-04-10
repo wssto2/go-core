@@ -38,12 +38,20 @@ type AppBuilder struct {
 // New creates a new AppBuilder with the given config.
 func New(cfg Config) *AppBuilder {
 	engine := gin.New()
-
-	return &AppBuilder{
+	builder := &AppBuilder{
 		cfg:       cfg,
 		container: NewContainer(),
 		engine:    engine,
 	}
+	proxies := cfg.HTTP.TrustedProxies
+	if len(proxies) == 0 {
+		proxies = nil
+	}
+	if err := engine.SetTrustedProxies(proxies); err != nil {
+		builder.errors = append(builder.errors, fmt.Errorf("trusted proxies: %w", err))
+	}
+
+	return builder
 }
 
 // DefaultInfrastructure wires every core service into the container
@@ -250,6 +258,19 @@ func (b *AppBuilder) WithModules(modules ...Module) *AppBuilder {
 	return b
 }
 
+// WithTrustedProxies configures the proxies Gin will trust for client-IP and
+// forwarded-proto resolution. Passing no values disables proxy trust.
+func (b *AppBuilder) WithTrustedProxies(proxies ...string) *AppBuilder {
+	if len(proxies) == 0 {
+		proxies = nil
+	}
+	b.cfg.HTTP.TrustedProxies = append([]string(nil), proxies...)
+	if err := b.engine.SetTrustedProxies(proxies); err != nil {
+		b.errors = append(b.errors, fmt.Errorf("trusted proxies: %w", err))
+	}
+	return b
+}
+
 // WithOutboxWorker adds a background worker that continuously polls the outbox
 // table and forwards events via publish. Use this in standalone worker binaries
 // that don't need HTTP.
@@ -265,10 +286,16 @@ func (b *AppBuilder) WithOutboxWorker(publish event.PublishFunc, opts ...event.W
 
 func (b *AppBuilder) WithJWTAuth(resolver auth.IdentityResolver) *AppBuilder {
 	if b.cfg.JWT.Secret == "" {
-		panic("WithJWTAuth: JWT_SECRET must not be empty")
+		b.errors = append(b.errors, fmt.Errorf("jwt: JWT_SECRET must not be empty"))
+		return b
 	}
 	if len(b.cfg.JWT.Secret) < 32 {
-		panic("WithJWTAuth: JWT_SECRET must be at least 32 characters for HS256 security")
+		b.errors = append(b.errors, fmt.Errorf("jwt: JWT_SECRET must be at least 32 characters for HS256 security"))
+		return b
+	}
+	if resolver == nil {
+		b.errors = append(b.errors, fmt.Errorf("jwt: identity resolver must not be nil"))
+		return b
 	}
 	tokenCfg := auth.TokenConfig{
 		SecretKey:     b.cfg.JWT.Secret,
@@ -283,6 +310,14 @@ func (b *AppBuilder) WithJWTAuth(resolver auth.IdentityResolver) *AppBuilder {
 }
 
 func (b *AppBuilder) WithDBTokenAuth(store auth.TokenStore, resolver auth.IdentityResolver) *AppBuilder {
+	if store == nil {
+		b.errors = append(b.errors, fmt.Errorf("db token auth: token store must not be nil"))
+		return b
+	}
+	if resolver == nil {
+		b.errors = append(b.errors, fmt.Errorf("db token auth: identity resolver must not be nil"))
+		return b
+	}
 	pool := worker.New(worker.WithWorkers(2), worker.WithQueueSize(256))
 	authProvider := auth.NewDBTokenProvider(store, resolver, pool)
 	Bind[auth.Provider](b.container, authProvider)

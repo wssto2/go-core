@@ -51,4 +51,3 @@ func TestOutboxWorker_EmptyEventType_MarkedProcessed(t *testing.T) {
 	require.NoError(t, db.First(&stored, e.ID).Error)
 	assert.NotNil(t, stored.ProcessedAt, "event with empty type must be marked processed")
 }
-

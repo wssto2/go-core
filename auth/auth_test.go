@@ -5,9 +5,11 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wssto2/go-core/auth"
@@ -23,6 +25,9 @@ var testCfg = auth.TokenConfig{
 
 func issueTestToken(t *testing.T, claims auth.Claims) string {
 	t.Helper()
+	if claims.Subject == "" && claims.UserID != 0 {
+		claims.Subject = strconv.Itoa(claims.UserID)
+	}
 	token, err := auth.IssueToken(claims, testCfg)
 	require.NoError(t, err)
 	return token
@@ -71,7 +76,12 @@ func TestParseToken_Expired(t *testing.T) {
 		TokenDuration: -time.Hour, // already expired
 	}
 
-	token, err := auth.IssueToken(auth.Claims{UserID: 1}, expiredCfg)
+	token, err := auth.IssueToken(auth.Claims{
+		UserID: 1,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "1",
+		},
+	}, expiredCfg)
 	require.NoError(t, err)
 
 	_, err = auth.ParseToken(token, testCfg)
@@ -96,7 +106,13 @@ func TestIssueParseToken_RS256(t *testing.T) {
 		TokenDuration:    testCfg.TokenDuration,
 	}
 
-	token, err := auth.IssueToken(auth.Claims{UserID: 99, Email: "rs@example.com"}, rCfg)
+	token, err := auth.IssueToken(auth.Claims{
+		UserID: 99,
+		Email:  "rs@example.com",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject: "99",
+		},
+	}, rCfg)
 	require.NoError(t, err)
 
 	claims, err := auth.ParseToken(token, rCfg)

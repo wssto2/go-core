@@ -11,6 +11,26 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+func validateTokenConfig(cfg TokenConfig) error {
+	alg := cfg.Algorithm
+	if alg == "" {
+		alg = "HS256"
+	}
+	switch alg {
+	case "HS256":
+		if cfg.SecretKey == "" {
+			return fmt.Errorf("%w: HS256 secret must not be empty", ErrInvalidConfig)
+		}
+	case "RS256":
+		if cfg.RSAPrivateKeyPEM == "" && cfg.RSAPublicKeyPEM == "" {
+			return fmt.Errorf("%w: RS256 key material must not be empty", ErrInvalidConfig)
+		}
+	default:
+		return fmt.Errorf("%w: unsupported signing algorithm: %s", ErrInvalidConfig, alg)
+	}
+	return nil
+}
+
 // Claims are the standard fields encoded in every JWT token.
 // App-specific data is NOT stored in the token — it is loaded
 // from the database after token validation by the app's resolver.
@@ -43,6 +63,9 @@ type TokenConfig struct {
 func ParseToken(tokenString string, cfg TokenConfig) (*Claims, error) {
 	if tokenString == "" {
 		return nil, ErrMissingToken
+	}
+	if err := validateTokenConfig(cfg); err != nil {
+		return nil, err
 	}
 
 	alg := cfg.Algorithm
@@ -103,12 +126,19 @@ func ParseToken(tokenString string, cfg TokenConfig) (*Claims, error) {
 			return nil, ErrInvalidClaims
 		}
 	}
+	if claims.Subject == "" {
+		return nil, ErrInvalidClaims
+	}
 
 	return claims, nil
 }
 
 // IssueToken creates and signs a new JWT token from the given claims.
 func IssueToken(claims Claims, cfg TokenConfig) (string, error) {
+	if err := validateTokenConfig(cfg); err != nil {
+		return "", err
+	}
+
 	now := time.Now()
 
 	rc := jwt.RegisteredClaims{

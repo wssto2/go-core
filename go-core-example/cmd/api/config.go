@@ -4,23 +4,21 @@ import (
 	"time"
 
 	"github.com/wssto2/go-core/bootstrap"
-	"github.com/wssto2/go-core/database"
 )
 
 func loadConfig() bootstrap.Config {
-	var cfg bootstrap.Config
+	cfg := bootstrap.DefaultConfig()
 
-	cfg.AppName = bootstrap.EnvStr("APP_NAME", "go-core-example")
-	cfg.Env = bootstrap.EnvStr("APP_ENV", "development")
-	cfg.Port = bootstrap.EnvInt("APP_PORT", 8080)
-
-	cfg.ReadTimeoutSec = bootstrap.EnvInt("READ_TIMEOUT_SEC", 15)
-	cfg.WriteTimeoutSec = bootstrap.EnvInt("WRITE_TIMEOUT_SEC", 15)
-	cfg.IdleTimeoutSec = bootstrap.EnvInt("IDLE_TIMEOUT_SEC", 60)
-	cfg.ShutdownTimeoutSec = bootstrap.EnvInt("SHUTDOWN_TIMEOUT_SEC", 10)
+	cfg.App.Name = bootstrap.EnvStr("APP_NAME", "go-core-example")
+	cfg.App.Env = bootstrap.EnvStr("APP_ENV", "development")
+	cfg.HTTP.Port = bootstrap.EnvInt("APP_PORT", 8080)
+	cfg.HTTP.ReadTimeout = time.Duration(bootstrap.EnvInt("READ_TIMEOUT_SEC", 15)) * time.Second
+	cfg.HTTP.WriteTimeout = time.Duration(bootstrap.EnvInt("WRITE_TIMEOUT_SEC", 15)) * time.Second
+	cfg.HTTP.IdleTimeout = time.Duration(bootstrap.EnvInt("IDLE_TIMEOUT_SEC", 60)) * time.Second
+	cfg.HTTP.ShutdownTimeout = time.Duration(bootstrap.EnvInt("SHUTDOWN_TIMEOUT_SEC", 10)) * time.Second
 
 	// Primary database ("local") -- used by most modules.
-	cfg.Databases = []database.ConnectionConfig{
+	cfg.Database.Connections = []bootstrap.DatabaseConnectionConfig{
 		{
 			Name:            "local",
 			Driver:          "mysql",
@@ -53,10 +51,10 @@ func loadConfig() bootstrap.Config {
 	cfg.JWT.Issuer = bootstrap.EnvStr("JWT_ISSUER", "go-core-example")
 	cfg.JWT.Duration = time.Duration(bootstrap.EnvInt("JWT_DURATION_HOURS", 24)) * time.Hour
 
-	cfg.I18n.I18nDir = bootstrap.EnvStr("I18N_DIR", "")   // empty = disabled
-	cfg.I18n.FallbackLang = bootstrap.EnvStr("I18N_FALLBACK_LANG", "en")
+	cfg.I18n.Dir = bootstrap.EnvStr("I18N_DIR", "") // empty = disabled
+	cfg.I18n.DefaultLocale = bootstrap.EnvStr("I18N_FALLBACK_LANG", "en")
 
-	cfg.StorageDir = bootstrap.EnvStr("STORAGE_BASE_DIR", "/tmp/go-core-example/uploads")
+	cfg.Storage.Dir = bootstrap.EnvStr("STORAGE_BASE_DIR", "/tmp/go-core-example/uploads")
 
 	return cfg
 }

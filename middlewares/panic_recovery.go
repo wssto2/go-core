@@ -16,7 +16,8 @@ func PanicRecovery(log *slog.Logger) gin.HandlerFunc {
 			"stack", string(debug.Stack()),
 		)
 		ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-			"error": "Internal server error",
+			"success": false,
+			"error":   "Internal server error",
 		})
 	})
 }

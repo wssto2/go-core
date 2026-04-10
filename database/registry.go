@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	"gorm.io/driver/mysql"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -88,7 +89,7 @@ func (r *Registry) Register(cfg ConnectionConfig) error {
 		return nil
 	}
 
-	conn, err := r.openMySQL(cfg)
+	conn, err := r.openConnection(cfg)
 	if err != nil {
 		return ErrConnectionFailed{Name: cfg.Name, Err: err}
 	}
@@ -219,6 +220,21 @@ func (r *Registry) AddConnection(name string, conn *gorm.DB) {
 
 // --- private ---
 
+func (r *Registry) openConnection(cfg ConnectionConfig) (*gorm.DB, error) {
+	driver := cfg.Driver
+	if driver == "" {
+		driver = DriverMySQL
+	}
+	switch driver {
+	case DriverSQLite:
+		return r.openSQLite(cfg)
+	case DriverMySQL:
+		return r.openMySQL(cfg)
+	default:
+		return nil, fmt.Errorf("unsupported driver %q", driver)
+	}
+}
+
 func (r *Registry) openMySQL(cfg ConnectionConfig) (*gorm.DB, error) {
 	dsn := fmt.Sprintf(
 		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local",
@@ -238,6 +254,29 @@ func (r *Registry) openMySQL(cfg ConnectionConfig) (*gorm.DB, error) {
 	if err != nil {
 		// Attempt best-effort cleanup to avoid leaking the underlying connection pool.
 		// conn.DB() failing after a successful gorm.Open is unusual, but guard anyway.
+		if db, e := conn.DB(); e == nil {
+			_ = db.Close()
+		}
+		return nil, err
+	}
+
+	ApplyPoolSettings(sqlDB, cfg)
+
+	return conn, nil
+}
+
+func (r *Registry) openSQLite(cfg ConnectionConfig) (*gorm.DB, error) {
+	conn, err := gorm.Open(sqlite.Open(cfg.Database), &gorm.Config{
+		Logger:                 r.buildLogger(),
+		PrepareStmt:            true,
+		SkipDefaultTransaction: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sqlDB, err := conn.DB()
+	if err != nil {
 		if db, e := conn.DB(); e == nil {
 			_ = db.Close()
 		}

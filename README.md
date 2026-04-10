@@ -50,7 +50,6 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 * `datatable` → filtering, pagination, query helpers
 * `tenancy` → multi-tenant context + DB scoping
 * `event` → event bus abstraction
-* `cache` → caching interface
 
 ### Utility Packages
 
@@ -131,27 +130,6 @@ user := auth.MustGetUser[MyUser](ctx)
 
 ---
 
-## Development Workflow (IMPORTANT FOR AGENTS)
-
-1. Read `PLAN.md`
-2. Pick next unchecked task
-3. Implement minimal version
-4. Add tests
-5. Refactor
-
----
-
-## Current Status
-
-⚠️ This project is being refactored into **v2 architecture**
-
-See:
-
-* `PLAN.md` → roadmap & tasks
-* `ARCHITECTURE.md` → target design
-
----
-
 ## Rules
 
 * Do not bypass `apperr`
@@ -169,25 +147,3 @@ This repository is a **core library**, not an application.
 All business logic should live in consuming services.
 
 ---
-
-## Agent Instructions
-
-When working on this repo:
-
-* Treat `PLAN.md` as source of truth
-* Do not invent new patterns unless necessary
-* Follow existing package boundaries
-* Keep changes minimal and incremental
-* Maintain backward compatibility unless explicitly refactoring
-
----
-
-## Future Direction
-
-* DI container (Phase 1)
-* sqlc integration (Phase 2)
-* Dual-mode auth (Phase 3)
-* Storage + events (Phase 4)
-* Observability (Phase 5)
-
-See `PLAN.md` for full breakdown.

@@ -228,4 +228,3 @@ func TestDBProcessedStore_PurgeStaleReservations_RemovesOldEntries(t *testing.T)
 	assert.NoError(t, err)
 	assert.True(t, foundConfirmed, "confirmed entry must not be deleted")
 }
-

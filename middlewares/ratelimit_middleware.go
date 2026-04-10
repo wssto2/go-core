@@ -59,12 +59,18 @@ func RateLimit(l rl.Limiter, perUser bool, perEndpoint bool) gin.HandlerFunc {
 			if err != nil {
 				// record internal error and return 500
 				_ = ctx.Error(apperr.Internal(err))
-				ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "rate limiter internal error"})
+				ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error":   "rate limiter internal error",
+				})
 				return
 			}
 			if !ok {
 				// limit exceeded
-				ctx.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
+				ctx.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+					"success": false,
+					"error":   "rate limit exceeded",
+				})
 				return
 			}
 		}

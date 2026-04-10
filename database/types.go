@@ -18,7 +18,7 @@ type ConnectionConfig struct {
 	// e.g. "local", "shared", "etx_hr"
 	Name string
 
-	// Driver is the database driver name (e.g. "postgres", "mysql", "sqlite").
+	// Driver is the database driver name (currently "mysql" or "sqlite").
 	Driver string
 
 	Host     string

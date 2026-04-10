@@ -131,7 +131,10 @@ func Idempotency(store *IdempotencyStore) gin.HandlerFunc {
 
 		// Task 6.2: reject oversized keys before touching the store.
 		if len(key) > 256 {
-			ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Idempotency-Key too long (max 256 bytes)"})
+			ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "Idempotency-Key too long (max 256 bytes)",
+			})
 			return
 		}
 
@@ -160,7 +163,10 @@ func Idempotency(store *IdempotencyStore) gin.HandlerFunc {
 		e, err := store.waitResponse(entry, ctx.Request.Context())
 		if err != nil {
 			// propagate context error
-			ctx.AbortWithStatusJSON(http.StatusRequestTimeout, gin.H{"error": err.Error()})
+			ctx.AbortWithStatusJSON(http.StatusRequestTimeout, gin.H{
+				"success": false,
+				"error":   err.Error(),
+			})
 			return
 		}
 

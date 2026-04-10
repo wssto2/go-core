@@ -84,27 +84,27 @@ func TestManager_RestartOnError(t *testing.T) {
 }
 
 func TestManager_MaxRestarts_StopsAfterLimit(t *testing.T) {
-// Use very short initial delay to keep the test fast.
-m := NewManager(slog.Default(), WithMaxRestarts(3), WithInitialDelay(10*time.Millisecond))
+	// Use very short initial delay to keep the test fast.
+	m := NewManager(slog.Default(), WithMaxRestarts(3), WithInitialDelay(10*time.Millisecond))
 
-calls := int32(0)
-w := &mockWorker{
-name: "failing_worker",
-runFunc: func(ctx context.Context) error {
-atomic.AddInt32(&calls, 1)
-return errors.New("always fails")
-},
-}
+	calls := int32(0)
+	w := &mockWorker{
+		name: "failing_worker",
+		runFunc: func(ctx context.Context) error {
+			atomic.AddInt32(&calls, 1)
+			return errors.New("always fails")
+		},
+	}
 
-m.Add(w)
+	m.Add(w)
 
-ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
-m.Start(ctx)
-m.Wait()
+	m.Start(ctx)
+	m.Wait()
 
-// Worker started + maxRestarts-1 retries = maxRestarts total runs.
-assert.Equal(t, int32(3), atomic.LoadInt32(&calls),
-"worker must run exactly maxRestarts times before being permanently stopped")
+	// Worker started + maxRestarts-1 retries = maxRestarts total runs.
+	assert.Equal(t, int32(3), atomic.LoadInt32(&calls),
+		"worker must run exactly maxRestarts times before being permanently stopped")
 }

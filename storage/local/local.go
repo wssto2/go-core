@@ -22,10 +22,18 @@ func New(root string) (*Driver, error) {
 	if root == "" {
 		return nil, apperr.BadRequest("storage root path is empty")
 	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
 		return nil, apperr.Internal(err)
 	}
-	return &Driver{Root: root}, nil
+	if err := os.MkdirAll(absRoot, 0o755); err != nil {
+		return nil, apperr.Internal(err)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		return nil, apperr.Internal(err)
+	}
+	return &Driver{Root: resolvedRoot}, nil
 }
 
 // safePath validates key and returns the absolute path within d.Root.
@@ -34,13 +42,48 @@ func (d *Driver) safePath(key string) (string, error) {
 	if key == "" {
 		return "", apperr.BadRequest("storage key must not be empty")
 	}
-	sep := string(filepath.Separator)
-	p := filepath.Join(d.Root, key)
 	root := filepath.Clean(d.Root)
-	if !strings.HasPrefix(p+sep, root+sep) {
+	p := filepath.Join(root, key)
+	rel, err := filepath.Rel(root, p)
+	if err != nil {
+		return "", apperr.Internal(err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", apperr.BadRequest("storage key escapes root directory")
 	}
+	if err := ensureSymlinkFreeParents(root, p); err != nil {
+		return "", err
+	}
 	return p, nil
+}
+
+func ensureSymlinkFreeParents(root, path string) error {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return apperr.Internal(err)
+	}
+	if rel == "." {
+		return nil
+	}
+	current := root
+	parts := strings.Split(rel, string(filepath.Separator))
+	for i := 0; i < len(parts)-1; i++ {
+		current = filepath.Join(current, parts[i])
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return apperr.Internal(err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return apperr.BadRequest("storage path traverses a symlinked directory")
+		}
+		if !info.IsDir() {
+			return apperr.BadRequest("storage path has a non-directory parent")
+		}
+	}
+	return nil
 }
 
 // Put writes the provided reader to disk at key.
@@ -143,6 +186,9 @@ func (d *Driver) List(ctx context.Context, prefix string) ([]string, error) {
 	err = filepath.Walk(rootPrefix, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
 		}
 		if info.IsDir() {
 			return nil

@@ -1,17 +1,18 @@
 package main
 
 import (
+	"time"
+
 	"github.com/wssto2/go-core/bootstrap"
-	"github.com/wssto2/go-core/database"
 )
 
 func loadConfig() bootstrap.Config {
-	var cfg bootstrap.Config
-	cfg.AppName = bootstrap.EnvStr("APP_NAME", "go-core-worker")
-	cfg.Env = bootstrap.EnvStr("APP_ENV", "development")
-	cfg.ShutdownTimeoutSec = bootstrap.EnvInt("SHUTDOWN_TIMEOUT_SEC", 30)
+	cfg := bootstrap.DefaultConfig()
+	cfg.App.Name = bootstrap.EnvStr("APP_NAME", "go-core-worker")
+	cfg.App.Env = bootstrap.EnvStr("APP_ENV", "development")
+	cfg.HTTP.ShutdownTimeout = time.Duration(bootstrap.EnvInt("SHUTDOWN_TIMEOUT_SEC", 30)) * time.Second
 
-	cfg.Databases = []database.ConnectionConfig{
+	cfg.Database.Connections = []bootstrap.DatabaseConnectionConfig{
 		{
 			Name:            "local",
 			Driver:          "mysql",

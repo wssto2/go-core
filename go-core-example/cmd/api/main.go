@@ -32,7 +32,7 @@ func main() {
 			exporter = tracing.ExporterStdout
 		}
 		otelCfg := tracing.OTelConfig{
-			ServiceName: cfg.AppName,
+			ServiceName: cfg.App.Name,
 			Exporter:    exporter,
 			Endpoint:    os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 		}
@@ -73,7 +73,7 @@ func main() {
 		WithModules(
 			authMod,
 			product.NewModule(
-				cfg.StorageDir,
+				cfg.Storage.Dir,
 				bootstrap.EnvStr("NOTIFICATION_WEBHOOK_URL", ""),
 				bootstrap.EnvStr("NOTIFICATION_WEBHOOK_TOKEN", ""),
 			),
@@ -88,4 +88,3 @@ func main() {
 		log.Fatal(err)
 	}
 }
-

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"testing"
+	"time"
 )
 
 // A tiny fake HTTP server used to verify Shutdown is called.
@@ -55,6 +57,18 @@ type errorHTTPServer struct {
 func (e *errorHTTPServer) Start() error                     { return e.err }
 func (e *errorHTTPServer) Shutdown(_ context.Context) error { return nil }
 
+type delayedErrorHTTPServer struct {
+	delay time.Duration
+	err   error
+}
+
+func (d *delayedErrorHTTPServer) Start() error {
+	time.Sleep(d.delay)
+	return d.err
+}
+
+func (d *delayedErrorHTTPServer) Shutdown(_ context.Context) error { return nil }
+
 // TestApp_Run_HTTPStartFailure_ReturnsError verifies that Run() propagates an
 // immediate HTTP server startup failure (e.g., port already in use) instead of
 // silently swallowing it and returning nil.
@@ -69,7 +83,7 @@ func TestApp_Run_HTTPStartFailure_ReturnsError(t *testing.T) {
 	_ = addr // used conceptually; we use the errorHTTPServer stub below
 
 	cfg := DefaultConfig()
-	cfg.I18n.Dir = "/tmp/go-core-i18n"
+	cfg.I18n.Dir = tempI18nDir(t)
 	builder := New(cfg).DefaultInfrastructure()
 	app, buildErr := builder.Build()
 	if buildErr != nil {
@@ -87,7 +101,7 @@ func TestApp_Run_HTTPStartFailure_ReturnsError(t *testing.T) {
 
 func TestShutdownCallsHTTPServerBeforeModules(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.I18n.Dir = "/tmp/go-core-i18n"
+	cfg.I18n.Dir = tempI18nDir(t)
 	builder := New(cfg).DefaultInfrastructure()
 	app, _ := builder.Build()
 
@@ -115,11 +129,34 @@ func TestShutdownCallsHTTPServerBeforeModules(t *testing.T) {
 	}
 }
 
+func TestApp_Run_HTTPFailureAfterStartupWindow_ReturnsError(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.I18n.Dir = tempI18nDir(t)
+	builder := New(cfg).DefaultInfrastructure()
+	app, buildErr := builder.Build()
+	if buildErr != nil {
+		t.Fatalf("Build: %v", buildErr)
+	}
+
+	app.httpServer = &delayedErrorHTTPServer{
+		delay: 150 * time.Millisecond,
+		err:   errors.New("listener closed unexpectedly"),
+	}
+
+	err := app.Run()
+	if err == nil {
+		t.Fatal("expected non-nil error from Run when HTTP server stops after startup")
+	}
+	if !strings.Contains(err.Error(), "http server stopped unexpectedly") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 // TestWithHTTP_DefaultConfig_HasReadHeaderTimeout verifies that the default
 // configuration includes a non-zero ReadHeaderTimeout to mitigate Slowloris attacks.
 func TestWithHTTP_DefaultConfig_HasReadHeaderTimeout(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.I18n.Dir = "/tmp/go-core-i18n"
+	cfg.I18n.Dir = tempI18nDir(t)
 	builder := New(cfg).DefaultInfrastructure().WithHttp()
 	app, err := builder.Build()
 	if err != nil {

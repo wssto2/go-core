@@ -38,20 +38,33 @@ func validateConfig(cfg ConnectionConfig) error {
 	if cfg.Name == "" {
 		return ErrInvalidConfig{Name: "(empty)", Reason: "name is required"}
 	}
-	if cfg.Host == "" {
-		return ErrInvalidConfig{Name: cfg.Name, Reason: "host is required"}
+	driver := cfg.Driver
+	if driver == "" {
+		driver = DriverMySQL
 	}
-	if cfg.Port == "" {
-		return ErrInvalidConfig{Name: cfg.Name, Reason: "port is required"}
-	}
-	if cfg.Database == "" {
-		return ErrInvalidConfig{Name: cfg.Name, Reason: "database is required"}
-	}
-	if cfg.Username == "" {
-		return ErrInvalidConfig{Name: cfg.Name, Reason: "username is required"}
-	}
-	if cfg.Password == "" {
-		return ErrInvalidConfig{Name: cfg.Name, Reason: "password is required"}
+	switch driver {
+	case DriverMySQL:
+		if cfg.Host == "" {
+			return ErrInvalidConfig{Name: cfg.Name, Reason: "host is required"}
+		}
+		if cfg.Port == "" {
+			return ErrInvalidConfig{Name: cfg.Name, Reason: "port is required"}
+		}
+		if cfg.Database == "" {
+			return ErrInvalidConfig{Name: cfg.Name, Reason: "database is required"}
+		}
+		if cfg.Username == "" {
+			return ErrInvalidConfig{Name: cfg.Name, Reason: "username is required"}
+		}
+		if cfg.Password == "" {
+			return ErrInvalidConfig{Name: cfg.Name, Reason: "password is required"}
+		}
+	case DriverSQLite:
+		if cfg.Database == "" {
+			return ErrInvalidConfig{Name: cfg.Name, Reason: "database is required"}
+		}
+	default:
+		return ErrInvalidConfig{Name: cfg.Name, Reason: fmt.Sprintf("unsupported driver %q", driver)}
 	}
 	return nil
 }

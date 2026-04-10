@@ -38,6 +38,11 @@ type HTTPConfig struct {
 	// Setting this timeout can help protect your server from certain types of
 	// attacks and improve overall performance.
 	ReadHeaderTimeout time.Duration `env:"HTTP_READ_HEADER_TIMEOUT"`
+
+	// TrustedProxies controls which reverse proxies are allowed to supply
+	// X-Forwarded-For / X-Forwarded-Proto headers. Safe default is nil, which
+	// disables proxy trust entirely.
+	TrustedProxies []string
 }
 
 type DatabaseConnectionConfig struct {
@@ -45,7 +50,7 @@ type DatabaseConnectionConfig struct {
 	// e.g. "local", "shared"
 	Name string
 
-	// Database driver name (e.g. "postgres", "mysql", "sqlite").
+	// Database driver name (currently "mysql" or "sqlite").
 	Driver   string
 	Host     string
 	Port     string

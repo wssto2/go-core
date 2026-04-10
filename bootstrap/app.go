@@ -72,40 +72,54 @@ func (a *App) Run() error {
 		return err
 	}
 
+	var httpErrCh <-chan error
 	// Start HTTP server if configured
 	if a.httpServer != nil {
 		errCh := make(chan error, 1)
 		go func() {
-			if err := a.httpServer.Start(); err != nil &&
-				!errors.Is(err, http.ErrServerClosed) {
+			err := a.httpServer.Start()
+			switch {
+			case err == nil:
+				errCh <- errors.New("http server exited unexpectedly")
+			case !errors.Is(err, http.ErrServerClosed):
 				errCh <- err
 			}
 		}()
+		httpErrCh = errCh
 		// Give the server a short window to detect immediate failures (e.g. port in use).
 		select {
-		case err := <-errCh:
+		case err := <-httpErrCh:
 			return fmt.Errorf("http server failed to start: %w", err)
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
 
 	log.Info("application_running")
-	<-ctx.Done()
+	if httpErrCh != nil {
+		select {
+		case <-ctx.Done():
+		case err := <-httpErrCh:
+			return fmt.Errorf("http server stopped unexpectedly: %w", err)
+		}
+	} else {
+		<-ctx.Done()
+	}
 
 	// 3. Shutdown Phase
 	a.Shutdown(log)
 	return nil
 }
 
-// registerModules calls Register on every module.
+// registerModules calls Register on every module in declaration order.
+// Register often mutates shared state such as the DI container or HTTP router,
+// so keeping it sequential avoids racy startup behavior.
 func (a *App) registerModules() error {
-	g := new(errgroup.Group)
 	for _, m := range a.modules {
-		g.Go(func() error {
-			return m.Register(a.container)
-		})
+		if err := m.Register(a.container); err != nil {
+			return fmt.Errorf("module %q register failed: %w", m.Name(), err)
+		}
 	}
-	return g.Wait()
+	return nil
 }
 
 // bootModules boots all modules concurrently using errgroup.
