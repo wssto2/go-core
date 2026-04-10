@@ -12,7 +12,7 @@ import (
 
 func TestMiddlewareRecordsCounter(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	m := NewMetrics(reg)
+	m := NewMetrics(reg, nil)
 
 	h := m.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(201)
@@ -35,7 +35,7 @@ func TestMiddlewareRecordsCounter(t *testing.T) {
 
 func TestHandlerExposesMetrics(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	m := NewMetrics(reg)
+	m := NewMetrics(reg, nil)
 	// ensure there's at least one sample so the metrics handler emits it
 	m.requestCount.WithLabelValues("GET", "/metrics", "200").Inc()
 	h := m.Handler()

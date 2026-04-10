@@ -11,7 +11,7 @@ import (
 )
 
 func TestPool_SubmitRejectsWhenFullBeforeStart(t *testing.T) {
-	p := NewPool(1, 2, slog.Default())
+	p := New(WithWorkers(1), WithQueueSize(2), WithLogger(slog.Default()))
 	ctx := context.Background()
 
 	err := p.Submit(ctx, func(ctx context.Context) error { return nil })
@@ -23,7 +23,7 @@ func TestPool_SubmitRejectsWhenFullBeforeStart(t *testing.T) {
 }
 
 func TestPool_BoundedWorkersNoUnboundedGoroutines(t *testing.T) {
-	p := NewPool(2, 100, slog.Default())
+	p := New(WithWorkers(2), WithQueueSize(100), WithLogger(slog.Default()))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -52,7 +52,7 @@ func TestPool_BoundedWorkersNoUnboundedGoroutines(t *testing.T) {
 }
 
 func TestPool_RejectsWhenFullWhenRunning(t *testing.T) {
-	p := NewPool(1, 1, slog.Default())
+	p := New(WithWorkers(1), WithQueueSize(1), WithLogger(slog.Default()))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	p.Start(ctx)

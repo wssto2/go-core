@@ -13,7 +13,7 @@ import (
 // panic due to a Prometheus label count mismatch.
 func TestInstrumentHTTP_NoLabelMismatchPanic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	m := NewMetrics(nil)
+	m := NewMetrics(nil, nil)
 
 	r := gin.New()
 	r.Use(InstrumentHTTP(m))

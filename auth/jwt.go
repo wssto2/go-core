@@ -112,6 +112,7 @@ func IssueToken(claims Claims, cfg TokenConfig) (string, error) {
 	now := time.Now()
 
 	rc := jwt.RegisteredClaims{
+		Subject:   claims.Subject, // preserve caller-supplied subject
 		Issuer:    cfg.Issuer,
 		IssuedAt:  jwt.NewNumericDate(now),
 		ExpiresAt: jwt.NewNumericDate(now.Add(cfg.TokenDuration)),

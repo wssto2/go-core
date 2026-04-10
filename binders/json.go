@@ -52,8 +52,6 @@ func BindRequest[T any](ctx *gin.Context, v *T) error {
 // BindRaw is the testable core of BindRequest.
 // Call this in unit tests to avoid needing an HTTP server or gin context.
 //
-// Deprecated: Use BindRequest for all new code.
-//
 //	raw := map[string]any{"vrsta": float64(1), "prezime": "Doe"}
 //	var req UpdateCustomerRequest
 //	err := binders.BindRaw(&req, raw, false)

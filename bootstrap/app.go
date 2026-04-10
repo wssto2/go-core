@@ -1,3 +1,16 @@
+// Package bootstrap wires together the application lifecycle, dependency
+// injection container, configuration loading, and HTTP server startup.
+//
+// Typical usage — create a Builder, register modules, and run:
+//
+//	app := bootstrap.NewBuilder(cfg).
+//	    WithModule(mymodule.New()).
+//	    WithJWTAuth(jwtCfg, resolver).
+//	    Build()
+//	app.Run()
+//
+// The DI container is accessible via bootstrap.Bind / bootstrap.Resolve during
+// module registration so that packages can share services without explicit wiring.
 package bootstrap
 
 import (
@@ -88,7 +101,6 @@ func (a *App) Run() error {
 func (a *App) registerModules() error {
 	g := new(errgroup.Group)
 	for _, m := range a.modules {
-		m := m // capture loop variable
 		g.Go(func() error {
 			return m.Register(a.container)
 		})
@@ -102,7 +114,6 @@ func (a *App) registerModules() error {
 func (a *App) bootModules(ctx context.Context) error {
 	g, gCtx := errgroup.WithContext(ctx)
 	for _, m := range a.modules {
-		m := m // capture loop variable for goroutine
 		g.Go(func() error {
 			if err := m.Boot(gCtx); err != nil {
 				return fmt.Errorf("module %q boot failed: %w", m.Name(), err)

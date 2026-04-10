@@ -2,6 +2,7 @@ package product
 
 import (
 	"context"
+	"time"
 
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/datatable"
@@ -21,6 +22,7 @@ type Repository interface {
 	FindBySKU(ctx context.Context, sku string) (*Product, error)
 	Create(ctx context.Context, product *Product) error
 	Update(ctx context.Context, product *Product) error
+	UpdateImage(ctx context.Context, id int, imageURL, thumbnailURL, status string) error
 	SoftDelete(ctx context.Context, id int, deletedBy int) error
 	ExistsBySKU(ctx context.Context, sku string, excludeID int) (bool, error)
 }
@@ -115,13 +117,21 @@ func (r *gormRepository) Update(ctx context.Context, product *Product) error {
 	return r.db(ctx).Save(product).Error
 }
 
+func (r *gormRepository) UpdateImage(ctx context.Context, id int, imageURL, thumbnailURL, status string) error {
+	return r.db(ctx).Model(&Product{}).Where("id = ?", id).Updates(map[string]any{
+		"image_url":     imageURL,
+		"thumbnail_url": thumbnailURL,
+		"image_status":  status,
+	}).Error
+}
+
 func (r *gormRepository) SoftDelete(ctx context.Context, id int, deletedBy int) error {
 	// Soft delete: set deleted_at to now. The entity is still in the DB for audit trails.
 	return r.db(ctx).
 		Model(&Product{}).
 		Where("id = ?", id).
 		Updates(map[string]any{
-			"deleted_at": gorm.Expr("NOW()"),
+			"deleted_at": time.Now(),
 			"updated_by": deletedBy,
 		}).Error
 }

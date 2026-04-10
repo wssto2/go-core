@@ -7,7 +7,7 @@ import (
 )
 
 func TestStandardCollectorsExposed(t *testing.T) {
-	m := NewMetrics(nil)
+	m := NewMetrics(nil, nil)
 	req := httptest.NewRequest("GET", "/metrics", nil)
 	rr := httptest.NewRecorder()
 	m.Handler().ServeHTTP(rr, req)

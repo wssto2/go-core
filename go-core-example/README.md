@@ -8,27 +8,33 @@ Uses Gin + GORM + MySQL, structured around a single **Product** domain.
 ## Directory layout
 
 ```
-example/
+go-core-example/
 ├── cmd/
 │   └── api/
-│       └── main.go          # Entrypoint — wires everything together
+│       ├── main.go      # Entrypoint — wires bootstrap, OTel, go2ts
+│       └── config.go    # Config loading via bootstrap.EnvStr/EnvInt
 ├── internal/
-│   ├── domain/
-│   │   └── product/
-│   │       ├── entity.go    # GORM model + request structs
-│   │       ├── repository.go # Repository interface + GORM implementation
-│   │       └── service.go   # Business logic (uses audit, transactor)
-│   ├── http/
-│   │   └── handler/
-│   │       └── product.go   # Gin handlers (datatable, resource, guards)
-│   └── middleware/
-│       └── resolver.go      # auth.Resolver — loads user from DB after JWT
-├── migrations/
-│   └── 001_create_products.sql
-├── i18n/
-│   ├── en.json
-│   └── hr.json
-├── .env.example
+│   └── domain/
+│       ├── auth/
+│       │   ├── entity.go    # User model + policy helpers
+│       │   ├── resolver.go  # Note: IdentityResolver is now Module.IdentityResolver (DB-backed)
+│       │   ├── roles.go     # AccountType / AccountRole entity patterns (reference)
+│       │   └── module.go    # Auth module — login endpoint + DB resolver + user migration
+│       └── product/
+│           ├── entity.go              # GORM model + ImageStatus constants
+│           ├── options.go             # CreateProductOptions, UpdateProductOptions (validated)
+│           ├── requests.go            # HTTP request/response structs
+│           ├── events.go              # Domain events with JSON tags
+│           ├── repository.go          # Repository interface + GORM implementation
+│           ├── service.go             # Business logic (resilience, audit, transactions, outbox)
+│           ├── service_instrumented.go # Observability wrapper (metrics + tracing per method)
+│           ├── handler.go             # Gin handlers (datatable, upload, auth guards, 10MB limit)
+│           ├── image_worker.go        # Background image processing (thumbnail + medium)
+│           ├── webhook.go             # OutboxWorker PublishFunc (webhook + crash-recovery routing)
+│           ├── worker.go              # Package stub (productWorker removed — use outbox instead)
+│           └── module.go              # Product module — routes + worker lifecycle
+├── templates/           # HTML templates (if any)
+├── Makefile
 └── go.mod
 ```
 
@@ -38,43 +44,39 @@ example/
 
 | Feature | Where |
 |---|---|
-| `logger` — structured slog, file rotation | `cmd/api/main.go` — `logger.Init(...)` |
-| `i18n` — JSON translation files, hot-reload | `cmd/api/main.go` — `i18n.Init(...)` |
-| `database.Registry` — named connection pools | `cmd/api/main.go` — `reg.MustRegister(...)` |
-| `database.Migrate` — GORM AutoMigrate wrapper | `cmd/api/main.go` — `database.Migrate(db, ...)` |
-| `database/types` — NullString, NullInt, Float, Bool, NullDateTime | `internal/domain/product/entity.go` |
-| `database.TxFromContext` — transaction propagation | `internal/domain/product/repository.go` — `r.db(ctx)` |
+| `bootstrap` — `DefaultInfrastructure`, graceful shutdown | `cmd/api/main.go` |
+| `bootstrap.EnvStr` / `EnvInt` — env-based config | `cmd/api/config.go` |
+| `bootstrap.Module` — Register / Boot / Shutdown lifecycle | `internal/domain/*/module.go` |
+| `bootstrap.MustResolve[T]` — IoC container | `internal/domain/product/module.go` |
+| `database.Registry` — named connection pools | `cmd/api/main.go` (via `DefaultInfrastructure`) |
 | `database.Transactor` — unit-of-work wrapping service calls | `internal/domain/product/service.go` |
-| `database.Active` — reusable GORM scope | `internal/domain/product/repository.go` |
+| `database.TxFromContext` — transaction propagation | `internal/domain/product/repository.go` |
+| `database/types` — NullString, NullInt, Float, Bool | `internal/domain/product/entity.go` |
 | `apperr` — typed errors with HTTP codes and log levels | `internal/domain/product/service.go` |
 | `audit.Repository` — structured audit log writes | `internal/domain/product/service.go` |
 | `audit.Diff` — struct field diff for change tracking | `internal/domain/product/service.go` — `Update` |
-| `auth.Identifiable` + `auth.User[T]` — generic user | `internal/middleware/resolver.go` |
-| `auth.Authenticated` — JWT middleware | `cmd/api/main.go` — `registerRoutes` |
-| `auth.Authorize` — policy/RBAC middleware | `internal/http/handler/product.go` — `RegisterRoutes` |
-| `auth.GeneratePolicy` — namespace:action policies | `internal/http/handler/product.go` |
-| `auth.IssueToken` + `auth.ParseToken` | `cmd/api/main.go` — `loginHandler` |
-| `auth.MustGetUser[T]` — typed user from gin context | `internal/http/handler/product.go` |
-| `auth.Resolver` / `auth.ResolverFunc` | `internal/middleware/resolver.go` |
-| `guards.BindRequest[T]` — parse + validate middleware | `internal/http/handler/product.go` — `RegisterRoutes` |
-| `guards.MustGetRequest[T]` — typed request from context | `internal/http/handler/product.go` — `Create`, `Update` |
-| `datatable` — pagination, search, filter, order | `internal/http/handler/product.go` — `List` |
-| `datatable.ParamsFromGin` — parse query params | `internal/http/handler/product.go` — `List` |
-| `datatable.NewFilter` | `internal/http/handler/product.go` — `List` |
-| `resource.New[T]` — single-record fetcher with meta | `internal/http/handler/product.go` — `Show` |
-| `resource.WithAuthorLoader` | `internal/http/handler/product.go` — `Show` |
-| `resource.WithCount` | `internal/http/handler/product.go` — `Show` |
-| `web.JSON` / `web.Created` / `web.NoContent` | `internal/http/handler/product.go` |
-| `web.GetParamInt` | `internal/http/handler/product.go` |
-| `web.GinValidationContext` | `cmd/api/main.go` — compile-time check |
-| `validation.ValidationContext` | `cmd/api/main.go` — compile-time check |
-| `cache.InMemoryCache` | `cmd/api/main.go` |
-| `event.InMemoryBus` — publish/subscribe | `cmd/api/main.go` |
-| `tenancy.FromAuthenticatedUser` — tenant middleware | `cmd/api/main.go` — `registerRoutes` |
-| `router.NewEngine` — pre-configured Gin + all core middleware | `cmd/api/main.go` |
-| `bootstrap.NewApp` — lifecycle, graceful shutdown | `cmd/api/main.go` |
-| `bootstrap.HealthHandler` + `DBHealthChecker` | `cmd/api/main.go` |
-| `database.UseDatabaseConnection` (commented example) | `cmd/api/main.go` — `registerRoutes` |
+| `auth.IssueToken` + `auth.Claims` | `internal/domain/auth/module.go` — `login` |
+| `auth.Authenticated` — JWT middleware | wired via `bootstrap.WithJWTAuth` |
+| `auth.Authorize` / `auth.GeneratePolicy` — RBAC | `internal/domain/product/handler.go` |
+| `auth.MustGetUser[T]` — typed user from gin context | `internal/domain/product/handler.go` |
+| `auth.IdentityResolver` | `internal/domain/auth/resolver.go` |
+| `middlewares.BindRequest[T]` — parse + validate | `internal/domain/product/handler.go` |
+| `middlewares.MustGetRequest[T]` — typed request | `internal/domain/product/handler.go` |
+| `middlewares.RateLimit` — per-user, per-endpoint | `internal/domain/product/module.go` |
+| `ratelimit.NewInMemoryLimiter` | `internal/domain/product/module.go` |
+| `resilience.Retry` — transient DB failure retry | `internal/domain/product/service.go` — `GetByID` |
+| `resilience.CircuitBreaker` — SKU uniqueness guard | `internal/domain/product/service.go` — `Create` |
+| `datatable` — pagination, search, filter, order | `internal/domain/product/handler.go` — `list` |
+| `datatable.ParamsFromGin` — parse query params | `internal/domain/product/handler.go` |
+| `resource` — single-record fetcher with meta | `internal/domain/product/handler.go` — `show` |
+| `web.JSON` / `web.Handle` / `web.NoContent` | `internal/domain/product/handler.go` |
+| `web/upload.UploadFile` — multipart file upload | `internal/domain/product/handler.go` — `uploadImage` |
+| `go2ts.GenerateTypes` — TypeScript type generation | `cmd/api/main.go` (at startup) |
+| `event.Bus` — publish/subscribe | `internal/domain/product/service.go` + `worker.go` |
+| `worker.Manager` — background worker lifecycle | `internal/domain/product/module.go` |
+| `tenancy.FromAuthenticatedUser` — tenant middleware | `internal/domain/product/module.go` |
+| `observability.ServiceObserver` — metrics wrapper | `internal/domain/product/module.go` |
+| `observability/tracing` — OpenTelemetry init | `cmd/api/main.go` |
 
 ---
 
@@ -89,12 +91,15 @@ docker run -d \
   -p 3306:3306 \
   mysql:8.0
 
-# 2. Copy and edit the env file
-cp .env.example .env
+# 2. Run (from the go-core-example directory)
+make run
 
-# 3. Run
-cd cmd/api && go run main.go
+# Or directly:
+go run ./cmd/api/
 ```
+
+> **Note:** `go run cmd/api/main.go` will not work because `config.go` is a
+> separate file in the same package. Always use `go run ./cmd/api/` or `make run`.
 
 The server starts on `:8080`.
 
@@ -102,50 +107,61 @@ The server starts on `:8080`.
 
 ## API endpoints
 
-| Method | Path | Auth | Policy |
-|--------|------|------|--------|
-| POST | `/api/v1/auth/login` | No | — |
-| GET | `/api/v1/products` | JWT | — |
-| GET | `/api/v1/products/:id` | JWT | — |
-| POST | `/api/v1/products` | JWT | `products:create` |
-| PUT | `/api/v1/products/:id` | JWT | `products:update` |
-| DELETE | `/api/v1/products/:id` | JWT | `products:delete` |
-| GET | `/health` | No | — |
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| POST | `/api/v1/auth/login` | No | Returns a signed JWT |
+| GET | `/api/v1/products` | JWT | Paginated datatable |
+| GET | `/api/v1/products/:id` | JWT | Single record with meta |
+| POST | `/api/v1/products` | JWT + `products:create` | Creates a product |
+| PUT | `/api/v1/products/:id` | JWT + `products:update` | Updates a product |
+| DELETE | `/api/v1/products/:id` | JWT + `products:delete` | Soft-deletes a product |
+| POST | `/api/v1/products/:id/image` | JWT + `products:update` | Uploads a product image |
+| GET | `/metrics` | No | Prometheus metrics |
+| GET | `/health` | No | Liveness probe |
+| GET | `/ready` | No | Readiness probe |
 
 ### Example requests
 
 ```bash
-# Login (stub — always succeeds)
+# Login — returns { "data": { "token": "<jwt>" } }
 curl -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@example.com","password":"secret"}'
+  -d '{"username":"admin","password":"secret"}'
+
+TOKEN="<paste token here>"
 
 # List products (paginated, searchable)
-curl http://localhost:8080/api/v1/products?page=1&per_page=10&search=widget \
-  -H "Authorization: Bearer <token>"
+curl "http://localhost:8080/api/v1/products?page=1&per_page=10&search=widget" \
+  -H "Authorization: Bearer $TOKEN"
 
 # Create a product
 curl -X POST http://localhost:8080/api/v1/products \
-  -H "Authorization: Bearer <token>" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"Widget Pro","sku":"WGT-001","price":29.99,"stock":100}'
 
-# Get single product with author + audit count in meta
-curl http://localhost:8080/api/v1/products/1 \
-  -H "Authorization: Bearer <token>"
+# Get single product with meta
+curl "http://localhost:8080/api/v1/products/1" \
+  -H "Authorization: Bearer $TOKEN"
 
 # Update
 curl -X PUT http://localhost:8080/api/v1/products/1 \
-  -H "Authorization: Bearer <token>" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"price":24.99}'
 
+# Upload product image (multipart)
+curl -X POST http://localhost:8080/api/v1/products/1/image \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "image=@/path/to/photo.jpg"
+
 # Soft delete
 curl -X DELETE http://localhost:8080/api/v1/products/1 \
-  -H "Authorization: Bearer <token>"
+  -H "Authorization: Bearer $TOKEN"
 
-# Health check
+# Health / readiness
 curl http://localhost:8080/health
+curl http://localhost:8080/ready
 ```
 
 ---
@@ -161,7 +177,7 @@ Handler → Service → Repository → *gorm.DB
 ```
 
 - **Handler** knows about HTTP (gin.Context, status codes, request parsing).
-- **Service** knows about business rules (uniqueness, audit, transactions).
+- **Service** knows about business rules (uniqueness, audit, transactions, resilience).
 - **Repository** knows about SQL (GORM, table names, query construction).
 
 Nothing in the service or repository touches `*gin.Context`. This means the
@@ -188,22 +204,11 @@ without passing `*gorm.DB` explicitly through the call stack.
 
 ### Validation flow
 
-1. `guards.BindRequest[T]()` middleware runs first:
-   - Parses JSON or multipart body via `binders.BindJSON`
+1. `middlewares.BindRequest[T]()` middleware runs first:
+   - Parses JSON or multipart body
    - Runs stateless rules from struct `validation` tags (`required`, `max`, `email`, `date`)
    - Aborts with 422 if any rule fails
-2. The handler calls `guards.MustGetRequest[T](ctx)` to get the validated struct.
+2. The handler calls `middlewares.MustGetRequest[T](ctx)` to get the validated struct.
 3. The service performs stateful checks (DB uniqueness, existence) and returns
    typed `*apperr.AppError` errors that the global error handler serialises.
 
-### Known bugs to fix before production
-
-See the full code review. The three most impactful:
-
-1. **`datatable.Filter`** — change `Query func(*gorm.DB, string, string)` to return
-   `*gorm.DB` and assign back in `Get()`. Every filter is currently a no-op.
-2. **`datatable`/`resource` `WithQuery`** — callback must return `*gorm.DB`.
-3. **`bootstrap` `os.Exit(1)`** — replace with error channel so closers are called.
-
-The `datatable.NewFilter` in `handler/product.go` is already written with the
-correct (fixed) signature as a forward reference.

@@ -60,7 +60,6 @@ func (s *gormAPIKeyStore) FindByKey(ctx context.Context, raw string) (*auth.APIK
 	// Iterate ALL candidates before returning to avoid early-exit timing leaks.
 	var found *auth.APIKey
 	for _, c := range candidates {
-		c := c
 		if (&auth.BcryptHasher{}).Compare(raw, c.KeyHash) && found == nil {
 			found = &c
 		}

@@ -44,7 +44,6 @@ func TestSimpleTracer_ConcurrentFinish_NoRace(t *testing.T) {
 	// 20 goroutines call finish concurrently.
 	for _, fn := range finishFns {
 		wg.Add(1)
-		fn := fn
 		go func() {
 			defer wg.Done()
 			fn(nil)
@@ -64,7 +63,7 @@ func TestSimpleTracer_ConcurrentFinish_NoRace(t *testing.T) {
 
 func TestMiddlewareInjectsTraceID(t *testing.T) {
 	tr := NewSimpleTracer()
-	mw := Middleware(tr, "X-Trace-ID")
+	mw := Middleware(tr, "X-Trace-Id")
 	h := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if id, ok := TraceIDFromContext(r.Context()); !ok || id == "" {
 			t.Fatalf("trace id missing in context")
@@ -78,15 +77,15 @@ func TestMiddlewareInjectsTraceID(t *testing.T) {
 	if rr.Code != 200 {
 		t.Fatalf("unexpected status: %d", rr.Code)
 	}
-	hdr := rr.Header().Get("X-Trace-ID")
+	hdr := rr.Header().Get("X-Trace-Id")
 	if hdr == "" {
-		t.Fatalf("expected X-Trace-ID header set")
+		t.Fatalf("expected X-Trace-Id header set")
 	}
 }
 
 func TestMiddlewarePreservesIncomingHeader(t *testing.T) {
 	tr := NewSimpleTracer()
-	mw := Middleware(tr, "X-Trace-ID")
+	mw := Middleware(tr, "X-Trace-Id")
 	h := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, ok := TraceIDFromContext(r.Context())
 		if !ok || id == "" {
@@ -99,13 +98,13 @@ func TestMiddlewarePreservesIncomingHeader(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("X-Trace-ID", "incoming-123")
+	req.Header.Set("X-Trace-Id", "incoming-123")
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 	if rr.Code != 200 {
 		t.Fatalf("unexpected status: %d", rr.Code)
 	}
-	if got := rr.Header().Get("X-Trace-ID"); got != "incoming-123" {
+	if got := rr.Header().Get("X-Trace-Id"); got != "incoming-123" {
 		t.Fatalf("expected response header to equal incoming header, got %s", got)
 	}
 	body, _ := io.ReadAll(rr.Body)

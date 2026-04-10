@@ -1,3 +1,22 @@
+// Package validation provides a lightweight, struct-tag-driven input validation
+// system for request types.
+//
+// Rules are declared via the "validation" struct tag:
+//
+//	type CreateUserRequest struct {
+//	    Email string `json:"email" validation:"required|email"`
+//	    Age   int    `json:"age"   validation:"min:18|max:120"`
+//	}
+//
+// Validate a request with:
+//
+//	v := validation.New()
+//	if err := v.Validate(&req); err != nil {
+//	    // err is *ValidationError with per-field failures
+//	}
+//
+// Custom rules can be registered per-validator instance via Register or
+// globally shared via NewWithRules.
 package validation
 
 import (
@@ -13,8 +32,13 @@ type Validator struct {
 }
 
 var defaultRegistry = map[string]Rule{
-	"required": RequiredRule,
-	"email":    EmailRule,
+	"required":  RequiredRule,
+	"email":     EmailRule,
+	"min":       MinRule,
+	"max":       MaxRule,
+	"in":        InRule,
+	"date":      DateRule,
+	"date_time": DateTimeRule,
 }
 
 func New() *Validator {

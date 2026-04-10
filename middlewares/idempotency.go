@@ -100,6 +100,27 @@ func (s *IdempotencyStore) waitResponse(e *idEntry, ctx context.Context) (*idEnt
 
 // Idempotency middleware accepts an Idempotency-Key header and ensures duplicate
 // requests with the same key receive the same stored response and do not re-run handlers.
+//
+// Clients supply an Idempotency-Key header (max 256 bytes) with any mutating
+// request (POST, PUT, PATCH). On the first request the full HTTP response is
+// captured and stored. Any subsequent request with the same key receives the
+// stored response immediately without executing the handler again.
+//
+// This prevents accidental double-mutations caused by network retries — e.g. a
+// client that times out and retries a "create order" POST will get back the
+// original 201 response instead of a duplicate record.
+//
+// Use NewInMemoryIdempotencyStore with an appropriate TTL (e.g. 24h) and apply
+// the middleware to mutating route groups:
+//
+//	store := middlewares.NewInMemoryIdempotencyStore(24 * time.Hour)
+//	api.POST("/orders",
+//	    middlewares.Idempotency(store),
+//	    handler.CreateOrder,
+//	)
+//
+// This is HTTP-level deduplication. For event-level deduplication see
+// event.ProcessedStore / event.DBProcessedStore.
 func Idempotency(store *IdempotencyStore) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		key := ctx.GetHeader(HeaderIdempotencyKey)

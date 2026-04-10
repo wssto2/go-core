@@ -82,11 +82,6 @@ func New(opts ...Option) *Pool {
 	}
 }
 
-// NewPool is kept for backward compatibility and delegates to New with equivalent options.
-func NewPool(workers, queueSize int, logger *slog.Logger) *Pool {
-	return New(WithWorkers(workers), WithQueueSize(queueSize), WithLogger(logger))
-}
-
 // Start launches the worker goroutines. Start is idempotent.
 func (p *Pool) Start(ctx context.Context) {
 	p.mu.Lock()

@@ -1,0 +1,115 @@
+services:
+
+  # ── MySQL ──────────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: secret
+      MYSQL_DATABASE: go_core_example
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-psecret", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ── go-core-example API ────────────────────────────────────────────────────
+  # Build context is ../ (the go-core library root) so that the
+  # "replace github.com/wssto2/go-core => ../" in go.mod resolves correctly.
+  api:
+    build:
+      context: ../
+      dockerfile: go-core-example/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      APP_NAME: go-core-example
+      APP_ENV: development
+      APP_PORT: "8080"
+
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: go_core_example
+      DB_USERNAME: root
+      DB_PASSWORD: secret
+      DB_MAX_IDLE_CONNS: "5"
+      DB_MAX_OPEN_CONNS: "25"
+
+      # Must be at least 32 characters
+      JWT_SECRET: "super-secret-key-change-in-prod!!"
+      JWT_ISSUER: go-core-example
+      JWT_DURATION_HOURS: "24"
+
+      # Uploaded files are stored here (mounted as a volume)
+      STORAGE_BASE_DIR: /app/uploads
+
+      # OTel tracing — send spans to Grafana Tempo via OTLP/HTTP
+      OTEL_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      tempo:
+        condition: service_started
+
+  # ── Prometheus ─────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    depends_on:
+      - api
+
+  # ── Grafana Tempo (distributed tracing backend) ────────────────────────────
+  tempo:
+    image: grafana/tempo:2.6.1
+    restart: unless-stopped
+    ports:
+      - "3200:3200"   # Tempo HTTP API (Grafana data source)
+      - "4318:4318"   # OTLP/HTTP ingest
+    volumes:
+      - ./tempo.yml:/etc/tempo.yml:ro
+      - tempo_data:/var/tempo
+    command: ["-config.file=/etc/tempo.yml"]
+
+  # ── Grafana ────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Enable Tempo trace-to-logs and exemplars
+      GF_FEATURE_TOGGLES_ENABLE: traceToMetrics
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - tempo
+
+volumes:
+  mysql_data:
+  uploads:
+  prometheus_data:
+  tempo_data:
+  grafana_data:

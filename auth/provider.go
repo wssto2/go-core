@@ -109,16 +109,10 @@ type workerPool interface {
 	Submit(ctx context.Context, job func(context.Context) error) error
 }
 
-// NewDBTokenProvider returns a new DBTokenProvider.
-// Pass a non-nil pool to route background UpdateTouch calls through the pool
-// instead of spawning an unbounded goroutine per request.
-func NewDBTokenProvider(store TokenStore, res IdentityResolver) *DBTokenProvider {
-	return &DBTokenProvider{store: store, resolver: res}
-}
-
-// NewDBTokenProviderWithPool returns a DBTokenProvider that uses pool for
-// background UpdateTouch jobs. Prefer this over NewDBTokenProvider in production.
-func NewDBTokenProviderWithPool(store TokenStore, res IdentityResolver, pool workerPool) *DBTokenProvider {
+// NewDBTokenProvider returns a DBTokenProvider that uses pool for bounded
+// background UpdateTouch jobs. The pool should be started before the server
+// begins serving requests (bootstrap does this automatically via Boot).
+func NewDBTokenProvider(store TokenStore, res IdentityResolver, pool workerPool) *DBTokenProvider {
 	return &DBTokenProvider{store: store, resolver: res, pool: pool}
 }
 

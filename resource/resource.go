@@ -25,6 +25,7 @@ type Count struct {
 // Resource holds a database connection and provides methods for querying and manipulating data.
 type Resource[T any] struct {
 	db           *gorm.DB
+	cleanDB      *gorm.DB // raw connection captured before any With* conditions; used for count sub-queries
 	counts       []Count
 	tableName    string
 	authorLoader AuthorLoader
@@ -51,7 +52,11 @@ func New[T any](db *gorm.DB) *Resource[T] {
 	if err := stmt.Parse(&model); err != nil || stmt.Schema == nil {
 		return &Resource[T]{db: db, err: fmt.Errorf("resource: failed to parse schema for %T: %v", model, err)}
 	}
-	return &Resource[T]{db: db, tableName: stmt.Schema.Table}
+	// cleanDB is a fresh session snapshot taken before any With* conditions are
+	// applied. Count sub-queries use this so they don't inherit the main query's
+	// WHERE clauses (e.g. soft-delete scope or primary key from a prior First).
+	cleanDB := db.Session(&gorm.Session{NewDB: true})
+	return &Resource[T]{db: db, cleanDB: cleanDB, tableName: stmt.Schema.Table}
 }
 
 func (r *Resource[T]) WithAuthorLoader(authorField, editorField string, loader AuthorLoader) *Resource[T] {
@@ -161,7 +166,7 @@ func (r *Resource[T]) FindByID(id int) (Response[T], error) {
 		i, count := i, count // capture loop variables for goroutine
 		g.Go(func() error {
 			var total int64
-			cq := r.db.Session(&gorm.Session{NewDB: true}).
+			cq := r.cleanDB.Session(&gorm.Session{NewDB: true}).
 				WithContext(gCtx).
 				Table(count.table).
 				Select("COUNT(*)").

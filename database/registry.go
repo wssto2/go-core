@@ -1,3 +1,18 @@
+// Package database provides GORM-based database access, connection registry,
+// repository helpers, transaction management, and schema migration utilities.
+//
+// Services register named connections at startup through the Registry:
+//
+//	database.Register("primary", gormDB)
+//
+// Repositories retrieve the primary connection from the registry:
+//
+//	db := bootstrap.MustResolve[*database.Registry](c).Primary()
+//
+// Transactions are managed through the Transactor interface so that callers
+// do not depend on GORM directly:
+//
+//	err := tx.WithinTransaction(ctx, func(ctx context.Context) error { ... })
 package database
 
 import (

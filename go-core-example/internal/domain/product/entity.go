@@ -6,13 +6,15 @@ import (
 	"github.com/wssto2/go-core/database/types"
 )
 
+// ImageStatus values for the Product.ImageStatus field.
+const (
+	ImageStatusPending    = "pending"
+	ImageStatusProcessing = "processing"
+	ImageStatusDone       = "done"
+	ImageStatusFailed     = "failed"
+)
+
 // Product is the core GORM entity for this example application.
-// It demonstrates go-core's custom database types:
-//   - types.NullString  — nullable varchar, marshals empty string as JSON null
-//   - types.NullInt     — nullable int FK (created_by / updated_by author pattern)
-//   - types.NullDateTime — nullable datetime
-//   - types.Float       — decimal(10,2) with proper JSON serialisation
-//   - types.Bool        — tinyint(1) unsigned with boolean JSON
 type Product struct {
 	ID          int              `json:"id"           gorm:"primaryKey;autoIncrement"`
 	Name        string           `json:"name"         gorm:"size:150;not null"`
@@ -23,8 +25,14 @@ type Product struct {
 	Active      types.Bool       `json:"active"       gorm:"not null;default:false"`
 	CategoryID  types.NullInt    `json:"category_id"  gorm:"type:int unsigned"`
 
+	// Image processing — original is saved synchronously; variants are
+	// generated in the background by imageWorker.
+	// ImageStatus: "" | "pending" | "processing" | "done" | "failed"
+	ImageURL      types.NullString `json:"image_url"       gorm:"size:500"`
+	ThumbnailURL  types.NullString `json:"thumbnail_url"   gorm:"size:500"`
+	ImageStatus   types.NullString `json:"image_status"    gorm:"size:20"`
+
 	// Author tracking — mirrors the pattern used across arv-next entities.
-	// CreatedBy is always set; UpdatedBy is nullable (nil until first edit).
 	CreatedBy int           `json:"created_by"   gorm:"type:int unsigned;not null"`
 	UpdatedBy types.NullInt `json:"updated_by"   gorm:"type:int unsigned"`
 

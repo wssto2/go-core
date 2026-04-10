@@ -28,7 +28,7 @@ func loadConfig() bootstrap.Config {
 			Port:            bootstrap.EnvStr("DB_PORT", "3306"),
 			Database:        bootstrap.EnvStr("DB_DATABASE", "go_core_example"),
 			Username:        bootstrap.EnvStr("DB_USERNAME", "root"),
-			Password:        bootstrap.EnvStr("DB_PASSWORD", "secret"),
+			Password:        bootstrap.EnvStr("DB_PASSWORD", "root"),
 			MaxIdleConns:    bootstrap.EnvInt("DB_MAX_IDLE_CONNS", 5),
 			MaxOpenConns:    bootstrap.EnvInt("DB_MAX_OPEN_CONNS", 75),
 			ConnMaxLifetime: bootstrap.EnvInt("DB_CONN_MAX_LIFETIME_MIN", 5),
@@ -49,11 +49,11 @@ func loadConfig() bootstrap.Config {
 		// },
 	}
 
-	cfg.JWT.Secret = bootstrap.EnvStr("JWT_SECRET", "change-me-to-32-bytes-minimum!!")
+	cfg.JWT.Secret = bootstrap.EnvStr("JWT_SECRET", "change-me-to-32-bytes-minimum!!!")
 	cfg.JWT.Issuer = bootstrap.EnvStr("JWT_ISSUER", "go-core-example")
 	cfg.JWT.Duration = time.Duration(bootstrap.EnvInt("JWT_DURATION_HOURS", 24)) * time.Hour
 
-	cfg.I18n.I18nDir = bootstrap.EnvStr("I18N_DIR", "./i18n")
+	cfg.I18n.I18nDir = bootstrap.EnvStr("I18N_DIR", "")   // empty = disabled
 	cfg.I18n.FallbackLang = bootstrap.EnvStr("I18N_FALLBACK_LANG", "en")
 
 	cfg.StorageDir = bootstrap.EnvStr("STORAGE_BASE_DIR", "/tmp/go-core-example/uploads")

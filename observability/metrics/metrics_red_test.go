@@ -74,7 +74,7 @@ func findHistogramCount(t *testing.T, mfs []*dto.MetricFamily, name string, labe
 }
 
 func TestMetricsMiddlewareCountsAndDuration(t *testing.T) {
-	m := NewMetrics(nil)
+	m := NewMetrics(nil, nil)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/foo", func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(10 * time.Millisecond)

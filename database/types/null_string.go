@@ -59,7 +59,11 @@ func (s NullString) GormDBDataType(db *gorm.DB, field *schema.Field) string {
 	if t := field.TagSettings["TYPE"]; t != "" {
 		return t
 	}
-	return database.MySQLString
+	size := field.Size
+	if size <= 0 {
+		size = 255
+	}
+	return fmt.Sprintf("varchar(%d)", size)
 }
 
 func (s NullString) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {

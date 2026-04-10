@@ -1,3 +1,17 @@
+// Package apperr defines the standard structured error type used across go-core
+// and all consuming services.
+//
+// All errors that cross a package boundary or reach the HTTP layer must be
+// *AppError values. Use the constructor helpers:
+//
+//	apperr.BadRequest("invalid input")
+//	apperr.NotFound("user not found")
+//	apperr.Internal(err)
+//	apperr.Wrap(err, "context message", apperr.CodeInternal)
+//
+// The error carries a semantic Code (used to map to HTTP status), a
+// user-friendly Message, a LogLevel hint, and the source file/line for
+// diagnostics.
 package apperr
 
 import (

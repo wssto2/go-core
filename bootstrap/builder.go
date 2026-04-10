@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"github.com/wssto2/go-core/audit"
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/database"
@@ -18,16 +19,20 @@ import (
 	"github.com/wssto2/go-core/middlewares"
 	"github.com/wssto2/go-core/observability"
 	"github.com/wssto2/go-core/observability/metrics"
+	"github.com/wssto2/go-core/ratelimit"
+	"github.com/wssto2/go-core/worker"
 )
 
 // AppBuilder constructs an App using a fluent chain of calls.
 type AppBuilder struct {
-	cfg       Config
-	container *Container
-	engine    *gin.Engine
-	modules   []Module
-	server    HTTPServer
-	errors    []error // accumulate wiring errors, report all at once in build
+	cfg                Config
+	container          *Container
+	engine             *gin.Engine
+	modules            []Module
+	server             HTTPServer
+	errors             []error // accumulate wiring errors, report all at once in build
+	perUserLimiter     ratelimit.Limiter
+	sharedGlobalLimiter ratelimit.Limiter
 }
 
 // New creates a new AppBuilder with the given config.
@@ -95,8 +100,6 @@ func (b *AppBuilder) setupDatabase() {
 }
 
 func (b *AppBuilder) setupBus() {
-	// Default to in-memory. Apps call BindNATSBus() after DefaultInfrastructure
-	// to swap this out before modules are registered.
 	bus := event.NewInMemoryBus()
 	Bind[event.Bus](b.container, bus)
 }
@@ -115,7 +118,7 @@ func (b *AppBuilder) setupI18n() {
 
 func (b *AppBuilder) setupObservability() {
 	log := MustResolve[*slog.Logger](b.container)
-	tel := observability.New(log)
+	tel := observability.New(log, b.cfg.AppName)
 	OverwriteBind(b.container, tel)
 
 	// Expose /metrics using the app's own registry — not the global default
@@ -153,6 +156,7 @@ func (b *AppBuilder) setupHTTPMiddlewares() {
 	}
 
 	b.engine.Use(
+		otelgin.Middleware(b.cfg.AppName),
 		middlewares.RequestID(),
 		middlewares.RequestLogger(log),
 		metrics.InstrumentHTTP(tel.HTTP),
@@ -161,23 +165,76 @@ func (b *AppBuilder) setupHTTPMiddlewares() {
 		middlewares.Security(b.cfg.Env != "production"),
 		middlewares.Cors(b.cfg.Engine.Cors),
 	)
+
 }
 
-// WithModules registers domain modules in order. Each module receives
-// the container to resolve infrastructure and bind its own services.
+// WithRateLimit attaches a global per-IP rate limiter to every route.
+// It is applied before authentication, making it effective against bots and
+// brute-force attacks that target unauthenticated endpoints (e.g. /auth/login).
+//
+// The limiter keys by authenticated user ID when a user is present in context,
+// WithRateLimit attaches a per-user/IP rate limiter to every route.
+// Each authenticated user (or anonymous IP) gets its own independent request
+// bucket, making it effective against individual abusers and brute-force
+// attacks while leaving capacity for other users unaffected.
+//
+// Keys: authenticated user ID, falling back to client IP for anonymous
+// requests. For a server-wide cap shared across ALL users combine this with
+// WithGlobalRateLimit.
+//
+//	bootstrap.New(cfg).
+//	    DefaultInfrastructure().
+//	    WithGlobalRateLimit(ratelimit.NewInMemoryLimiter(5000, time.Minute)).
+//	    WithRateLimit(ratelimit.NewInMemoryLimiter(300, time.Minute)).
+//	    WithJWTAuth(resolver).
+//	    ...
+func (b *AppBuilder) WithRateLimit(l ratelimit.Limiter) *AppBuilder {
+	b.perUserLimiter = l
+	return b
+}
+
+// WithGlobalRateLimit attaches a single shared rate limiter that counts ALL
+// requests regardless of user identity. The entire server shares one bucket,
+// so once the limit is exhausted every caller receives 429 until the window
+// resets — including legitimate users.
+//
+// WARNING: this is NOT a DDoS defence and should not be used as one.
+// Volumetric attacks must be handled at the infrastructure layer (CDN, WAF,
+// cloud load balancer). Any limit low enough to stop a real attack is also
+// low enough to block real users during normal traffic spikes (product launch,
+// marketing campaign, etc.).
+//
+// Valid niche uses:
+//   - Cost control on an API that charges per call (e.g. AI inference)
+//   - Protecting a single, known-capacity backend dependency
+//   - Development / staging environments where you want a hard cap
+//
+// For production abuse prevention prefer WithRateLimit (per-user/IP) combined
+// with per-endpoint limits inside each module.
+func (b *AppBuilder) WithGlobalRateLimit(l ratelimit.Limiter) *AppBuilder {
+	b.sharedGlobalLimiter = l
+	return b
+}
+
+
 func (b *AppBuilder) WithModules(modules ...Module) *AppBuilder {
 	b.modules = append(b.modules, modules...)
 	return b
 }
 
-// WithNATSBus swaps the default in-memory bus for a NATS-backed bus.
-// Must be called after DefaultInfrastructure and before Build.
-func (b *AppBuilder) WithNATSBus(client event.NatsClient) *AppBuilder {
-	log := MustResolve[*slog.Logger](b.container)
-	n := event.NewNATSBus(client, log)
-	OverwriteBind[event.Bus](b.container, n) // overwrites the in-memory default
+// WithOutboxWorker adds a background worker that continuously polls the outbox
+// table and forwards events via publish. Use this in standalone worker binaries
+// that don't need HTTP.
+//
+//	bootstrap.New(cfg).
+//	    DefaultInfrastructure().
+//	    WithOutboxWorker(product.NewWebhookPublisher(url, token)).
+//	    Build()
+func (b *AppBuilder) WithOutboxWorker(publish event.PublishFunc, opts ...event.WorkerOption) *AppBuilder {
+	b.modules = append(b.modules, newOutboxModule(publish, opts))
 	return b
 }
+
 
 func (b *AppBuilder) WithJWTAuth(resolver auth.IdentityResolver) *AppBuilder {
 	if b.cfg.JWT.Secret == "" {
@@ -199,7 +256,8 @@ func (b *AppBuilder) WithJWTAuth(resolver auth.IdentityResolver) *AppBuilder {
 }
 
 func (b *AppBuilder) WithDBTokenAuth(store auth.TokenStore, resolver auth.IdentityResolver) *AppBuilder {
-	authProvider := auth.NewDBTokenProvider(store, resolver)
+	pool := worker.New(worker.WithWorkers(2), worker.WithQueueSize(256))
+	authProvider := auth.NewDBTokenProvider(store, resolver, pool)
 	Bind[auth.Provider](b.container, authProvider)
 
 	return b
@@ -253,6 +311,16 @@ func (b *AppBuilder) WithHttp() *AppBuilder {
 func (b *AppBuilder) Build() (*App, error) {
 	if len(b.errors) > 0 {
 		return nil, fmt.Errorf("bootstrap: wiring errors: %v", b.errors)
+	}
+
+	// Apply rate limiters after all With* calls so callers can chain them in
+	// any order. Global shared limiter runs first (server-wide circuit breaker),
+	// then per-user limiter (individual abuse protection).
+	if b.sharedGlobalLimiter != nil {
+		b.engine.Use(middlewares.RateLimit(b.sharedGlobalLimiter, false, false))
+	}
+	if b.perUserLimiter != nil {
+		b.engine.Use(middlewares.RateLimit(b.perUserLimiter, true, false))
 	}
 
 	return NewApp(b.cfg, b.container, b.engine, b.server, b.modules), nil

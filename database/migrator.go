@@ -7,6 +7,11 @@ import (
 	"gorm.io/gorm"
 )
 
+// staleLockTimeout is how long a lock must be held before it is considered
+// stale (i.e. the process that acquired it has crashed without releasing it).
+// Kept short (30s) so container restarts clear the lock quickly.
+const staleLockTimeout = 30 * time.Second
+
 // migrationLock is a lightweight table used to guard migrations from running
 // concurrently. It's intentionally minimal and internal to this package.
 type migrationLock struct {
@@ -25,6 +30,12 @@ func acquireMigrationLock(db *gorm.DB) (bool, error) {
 	if err := db.FirstOrCreate(&migrationLock{}, migrationLock{ID: 1}).Error; err != nil {
 		return false, fmt.Errorf("ensure lock row: %w", err)
 	}
+
+	// Clear any stale lock left behind by a crashed process.
+	staleThreshold := time.Now().Add(-staleLockTimeout)
+	db.Model(&migrationLock{}).
+		Where("id = ? AND locked = ? AND locked_at < ?", 1, true, staleThreshold).
+		Updates(map[string]interface{}{"locked": false, "locked_at": nil})
 
 	// Try to atomically acquire the lock only if it's not already locked.
 	res := db.Model(&migrationLock{}).
@@ -47,18 +58,25 @@ func releaseMigrationLock(db *gorm.DB) error {
 }
 
 // SafeMigrate runs AutoMigrate with a lightweight migration lock to avoid
-// concurrent migrations. It returns an error if a lock cannot be acquired.
+// concurrent migrations. Retries up to 5 times (2 s apart) to handle fast
+// container restarts where the previous process's lock hasn't expired yet.
+// Stale locks (held longer than 30 s) are cleared automatically.
 func SafeMigrate(db *gorm.DB, models ...interface{}) error {
-	acquired, err := acquireMigrationLock(db)
-	if err != nil {
-		return err
-	}
-	if !acquired {
-		return fmt.Errorf("migration locked by another process")
-	}
-	defer func() {
-		_ = releaseMigrationLock(db)
-	}()
+	const maxAttempts = 5
+	const retryDelay = 2 * time.Second
 
-	return db.AutoMigrate(models...)
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		acquired, err := acquireMigrationLock(db)
+		if err != nil {
+			return err
+		}
+		if acquired {
+			defer func() { _ = releaseMigrationLock(db) }()
+			return db.AutoMigrate(models...)
+		}
+		if attempt < maxAttempts {
+			time.Sleep(retryDelay)
+		}
+	}
+	return fmt.Errorf("migration locked by another process")
 }

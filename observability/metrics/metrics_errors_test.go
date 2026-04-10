@@ -11,7 +11,7 @@ import (
 
 func TestMiddlewareRecordsErrors(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	m := NewMetrics(reg)
+	m := NewMetrics(reg, nil)
 
 	h := m.Middleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)

@@ -118,7 +118,7 @@ func TestDBTokenProvider_Verify_NoGoroutineLeak(t *testing.T) {
 		return &testUser{id: 1}, nil
 	}
 
-	provider := auth.NewDBTokenProviderWithPool(store, resolver, pool)
+	provider := auth.NewDBTokenProvider(store, resolver, pool)
 
 	before := runtime.NumGoroutine()
 	const calls = 100

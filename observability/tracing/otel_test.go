@@ -43,7 +43,7 @@ func TestOTelMiddlewareInjectsTraceID(t *testing.T) {
 		}
 	}()
 
-	mw := Middleware(tr, "X-Trace-ID")
+	mw := Middleware(tr, "X-Trace-Id")
 	h := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if id, ok := TraceIDFromContext(r.Context()); !ok || id == "" {
 			t.Fatalf("trace id missing in context")
@@ -57,8 +57,8 @@ func TestOTelMiddlewareInjectsTraceID(t *testing.T) {
 	if rr.Code != 200 {
 		t.Fatalf("unexpected status: %d", rr.Code)
 	}
-	if hdr := rr.Header().Get("X-Trace-ID"); hdr == "" {
-		t.Fatalf("expected X-Trace-ID header set")
+	if hdr := rr.Header().Get("X-Trace-Id"); hdr == "" {
+		t.Fatalf("expected X-Trace-Id header set")
 	}
 }
 

@@ -14,6 +14,15 @@ import (
 // For NATS, wrap natsClient.Publish. The data is the raw Envelope JSON.
 type PublishFunc func(ctx context.Context, subject string, data []byte) error
 
+// WorkerOption configures an OutboxWorker.
+type WorkerOption func(*OutboxWorker)
+
+// WithExitWhenIdle makes Run return nil when there are no pending events,
+// instead of sleeping and polling again. Use this for cron-driven one-shot runs.
+func WithExitWhenIdle() WorkerOption {
+	return func(w *OutboxWorker) { w.exitWhenIdle = true }
+}
+
 // OutboxWorker polls the outbox table and delivers pending events via PublishFunc.
 // It processes up to batchSize events per iteration and sleeps pollInterval between batches.
 type OutboxWorker struct {
@@ -22,9 +31,10 @@ type OutboxWorker struct {
 	log          *slog.Logger
 	pollInterval time.Duration
 	batchSize    int
+	exitWhenIdle bool
 }
 
-func NewOutboxWorker(db *gorm.DB, publish PublishFunc, log *slog.Logger, pollInterval time.Duration, batchSize int) *OutboxWorker {
+func NewOutboxWorker(db *gorm.DB, publish PublishFunc, log *slog.Logger, pollInterval time.Duration, batchSize int, opts ...WorkerOption) *OutboxWorker {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -34,13 +44,17 @@ func NewOutboxWorker(db *gorm.DB, publish PublishFunc, log *slog.Logger, pollInt
 	if batchSize <= 0 {
 		batchSize = 10
 	}
-	return &OutboxWorker{
+	w := &OutboxWorker{
 		db:           db,
 		publish:      publish,
 		log:          log,
 		pollInterval: pollInterval,
 		batchSize:    batchSize,
 	}
+	for _, o := range opts {
+		o(w)
+	}
+	return w
 }
 
 func (w *OutboxWorker) Name() string {
@@ -61,6 +75,9 @@ func (w *OutboxWorker) Run(ctx context.Context) error {
 				time.Sleep(w.pollInterval)
 				continue
 			}
+		}
+		if len(pending) == 0 && w.exitWhenIdle {
+			return nil
 		}
 		for _, ev := range pending {
 			if ev.EventType == "" {

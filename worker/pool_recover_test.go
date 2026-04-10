@@ -14,7 +14,7 @@ import (
 func TestPool_RecoverFromPanic(t *testing.T) {
 	t.Parallel()
 
-	pool := NewPool(1, 10, slog.Default())
+	pool := New(WithWorkers(1), WithQueueSize(10), WithLogger(slog.Default()))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

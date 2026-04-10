@@ -2,6 +2,7 @@ package product
 
 import (
 	"context"
+	"io"
 
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/datatable"
@@ -100,4 +101,14 @@ func (s *InstrumentedService) Delete(ctx context.Context, id int, actor auth.Ide
 		return err
 	})
 	return err
+}
+
+func (s *InstrumentedService) UploadImage(ctx context.Context, id int, r io.Reader, size int64, mime string, actor auth.Identifiable) (*Product, error) {
+	var result *Product
+	err := s.mw.Do(ctx, "product", "UploadImage", func(ctx context.Context) error {
+		var err error
+		result, err = s.inner.UploadImage(ctx, id, r, size, mime, actor)
+		return err
+	})
+	return result, err
 }

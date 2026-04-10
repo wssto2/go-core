@@ -56,7 +56,6 @@ func (s *gormTokenStore) FindByRefreshToken(ctx context.Context, refresh string)
 	// Iterate ALL candidates before returning to avoid early-exit timing leaks.
 	var found *auth.Token
 	for _, c := range candidates {
-		c := c
 		if (&auth.BcryptHasher{}).Compare(refresh, c.RefreshToken) && found == nil {
 			found = &c
 		}

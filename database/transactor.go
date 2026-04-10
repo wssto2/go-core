@@ -49,10 +49,17 @@ func (t *gormTransactor) WithinTransaction(ctx context.Context, fn func(ctx cont
 		txCtx := context.WithValue(ctx, txKey{}, tx)
 
 		// Attempt to extract the underlying *sql.Tx from GORM's connection pool and
-		// store it in the context for consumers (sqlc package) to use.
+		// store it in the context for consumers (sqlc package, audit repo) to use.
+		// With PrepareStmt: true (default for MySQL), the ConnPool is a
+		// *gorm.PreparedStmtTX that wraps *sql.Tx — handle both.
 		if cp := tx.Statement.ConnPool; cp != nil {
-			if sqlTx, ok := cp.(*sql.Tx); ok {
-				txCtx = context.WithValue(txCtx, sqlTxKey{}, sqlTx)
+			switch v := cp.(type) {
+			case *sql.Tx:
+				txCtx = context.WithValue(txCtx, sqlTxKey{}, v)
+			case *gorm.PreparedStmtTX:
+				if sqlTx, ok := v.Tx.(*sql.Tx); ok {
+					txCtx = context.WithValue(txCtx, sqlTxKey{}, sqlTx)
+				}
 			}
 		}
 

@@ -18,14 +18,22 @@ type Metrics struct {
 	requestDuration *prometheus.HistogramVec
 }
 
-// NewMetrics creates and registers the standard collectors on the provided
-// registry. If registry is nil a new registry is created.
-func NewMetrics(registry *prometheus.Registry) *Metrics {
+// NewMetrics creates and registers the standard collectors.
+//
+// registry is the underlying *prometheus.Registry used to serve /metrics.
+// registerer is used to register metrics — pass a prometheus.WrapRegistererWith
+// result to attach constant labels (e.g. app="my-service") to every metric.
+// When registerer is nil it falls back to registry.
+// When registry is nil a fresh registry is created; registerer is then also set to it.
+func NewMetrics(registry *prometheus.Registry, registerer prometheus.Registerer) *Metrics {
 	if registry == nil {
 		registry = prometheus.NewRegistry()
 		// Register Go runtime and process collectors if we create the registry
 		_ = registry.Register(collectors.NewGoCollector())
 		_ = registry.Register(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+	}
+	if registerer == nil {
+		registerer = registry
 	}
 
 	requestCount := prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -47,9 +55,9 @@ func NewMetrics(registry *prometheus.Registry) *Metrics {
 		Buckets:   prometheus.DefBuckets,
 	}, []string{"method", "path"})
 
-	_ = registry.Register(requestCount)
-	_ = registry.Register(requestErrors)
-	_ = registry.Register(requestDuration)
+	_ = registerer.Register(requestCount)
+	_ = registerer.Register(requestErrors)
+	_ = registerer.Register(requestDuration)
 
 	return &Metrics{
 		Registry:        registry,

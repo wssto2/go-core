@@ -19,7 +19,7 @@ type Config struct {
 	AllowedMime []string // allowed mime types
 	IsPhoto     bool     // if true, sets default photo mimes
 	StorePath   string   // Relative path inside BaseDir (e.g. "avatars")
-	BaseDir     string   // Absolute path to storage root (REQUIRED)
+	BaseDir     string   // Absolute path to storage root (REQUIRED for UploadFile; not needed for ValidateFile)
 }
 
 type UploadedFile struct {
@@ -28,6 +28,38 @@ type UploadedFile struct {
 	Size     int64
 	Ext      string
 	MimeType string
+}
+
+// FileInput holds a validated, open multipart file ready for further processing.
+// Use this with ValidateFile when you want to pass the reader to a custom
+// storage backend (S3, GCS, etc.) instead of saving to the local filesystem.
+// The caller is responsible for closing File.
+type FileInput struct {
+	File     io.ReadSeekCloser
+	Filename string
+	Size     int64
+	MimeType string
+	Ext      string
+}
+
+func resolveAllowedMime(config Config) []string {
+	if len(config.AllowedMime) > 0 {
+		return config.AllowedMime
+	}
+	if config.IsPhoto {
+		return []string{"image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"}
+	}
+	return []string{
+		"image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp",
+		"application/pdf",
+		"application/msword",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"application/vnd.ms-excel",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		"application/vnd.ms-powerpoint",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		"text/plain",
+	}
 }
 
 func sanitiseFilename(raw string) string {
@@ -79,55 +111,24 @@ func UploadFile(ctx *gin.Context, formKey string, config Config) (UploadedFile, 
 	if config.BaseDir == "" {
 		return UploadedFile{}, apperr.BadRequest("upload configuration error: BaseDir is required")
 	}
-	file, header, err := ctx.Request.FormFile(formKey)
+	f, err := ValidateFile(ctx, formKey, config)
 	if err != nil {
-		return UploadedFile{}, apperr.Internal(err)
+		return UploadedFile{}, err
 	}
-	defer func() { _ = file.Close() }()
+	defer func() { _ = f.File.Close() }()
+
 	limitMB := config.MaxSize
 	if limitMB <= 0 {
 		limitMB = 5
 	}
 	maxBytes := limitMB * 1024 * 1024
-	if header.Size > maxBytes {
-		return UploadedFile{}, apperr.BadRequest(fmt.Sprintf("file size exceeds %dMB limit", limitMB))
-	}
-	allowedMime := config.AllowedMime
-	if len(allowedMime) == 0 {
-		if config.IsPhoto {
-			allowedMime = []string{"image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"}
-		} else {
-			allowedMime = []string{
-				"image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp",
-				"application/pdf",
-				"application/msword",
-				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-				"application/vnd.ms-excel",
-				"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-				"application/vnd.ms-powerpoint",
-				"application/vnd.openxmlformats-officedocument.presentationml.presentation",
-				"text/plain",
-			}
-		}
-	}
-	buf := make([]byte, 512)
-	n, err := file.Read(buf)
-	if err != nil && err != io.EOF {
-		return UploadedFile{}, apperr.Internal(err)
-	}
-	sniffed := http.DetectContentType(buf[:n])
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return UploadedFile{}, apperr.Internal(err)
-	}
-	if !slices.Contains(allowedMime, sniffed) {
-		return UploadedFile{}, apperr.BadRequest(fmt.Sprintf("file type '%s' is not allowed", sniffed))
-	}
+
 	finalDir := filepath.Join(config.BaseDir, config.StorePath)
 	if err := os.MkdirAll(finalDir, 0755); err != nil {
 		return UploadedFile{}, apperr.Internal(err)
 	}
 	timestamp := time.Now().Unix()
-	safeName := sanitiseFilename(header.Filename)
+	safeName := sanitiseFilename(f.Filename)
 	filename := fmt.Sprintf("%d_%s", timestamp, safeName)
 	fullPath := filepath.Join(finalDir, filename)
 	cleanFull := filepath.Clean(fullPath)
@@ -145,7 +146,7 @@ func UploadFile(ctx *gin.Context, formKey string, config Config) (UploadedFile, 
 			_ = os.Remove(fullPath)
 		}
 	}()
-	limitedFile := io.LimitReader(file, maxBytes+1)
+	limitedFile := io.LimitReader(f.File, maxBytes+1)
 	written, copyErr := io.Copy(dst, limitedFile)
 	if int64(written) > maxBytes {
 		_ = os.Remove(fullPath)
@@ -156,14 +157,61 @@ func UploadFile(ctx *gin.Context, formKey string, config Config) (UploadedFile, 
 		_ = os.Remove(fullPath)
 		return UploadedFile{}, apperr.Internal(copyErr)
 	}
-	relativePath := filepath.Join(config.StorePath, filename)
-	relativePath = filepath.ToSlash(relativePath)
+	relativePath := filepath.ToSlash(filepath.Join(config.StorePath, filename))
 	return UploadedFile{
-		Name:     header.Filename,
+		Name:     f.Filename,
 		Path:     relativePath,
 		Size:     written,
-		Ext:      extFromMIME(sniffed, safeName),
+		Ext:      f.Ext,
+		MimeType: f.MimeType,
+	}, nil
+}
+
+// ValidateFile reads and validates the uploaded file from the multipart form
+// without saving it to disk. The returned FileInput.File is seeked back to the
+// start and ready to read. The caller must close FileInput.File when done.
+//
+// Use this when the file should be passed to a storage backend (S3, GCS, etc.)
+// rather than saved directly to the local filesystem.
+func ValidateFile(ctx *gin.Context, formKey string, config Config) (FileInput, error) {
+	file, header, err := ctx.Request.FormFile(formKey)
+	if err != nil {
+		return FileInput{}, apperr.Internal(err)
+	}
+
+	limitMB := config.MaxSize
+	if limitMB <= 0 {
+		limitMB = 5
+	}
+	maxBytes := limitMB * 1024 * 1024
+	if header.Size > maxBytes {
+		_ = file.Close()
+		return FileInput{}, apperr.BadRequest(fmt.Sprintf("file size exceeds %dMB limit", limitMB))
+	}
+
+	buf := make([]byte, 512)
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		_ = file.Close()
+		return FileInput{}, apperr.Internal(err)
+	}
+	sniffed := http.DetectContentType(buf[:n])
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		_ = file.Close()
+		return FileInput{}, apperr.Internal(err)
+	}
+
+	if !slices.Contains(resolveAllowedMime(config), sniffed) {
+		_ = file.Close()
+		return FileInput{}, apperr.BadRequest(fmt.Sprintf("file type '%s' is not allowed", sniffed))
+	}
+
+	return FileInput{
+		File:     file,
+		Filename: header.Filename,
+		Size:     header.Size,
 		MimeType: sniffed,
+		Ext:      extFromMIME(sniffed, header.Filename),
 	}, nil
 }
 
