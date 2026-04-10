@@ -7,7 +7,7 @@ import (
 
 func TestDefaultInfrastructureRegistersMetricsEndpoint(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.I18n.I18nDir = t.TempDir()
+	cfg.I18n.Dir = t.TempDir()
 	b := New(cfg).DefaultInfrastructure()
 
 	req := httptest.NewRequest("GET", "/metrics", nil)

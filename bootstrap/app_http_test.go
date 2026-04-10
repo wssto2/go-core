@@ -52,7 +52,7 @@ type errorHTTPServer struct {
 	err error
 }
 
-func (e *errorHTTPServer) Start() error               { return e.err }
+func (e *errorHTTPServer) Start() error                     { return e.err }
 func (e *errorHTTPServer) Shutdown(_ context.Context) error { return nil }
 
 // TestApp_Run_HTTPStartFailure_ReturnsError verifies that Run() propagates an
@@ -69,7 +69,7 @@ func TestApp_Run_HTTPStartFailure_ReturnsError(t *testing.T) {
 	_ = addr // used conceptually; we use the errorHTTPServer stub below
 
 	cfg := DefaultConfig()
-	cfg.I18n.I18nDir = "/tmp/go-core-i18n"
+	cfg.I18n.Dir = "/tmp/go-core-i18n"
 	builder := New(cfg).DefaultInfrastructure()
 	app, buildErr := builder.Build()
 	if buildErr != nil {
@@ -87,7 +87,7 @@ func TestApp_Run_HTTPStartFailure_ReturnsError(t *testing.T) {
 
 func TestShutdownCallsHTTPServerBeforeModules(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.I18n.I18nDir = "/tmp/go-core-i18n"
+	cfg.I18n.Dir = "/tmp/go-core-i18n"
 	builder := New(cfg).DefaultInfrastructure()
 	app, _ := builder.Build()
 
@@ -119,7 +119,7 @@ func TestShutdownCallsHTTPServerBeforeModules(t *testing.T) {
 // configuration includes a non-zero ReadHeaderTimeout to mitigate Slowloris attacks.
 func TestWithHTTP_DefaultConfig_HasReadHeaderTimeout(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.I18n.I18nDir = "/tmp/go-core-i18n"
+	cfg.I18n.Dir = "/tmp/go-core-i18n"
 	builder := New(cfg).DefaultInfrastructure().WithHttp()
 	app, err := builder.Build()
 	if err != nil {

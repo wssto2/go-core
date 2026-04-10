@@ -128,7 +128,7 @@ func (a *App) bootModules(ctx context.Context) error {
 func (a *App) Shutdown(log *slog.Logger) {
 	log.Info("shutting_down")
 
-	timeout := a.cfg.ShutdownTimeoutSec
+	timeout := a.cfg.HTTP.ShutdownTimeout
 	if timeout == 0 {
 		timeout = 10
 	}

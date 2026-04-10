@@ -8,7 +8,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"github.com/wssto2/go-core/audit"
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/database"
@@ -21,17 +20,18 @@ import (
 	"github.com/wssto2/go-core/observability/metrics"
 	"github.com/wssto2/go-core/ratelimit"
 	"github.com/wssto2/go-core/worker"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 // AppBuilder constructs an App using a fluent chain of calls.
 type AppBuilder struct {
-	cfg                Config
-	container          *Container
-	engine             *gin.Engine
-	modules            []Module
-	server             HTTPServer
-	errors             []error // accumulate wiring errors, report all at once in build
-	perUserLimiter     ratelimit.Limiter
+	cfg                 Config
+	container           *Container
+	engine              *gin.Engine
+	modules             []Module
+	server              HTTPServer
+	errors              []error // accumulate wiring errors, report all at once in build
+	perUserLimiter      ratelimit.Limiter
 	sharedGlobalLimiter ratelimit.Limiter
 }
 
@@ -66,11 +66,11 @@ func (b *AppBuilder) DefaultInfrastructure() *AppBuilder {
 
 func (b *AppBuilder) setupLogger() {
 	log, err := logger.New(logger.Config{
-		AppName:    b.cfg.AppName,
-		LogDir:     b.cfg.Log.LogDir,
-		Env:        b.cfg.Env,
-		Level:      b.cfg.Log.Level,
-		MaxSizeMB:  b.cfg.Log.MaxSizeMB,
+		AppName:    b.cfg.App.Name,
+		LogDir:     b.cfg.Log.Dir,
+		Env:        b.cfg.App.Env,
+		Level:      logger.LogLevel(b.cfg.Log.Level),
+		MaxSizeMB:  b.cfg.Log.MaxSize,
 		MaxBackups: b.cfg.Log.MaxBackups,
 		MaxAgeDays: b.cfg.Log.MaxAgeDays,
 	})
@@ -82,13 +82,35 @@ func (b *AppBuilder) setupLogger() {
 }
 
 func (b *AppBuilder) setupDatabase() {
-	if len(b.cfg.Databases) == 0 {
+	if len(b.cfg.Database.Connections) == 0 {
 		return // database is optional
 	}
 
 	log := MustResolve[*slog.Logger](b.container)
 
-	reg := database.NewRegistryFromConfigs(log, b.cfg.DatabaseRegistry, b.cfg.Databases)
+	regCfg := database.RegistryConfig{
+		LogLevel:           b.cfg.Database.LogLevel,
+		SlowQueryThreshold: b.cfg.Database.SlowQueryThreshold,
+	}
+
+	connections := make([]database.ConnectionConfig, 0, len(b.cfg.Database.Connections))
+	for _, conn := range b.cfg.Database.Connections {
+		connections = append(connections, database.ConnectionConfig{
+			Name:            conn.Name,
+			Driver:          conn.Driver,
+			Host:            conn.Host,
+			Port:            conn.Port,
+			Database:        conn.Database,
+			Username:        conn.Username,
+			Password:        conn.Password,
+			MaxIdleConns:    conn.MaxIdleConns,
+			MaxOpenConns:    conn.MaxOpenConns,
+			ConnMaxLifetime: conn.ConnMaxLifetime,
+			Debug:           conn.Debug,
+		})
+	}
+
+	reg := database.NewRegistryFromConfigs(log, regCfg, connections)
 	OverwriteBind(b.container, reg)
 
 	// Audit repo — only when a primary DB exists
@@ -105,10 +127,13 @@ func (b *AppBuilder) setupBus() {
 }
 
 func (b *AppBuilder) setupI18n() {
-	if b.cfg.I18n.I18nDir == "" {
+	if b.cfg.I18n.Dir == "" {
 		return // i18n is optional
 	}
-	t, err := i18n.New(b.cfg.I18n)
+	t, err := i18n.New(i18n.Config{
+		FallbackLang: b.cfg.I18n.DefaultLocale,
+		I18nDir:      b.cfg.I18n.Dir,
+	})
 	if err != nil {
 		b.errors = append(b.errors, fmt.Errorf("i18n: %w", err))
 		return
@@ -118,7 +143,7 @@ func (b *AppBuilder) setupI18n() {
 
 func (b *AppBuilder) setupObservability() {
 	log := MustResolve[*slog.Logger](b.container)
-	tel := observability.New(log, b.cfg.AppName)
+	tel := observability.New(log, b.cfg.App.Name)
 	OverwriteBind(b.container, tel)
 
 	// Expose /metrics using the app's own registry — not the global default
@@ -156,14 +181,18 @@ func (b *AppBuilder) setupHTTPMiddlewares() {
 	}
 
 	b.engine.Use(
-		otelgin.Middleware(b.cfg.AppName),
+		otelgin.Middleware(b.cfg.App.Name),
 		middlewares.RequestID(),
 		middlewares.RequestLogger(log),
 		metrics.InstrumentHTTP(tel.HTTP),
 		middlewares.PanicRecovery(log),
-		middlewares.ErrorHandler(log, translator, b.cfg.Env != "production"),
-		middlewares.Security(b.cfg.Env != "production"),
-		middlewares.Cors(b.cfg.Engine.Cors),
+		middlewares.ErrorHandler(log, translator, b.cfg.App.Env != "production"),
+		middlewares.Security(b.cfg.App.Env != "production"),
+		middlewares.Cors(middlewares.CorsConfig{
+			AllowOrigins: b.cfg.CORS.AllowedOrigins,
+			AllowMethods: b.cfg.CORS.AllowedMethods,
+			AllowHeaders: b.cfg.CORS.AllowedHeaders,
+		}),
 	)
 
 }
@@ -216,7 +245,6 @@ func (b *AppBuilder) WithGlobalRateLimit(l ratelimit.Limiter) *AppBuilder {
 	return b
 }
 
-
 func (b *AppBuilder) WithModules(modules ...Module) *AppBuilder {
 	b.modules = append(b.modules, modules...)
 	return b
@@ -234,7 +262,6 @@ func (b *AppBuilder) WithOutboxWorker(publish event.PublishFunc, opts ...event.W
 	b.modules = append(b.modules, newOutboxModule(publish, opts))
 	return b
 }
-
 
 func (b *AppBuilder) WithJWTAuth(resolver auth.IdentityResolver) *AppBuilder {
 	if b.cfg.JWT.Secret == "" {
@@ -264,32 +291,32 @@ func (b *AppBuilder) WithDBTokenAuth(store auth.TokenStore, resolver auth.Identi
 }
 
 func (b *AppBuilder) WithHttp() *AppBuilder {
-	port := b.cfg.Port
+	port := b.cfg.HTTP.Port
 	if port == 0 {
 		port = 8080
 	}
 
-	if b.cfg.Env == "production" {
+	if b.cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	if b.cfg.Engine.StaticPath != "" && b.cfg.Engine.StaticURL != "" {
-		b.engine.Static(b.cfg.Engine.StaticURL, b.cfg.Engine.StaticPath)
+	if b.cfg.Frontend.StaticPath != "" && b.cfg.Frontend.StaticURL != "" {
+		b.engine.Static(b.cfg.Frontend.StaticURL, b.cfg.Frontend.StaticPath)
 	}
 
-	readHeaderTimeout := time.Duration(b.cfg.ReadHeaderTimeoutSec) * time.Second
+	readHeaderTimeout := b.cfg.HTTP.ReadHeaderTimeout
 	if readHeaderTimeout <= 0 {
 		readHeaderTimeout = 10 * time.Second
 	}
-	readTimeout := time.Duration(b.cfg.ReadTimeoutSec) * time.Second
+	readTimeout := b.cfg.HTTP.ReadTimeout
 	if readTimeout <= 0 {
 		readTimeout = 30 * time.Second
 	}
-	writeTimeout := time.Duration(b.cfg.WriteTimeoutSec) * time.Second
+	writeTimeout := b.cfg.HTTP.WriteTimeout
 	if writeTimeout <= 0 {
 		writeTimeout = 30 * time.Second
 	}
-	idleTimeout := time.Duration(b.cfg.IdleTimeoutSec) * time.Second
+	idleTimeout := b.cfg.HTTP.IdleTimeout
 	if idleTimeout <= 0 {
 		idleTimeout = 120 * time.Second
 	}

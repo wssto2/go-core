@@ -5,8 +5,6 @@ import "time"
 // ConnectionConfig holds everything needed to open one database connection pool.
 // Applications build these at startup and register them with the Registry.
 //
-// Example (arv-next):
-//
 //	database.ConnectionConfig{
 //	    Name:            "local",
 //	    Host:            os.Getenv("LOCAL_DB_HOST"),

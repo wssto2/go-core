@@ -31,11 +31,11 @@ func EnvBool(key string, def bool) bool {
 	return def
 }
 
-func EnvDuration(key string, unit time.Duration, defaultVal int) time.Duration {
+func EnvDuration(key string, defaultVal time.Duration) time.Duration {
 	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return time.Duration(n) * unit
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
 		}
 	}
-	return time.Duration(defaultVal) * unit
+	return defaultVal
 }
