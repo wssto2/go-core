@@ -2,47 +2,57 @@ package frontend
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
-// ViteConfig holds Vite dev server configuration.
+// ViteConfig holds Vite dev server and production asset resolution settings.
 type ViteConfig struct {
-	// Port is the Vite dev server port. Defaults to 5173.
-	Port string
+	// DevServerURL is the base URL of the Vite dev server.
+	// Defaults to "http://localhost:5173".
+	DevServerURL string
 
-	// EntryPoint is the file Vite serves as the main entry.
-	// Used only for the health check probe. Defaults to "main.ts".
-	EntryPoint string
+	// Entry is the Vite entry module used by the SPA.
+	// Defaults to "src/main.ts".
+	Entry string
 
-	// DistDir is the directory containing production build output.
-	// Defaults to "./static/dist".
-	DistDir string
+	// ManifestPath is the path to Vite's production manifest file.
+	// Defaults to "./frontend/dist/.vite/manifest.json".
+	ManifestPath string
+
+	// AssetsURLPrefix is the public URL prefix under which built assets are served.
+	// Defaults to "/frontend/dist".
+	AssetsURLPrefix string
 }
 
-func (c ViteConfig) withDefaults() ViteConfig {
-	if c.Port == "" {
-		c.Port = "5173"
+func (c ViteConfig) WithDefaults() ViteConfig {
+	if c.DevServerURL == "" {
+		c.DevServerURL = "http://localhost:5173"
 	}
-	if c.EntryPoint == "" {
-		c.EntryPoint = "main.ts"
+	if c.Entry == "" {
+		c.Entry = "src/main.ts"
 	}
-	if c.DistDir == "" {
-		c.DistDir = "./static/dist"
+	if c.ManifestPath == "" {
+		c.ManifestPath = "./frontend/dist/.vite/manifest.json"
+	}
+	if c.AssetsURLPrefix == "" {
+		c.AssetsURLPrefix = "/frontend/dist"
 	}
 	return c
 }
 
 // IsViteRunning probes the Vite dev server. Uses a 2s timeout.
 func IsViteRunning(cfg ViteConfig) bool {
-	cfg = cfg.withDefaults()
+	cfg = cfg.WithDefaults()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	url := "http://localhost:" + cfg.Port + "/" + cfg.EntryPoint
+	url := strings.TrimRight(cfg.DevServerURL, "/") + "/" + strings.TrimLeft(cfg.Entry, "/")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return false
@@ -59,48 +69,67 @@ func IsViteRunning(cfg ViteConfig) bool {
 
 // Assets holds the resolved CSS and JS paths for the current environment.
 type Assets struct {
-	CSSPath       string
+	CSSPaths      []string
 	JSPath        string
 	IsDev         bool
 	ViteClientURL string
 }
 
-// ResolveAssets detects whether Vite is running and returns the
-// correct asset paths for the current environment.
+type viteManifestEntry struct {
+	File    string   `json:"file"`
+	CSS     []string `json:"css"`
+	IsEntry bool     `json:"isEntry"`
+}
+
+// ResolveAssets detects whether Vite is running and returns the correct asset
+// paths for the current environment.
 //
-// In dev mode: returns Vite server URLs.
-// In prod mode: scans DistDir for hashed main.*.js / main.*.css files.
+// In dev mode it returns Vite dev server URLs.
+// In prod mode it resolves the configured entry from Vite's manifest.
 func ResolveAssets(cfg ViteConfig) Assets {
-	cfg = cfg.withDefaults()
+	cfg = cfg.WithDefaults()
 
 	if IsViteRunning(cfg) {
-		base := "http://localhost:" + cfg.Port
+		base := strings.TrimRight(cfg.DevServerURL, "/")
 		return Assets{
-			CSSPath:       base + "/css/main.css",
-			JSPath:        base + "/" + cfg.EntryPoint,
+			JSPath:        base + "/" + strings.TrimLeft(cfg.Entry, "/"),
 			IsDev:         true,
 			ViteClientURL: base + "/@vite/client",
 		}
 	}
 
-	files, err := os.ReadDir(cfg.DistDir)
+	manifest, err := readManifest(cfg.ManifestPath)
 	if err != nil {
 		return Assets{}
 	}
 
-	const staticPrefix = "/static/dist/"
-	var a Assets
-	for _, f := range files {
-		if f.IsDir() {
-			continue
-		}
-		name := f.Name()
-		if strings.HasPrefix(name, "main") && strings.HasSuffix(name, ".js") {
-			a.JSPath = staticPrefix + name
-		}
-		if strings.HasPrefix(name, "main") && strings.HasSuffix(name, ".css") {
-			a.CSSPath = staticPrefix + name
-		}
+	entry, ok := manifest[cfg.Entry]
+	if !ok {
+		return Assets{}
 	}
-	return a
+
+	prefix := strings.TrimRight(cfg.AssetsURLPrefix, "/")
+	assets := Assets{
+		JSPath: prefix + "/" + strings.TrimLeft(filepath.ToSlash(entry.File), "/"),
+	}
+
+	for _, css := range entry.CSS {
+		assets.CSSPaths = append(assets.CSSPaths, prefix+"/"+strings.TrimLeft(filepath.ToSlash(css), "/"))
+	}
+
+	return assets
+}
+
+func readManifest(path string) (map[string]viteManifestEntry, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var manifest map[string]viteManifestEntry
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, err
+	}
+
+	return manifest, nil
 }

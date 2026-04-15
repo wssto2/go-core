@@ -9,6 +9,8 @@ import (
 	domainauth "go-core-example/internal/domain/auth"
 	"go-core-example/internal/domain/product"
 
+	"github.com/gin-gonic/gin"
+
 	coreauth "github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/go2ts"
@@ -67,6 +69,14 @@ func main() {
 
 	app, err := bootstrap.New(cfg).
 		DefaultInfrastructure().
+		WithSPA(func(ctx *gin.Context) any {
+			return gin.H{
+				"appName": cfg.App.Name,
+				"env":     cfg.App.Env,
+				"path":    ctx.Request.URL.Path,
+				"apiBase": "/api/v1",
+			}
+		}).
 		// Per-user/IP limiter: 300 req/min per identity.
 		WithRateLimit(ratelimit.NewInMemoryLimiter(300, time.Minute)).
 		WithJWTAuth(authMod.IdentityResolver).

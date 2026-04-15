@@ -12,6 +12,7 @@ import (
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/event"
+	"github.com/wssto2/go-core/frontend"
 	"github.com/wssto2/go-core/health"
 	"github.com/wssto2/go-core/i18n"
 	"github.com/wssto2/go-core/logger"
@@ -33,6 +34,7 @@ type AppBuilder struct {
 	errors              []error // accumulate wiring errors, report all at once in build
 	perUserLimiter      ratelimit.Limiter
 	sharedGlobalLimiter ratelimit.Limiter
+	spaConfig           *frontend.SPAConfig
 }
 
 // New creates a new AppBuilder with the given config.
@@ -258,6 +260,44 @@ func (b *AppBuilder) WithModules(modules ...Module) *AppBuilder {
 	return b
 }
 
+// WithSPA enables the convention-based SPA setup for applications that keep
+// their frontend files under ./frontend. The provided state builder is optional
+// and is injected into the rendered template as appState.
+func (b *AppBuilder) WithSPA(stateBuilder frontend.AppStateBuilder) *AppBuilder {
+	cfg := frontend.SPAConfig{
+		TemplatesPath: "frontend/templates/*.html",
+		TemplateName:  "index.html",
+		APIPrefix:     b.cfg.Frontend.APIPrefix,
+		StateBuilder:  stateBuilder,
+		DevMode:       b.cfg.App.Env == "development",
+		Vite: frontend.ViteConfig{
+			Entry:           "src/main.ts",
+			ManifestPath:    "./frontend/dist/.vite/manifest.json",
+			AssetsURLPrefix: "/frontend/dist",
+		},
+	}
+	if cfg.APIPrefix == "" {
+		cfg.APIPrefix = "/api"
+	}
+	b.spaConfig = &cfg
+	return b
+}
+
+// WithSPAConfig enables SPA support with an explicit frontend configuration.
+func (b *AppBuilder) WithSPAConfig(cfg frontend.SPAConfig) *AppBuilder {
+	if cfg.APIPrefix == "" {
+		cfg.APIPrefix = b.cfg.Frontend.APIPrefix
+	}
+	if cfg.APIPrefix == "" {
+		cfg.APIPrefix = "/api"
+	}
+	if !cfg.DevMode {
+		cfg.DevMode = b.cfg.App.Env == "development"
+	}
+	b.spaConfig = &cfg
+	return b
+}
+
 // WithTrustedProxies configures the proxies Gin will trust for client-IP and
 // forwarded-proto resolution. Passing no values disables proxy trust.
 func (b *AppBuilder) WithTrustedProxies(proxies ...string) *AppBuilder {
@@ -338,6 +378,13 @@ func (b *AppBuilder) WithHttp() *AppBuilder {
 	if b.cfg.Frontend.StaticPath != "" && b.cfg.Frontend.StaticURL != "" {
 		b.engine.Static(b.cfg.Frontend.StaticURL, b.cfg.Frontend.StaticPath)
 	}
+	if b.spaConfig != nil {
+		viteCfg := b.spaConfig.Vite
+		viteCfg = viteCfg.WithDefaults()
+		if viteCfg.ManifestPath != "" && viteCfg.AssetsURLPrefix != "" {
+			b.engine.Static(viteCfg.AssetsURLPrefix, "frontend/dist")
+		}
+	}
 
 	readHeaderTimeout := b.cfg.HTTP.ReadHeaderTimeout
 	if readHeaderTimeout <= 0 {
@@ -368,7 +415,7 @@ func (b *AppBuilder) WithHttp() *AppBuilder {
 	return b
 }
 
-// Build validates accumulated errors, registers all modules, and
+// Build validates accumulated errors, registers SPA wiring, and
 // returns the runnable *App. Returns an error if any wiring step failed.
 func (b *AppBuilder) Build() (*App, error) {
 	if len(b.errors) > 0 {
@@ -383,6 +430,11 @@ func (b *AppBuilder) Build() (*App, error) {
 	}
 	if b.perUserLimiter != nil {
 		b.engine.Use(middlewares.RateLimit(b.perUserLimiter, true, false))
+	}
+
+	if b.spaConfig != nil {
+		log := MustResolve[*slog.Logger](b.container)
+		frontend.RegisterSPAWithTemplates(b.engine, *b.spaConfig, log)
 	}
 
 	return NewApp(b.cfg, b.container, b.engine, b.server, b.modules), nil

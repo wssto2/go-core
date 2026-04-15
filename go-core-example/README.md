@@ -3,6 +3,15 @@
 A minimal but complete Go application demonstrating every feature of `go-core`.
 Uses Gin + GORM + MySQL, structured around a single **Product** domain.
 
+This example now also includes a minimal **Vue 3 + Vite SPA** under `frontend/`
+to demonstrate the recommended go-core frontend convention:
+
+- backend API routes live under `/api/...`
+- non-API routes render the SPA shell
+- request-scoped state is injected into `window.APP_STATE`
+- in development, assets are served from the Vite dev server
+- in production, assets are resolved from the Vite manifest
+
 ---
 
 ## Directory layout
@@ -11,8 +20,19 @@ Uses Gin + GORM + MySQL, structured around a single **Product** domain.
 go-core-example/
 ├── cmd/
 │   └── api/
-│       ├── main.go      # Entrypoint — wires bootstrap, OTel, go2ts
+│       ├── main.go      # Entrypoint — wires bootstrap, OTel, go2ts, SPA
 │       └── config.go    # Config loading via bootstrap.EnvStr/EnvInt
+├── frontend/
+│   ├── src/
+│   │   ├── main.ts      # Vue entrypoint
+│   │   └── App.vue      # Minimal SPA component
+│   ├── templates/
+│   │   └── index.html   # SPA shell rendered by go-core
+│   ├── dist/
+│   │   └── .vite/
+│   │       └── manifest.json # Production asset manifest
+│   ├── package.json
+│   └── vite.config.ts
 ├── internal/
 │   └── domain/
 │       ├── auth/
@@ -33,7 +53,6 @@ go-core-example/
 │           ├── webhook.go             # OutboxWorker PublishFunc (webhook + crash-recovery routing)
 │           ├── worker.go              # Package stub (productWorker removed — use outbox instead)
 │           └── module.go              # Product module — routes + worker lifecycle
-├── templates/           # HTML templates (if any)
 ├── Makefile
 └── go.mod
 ```
@@ -44,7 +63,7 @@ go-core-example/
 
 | Feature | Where |
 |---|---|
-| `bootstrap` — `DefaultInfrastructure`, graceful shutdown | `cmd/api/main.go` |
+| `bootstrap` — `DefaultInfrastructure`, graceful shutdown, `WithSPA` | `cmd/api/main.go` |
 | `bootstrap.EnvStr` / `EnvInt` — env-based config | `cmd/api/config.go` |
 | `bootstrap.Module` — Register / Boot / Shutdown lifecycle | `internal/domain/*/module.go` |
 | `bootstrap.MustResolve[T]` — IoC container | `internal/domain/product/module.go` |
@@ -82,28 +101,87 @@ go-core-example/
 
 ## Running the example
 
+### 1. Start MySQL
+
 ```bash
-# 1. Start MySQL
 docker run -d \
   --name go-core-db \
   -e MYSQL_ROOT_PASSWORD=secret \
   -e MYSQL_DATABASE=go_core_example \
   -p 3306:3306 \
   mysql:8.0
+```
 
-# 2. Run (from the go-core-example directory)
+### 2. Install frontend dependencies
+
+From the `go-core-example/frontend` directory:
+
+```bash
+npm install
+```
+
+### 3. Run the backend
+
+From the `go-core-example` directory:
+
+```bash
 make run
+```
 
-# Or directly:
+Or directly:
+
+```bash
 go run ./cmd/api/
 ```
 
 > **Note:** `go run cmd/api/main.go` will not work because `config.go` is a
 > separate file in the same package. Always use `go run ./cmd/api/` or `make run`.
 
-The server starts on `:8080`.
+The backend starts on `:8080`.
+
+### 4. Run the SPA in development
+
+From the `go-core-example/frontend` directory:
+
+```bash
+npm run dev
+```
+
+Vite starts on `http://localhost:5173` and the Go server will automatically use
+the dev server assets for non-API routes.
+
+### 5. Production-style frontend build
+
+From the `go-core-example/frontend` directory:
+
+```bash
+npm run build
+```
+
+This writes the production bundle and Vite manifest into `frontend/dist/`. The
+Go server resolves built assets from that manifest when the Vite dev server is
+not running.
 
 ---
+
+## SPA frontend behavior
+
+The example backend uses the builder-based SPA integration:
+
+- `bootstrap.WithSPA(...)` registers the SPA shell
+- `/api/...` routes continue to return JSON
+- all other routes fall back to `frontend/templates/index.html`
+- request-scoped state is injected into `window.APP_STATE`
+
+The example state currently includes:
+
+- `appName`
+- `env`
+- `path`
+- `apiBase`
+
+This is a good default pattern for applications using Vue 3 + Vite with
+frontend files stored under `frontend/`.
 
 ## API endpoints
 

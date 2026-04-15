@@ -17,6 +17,12 @@ func loadConfig() bootstrap.Config {
 	cfg.HTTP.IdleTimeout = time.Duration(bootstrap.EnvInt("IDLE_TIMEOUT_SEC", 60)) * time.Second
 	cfg.HTTP.ShutdownTimeout = time.Duration(bootstrap.EnvInt("SHUTDOWN_TIMEOUT_SEC", 10)) * time.Second
 
+	cfg.Frontend.TemplatesPath = bootstrap.EnvStr("TEMPLATES_PATH", "frontend/templates/*.html")
+	cfg.Frontend.TemplateName = bootstrap.EnvStr("TEMPLATE_NAME", "index.html")
+	cfg.Frontend.StaticPath = bootstrap.EnvStr("STATIC_PATH", "")
+	cfg.Frontend.StaticURL = bootstrap.EnvStr("STATIC_URL", "")
+	cfg.Frontend.APIPrefix = bootstrap.EnvStr("API_PREFIX", "/api")
+
 	// Primary database ("local") -- used by most modules.
 	cfg.Database.Connections = []bootstrap.DatabaseConnectionConfig{
 		{

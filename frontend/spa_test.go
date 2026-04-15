@@ -4,6 +4,8 @@ import (
 	"html/template"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -11,43 +13,161 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRegisterSPA_NilLogger_NoPanic confirms that passing a nil logger to
-// RegisterSPA does not panic either at registration time or when the NoRoute
-// handler fires for a non-API path.
 func TestRegisterSPA_NilLogger_NoPanic(t *testing.T) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+	templateDir := filepath.Join(tempDir, "frontend", "templates")
+	require.NoError(t, os.MkdirAll(templateDir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(templateDir, "index.html"),
+		[]byte(`<!doctype html><html><body><div id="app"></div></body></html>`),
+		0o644,
+	))
+
 	engine := gin.New()
-	// Use minimal config; templates are not loaded so we can't render HTML,
-	// but the handler should still not panic before hitting the render call.
 	cfg := SPAConfig{
-		APIPrefix: "/api",
+		TemplatesPath: filepath.Join(templateDir, "*.html"),
+		APIPrefix:     "/api",
 	}
 
 	require.NotPanics(t, func() {
 		RegisterSPA(engine, cfg, nil)
 	}, "RegisterSPA must not panic with a nil logger")
 
-	// Trigger the NoRoute handler for an API path (returns JSON, no template needed).
 	req := httptest.NewRequest(http.MethodGet, "/api/missing", nil)
 	w := httptest.NewRecorder()
+
 	require.NotPanics(t, func() {
 		engine.ServeHTTP(w, req)
 	}, "NoRoute handler must not panic with a nil logger")
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.JSONEq(t, `{"error":"not found"}`, w.Body.String())
 }
 
-// TestBuiltinFuncMap_ToJSON_ReturnsTemplateJS verifies that toJSON returns
-// a template.JS value (not escaped as a string) so it is safe in <script> blocks.
 func TestBuiltinFuncMap_ToJSON_ReturnsTemplateJS(t *testing.T) {
 	funcs := BuiltinFuncMap()
 	toJSON, ok := funcs["toJSON"]
 	require.True(t, ok, "toJSON must be in BuiltinFuncMap")
 
-	type testVal struct{ Name string }
+	type testVal struct {
+		Name string `json:"name"`
+	}
 	result := toJSON.(func(any) template.JS)(testVal{Name: "hello<world>"})
 
-	// template.JS values are not HTML-escaped, so < must remain as-is.
 	assert.Contains(t, string(result), "<world>", "< must not be escaped in template.JS output")
-	assert.Contains(t, string(result), `"hello`, "JSON output must be valid JSON")
+	assert.Contains(t, string(result), `"name":"hello<world>"`, "JSON output must be valid JSON")
+}
+
+func TestResolveAssets_ManifestBasedProductionAssets(t *testing.T) {
+	tempDir := t.TempDir()
+	manifestDir := filepath.Join(tempDir, "frontend", "dist", ".vite")
+	require.NoError(t, os.MkdirAll(manifestDir, 0o755))
+
+	manifest := `{
+		"src/main.ts": {
+			"file": "assets/main-abc123.js",
+			"css": ["assets/main-def456.css"],
+			"isEntry": true
+		}
+	}`
+	manifestPath := filepath.Join(manifestDir, "manifest.json")
+	require.NoError(t, os.WriteFile(manifestPath, []byte(manifest), 0o644))
+
+	assets := ResolveAssets(ViteConfig{
+		DevServerURL:    "http://127.0.0.1:65534",
+		Entry:           "src/main.ts",
+		ManifestPath:    manifestPath,
+		AssetsURLPrefix: "/frontend/dist",
+	})
+
+	assert.False(t, assets.IsDev)
+	assert.Equal(t, "/frontend/dist/assets/main-abc123.js", assets.JSPath)
+	assert.Equal(t, []string{"/frontend/dist/assets/main-def456.css"}, assets.CSSPaths)
+	assert.Empty(t, assets.ViteClientURL)
+}
+
+func TestRegisterSPA_RendersManifestAssetsAndAppState(t *testing.T) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	tempDir := t.TempDir()
+
+	templateDir := filepath.Join(tempDir, "frontend", "templates")
+	require.NoError(t, os.MkdirAll(templateDir, 0o755))
+	templateContent := `<!doctype html>
+<html>
+  <head>
+    {{ range .Assets.CSSPaths }}
+    <link rel="stylesheet" href="{{ . }}" />
+    {{ end }}
+  </head>
+  <body>
+    <div id="app"></div>
+    {{ if .AppState }}
+    <script nonce="{{ .Nonce }}">
+      window.APP_STATE = {{ .AppState | toJSON }};
+    </script>
+    {{ end }}
+    {{ if .Assets.ViteClientURL }}
+    <script type="module" src="{{ .Assets.ViteClientURL }}"></script>
+    {{ end }}
+    <script type="module" src="{{ .Assets.JSPath }}"></script>
+  </body>
+</html>`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(templateDir, "index.html"),
+		[]byte(templateContent),
+		0o644,
+	))
+
+	manifestDir := filepath.Join(tempDir, "frontend", "dist", ".vite")
+	require.NoError(t, os.MkdirAll(manifestDir, 0o755))
+	manifest := `{
+		"src/main.ts": {
+			"file": "assets/main-abc123.js",
+			"css": ["assets/main-def456.css"],
+			"isEntry": true
+		}
+	}`
+	manifestPath := filepath.Join(manifestDir, "manifest.json")
+	require.NoError(t, os.WriteFile(manifestPath, []byte(manifest), 0o644))
+
+	engine := gin.New()
+	engine.Use(func(ctx *gin.Context) {
+		ctx.Set("nonce", "test-nonce")
+		ctx.Next()
+	})
+
+	RegisterSPA(engine, SPAConfig{
+		TemplatesPath: filepath.Join(templateDir, "*.html"),
+		TemplateName:  "index.html",
+		APIPrefix:     "/api",
+		DevMode:       false,
+		Vite: ViteConfig{
+			DevServerURL:    "http://127.0.0.1:65534",
+			Entry:           "src/main.ts",
+			ManifestPath:    manifestPath,
+			AssetsURLPrefix: "/frontend/dist",
+		},
+		StateBuilder: func(ctx *gin.Context) any {
+			return gin.H{
+				"path": ctx.Request.URL.Path,
+			}
+		},
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+
+	assert.Contains(t, body, `/frontend/dist/assets/main-abc123.js`)
+	assert.Contains(t, body, `/frontend/dist/assets/main-def456.css`)
+	assert.Contains(t, body, `window.APP_STATE = {"path":"/dashboard"}`)
+	assert.Contains(t, body, `nonce="test-nonce"`)
 }

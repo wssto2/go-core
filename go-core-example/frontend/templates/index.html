@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>go-core example</title>
+    {{ range .Assets.CSSPaths }}
+    <link rel="stylesheet" href="{{ . }}" />
+    {{ end }}
+  </head>
+  <body>
+    <div id="app"></div>
+
+    {{ if .AppState }}
+    <script id="app-state" type="application/json" nonce="{{ .Nonce }}">
+      {{ .AppState | toJSON }}
+    </script>
+    {{ end }} {{ if .Assets.ViteClientURL }}
+    <script type="module" src="{{ .Assets.ViteClientURL }}"></script>
+    {{ end }} {{ if .Assets.JSPath }}
+    <script type="module" src="{{ .Assets.JSPath }}"></script>
+    {{ end }}
+  </body>
+</html>
