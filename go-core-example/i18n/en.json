@@ -1,0 +1,36 @@
+{
+  "seo": {
+    "home": {
+      "title": "Product Catalog | go-core example",
+      "description": "A small product catalog showcasing go-core page composition, SSR-friendly metadata, and Vue hydration.",
+      "keywords": "go-core, product catalog, SSR, Vue, Vite, server rendering"
+    },
+    "catalog": {
+      "title": "Products | go-core example",
+      "description": "Browse the server-rendered product catalog powered by go-core and hydrated by Vue.",
+      "keywords": "products, product catalog, go-core, SSR, Vue"
+    },
+    "product": {
+      "title": ":name | go-core example",
+      "description": "Explore :name in the go-core demo catalog. SKU :sku with live server-composed product details.",
+      "keywords": ":name, :sku, product details, go-core, SSR, catalog"
+    },
+    "productMissing": {
+      "title": "Product not found | go-core example",
+      "description": "The requested product could not be composed for the demo catalog page.",
+      "keywords": "product not found, go-core, SSR, catalog"
+    }
+  },
+  "catalog": {
+    "title": "Server-rendered product catalog",
+    "description": {
+      "home": "The product grid below is composed in Go and bootstrapped into Vue through window.APP_STATE.",
+      "index": "This route demonstrates page-specific metadata with the same server-composed catalog bootstrap.",
+      "detail": "This product detail page is server-composed first, then hydrated by Vue with the same catalog bootstrap."
+    },
+    "error": {
+      "unavailable": "Catalog query is unavailable.",
+      "load": "Failed to load catalog products."
+    }
+  }
+}

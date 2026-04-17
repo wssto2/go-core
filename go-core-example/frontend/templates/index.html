@@ -4,7 +4,15 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta property="csp-nonce" nonce="{{ .Nonce }}" />
-    <title>go-core example</title>
+    <title>{{ .AppState.Head.Title }}</title>
+    <meta
+      name="description"
+      content="{{ .AppState.Head.MetaDescription }}"
+    />
+    <meta
+      name="keywords"
+      content="{{ .AppState.Head.MetaKeywords }}"
+    />
     {{ range .Assets.CSSPaths }}
     <link rel="stylesheet" href="{{ . }}" />
     {{ end }}
@@ -14,7 +22,7 @@
 
     {{ if .AppState }}
     <script id="app-state" type="application/json" nonce="{{ .Nonce }}">
-      {{ .AppState | toJSON }}
+      {{ .AppState.Bootstrap | toJSON }}
     </script>
     {{ end }} {{ if .Assets.ViteClientURL }}
     <script type="module" src="{{ .Assets.ViteClientURL }}" nonce="{{ .Nonce }}"></script>

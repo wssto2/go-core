@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	coreauth "github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/audit"
+	coreauth "github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
+	dbtypes "github.com/wssto2/go-core/database/types"
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/middlewares"
 	"github.com/wssto2/go-core/observability"
@@ -19,6 +20,7 @@ import (
 	storagelocal "github.com/wssto2/go-core/storage/local"
 	"github.com/wssto2/go-core/tenancy"
 	"github.com/wssto2/go-core/worker"
+	"gorm.io/gorm"
 )
 
 type Module struct {
@@ -27,6 +29,7 @@ type Module struct {
 	storageDir   string
 	webhookURL   string
 	webhookToken string
+	catalogSvc   Service
 }
 
 func NewModule(storageDir, webhookURL, webhookToken string) *Module {
@@ -51,6 +54,9 @@ func (m *Module) Register(c *bootstrap.Container) error {
 	if err := database.SafeMigrate(db, &Product{}, &audit.AuditLog{}, &event.OutboxEvent{}); err != nil {
 		return fmt.Errorf("product: migrate: %w", err)
 	}
+	if err := seedDemoCatalog(db); err != nil {
+		return fmt.Errorf("product: seed demo catalog: %w", err)
+	}
 
 	bus := bootstrap.MustResolve[event.Bus](c)
 	log := bootstrap.MustResolve[*slog.Logger](c)
@@ -66,6 +72,7 @@ func (m *Module) Register(c *bootstrap.Container) error {
 	repo := NewRepository(db)
 	svc := NewService(repo, tx, auditRepo, store, log)
 	instrumentedSvc := NewInstrumentedService(svc, tel.Service)
+	m.catalogSvc = instrumentedSvc
 
 	// Idempotency store deduplicates POST /products retries for 24 hours.
 	idempotencyStore := middlewares.NewInMemoryIdempotencyStore(24 * time.Hour)
@@ -140,4 +147,73 @@ func (m *Module) Shutdown(ctx context.Context) error {
 	case <-ctx.Done():
 		return fmt.Errorf("product: shutdown timed out: %w", ctx.Err())
 	}
+}
+
+// ListCatalog exposes a read-only product query that page composers can inject
+// without reaching into the container.
+func (m *Module) ListCatalog(ctx context.Context) ([]Product, error) {
+	if m.catalogSvc == nil {
+		return nil, fmt.Errorf("product: service not initialised")
+	}
+	return m.catalogSvc.List(ctx)
+}
+
+// GetCatalogProduct exposes a read-only single-product query for server-side
+// page composition without leaking the service container into the SPA builder.
+func (m *Module) GetCatalogProduct(ctx context.Context, id int) (Product, error) {
+	if m.catalogSvc == nil {
+		return Product{}, fmt.Errorf("product: service not initialised")
+	}
+	return m.catalogSvc.GetByID(ctx, id)
+}
+
+func seedDemoCatalog(db *gorm.DB) error {
+	var count int64
+	if err := db.Model(&Product{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	products := []Product{
+		{
+			Name:        "Aurora Desk Lamp",
+			SKU:         "AUR-LAMP-001",
+			Description: dbtypes.NewNullString("Minimal aluminum desk lamp with warm ambient light."),
+			Price:       dbtypes.NewFloat(79.00),
+			Stock:       18,
+			Active:      dbtypes.NewBool(true),
+			CreatedBy:   1,
+		},
+		{
+			Name:        "Nimbus Travel Mug",
+			SKU:         "NMB-MUG-002",
+			Description: dbtypes.NewNullString("Insulated stainless steel mug designed for daily commutes."),
+			Price:       dbtypes.NewFloat(24.50),
+			Stock:       42,
+			Active:      dbtypes.NewBool(true),
+			CreatedBy:   1,
+		},
+		{
+			Name:        "Atlas Notebook",
+			SKU:         "ATL-NOTE-003",
+			Description: dbtypes.NewNullString("Hardcover dotted notebook for product planning and sketches."),
+			Price:       dbtypes.NewFloat(18.90),
+			Stock:       9,
+			Active:      dbtypes.NewBool(true),
+			CreatedBy:   1,
+		},
+		{
+			Name:        "Summit Carry Tote",
+			SKU:         "SUM-TOTE-004",
+			Description: dbtypes.NewNullString("Heavy canvas tote for laptops, cables, and day-trip essentials."),
+			Price:       dbtypes.NewFloat(36.00),
+			Stock:       0,
+			Active:      dbtypes.NewBool(true),
+			CreatedBy:   1,
+		},
+	}
+
+	return db.Create(&products).Error
 }

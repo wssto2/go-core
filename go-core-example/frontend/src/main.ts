@@ -1,44 +1,23 @@
 import { createApp } from "vue";
 import App from "./App.vue";
+import router from "./router";
+import { createAppShell, installAppState } from "./state/app-state";
+import "./styles/app.css";
 
-type AppState = {
-  appName?: string;
-  env?: string;
-  path?: string;
-  apiBase?: string;
-  viewer?: {
-    id: number;
-    username?: string;
-    policies?: string[];
-  };
-  viewerError?: string;
-};
+const app = createApp(App);
+const appShell = createAppShell();
 
-declare global {
-  interface Window {
-    APP_STATE?: AppState;
-  }
-}
+router.beforeResolve(async (to) => {
+  const targetLocale =
+    typeof to.query.lang === "string" ? to.query.lang : undefined;
 
-function readAppState(): AppState {
-  const el = document.getElementById("app-state");
-  if (!el) {
-    return {};
+  if (to.path === appShell.state.path && (!targetLocale || targetLocale === appShell.state.locale)) {
+    return;
   }
 
-  const json = el.textContent?.trim();
-  if (!json) {
-    return {};
-  }
+  await appShell.loadPath(to.path, targetLocale);
+});
 
-  try {
-    return JSON.parse(json) as AppState;
-  } catch (error) {
-    console.error("failed to parse app state", error);
-    return {};
-  }
-}
-
-window.APP_STATE = readAppState();
-
-createApp(App).mount("#app");
+installAppState(app, appShell);
+app.use(router);
+app.mount("#app");

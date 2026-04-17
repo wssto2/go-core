@@ -1,0 +1,36 @@
+{
+  "seo": {
+    "home": {
+      "title": "Katalog proizvoda | go-core example",
+      "description": "Mali katalog proizvoda koji prikazuje go-core kompoziciju stranice, SSR metadata i Vue hidrataciju.",
+      "keywords": "go-core, katalog proizvoda, SSR, Vue, Vite, serverski prikaz"
+    },
+    "catalog": {
+      "title": "Proizvodi | go-core example",
+      "description": "Pregledajte serverski renderiran katalog proizvoda koji pokrecu go-core i Vue.",
+      "keywords": "proizvodi, katalog proizvoda, go-core, SSR, Vue"
+    },
+    "product": {
+      "title": ":name | go-core example",
+      "description": "Pogledajte :name u go-core demo katalogu. SKU :sku sa serverski komponiranim detaljima proizvoda.",
+      "keywords": ":name, :sku, detalji proizvoda, go-core, SSR, katalog"
+    },
+    "productMissing": {
+      "title": "Proizvod nije pronaden | go-core example",
+      "description": "Trazeni proizvod nije mogao biti komponiran za demo stranicu kataloga.",
+      "keywords": "proizvod nije pronaden, go-core, SSR, katalog"
+    }
+  },
+  "catalog": {
+    "title": "Serverski renderiran katalog proizvoda",
+    "description": {
+      "home": "Donja mreza proizvoda komponira se u Go-u i bootstrapa u Vue kroz window.APP_STATE.",
+      "index": "Ova ruta prikazuje metadata po stranici uz isti serverski komponiran bootstrap kataloga.",
+      "detail": "Stranica detalja proizvoda prvo se komponira na serveru, a zatim hidrira u Vue uz isti bootstrap kataloga."
+    },
+    "error": {
+      "unavailable": "Upit kataloga nije dostupan.",
+      "load": "Ucavanje proizvoda nije uspjelo."
+    }
+  }
+}

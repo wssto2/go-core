@@ -12,6 +12,7 @@ import (
 	coreauth "github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/go2ts"
+	corei18n "github.com/wssto2/go-core/i18n"
 	"github.com/wssto2/go-core/observability/tracing"
 	"github.com/wssto2/go-core/ratelimit"
 )
@@ -64,21 +65,40 @@ func main() {
 	// WithJWTAuth. The resolver's DB is set during Register() — before the
 	// server starts accepting requests — so it is always available at request time.
 	authMod := domainauth.NewModule(tokenCfg)
-	stateProvider := newAppStateProvider(cfg, tokenCfg, authMod.IdentityResolver)
+	productMod := product.NewModule(
+		cfg.Storage.Dir,
+		bootstrap.EnvStr("NOTIFICATION_WEBHOOK_URL", ""),
+		bootstrap.EnvStr("NOTIFICATION_WEBHOOK_TOKEN", ""),
+	)
+	translator, err := corei18n.New(corei18n.Config{
+		FallbackLang: cfg.I18n.DefaultLocale,
+		I18nDir:      cfg.I18n.Dir,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	pageShellComposer := newCatalogPageShellComposer(
+		cfg,
+		translator,
+		tokenCfg,
+		authMod.IdentityResolver,
+		productMod.ListCatalog,
+		productMod.GetCatalogProduct,
+	)
+	spaShellDataBuilder := newSPAShellDataBuilder(pageShellComposer)
+	pageDataModule := newPageDataModule(pageShellComposer)
 
 	app, err := bootstrap.New(cfg).
 		DefaultInfrastructure().
-		WithSPA(stateProvider.Build).
+		WithSPA(spaShellDataBuilder.Build).
 		// Per-user/IP limiter: 300 req/min per identity.
 		WithRateLimit(ratelimit.NewInMemoryLimiter(300, time.Minute)).
 		WithJWTAuth(authMod.IdentityResolver).
 		WithModules(
 			authMod,
-			product.NewModule(
-				cfg.Storage.Dir,
-				bootstrap.EnvStr("NOTIFICATION_WEBHOOK_URL", ""),
-				bootstrap.EnvStr("NOTIFICATION_WEBHOOK_TOKEN", ""),
-			),
+			productMod,
+			pageDataModule,
 		).
 		WithHttp().
 		Build()
@@ -142,7 +162,7 @@ func loadConfig() bootstrap.Config {
 	cfg.JWT.Issuer = bootstrap.EnvStr("JWT_ISSUER", "go-core-example")
 	cfg.JWT.Duration = time.Duration(bootstrap.EnvInt("JWT_DURATION_HOURS", 24)) * time.Hour
 
-	cfg.I18n.Dir = bootstrap.EnvStr("I18N_DIR", "") // empty = disabled
+	cfg.I18n.Dir = bootstrap.EnvStr("I18N_DIR", "i18n")
 	cfg.I18n.DefaultLocale = bootstrap.EnvStr("I18N_FALLBACK_LANG", "en")
 
 	cfg.Storage.Dir = bootstrap.EnvStr("STORAGE_BASE_DIR", "/tmp/go-core-example/uploads")

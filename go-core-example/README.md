@@ -1,14 +1,16 @@
 # go-core Example Application
 
-A minimal but complete Go application demonstrating every feature of `go-core`.
-Uses Gin + GORM + MySQL, structured around a single **Product** domain.
+A small but complete product catalog application demonstrating the main `go-core`
+patterns in a realistic SSR-friendly shape. Uses Gin + GORM + MySQL, structured
+around a single **Product** domain.
 
-This example now also includes a minimal **Vue 3 + Vite SPA** under `frontend/`
-to demonstrate the recommended go-core frontend convention:
+The frontend under `frontend/` is a **Vue 3 + Vite catalog UI** rendered through
+the Go backend to demonstrate an SSR-first, modular frontend convention:
 
 - backend API routes live under `/api/...`
 - non-API routes render the SPA shell
 - request-scoped state is injected into `window.APP_STATE`
+- translated SEO metadata comes from `i18n/*.json`
 - in development, assets are served from the Vite dev server
 - in production, assets are resolved from the Vite manifest
 
@@ -24,8 +26,17 @@ go-core-example/
 │       └── config.go    # Config loading via bootstrap.EnvStr/EnvInt
 ├── frontend/
 │   ├── src/
-│   │   ├── main.ts      # Vue entrypoint
-│   │   └── App.vue      # Minimal SPA component
+│   │   ├── main.ts      # Vue entrypoint + app-state plugin + router install
+│   │   ├── App.vue      # Root app hosting RouterView
+│   │   ├── router/      # Vue Router page map
+│   │   ├── state/       # Shared injected app-state reader
+│   │   ├── types/       # Single source of truth for frontend contracts
+│   │   ├── layouts/     # Page shell/layout components
+│   │   ├── pages/       # Route-level page components
+│   │   ├── components/  # Reusable catalog/detail UI sections
+│   │   ├── composables/ # Derived page snapshot helpers
+│   │   ├── utils/       # Formatting helpers
+│   │   └── styles/      # Shared frontend styles
 │   ├── templates/
 │   │   └── index.html   # SPA shell rendered by go-core
 │   ├── dist/
@@ -33,6 +44,9 @@ go-core-example/
 │   │       └── manifest.json # Production asset manifest
 │   ├── package.json
 │   └── vite.config.ts
+├── i18n/
+│   ├── en.json          # Example SEO translations used by the page shell
+│   └── hr.json          # Croatian metadata translations for the same routes
 ├── internal/
 │   └── domain/
 │       ├── auth/
@@ -171,31 +185,78 @@ The example backend uses the builder-based SPA integration:
 - `bootstrap.WithSPA(...)` registers the SPA shell
 - `/api/...` routes continue to return JSON
 - all other routes fall back to `frontend/templates/index.html`
-- request-scoped state is injected into `window.APP_STATE`
-- state composition lives in `cmd/api/app_state.go`, not an inline closure
+- `cmd/api/app_state.go` composes a full page shell model
+- only the bootstrap portion is injected into `window.APP_STATE`
+- the Vue app reads that payload once and injects it through a shared app-state module
+- Vue Router owns page-level rendering for `/`, `/products`, and `/products/:id`
+- `GET /__page-data?path=/...` returns route-scoped page shell JSON for client-side navigations
 
-The example state currently includes:
+The example now splits page data into two parts:
 
-- `appName`
-- `env`
-- `path`
-- `apiBase`
-- optional `viewer` data resolved through the injected auth resolver
-- optional `viewerError` when a supplied bearer token cannot be resolved
+1. `pageHeadData`
+   - `Title`
+   - `MetaDescription`
+   - `MetaKeywords`
+
+2. `pageBootstrapState`
+   - `appName`
+   - `env`
+   - `locale`
+   - `path`
+   - `apiBase`
+   - server-composed `catalog` data
+   - optional `product` details for `/products/:id`
+   - optional `viewer`
+   - optional `viewerError`
 
 This is a good default pattern for applications using Vue 3 + Vite with
 frontend files stored under `frontend/`.
 
-The composition pattern is:
+On the frontend side, the example is now split into:
 
-- create a small provider struct with explicit dependencies
-- inject services/resolvers into that provider when wiring the app
-- pass `provider.Build` into `WithSPA(...)`
+- one shared `AppState` contract in `frontend/src/types/app-state.ts`
+- one reactive app-shell store in `frontend/src/state/app-state.ts`
+- page-level components under `frontend/src/pages/`
+- reusable sections under `frontend/src/components/`
+- a small router in `frontend/src/router/index.ts`
+
+That keeps route rendering, state reading, layout, and formatting concerns
+separate instead of growing a single root component.
+
+The important detail is that router navigation no longer depends on shipping the
+entire catalog everywhere. Product detail pages use route-scoped bootstrap data,
+and Vue Router asks the backend for the next page shell through `__page-data`
+before rendering the next route on the client.
+
+The responsibility split is:
+
+- `catalogPageShellComposer.ComposePageShell(...)`
+  - decides translated head metadata for the requested page
+  - builds bootstrap state for Vue, including the catalog grid
+  - composes product detail state for `/products/:id`
+  - calls backend services/resolvers as needed
+- `spaShellDataBuilder.Build(...)`
+  - adapts `WithSPA(...)`'s `func(*gin.Context) any`
+  - converts the Gin request into a small request DTO
+  - delegates all real decisions to the composer
 
 This keeps dependencies visible and avoids passing the container into the SPA
-state builder. In the example, `appStateProvider` receives the JWT config plus
-`authMod.IdentityResolver`, then optionally resolves a `viewer` record from the
-database when the page request includes `Authorization: Bearer <token>`.
+state builder. The composer receives the JWT config plus
+`authMod.IdentityResolver`, translates `<title>`, `<meta name="description">`,
+and `<meta name="keywords">` from the example's i18n files, bootstraps a
+product catalog by calling `productMod.ListCatalog(...)`, and composes a single
+product view by calling `productMod.GetCatalogProduct(...)`. It also optionally
+resolves a `viewer` record from the database when the page request includes
+`Authorization: Bearer <token>`.
+
+The example resolves locale from `?lang=<code>` first, then from the
+`Accept-Language` header, and finally falls back to `cfg.I18n.DefaultLocale`.
+
+If your app has multiple server-rendered pages, keep the same split:
+
+- one composer per page (`catalogPageShellComposer`, `settingsPageShellComposer`, ...)
+- one small router/dispatcher implementing the same `pageShellComposer` interface
+- one `spaShellDataBuilder` adapting that dispatcher to `WithSPA(...)`
 
 ## API endpoints
 

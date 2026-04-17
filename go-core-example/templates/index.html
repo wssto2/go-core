@@ -2,6 +2,15 @@
 <html>
   <head>
     <meta property="csp-nonce" nonce="{{ .Nonce }}" />
+    <title>{{ .AppState.Head.Title }}</title>
+    <meta
+      name="description"
+      content="{{ .AppState.Head.MetaDescription }}"
+    />
+    <meta
+      name="keywords"
+      content="{{ .AppState.Head.MetaKeywords }}"
+    />
     {{ if .Assets.CSSPath }}
     <link rel="stylesheet" href="{{ .Assets.CSSPath }}" />
     {{ end }}
@@ -10,8 +19,8 @@
     <div id="app"></div>
 
     {{ if .AppState }}
-    <script nonce="{{ .Nonce }}">
-      window.APP_STATE = JSON.parse({{ .AppState | toJSON }});
+    <script id="app-state" type="application/json" nonce="{{ .Nonce }}">
+      {{ .AppState.Bootstrap | toJSON }}
     </script>
     {{ end }} {{ if .Assets.ViteClientURL }}
     <script type="module" src="{{ .Assets.ViteClientURL }}" nonce="{{ .Nonce }}"></script>

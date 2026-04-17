@@ -20,9 +20,9 @@ while ! nc -z localhost 5173; do
 done
 echo "Vite is running on http://localhost:5173"
 
-# Start Go nodemon in the background
+# Start the whole cmd/api package so sibling files like app_state.go are included.
 echo "Starting Go server with nodemon..."
-nodemon --watch './**/*.go' --signal SIGTERM --exec 'go' run cmd/api/main.go &
+nodemon --watch './**/*.go' --signal SIGTERM --exec "go run ./cmd/api" &
 
 # Print instructions
 echo "Both servers are running!"
