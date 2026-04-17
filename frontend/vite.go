@@ -52,7 +52,7 @@ func IsViteRunning(cfg ViteConfig) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	url := strings.TrimRight(cfg.DevServerURL, "/") + "/" + strings.TrimLeft(cfg.Entry, "/")
+	url := strings.TrimRight(cfg.DevServerURL, "/") + "/@vite/client"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return false

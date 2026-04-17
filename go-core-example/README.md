@@ -172,6 +172,7 @@ The example backend uses the builder-based SPA integration:
 - `/api/...` routes continue to return JSON
 - all other routes fall back to `frontend/templates/index.html`
 - request-scoped state is injected into `window.APP_STATE`
+- state composition lives in `cmd/api/app_state.go`, not an inline closure
 
 The example state currently includes:
 
@@ -179,9 +180,22 @@ The example state currently includes:
 - `env`
 - `path`
 - `apiBase`
+- optional `viewer` data resolved through the injected auth resolver
+- optional `viewerError` when a supplied bearer token cannot be resolved
 
 This is a good default pattern for applications using Vue 3 + Vite with
 frontend files stored under `frontend/`.
+
+The composition pattern is:
+
+- create a small provider struct with explicit dependencies
+- inject services/resolvers into that provider when wiring the app
+- pass `provider.Build` into `WithSPA(...)`
+
+This keeps dependencies visible and avoids passing the container into the SPA
+state builder. In the example, `appStateProvider` receives the JWT config plus
+`authMod.IdentityResolver`, then optionally resolves a `viewer` record from the
+database when the page request includes `Authorization: Bearer <token>`.
 
 ## API endpoints
 
@@ -289,4 +303,3 @@ without passing `*gorm.DB` explicitly through the call stack.
 2. The handler calls `middlewares.MustGetRequest[T](ctx)` to get the validated struct.
 3. The service performs stateful checks (DB uniqueness, existence) and returns
    typed `*apperr.AppError` errors that the global error handler serialises.
-

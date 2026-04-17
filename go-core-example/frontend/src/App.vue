@@ -18,7 +18,8 @@
       <ul>
         <li>SPA shell rendered through the backend template</li>
         <li>Vue 3 frontend mounted from <code>frontend/src/main.ts</code></li>
-        <li>Request-scoped state injected into <code>window.APP_STATE</code></li>
+        <li>Request-scoped state composed by a dedicated provider</li>
+        <li>Optional viewer data resolved from injected backend services</li>
         <li>API routes remain available under <code>/api</code></li>
       </ul>
     </section>
@@ -33,6 +34,12 @@ type AppState = {
   env?: string
   path?: string
   apiBase?: string
+  viewer?: {
+    id: number
+    username?: string
+    policies?: string[]
+  }
+  viewerError?: string
 }
 
 declare global {

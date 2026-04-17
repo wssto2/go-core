@@ -1,7 +1,7 @@
-import { defineConfig } from "vite"
-import vue from "@vitejs/plugin-vue"
+import { defineConfig } from "vite";
+import vue from "@vitejs/plugin-vue";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [vue()],
   server: {
     host: "127.0.0.1",
@@ -16,4 +16,21 @@ export default defineConfig({
       input: "src/main.ts",
     },
   },
-})
+  test: {
+    // enable jest-like global test APIs
+    globals: true,
+    // simulate DOM with happy-dom
+    // (requires installing happy-dom as a peer dependency)
+    environment: "happy-dom",
+  },
+
+  resolve: {
+    alias: {
+      "@": "",
+    },
+  },
+
+  define: {
+    __VUE_PROD_DEVTOOLS__: mode !== "production",
+  },
+}));

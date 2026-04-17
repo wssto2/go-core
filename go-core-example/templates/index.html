@@ -1,6 +1,7 @@
 <!doctype html>
 <html>
   <head>
+    <meta property="csp-nonce" nonce="{{ .Nonce }}" />
     {{ if .Assets.CSSPath }}
     <link rel="stylesheet" href="{{ .Assets.CSSPath }}" />
     {{ end }}
@@ -9,13 +10,13 @@
     <div id="app"></div>
 
     {{ if .AppState }}
-    <script>
+    <script nonce="{{ .Nonce }}">
       window.APP_STATE = JSON.parse({{ .AppState | toJSON }});
     </script>
     {{ end }} {{ if .Assets.ViteClientURL }}
-    <script type="module" src="{{ .Assets.ViteClientURL }}"></script>
+    <script type="module" src="{{ .Assets.ViteClientURL }}" nonce="{{ .Nonce }}"></script>
     {{ end }}
 
-    <script type="module" src="{{ .Assets.JSPath }}"></script>
+    <script type="module" src="{{ .Assets.JSPath }}" nonce="{{ .Nonce }}"></script>
   </body>
 </html>

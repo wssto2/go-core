@@ -41,9 +41,12 @@ func Security(isDev bool, cfg ...SecurityConfig) gin.HandlerFunc {
 		connectSrc := "'self'"
 
 		if isDev {
-			// Allow Vite Dev Server
-			scriptSrc += " localhost:5173"
-			connectSrc += " ws://localhost:5173 localhost:5173"
+			// In CSP3, 'unsafe-inline' is ignored when a nonce/hash is also present.
+			// Dev mode needs relaxed inline script support for Vite/HMR, so omit the
+			// nonce source from script-src while still exposing the per-request nonce
+			// to templates for environments that choose to use it.
+			scriptSrc = "'self' 'unsafe-inline' http://localhost:5173 http://127.0.0.1:5173"
+			connectSrc += " ws://localhost:5173 ws://127.0.0.1:5173 http://localhost:5173 http://127.0.0.1:5173"
 		}
 
 		csp := fmt.Sprintf(

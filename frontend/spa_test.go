@@ -171,3 +171,28 @@ func TestRegisterSPA_RendersManifestAssetsAndAppState(t *testing.T) {
 	assert.Contains(t, body, `window.APP_STATE = {"path":"/dashboard"}`)
 	assert.Contains(t, body, `nonce="test-nonce"`)
 }
+
+func TestResolveAssets_DevModeUsesViteClientProbe(t *testing.T) {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/@vite/client", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/src/main.ts", func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	assets := ResolveAssets(ViteConfig{
+		DevServerURL: server.URL,
+		Entry:        "src/main.ts",
+	})
+
+	assert.True(t, assets.IsDev)
+	assert.Equal(t, server.URL+"/@vite/client", assets.ViteClientURL)
+	assert.Equal(t, server.URL+"/src/main.ts", assets.JSPath)
+	assert.Empty(t, assets.CSSPaths)
+}

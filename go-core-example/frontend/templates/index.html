@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta property="csp-nonce" nonce="{{ .Nonce }}" />
     <title>go-core example</title>
     {{ range .Assets.CSSPaths }}
     <link rel="stylesheet" href="{{ . }}" />
@@ -16,9 +17,9 @@
       {{ .AppState | toJSON }}
     </script>
     {{ end }} {{ if .Assets.ViteClientURL }}
-    <script type="module" src="{{ .Assets.ViteClientURL }}"></script>
+    <script type="module" src="{{ .Assets.ViteClientURL }}" nonce="{{ .Nonce }}"></script>
     {{ end }} {{ if .Assets.JSPath }}
-    <script type="module" src="{{ .Assets.JSPath }}"></script>
+    <script type="module" src="{{ .Assets.JSPath }}" nonce="{{ .Nonce }}"></script>
     {{ end }}
   </body>
 </html>

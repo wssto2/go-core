@@ -1,0 +1,40 @@
+.env
+bin
+*.log
+logs
+db_snapshots
+static/storage
+static/dist
+node_modules
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Go specific
+*.out
+*.test
+/vendor/
+/dist/
+
+# Frontend specific
+frontend/node_modules
+frontend/.cache/
+frontend/dist/
+frontend/coverage/
+frontend/.env.local
+frontend/.env.*.local
+*.tsbuildinfo
+
+# Compiled output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib

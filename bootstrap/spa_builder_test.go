@@ -78,6 +78,7 @@ func TestWithSPA_UsesConventionDefaultsAndRendersState(t *testing.T) {
 			"path": ctx.Request.URL.Path,
 		}
 	})
+	builder.spaConfig.Vite.DevServerURL = "http://127.0.0.1:65534"
 
 	app, err := builder.Build()
 	require.NoError(t, err)

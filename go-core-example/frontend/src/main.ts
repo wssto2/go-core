@@ -6,6 +6,12 @@ type AppState = {
   env?: string;
   path?: string;
   apiBase?: string;
+  viewer?: {
+    id: number;
+    username?: string;
+    policies?: string[];
+  };
+  viewerError?: string;
 };
 
 declare global {

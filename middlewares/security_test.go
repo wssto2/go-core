@@ -57,8 +57,12 @@ func TestSecurity_DevAddsVite(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	csp := rec.Header().Get("Content-Security-Policy")
-	require.Contains(t, csp, "localhost:5173")
+	require.Contains(t, csp, "'unsafe-inline'")
+	require.Contains(t, csp, "http://localhost:5173")
+	require.Contains(t, csp, "http://127.0.0.1:5173")
 	require.Contains(t, csp, "ws://localhost:5173")
+	require.Contains(t, csp, "ws://127.0.0.1:5173")
+	require.NotContains(t, csp, "nonce-")
 }
 
 func TestSecurity_CustomCSP(t *testing.T) {
