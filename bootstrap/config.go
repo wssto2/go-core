@@ -143,6 +143,20 @@ type FrontendConfig struct {
 	// APIPrefix is the URL prefix that must NOT be caught by NoRoute.
 	// Defaults to "/api".
 	APIPrefix string `env:"API_PREFIX"`
+
+	// EntryScript is the path to the frontend entry point file (e.g. "src/main.js").
+	EntryScript string `env:"ENTRY_SCRIPT"`
+
+	// ManifestPath is the path to the Vite manifest file generated during the
+	// build process (e.g. "./frontend/dist/.vite/manifest.json"). This file
+	// contains mappings of original asset names to their hashed versions, which
+	// is essential for cache busting in production.
+	ManifestPath string `env:"MANIFEST_PATH"`
+
+	// AssetsURLPrefix is the URL prefix for serving frontend assets. This should
+	// match the public path used in your Vite configuration (e.g. "/frontend/dist").
+	// This is used to correctly resolve asset URLs in the rendered HTML templates.
+	AssetsURLPrefix string `env:"ASSETS_URL_PREFIX"`
 }
 
 type CORSConfig struct {

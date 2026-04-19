@@ -72,6 +72,10 @@ func TestWithSPA_UsesConventionDefaultsAndRendersState(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.App.Env = "production"
 	cfg.I18n.Dir = tempI18nDir(t)
+	cfg.Frontend.TemplatesPath = ""
+	cfg.Frontend.EntryScript = ""
+	cfg.Frontend.ManifestPath = ""
+	cfg.Frontend.AssetsURLPrefix = ""
 
 	builder := New(cfg).DefaultInfrastructure().WithSPA(func(ctx *gin.Context) any {
 		return gin.H{
@@ -117,6 +121,7 @@ func TestWithSPA_DefaultsAPIPrefixToSlashAPI(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.App.Env = "production"
 	cfg.I18n.Dir = tempI18nDir(t)
+	cfg.Frontend.TemplatesPath = ""
 	cfg.Frontend.APIPrefix = ""
 
 	builder := New(cfg).DefaultInfrastructure().WithSPA(nil)

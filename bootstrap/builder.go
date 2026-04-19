@@ -265,21 +265,40 @@ func (b *AppBuilder) WithModules(modules ...Module) *AppBuilder {
 // and is injected into the rendered template as appState.
 func (b *AppBuilder) WithSPA(stateBuilder frontend.AppStateBuilder) *AppBuilder {
 	cfg := frontend.SPAConfig{
-		TemplatesPath: "frontend/templates/*.html",
-		TemplateName:  "index.html",
+		TemplatesPath: b.cfg.Frontend.TemplatesPath,
+		TemplateName:  b.cfg.Frontend.TemplateName,
 		APIPrefix:     b.cfg.Frontend.APIPrefix,
 		StateBuilder:  stateBuilder,
 		DevMode:       b.cfg.App.Env == "development",
 		Vite: frontend.ViteConfig{
-			Entry:           "src/main.ts",
-			ManifestPath:    "./frontend/dist/.vite/manifest.json",
-			AssetsURLPrefix: "/frontend/dist",
+			Entry:           b.cfg.Frontend.EntryScript,
+			ManifestPath:    b.cfg.Frontend.ManifestPath,
+			AssetsURLPrefix: b.cfg.Frontend.AssetsURLPrefix,
 		},
 	}
+
+	if cfg.TemplatesPath == "" {
+		cfg.TemplatesPath = "frontend/templates/*.html"
+	}
+
 	if cfg.APIPrefix == "" {
 		cfg.APIPrefix = "/api"
 	}
+
+	if cfg.Vite.Entry == "" {
+		cfg.Vite.Entry = "src/main.ts"
+	}
+
+	if cfg.Vite.ManifestPath == "" {
+		cfg.Vite.ManifestPath = "./frontend/dist/.vite/manifest.json"
+	}
+
+	if cfg.Vite.AssetsURLPrefix == "" {
+		cfg.Vite.AssetsURLPrefix = "/frontend/dist"
+	}
+
 	b.spaConfig = &cfg
+
 	return b
 }
 
@@ -288,13 +307,17 @@ func (b *AppBuilder) WithSPAConfig(cfg frontend.SPAConfig) *AppBuilder {
 	if cfg.APIPrefix == "" {
 		cfg.APIPrefix = b.cfg.Frontend.APIPrefix
 	}
+
 	if cfg.APIPrefix == "" {
 		cfg.APIPrefix = "/api"
 	}
+
 	if !cfg.DevMode {
 		cfg.DevMode = b.cfg.App.Env == "development"
 	}
+
 	b.spaConfig = &cfg
+
 	return b
 }
 
@@ -304,10 +327,12 @@ func (b *AppBuilder) WithTrustedProxies(proxies ...string) *AppBuilder {
 	if len(proxies) == 0 {
 		proxies = nil
 	}
+
 	b.cfg.HTTP.TrustedProxies = append([]string(nil), proxies...)
 	if err := b.engine.SetTrustedProxies(proxies); err != nil {
 		b.errors = append(b.errors, fmt.Errorf("trusted proxies: %w", err))
 	}
+
 	return b
 }
 

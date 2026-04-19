@@ -51,12 +51,27 @@ func (c SPAConfig) withDefaults() SPAConfig {
 	if c.TemplatesPath == "" {
 		c.TemplatesPath = "frontend/templates/*.html"
 	}
+
 	if c.TemplateName == "" {
 		c.TemplateName = "index.html"
 	}
+
 	if c.APIPrefix == "" {
 		c.APIPrefix = "/api"
 	}
+
+	if c.Vite.Entry == "" {
+		c.Vite.Entry = "src/main.js"
+	}
+
+	if c.Vite.ManifestPath == "" {
+		c.Vite.ManifestPath = "./frontend/dist/.vite/manifest.json"
+	}
+
+	if c.Vite.AssetsURLPrefix == "" {
+		c.Vite.AssetsURLPrefix = "/frontend/dist"
+	}
+
 	return c
 }
 
