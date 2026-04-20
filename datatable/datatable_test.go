@@ -1,6 +1,7 @@
 package datatable_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -62,7 +63,7 @@ func TestDefaultParams(t *testing.T) {
 	assert.NotNil(t, p.Filters)
 }
 
-// --- Datatable.Get() ---
+// --- Datatable.Get(context.Background()) ---
 
 func TestGet_ReturnsPaginatedResults(t *testing.T) {
 	db := testDB(t)
@@ -71,7 +72,7 @@ func TestGet_ReturnsPaginatedResults(t *testing.T) {
 	dt := datatable.New[Article](db, params).
 		WithColumns([]string{"id", "title", "status"})
 
-	result, err := dt.Get()
+	result, err := dt.Get(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), result.Total)
 	assert.Len(t, result.Data, 2)
@@ -87,7 +88,7 @@ func TestGet_Page2(t *testing.T) {
 	dt := datatable.New[Article](db, params).
 		WithColumns([]string{"id", "title", "status"})
 
-	result, err := dt.Get()
+	result, err := dt.Get(context.Background())
 	require.NoError(t, err)
 	assert.Len(t, result.Data, 2)
 	assert.Equal(t, 3, result.From)
@@ -101,7 +102,7 @@ func TestGet_OrderDesc(t *testing.T) {
 	dt := datatable.New[Article](db, params).
 		WithColumns([]string{"id", "title", "status"})
 
-	result, err := dt.Get()
+	result, err := dt.Get(context.Background())
 	require.NoError(t, err)
 	require.Len(t, result.Data, 5)
 	assert.Equal(t, 5, result.Data[0].ID)
@@ -120,7 +121,7 @@ func TestGet_OrderColNotInWhitelistFallsBackToID(t *testing.T) {
 		WithColumns([]string{"id", "title", "status"})
 
 	// Should not error — falls back to id column
-	result, err := dt.Get()
+	result, err := dt.Get(context.Background())
 	require.NoError(t, err)
 	assert.Len(t, result.Data, 5)
 }
@@ -137,7 +138,7 @@ func TestGet_SearchFiltersResults(t *testing.T) {
 		WithColumns([]string{"id", "title", "status"}).
 		WithSearchableFields([]string{"title"})
 
-	result, err := dt.Get()
+	result, err := dt.Get(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), result.Total)
 	for _, a := range result.Data {
@@ -145,18 +146,29 @@ func TestGet_SearchFiltersResults(t *testing.T) {
 	}
 }
 
-func TestGet_WithStatusFilter(t *testing.T) {
+func TestGet_WithStatusFilter_ViaWithFilter(t *testing.T) {
 	db := testDB(t)
 	params := datatable.QueryParams{
 		Page: 1, PerPage: 10, OrderCol: "id", OrderDir: "asc",
 		Filters: map[string]string{"status": "active"},
 	}
 
+	// WithStatusFilter is deprecated. Use WithFilter with explicit logic instead.
+	activeFilter := datatable.NewFilter("status", func(q *gorm.DB, val, tbl string) *gorm.DB {
+		switch val {
+		case "active":
+			return q.Where(tbl+".status = ?", 1)
+		case "inactive":
+			return q.Where(tbl+".status = ?", 0)
+		}
+		return q
+	})
+
 	dt := datatable.New[Article](db, params).
 		WithColumns([]string{"id", "title", "status"}).
-		WithStatusFilter("status")
+		WithFilter(activeFilter)
 
-	result, err := dt.Get()
+	result, err := dt.Get(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), result.Total)
 	for _, a := range result.Data {
@@ -179,7 +191,7 @@ func TestGet_WithCustomFilter(t *testing.T) {
 		WithColumns([]string{"id", "title", "status"}).
 		WithFilter(f)
 
-	result, err := dt.Get()
+	result, err := dt.Get(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), result.Total)
 	assert.Equal(t, "Alpha post", result.Data[0].Title)
@@ -199,7 +211,7 @@ func TestGet_WithView(t *testing.T) {
 			return q.Where(tbl+".status = ?", 1)
 		})
 
-	result, err := dt.Get()
+	result, err := dt.Get(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), result.Total)
 }
@@ -209,7 +221,7 @@ func TestGet_ErrorWhenColumnsNotSet(t *testing.T) {
 	params := datatable.DefaultParams()
 
 	dt := datatable.New[Article](db, params)
-	_, err := dt.Get()
+	_, err := dt.Get(context.Background())
 	assert.Error(t, err)
 }
 
@@ -225,7 +237,7 @@ func TestGet_EmptyResultIsEmpty(t *testing.T) {
 		WithColumns([]string{"id", "title", "status"}).
 		WithSearchableFields([]string{"title"})
 
-	result, err := dt.Get()
+	result, err := dt.Get(context.Background())
 	require.NoError(t, err)
 	assert.True(t, result.IsEmpty())
 	assert.Equal(t, int64(0), result.Total)
@@ -233,20 +245,209 @@ func TestGet_EmptyResultIsEmpty(t *testing.T) {
 	assert.Equal(t, 0, result.To)
 }
 
-func TestGet_WithMapper(t *testing.T) {
+// TestGet_WithMapper_Deprecated verifies that the deprecated WithMapper no-op
+// compiles and does not panic. Callers should transform rows in the handler.
+func TestGet_WithMapper_Deprecated(t *testing.T) {
 	db := testDB(t)
 	params := datatable.QueryParams{Page: 1, PerPage: 10, OrderCol: "id", OrderDir: "asc", Filters: map[string]string{}}
 
-	dt := datatable.New[Article](db, params).
+	result, err := datatable.New[Article](db, params).
 		WithColumns([]string{"id", "title", "status"}).
-		WithMapper(func(a *Article) Article {
-			a.Title = "mapped:" + a.Title
-			return *a
-		})
+		WithMapper(func(a *Article) Article { return *a }). // no-op
+		Get(context.Background())
 
-	result, err := dt.Get()
 	require.NoError(t, err)
-	for _, a := range result.Data {
-		assert.True(t, len(a.Title) > 7, "title should have 'mapped:' prefix")
+	assert.Len(t, result.Data, 5)
+}
+
+// articleWithAuthor is used by the WithAuthors tests.
+type articleWithAuthor struct {
+	ID        int `gorm:"primaryKey"`
+	CreatedBy int `gorm:"column:created_by"`
+	UpdatedBy int `gorm:"column:updated_by"`
+}
+
+type articleAuthor struct {
+	ID   int    `gorm:"primaryKey"`
+	Name string `gorm:"column:name"`
+}
+
+func authorTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&articleWithAuthor{}, &articleAuthor{}))
+
+	require.NoError(t, db.Create(&[]articleAuthor{
+		{ID: 1, Name: "Alice"},
+		{ID: 2, Name: "Bob"},
+	}).Error)
+	require.NoError(t, db.Create(&[]articleWithAuthor{
+		{ID: 1, CreatedBy: 1, UpdatedBy: 2},
+		{ID: 2, CreatedBy: 2, UpdatedBy: 2},
+	}).Error)
+	return db
+}
+
+func TestGet_WithAuthors_PopulatesMetaAuthors(t *testing.T) {
+	db := authorTestDB(t)
+	params := datatable.QueryParams{Page: 1, PerPage: 10, OrderCol: "id", OrderDir: "asc", Filters: map[string]string{}}
+
+	result, err := datatable.New[articleWithAuthor](db, params).
+		WithColumns([]string{"id", "created_by", "updated_by"}).
+		WithAuthors(
+			func(row articleWithAuthor) []int {
+				return []int{row.CreatedBy, row.UpdatedBy}
+			},
+			func(db *gorm.DB, ids []int) (any, error) {
+				var users []articleAuthor
+				return users, db.Where("id IN ?", ids).Find(&users).Error
+			},
+		).
+		Get(context.Background())
+
+	require.NoError(t, err)
+	require.NotNil(t, result.Meta)
+	authors, ok := result.Meta["authors"]
+	require.True(t, ok, "meta should contain 'authors' key")
+
+	authorSlice, ok := authors.([]articleAuthor)
+	require.True(t, ok)
+	assert.Len(t, authorSlice, 2, "should have fetched Alice and Bob (deduplicated)")
+}
+
+func TestGet_WithAuthors_EmptyRows_NoMetaKey(t *testing.T) {
+	db := authorTestDB(t)
+	params := datatable.QueryParams{
+		Page: 1, PerPage: 10, OrderCol: "id", OrderDir: "asc",
+		Search: "nonexistent", Filters: map[string]string{},
 	}
+
+	result, err := datatable.New[articleWithAuthor](db, params).
+		WithColumns([]string{"id", "created_by", "updated_by"}).
+		WithSearchableFields([]string{"id"}).
+		WithAuthors(
+			func(row articleWithAuthor) []int { return []int{row.CreatedBy} },
+			func(db *gorm.DB, ids []int) (any, error) {
+				var users []articleAuthor
+				return users, db.Where("id IN ?", ids).Find(&users).Error
+			},
+		).
+		Get(context.Background())
+
+	require.NoError(t, err)
+	assert.True(t, result.IsEmpty())
+	// When no rows are fetched, authors batch query must not run — Meta stays nil.
+	assert.Nil(t, result.Meta)
+}
+
+func TestGet_WithAuthors_ZeroIDsIgnored(t *testing.T) {
+	db := authorTestDB(t)
+	params := datatable.QueryParams{Page: 1, PerPage: 10, OrderCol: "id", OrderDir: "asc", Filters: map[string]string{}}
+
+	// UpdatedBy is 0 for this row — should be ignored.
+	require.NoError(t, db.Create(&articleWithAuthor{ID: 99, CreatedBy: 1, UpdatedBy: 0}).Error)
+
+	result, err := datatable.New[articleWithAuthor](db, params).
+		WithColumns([]string{"id", "created_by", "updated_by"}).
+		WithScope(func(q *gorm.DB, tbl string) *gorm.DB {
+			return q.Where(tbl+".id = ?", 99)
+		}).
+		WithAuthors(
+			func(row articleWithAuthor) []int {
+				return []int{row.CreatedBy, row.UpdatedBy}
+			},
+			func(db *gorm.DB, ids []int) (any, error) {
+				var users []articleAuthor
+				return users, db.Where("id IN ?", ids).Find(&users).Error
+			},
+		).
+		Get(context.Background())
+
+	require.NoError(t, err)
+	authors := result.Meta["authors"].([]articleAuthor)
+	assert.Len(t, authors, 1, "only CreatedBy=1 (Alice) should be fetched; zero UpdatedBy ignored")
+}
+
+// --- dialect-aware search (concat: / concatws:) ---
+
+type product struct {
+	ID        int    `gorm:"primaryKey"`
+	FirstName string `gorm:"column:first_name"`
+	LastName  string `gorm:"column:last_name"`
+	Code      string `gorm:"column:code"`
+	Year      string `gorm:"column:year"`
+}
+
+func searchDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&product{}))
+	require.NoError(t, db.Create(&[]product{
+		{ID: 1, FirstName: "John", LastName: "Smith", Code: "INV", Year: "2024"},
+		{ID: 2, FirstName: "Jane", LastName: "Doe", Code: "ORD", Year: "2023"},
+		{ID: 3, FirstName: "Bob", LastName: "Builder", Code: "INV", Year: "2023"},
+	}).Error)
+	return db
+}
+
+func TestGet_ConcatSearch_MultiColumn(t *testing.T) {
+	db := searchDB(t)
+	params := datatable.QueryParams{
+		Page:    1,
+		PerPage: 10,
+		Search:  "John Smith",
+		OrderCol: "id", OrderDir: "asc",
+		Filters: map[string]string{},
+	}
+
+	result, err := datatable.New[product](db, params).
+		WithColumns([]string{"id", "first_name", "last_name", "code", "year"}).
+		WithSearchableFields([]string{"concat:first_name,last_name"}).
+		Get(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), result.Total)
+	assert.Equal(t, "John", result.Data[0].FirstName)
+}
+
+func TestGet_ConcatWSSearch(t *testing.T) {
+	db := searchDB(t)
+	params := datatable.QueryParams{
+		Page:    1,
+		PerPage: 10,
+		Search:  "INV/2024",
+		OrderCol: "id", OrderDir: "asc",
+		Filters: map[string]string{},
+	}
+
+	result, err := datatable.New[product](db, params).
+		WithColumns([]string{"id", "first_name", "last_name", "code", "year"}).
+		WithSearchableFields([]string{"concatws:/,code,year"}).
+		Get(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), result.Total)
+	assert.Equal(t, "INV", result.Data[0].Code)
+	assert.Equal(t, "2024", result.Data[0].Year)
+}
+
+func TestGet_ConcatWSSearch_MultipleMatches(t *testing.T) {
+	db := searchDB(t)
+	params := datatable.QueryParams{
+		Page:    1,
+		PerPage: 10,
+		Search:  "INV",
+		OrderCol: "id", OrderDir: "asc",
+		Filters: map[string]string{},
+	}
+
+	result, err := datatable.New[product](db, params).
+		WithColumns([]string{"id", "first_name", "last_name", "code", "year"}).
+		WithSearchableFields([]string{"concatws:/,code,year"}).
+		Get(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), result.Total) // INV/2024 and INV/2023
 }

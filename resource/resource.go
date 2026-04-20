@@ -3,6 +3,7 @@ package resource
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -66,11 +67,26 @@ func (r *Resource[T]) WithAuthorLoader(authorField, editorField string, loader A
 	return r
 }
 
-// WithQuery.
-func (r *Resource[T]) WithQuery(callback func(query *gorm.DB, tableName string) *gorm.DB) *Resource[T] {
+// WithScope applies additional query constraints to the resource.
+// The callback receives a fresh *gorm.DB session and the table name.
+// Constraints are additive — calling WithScope multiple times is safe.
+//
+// Tenant scoping example (use tenancy.RequireTenantScope for security-critical paths):
+//
+//	resource.New[Vehicle](db).
+//	    WithScope(func(q *gorm.DB, _ string) *gorm.DB {
+//	        return q.Scopes(tenancy.ScopeByTenant(ctx, "dealer_id"))
+//	    })
+func (r *Resource[T]) WithScope(callback func(query *gorm.DB, tableName string) *gorm.DB) *Resource[T] {
 	r.db = callback(r.db.Session(&gorm.Session{}), r.tableName)
-
 	return r
+}
+
+// WithQuery is an alias for WithScope kept for backwards compatibility.
+//
+// Deprecated: use WithScope instead.
+func (r *Resource[T]) WithQuery(callback func(query *gorm.DB, tableName string) *gorm.DB) *Resource[T] {
+	return r.WithScope(callback)
 }
 
 // WithCount adds a sub-count to the response Meta.
@@ -95,13 +111,16 @@ func (r *Resource[T]) WithCount(tableName string, foreignKey string, clause stri
 // WithoutDeleted filters soft-deleted records using the given column name.
 // For standard GORM soft-delete (deleted_at IS NULL), pass "deleted_at".
 func (r *Resource[T]) WithoutDeleted(column string) *Resource[T] {
-	r.db = r.db.Where(fmt.Sprintf("%s.%s IS NULL", r.tableName, database.QuoteColumn(column)))
+	r.db = r.db.Where(fmt.Sprintf("%s.%s IS NULL", database.QuoteColumn(r.tableName), database.QuoteColumn(column)))
 	return r
 }
 
-func (r *Resource[T]) FindByID(id int) (Response[T], error) {
+func (r *Resource[T]) FindByID(ctx context.Context, id int) (Response[T], error) {
 	if r.err != nil {
 		return Response[T]{}, r.err
+	}
+	if id <= 0 {
+		return Response[T]{}, errors.New("resource.FindByID: id must be greater than zero")
 	}
 
 	var result T
@@ -109,7 +128,7 @@ func (r *Resource[T]) FindByID(id int) (Response[T], error) {
 
 	response.Meta = make(map[string]any)
 
-	if err := r.db.First(&result, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).First(&result, id).Error; err != nil {
 		return response, err
 	}
 
@@ -137,7 +156,7 @@ func (r *Resource[T]) FindByID(id int) (Response[T], error) {
 			var authors []any
 			var authorsErr error
 
-			authors, authorsErr = r.authorLoader(r.db, pendingIDsSlice)
+			authors, authorsErr = r.authorLoader(r.db.WithContext(ctx), pendingIDsSlice)
 			if authorsErr != nil {
 				return response, authorsErr
 			}
@@ -161,7 +180,7 @@ func (r *Resource[T]) FindByID(id int) (Response[T], error) {
 		total int64
 	}
 	results := make([]countResult, len(r.counts))
-	g, gCtx := errgroup.WithContext(context.Background())
+	g, gCtx := errgroup.WithContext(ctx)
 	for i, count := range r.counts {
 		i, count := i, count // capture loop variables for goroutine
 		g.Go(func() error {
@@ -185,9 +204,17 @@ func (r *Resource[T]) FindByID(id int) (Response[T], error) {
 		return response, err
 	}
 	for _, cr := range results {
-		if cr.key != "" {
-			response.Meta[cr.key] = cr.total
+		if cr.key == "" {
+			continue
 		}
+		key := cr.key
+		for n := 2; ; n++ {
+			if _, exists := response.Meta[key]; !exists {
+				break
+			}
+			key = fmt.Sprintf("%s_%d", cr.key, n)
+		}
+		response.Meta[key] = cr.total
 	}
 
 	response.Data = result
@@ -202,13 +229,17 @@ func extractIntField(v any, fieldName string) int {
 		return 0
 	}
 	switch fv.Kind() {
-	case reflect.Int:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return int(fv.Int())
 	case reflect.Ptr:
 		if fv.IsNil() {
 			return 0
 		}
-		return int(fv.Elem().Int())
+		elem := fv.Elem()
+		switch elem.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			return int(elem.Int())
+		}
 	case reflect.Struct:
 		if ni, ok := fv.Interface().(types.NullInt); ok {
 			if p := ni.Get(); p != nil {

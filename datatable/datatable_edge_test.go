@@ -1,6 +1,7 @@
 package datatable_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -46,7 +47,7 @@ func TestGet_SecondPage_CorrectOffset(t *testing.T) {
 
 	result, err := datatable.New[Article](db, params).
 		WithColumns([]string{"id", "title", "status"}).
-		Get()
+		Get(context.Background())
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), result.Total)
@@ -63,7 +64,7 @@ func TestGet_InvalidSchema_ReturnsError(t *testing.T) {
 	params := datatable.DefaultParams()
 	_, err = datatable.New[NotAModel](db, params).
 		WithColumns([]string{"x"}).
-		Get()
+		Get(context.Background())
 	assert.Error(t, err, "un-migrated model should fail schema parse")
 }
 
@@ -74,12 +75,30 @@ func TestGet_WithDefaultOrder_Applied(t *testing.T) {
 	result, err := datatable.New[Article](db, params).
 		WithColumns([]string{"id", "title", "status"}).
 		WithDefaultOrder("id", "desc").
-		Get()
+		Get(context.Background())
 
 	require.NoError(t, err)
 	require.Len(t, result.Data, 3)
 	// descending by id: 12, 11, 10
 	assert.Equal(t, 12, result.Data[0].ID)
+}
+
+// TestGet_WithDefaultOrder_DoesNotOverrideRequestOrder verifies that
+// WithDefaultOrder is a true fallback: user-specified order takes precedence.
+func TestGet_WithDefaultOrder_DoesNotOverrideRequestOrder(t *testing.T) {
+	db := edgeTestDB(t)
+	// User explicitly requested asc order; WithDefaultOrder("id", "desc") must not override it.
+	params := datatable.QueryParams{Page: 1, PerPage: 10, OrderCol: "id", OrderDir: "asc", Filters: map[string]string{}}
+
+	result, err := datatable.New[Article](db, params).
+		WithColumns([]string{"id", "title", "status"}).
+		WithDefaultOrder("id", "desc").
+		Get(context.Background())
+
+	require.NoError(t, err)
+	require.Len(t, result.Data, 3)
+	// asc by id: 10, 11, 12
+	assert.Equal(t, 10, result.Data[0].ID)
 }
 
 func TestGet_WithScope_AppliesAdditionalConstraint(t *testing.T) {
@@ -91,7 +110,7 @@ func TestGet_WithScope_AppliesAdditionalConstraint(t *testing.T) {
 		WithScope(func(q *gorm.DB, tableName string) *gorm.DB {
 			return q.Where(tableName+".status = ?", 1)
 		}).
-		Get()
+		Get(context.Background())
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), result.Total)
@@ -107,7 +126,7 @@ func TestGet_WithoutDeleted_ExcludesSoftDeleted(t *testing.T) {
 	result, err := datatable.New[ArticleWithDeleted](db, params).
 		WithColumns([]string{"id", "title", "deleted_at"}).
 		WithoutDeleted("deleted_at").
-		Get()
+		Get(context.Background())
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), result.Total)
@@ -129,10 +148,36 @@ func TestGet_WithViews_InactiveViewIgnored(t *testing.T) {
 				},
 			},
 		}).
-		Get()
+		Get(context.Background())
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), result.Total, "inactive view must not filter results")
+}
+
+func TestGet_WithViews_AppendsToExistingViews(t *testing.T) {
+	db := edgeTestDB(t)
+	params := datatable.QueryParams{Page: 1, PerPage: 10, OrderCol: "id", OrderDir: "asc", View: "active", Filters: map[string]string{}}
+
+	result, err := datatable.New[Article](db, params).
+		WithColumns([]string{"id", "title", "status"}).
+		WithView("other", func(q *gorm.DB, tbl string) *gorm.DB {
+			return q.Where(tbl + ".status = 99") // should NOT be applied
+		}).
+		WithViews([]datatable.View{
+			{URIKey: "active", Query: func(q *gorm.DB, tbl string) *gorm.DB {
+				return q.Where(tbl+".status = ?", 1)
+			}},
+		}).
+		Get(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), result.Total, "WithViews must append; 'active' view should filter to status=1")
+}
+
+func TestGet_TableName_ReturnsResolvedName(t *testing.T) {
+	db := edgeTestDB(t)
+	dt := datatable.New[Article](db, datatable.DefaultParams())
+	assert.Equal(t, "articles", dt.TableName())
 }
 
 func TestDatatableResult_IsEmpty_False(t *testing.T) {
