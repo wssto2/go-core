@@ -25,6 +25,29 @@ func NewErrUnknownRule(name, field string) ErrUnknownRule {
 	return ErrUnknownRule{Name: name, Field: field}
 }
 
+// ErrInvalidRuleConfig is returned when a validation tag references a known rule
+// with malformed or unsupported arguments. This is a programmer/configuration error.
+type ErrInvalidRuleConfig struct {
+	Rule   string
+	Field  string
+	Reason string
+}
+
+func (e ErrInvalidRuleConfig) Error() string {
+	if e.Reason == "" {
+		return fmt.Sprintf("validator: invalid configuration for rule %q on field %q", e.Rule, e.Field)
+	}
+	return fmt.Sprintf("validator: invalid configuration for rule %q on field %q: %s", e.Rule, e.Field, e.Reason)
+}
+
+func NewErrInvalidRuleConfig(rule, field, reason string) ErrInvalidRuleConfig {
+	return ErrInvalidRuleConfig{
+		Rule:   rule,
+		Field:  field,
+		Reason: reason,
+	}
+}
+
 type ValidationError struct {
 	*apperr.AppError
 	Failures    map[string][]Failure
@@ -43,7 +66,7 @@ func NewValidationError(msg string, fieldFailures map[string][]Failure, debugFie
 			Message:  msg,
 			LogLevel: apperr.LevelWarn,
 		},
-		Failures:    fieldFailures,
-		DebugFields: debugFields,
+		Failures:    cloneFailuresMap(fieldFailures),
+		DebugFields: cloneDebugFieldsMap(debugFields),
 	}
 }

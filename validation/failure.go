@@ -3,12 +3,24 @@ package validation
 type RuleCode string
 
 const (
-	CodeRequired RuleCode = "required"
-	CodeEmail    RuleCode = "email"
-	CodeMax      RuleCode = "max"
-	CodeMin      RuleCode = "min"
-	CodeIn       RuleCode = "in"
-	CodeDate     RuleCode = "date"
+	CodeRequired   RuleCode = "required"
+	CodeRequiredIf RuleCode = "required_if"
+	CodeEmail      RuleCode = "email"
+	CodeMax        RuleCode = "max"
+	CodeMin        RuleCode = "min"
+	CodeIn         RuleCode = "in"
+	CodeDate       RuleCode = "date"
+	CodeYear       RuleCode = "year"
+	CodeMonth      RuleCode = "month"
+	CodePassword   RuleCode = "password"
+	CodeConfirmed  RuleCode = "confirmed"
+
+	CodeLen       RuleCode = "len"
+	CodeBetween   RuleCode = "between"
+	CodeSame      RuleCode = "same"
+	CodeDifferent RuleCode = "different"
+	CodeURL       RuleCode = "url"
+	CodeUUID      RuleCode = "uuid"
 
 	// coerce codes — type mismatches from request parsing
 	CodeInvalidType          RuleCode = "invalid_type" // generic fallback
