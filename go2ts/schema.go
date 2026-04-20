@@ -223,7 +223,12 @@ func fieldToZodExpr(ft reflect.Type, validationTag string) (expr string, hasCros
 		case "max":
 			expr += fmt.Sprintf(".max(%s)", r.args)
 		case "len":
-			expr += fmt.Sprintf(".length(%s)", r.args)
+			if isStringBase(ft) {
+				expr += fmt.Sprintf(".length(%s)", r.args)
+			} else {
+				// For numeric types, check exact digit count via refine
+				expr += fmt.Sprintf(".refine((n) => String(n).length === %s, { message: 'Must be exactly %s digits' })", r.args, r.args)
+			}
 		case "between":
 			parts := strings.SplitN(r.args, ",", 2)
 			if len(parts) == 2 {
