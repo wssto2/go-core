@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// jsonMarshaler is the interface implemented by types with custom JSON serialization.
+var jsonMarshalerType = reflect.TypeOf((*json.Marshaler)(nil)).Elem()
+
 // marshal serializes v to JSON. Callers should pre-process with stripAuditFields
 // to ensure audit:"-" tagged fields are excluded before marshaling.
 func marshal(v any) ([]byte, error) {
@@ -42,6 +45,16 @@ func stripAuditFields(rv reflect.Value) any {
 
 	if rv.Kind() != reflect.Struct {
 		return rv.Interface()
+	}
+
+	// If the struct (or a pointer to it) implements json.Marshaler, let
+	// json.Marshal handle it directly so custom MarshalJSON logic is honoured.
+	// Check both value and pointer receivers.
+	if rv.Type().Implements(jsonMarshalerType) {
+		return rv.Interface()
+	}
+	if reflect.PointerTo(rv.Type()).Implements(jsonMarshalerType) && rv.CanAddr() {
+		return rv.Addr().Interface()
 	}
 
 	rt := rv.Type()
