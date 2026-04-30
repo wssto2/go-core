@@ -197,6 +197,72 @@ func TestCoerceString_BoolField_Multipart_Coerces(t *testing.T) {
 	}
 }
 
+// --- json tag fallback ---
+
+func TestBindRaw_JsonTagFallback_NoFormTag(t *testing.T) {
+	type Req struct {
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	}
+	raw := map[string]any{"name": "alice", "email": "alice@example.com"}
+	var req Req
+	if err := BindRaw(&req, raw, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.Name != "alice" {
+		t.Errorf("expected name=alice, got %q", req.Name)
+	}
+	if req.Email != "alice@example.com" {
+		t.Errorf("expected email=alice@example.com, got %q", req.Email)
+	}
+}
+
+func TestBindRaw_FormTagTakesPriorityOverJsonTag(t *testing.T) {
+	type Req struct {
+		Name string `form:"full_name" json:"name"`
+	}
+	raw := map[string]any{"full_name": "bob"}
+	var req Req
+	if err := BindRaw(&req, raw, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.Name != "bob" {
+		t.Errorf("expected Name=bob (via form tag), got %q", req.Name)
+	}
+}
+
+func TestBindRaw_JsonTagOmitemptyStripped(t *testing.T) {
+	type Req struct {
+		Score int `json:"score,omitempty"`
+	}
+	raw := map[string]any{"score": float64(42)}
+	var req Req
+	if err := BindRaw(&req, raw, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.Score != 42 {
+		t.Errorf("expected Score=42, got %d", req.Score)
+	}
+}
+
+func TestBindRaw_JsonDashExcludesField(t *testing.T) {
+	type Req struct {
+		Secret string `json:"-"`
+		Name   string `json:"name"`
+	}
+	raw := map[string]any{"-": "should-be-ignored", "name": "carol"}
+	var req Req
+	if err := BindRaw(&req, raw, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.Secret != "" {
+		t.Errorf("expected Secret to remain empty, got %q", req.Secret)
+	}
+	if req.Name != "carol" {
+		t.Errorf("expected Name=carol, got %q", req.Name)
+	}
+}
+
 // helpers
 
 func isAppErr(err error, out **apperr.AppError) bool {

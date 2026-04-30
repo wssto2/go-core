@@ -77,6 +77,38 @@ func TestNewTransactorFromRegistry_EmptyNameUsesPrimary(t *testing.T) {
 	}
 }
 
+func TestWithinTransaction_RollsBackOnPanic(t *testing.T) {
+	db := openTestDB(t)
+	trans := NewTransactor(db)
+
+	// The panic should propagate out after rollback.
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic to propagate out of WithinTransaction")
+		}
+	}()
+
+	_ = trans.WithinTransaction(context.Background(), func(ctx context.Context) error {
+		tx, ok := TxFromContext(ctx)
+		if !ok {
+			return errors.New("tx not found in context")
+		}
+		if err := tx.Exec("INSERT INTO items(name) VALUES (?)", "should-rollback").Error; err != nil {
+			return err
+		}
+		panic("simulated panic (e.g. audit marshal failure)")
+	})
+
+	// Unreachable — but if somehow reached, verify no row was persisted.
+	var count int64
+	if err := db.Raw("SELECT COUNT(*) FROM items WHERE name = ?", "should-rollback").Scan(&count).Error; err != nil {
+		t.Fatalf("count query failed: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 rows after panic rollback, got %d", count)
+	}
+}
+
 func TestWithinTransaction_RollsBack(t *testing.T) {
 	db := openTestDB(t)
 	trans := NewTransactor(db)

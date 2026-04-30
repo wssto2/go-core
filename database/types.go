@@ -27,6 +27,19 @@ type ConnectionConfig struct {
 	Username string
 	Password string
 
+	// SQLMode overrides the MySQL sql_mode for every session opened by this pool.
+	// Useful when the application must connect to servers with different default
+	// modes (e.g. MySQL 5.1 in production vs MySQL 8 locally).
+	//
+	// Provide a comma-separated list of mode names, or an empty string to use the
+	// server's default. Common values:
+	//
+	//   ""                                         — use server default (production MySQL 5)
+	//   "ALLOW_INVALID_DATES,NO_ENGINE_SUBSTITUTION" — permit zero dates (local MySQL 8)
+	//
+	// See https://dev.mysql.com/doc/refman/8.0/en/sql-mode.html for the full list.
+	SQLMode string
+
 	// Pool settings — zero values use the defaults below.
 	MaxIdleConns    int // default: 5
 	MaxOpenConns    int // default: 75

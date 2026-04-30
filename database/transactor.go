@@ -39,32 +39,51 @@ func NewTransactor(conn *gorm.DB) Transactor {
 
 // WithinTransaction executes the given function within a database transaction.
 // If the function returns an error, the transaction is rolled back.
+// If the function panics, the transaction is rolled back and the panic is re-raised.
 // If the function returns nil, the transaction is committed.
 //
 // Additionally, when possible this stores the underlying *sql.Tx in the
 // context so sqlc-based repositories can construct a Querier bound to that tx.
 func (t *gormTransactor) WithinTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	return t.conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Store the tx in context so repositories can pick it up
-		txCtx := context.WithValue(ctx, txKey{}, tx)
+	tx := t.conn.WithContext(ctx).Begin()
+	if tx.Error != nil {
+		return fmt.Errorf("begin transaction: %w", tx.Error)
+	}
 
-		// Attempt to extract the underlying *sql.Tx from GORM's connection pool and
-		// store it in the context for consumers (sqlc package, audit repo) to use.
-		// With PrepareStmt: true (default for MySQL), the ConnPool is a
-		// *gorm.PreparedStmtTX that wraps *sql.Tx — handle both.
-		if cp := tx.Statement.ConnPool; cp != nil {
-			switch v := cp.(type) {
-			case *sql.Tx:
-				txCtx = context.WithValue(txCtx, sqlTxKey{}, v)
-			case *gorm.PreparedStmtTX:
-				if sqlTx, ok := v.Tx.(*sql.Tx); ok {
-					txCtx = context.WithValue(txCtx, sqlTxKey{}, sqlTx)
-				}
+	txCtx := context.WithValue(ctx, txKey{}, tx)
+
+	// Attempt to extract the underlying *sql.Tx from GORM's connection pool and
+	// store it in the context for consumers (sqlc package, audit repo) to use.
+	// With PrepareStmt: true (default for MySQL), the ConnPool is a
+	// *gorm.PreparedStmtTX that wraps *sql.Tx — handle both.
+	if cp := tx.Statement.ConnPool; cp != nil {
+		switch v := cp.(type) {
+		case *sql.Tx:
+			txCtx = context.WithValue(txCtx, sqlTxKey{}, v)
+		case *gorm.PreparedStmtTX:
+			if sqlTx, ok := v.Tx.(*sql.Tx); ok {
+				txCtx = context.WithValue(txCtx, sqlTxKey{}, sqlTx)
 			}
 		}
+	}
 
-		return fn(txCtx)
-	})
+	defer func() {
+		if p := recover(); p != nil {
+			_ = tx.Rollback()
+			panic(p) // re-raise so panic recovery middleware can handle it
+		}
+	}()
+
+	if err := fn(txCtx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
 }
 
 // NewTransactorFromRegistry creates a Transactor for the named connection

@@ -466,7 +466,7 @@ func InRule(attribute string, value any, args string, required bool, fail func(F
 		panic(apperr.Internal(NewErrInvalidRuleConfig("in", attribute, "missing allowed values")))
 	}
 
-	allowed := strings.Split(args, "|")
+	allowed := strings.Split(args, ",")
 	str := fmt.Sprintf("%v", value)
 	for _, a := range allowed {
 		if str == a {

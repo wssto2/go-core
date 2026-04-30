@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"time"
 
 	"github.com/wssto2/go-core/apperr"
@@ -53,14 +54,12 @@ func NewRepositoryWithHook(t database.Transactor, hook func(ctx context.Context,
 }
 
 func (r *transactorRepository) Write(ctx context.Context, entry Entry) error {
-	// Apply masking to sensitive fields before persisting
-	beforeMasked := Mask(entry.BeforeState)
-	before, err := json.Marshal(beforeMasked)
+	// Strip audit:"-" fields, then apply sensitive-field masking, then marshal.
+	before, err := marshal(Mask(stripAuditFields(reflect.ValueOf(entry.BeforeState))))
 	if err != nil {
 		return apperr.Wrap(err, "failed to marshal before state", apperr.CodeInternal)
 	}
-	afterMasked := Mask(entry.AfterState)
-	after, err := json.Marshal(afterMasked)
+	after, err := marshal(Mask(stripAuditFields(reflect.ValueOf(entry.AfterState))))
 	if err != nil {
 		return apperr.Wrap(err, "failed to marshal after state", apperr.CodeInternal)
 	}

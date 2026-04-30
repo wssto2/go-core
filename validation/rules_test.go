@@ -221,10 +221,10 @@ func TestInRule(t *testing.T) {
 		args     string
 		wantFail bool
 	}{
-		{"value in set", "a", "a|b|c", false},
-		{"value not in set", "d", "a|b|c", true},
-		{"int in set", 2, "1|2|3", false},
-		{"int not in set", 5, "1|2|3", true},
+		{"value in set", "a", "a,b,c", false},
+		{"value not in set", "d", "a,b,c", true},
+		{"int in set", 2, "1,2,3", false},
+		{"int not in set", 5, "1,2,3", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -544,7 +544,7 @@ func TestInRule_MissingArgsPanics(t *testing.T) {
 }
 
 func TestInRule_EmptyOptionalPasses(t *testing.T) {
-	assert.Empty(t, collectFailures(InRule, nil, "a|b|c", false))
+	assert.Empty(t, collectFailures(InRule, nil, "a,b,c", false))
 }
 
 func TestMinRule_EmptyOptionalPasses(t *testing.T) {

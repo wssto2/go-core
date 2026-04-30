@@ -113,14 +113,23 @@ func (d *Datatable[T]) WithFilter(filter Filter) *Datatable[T] {
 	return d
 }
 
-// WithDateFilter registers a date-range filter for the given column.
+// WithDateFilter registers a date-range filter for the given query parameter.
 // The URI parameter value must be in one of the formats accepted by
 // utils.GetDateRange (e.g. "2024-01-01,2024-12-31" or a named range like
 // "this_month"). An empty or unrecognised value is a no-op.
-func (d *Datatable[T]) WithDateFilter(column string) *Datatable[T] {
+//
+// The optional dbColumn parameter specifies the actual database column name to
+// filter on. When omitted, the query parameter name is used as the column name.
+// Use this when the URL parameter name differs from the database column name,
+// e.g. WithDateFilter("created_at", "datum_unos").
+func (d *Datatable[T]) WithDateFilter(param string, dbColumn ...string) *Datatable[T] {
 	dialect := d.dialect
-	quotedCol := quoteIdent(dialect, column)
-	dateFilter := NewFilter(column, func(query *gorm.DB, value string, tableName string) *gorm.DB {
+	col := param
+	if len(dbColumn) > 0 && dbColumn[0] != "" {
+		col = dbColumn[0]
+	}
+	quotedCol := quoteIdent(dialect, col)
+	dateFilter := NewFilter(param, func(query *gorm.DB, value string, tableName string) *gorm.DB {
 		fromDate, toDate := utils.GetDateRange(value)
 
 		if fromDate == "" || toDate == "" {

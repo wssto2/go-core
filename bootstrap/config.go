@@ -58,6 +58,16 @@ type DatabaseConnectionConfig struct {
 	Username string
 	Password string
 
+	// SQLMode overrides the MySQL sql_mode for every session opened by this pool.
+	// Useful when connecting to servers with different default modes
+	// (e.g. MySQL 5.1 in production vs MySQL 8 locally).
+	//
+	// Provide a comma-separated list of mode names, or leave empty to use the
+	// server's default. Example for local MySQL 8 with a legacy schema:
+	//
+	//   "ALLOW_INVALID_DATES,NO_ENGINE_SUBSTITUTION"
+	SQLMode string
+
 	// Maximum number of connections in the idle connection
 	// pool. Default: 5
 	MaxIdleConns int

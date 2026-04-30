@@ -22,6 +22,15 @@ func NewNullDateTime(value time.Time) NullDateTime {
 	return NullDateTime{value: &value}
 }
 
+// NewNullDateTimePtr creates a NullDateTime from a *time.Time.
+// If the pointer is nil, the resulting NullDateTime will serialize as JSON null.
+func NewNullDateTimePtr(value *time.Time) NullDateTime {
+	if value == nil {
+		return NullDateTime{}
+	}
+	return NullDateTime{value: value}
+}
+
 func (d NullDateTime) Value() (driver.Value, error) {
 	if d.value == nil {
 		return nil, nil

@@ -38,15 +38,21 @@ func NoContent(ctx *gin.Context) {
 }
 
 // Paginated sends a standard 200 with DatatableResult pagination meta pre-filled.
+// Any enrichment data stored in result.Meta (e.g. from WithAuthors) is merged
+// into the pagination meta so callers never need to do this manually.
 func Paginated[T any](ctx *gin.Context, result *datatable.DatatableResult[T]) {
-	JSON(ctx, http.StatusOK, result.Data, gin.H{
+	meta := gin.H{
 		"total":     result.Total,
 		"page":      result.Page,
 		"per_page":  result.PerPage,
 		"last_page": result.LastPage,
 		"from":      result.From,
 		"to":        result.To,
-	})
+	}
+	for k, v := range result.Meta {
+		meta[k] = v
+	}
+	JSON(ctx, http.StatusOK, result.Data, meta)
 }
 
 // AutocompleteOption represents a standard option for autocomplete fields.

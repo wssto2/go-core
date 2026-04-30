@@ -2,6 +2,7 @@ package binders
 
 import (
 	"reflect"
+	"strings"
 	"sync"
 )
 
@@ -9,7 +10,7 @@ import (
 // Built once per struct type and cached — never rebuilt per request.
 type fieldMeta struct {
 	index       int    // position in the struct
-	formKey     string // value of the `form` tag
+	formKey     string // resolved binding key
 	structField reflect.StructField
 }
 
@@ -29,20 +30,40 @@ func getFieldMeta(t reflect.Type) []fieldMeta {
 	return fields
 }
 
+// resolveKey returns the binding key for a struct field.
+// Priority: `form` tag → `json` tag (name part only, strips options like ",omitempty") → skip.
+// A value of "-" in either tag means explicitly excluded.
+func resolveKey(sf reflect.StructField) string {
+	if tag := sf.Tag.Get("form"); tag != "" {
+		if tag == "-" {
+			return ""
+		}
+		return tag
+	}
+	if tag := sf.Tag.Get("json"); tag != "" {
+		name, _, _ := strings.Cut(tag, ",")
+		if name == "-" || name == "" {
+			return ""
+		}
+		return name
+	}
+	return ""
+}
+
 func buildFieldMeta(t reflect.Type) []fieldMeta {
 	fields := make([]fieldMeta, 0, t.NumField())
 
 	for i := 0; i < t.NumField(); i++ {
 		sf := t.Field(i)
 
-		formKey := sf.Tag.Get("form")
-		if formKey == "" || formKey == "-" {
+		key := resolveKey(sf)
+		if key == "" {
 			continue
 		}
 
 		fields = append(fields, fieldMeta{
 			index:       i,
-			formKey:     formKey,
+			formKey:     key,
 			structField: sf,
 		})
 	}

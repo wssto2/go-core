@@ -7,7 +7,11 @@ import (
 )
 
 // Diff returns the field names that differ between two structs.
-// Both must be the same type. Uses json tags as field names.
+// Both must be the same type. Uses json tags as field names when present.
+//
+// Fields tagged with audit:"-" are always excluded from the diff,
+// which is useful for system-managed fields like updated_at and updated_by
+// that change on every write but carry no semantic diff value.
 func Diff(before, after any) []string {
 	var changed []string
 
@@ -29,6 +33,11 @@ func Diff(before, after any) []string {
 	}
 
 	for i := range bt.NumField() {
+		// Skip fields explicitly excluded from diffs.
+		if bt.Field(i).Tag.Get("audit") == "-" {
+			continue
+		}
+
 		if !reflect.DeepEqual(bv.Field(i).Interface(), av.Field(i).Interface()) {
 			tag := bt.Field(i).Tag.Get("json")
 			if tag == "" || tag == "-" {

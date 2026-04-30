@@ -33,12 +33,13 @@ const (
 // AppError is the standard error type for the application.
 // It wraps the original error and adds context like HTTP status, user message, and log level.
 type AppError struct {
-	Err      error  // The original error
-	Code     Code   // Semantic error code
-	Message  string // User-friendly message
-	LogLevel Level  // Suggestion for logging level
-	File     string // Source file
-	Line     int    // Source line
+	Err      error             // The original error
+	Code     Code              // Semantic error code
+	Message  string            // User-friendly message
+	LogLevel Level             // Suggestion for logging level
+	Fields   map[string]string // Optional field-level detail (e.g. for 409 conflicts)
+	File     string            // Source file
+	Line     int               // Source line
 }
 
 func (e *AppError) Error() string {
@@ -53,9 +54,6 @@ func (e *AppError) Unwrap() error {
 }
 
 func newWithSkip(err error, message string, code Code, skip int) *AppError {
-	if err == nil {
-		err = errors.New(message)
-	}
 	_, file, line, _ := runtime.Caller(skip)
 	return &AppError{
 		Err:      err,
@@ -112,6 +110,13 @@ func WrapPreserve(err error, message string) *AppError {
 // WithLog sets the log level.
 func (e *AppError) WithLog(level Level) *AppError {
 	e.LogLevel = level
+	return e
+}
+
+// WithFields attaches field-level detail to the error (e.g. {"code": "already taken"}).
+// The error handler will include these in the response body.
+func (e *AppError) WithFields(fields map[string]string) *AppError {
+	e.Fields = fields
 	return e
 }
 

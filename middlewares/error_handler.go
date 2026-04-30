@@ -30,14 +30,14 @@ func ErrorHandler(log *slog.Logger, translator *i18n.Translator, debug bool) gin
 			appErr = apperr.Internal(err)
 		}
 
-		// Log based on the error's log level
-		switch appErr.LogLevel {
-		case apperr.LevelError:
+		// Store origin for the request logger so it can emit a single unified log line.
+		// Only ERROR level is logged here immediately — WARN/INFO are deferred to
+		// request logger which has the full request context (status, latency, request_id).
+		ctx.Set("error_file", appErr.File)
+		ctx.Set("error_line", appErr.Line)
+
+		if appErr.LogLevel == apperr.LevelError {
 			log.ErrorContext(ctx, appErr.Message, "error", appErr.Err, "file", appErr.File, "line", appErr.Line)
-		case apperr.LevelWarn:
-			log.WarnContext(ctx, appErr.Message, "error", appErr.Err)
-		case apperr.LevelInfo:
-			log.InfoContext(ctx, appErr.Message)
 		}
 
 		// If it's a validation error, include fields
@@ -84,9 +84,14 @@ func ErrorHandler(log *slog.Logger, translator *i18n.Translator, debug bool) gin
 
 		status := apperr.GetHTTPStatus(appErr)
 
-		ctx.JSON(status, gin.H{
+		resp := gin.H{
 			"success": false,
 			"error":   appErr.Message,
-		})
+		}
+		if len(appErr.Fields) > 0 {
+			resp["fields"] = appErr.Fields
+		}
+
+		ctx.JSON(status, resp)
 	}
 }

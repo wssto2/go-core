@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"net/url"
 	"os"
 	"sync"
 
@@ -240,6 +241,9 @@ func (r *Registry) openMySQL(cfg ConnectionConfig) (*gorm.DB, error) {
 		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local",
 		cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database,
 	)
+	if cfg.SQLMode != "" {
+		dsn += "&sql_mode=" + url.QueryEscape("'"+cfg.SQLMode+"'")
+	}
 
 	conn, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
 		Logger:                 r.buildLogger(),

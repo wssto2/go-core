@@ -52,12 +52,14 @@ func AuthorizedWith(policy Policy, authorizer Authorizer) gin.HandlerFunc {
 
 func extractBearerToken(ctx *gin.Context) string {
 	header := ctx.GetHeader("Authorization")
-	if header == "" {
-		return ""
+	if header != "" && strings.HasPrefix(header, "Bearer ") {
+		return strings.TrimSpace(header[len("Bearer "):])
 	}
 
-	if !strings.HasPrefix(header, "Bearer ") {
-		return ""
+	// Fall back to HttpOnly cookie-based auth.
+	if cookie, err := ctx.Cookie("access_token"); err == nil && cookie != "" {
+		return cookie
 	}
-	return strings.TrimSpace(header[len("Bearer "):])
+
+	return ""
 }
