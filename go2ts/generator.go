@@ -96,7 +96,7 @@ func mapGoTypeToTs(t reflect.Type, children map[string]interface{}) string {
 	case reflect.String:
 		tsType = "string"
 	case reflect.Slice, reflect.Array:
-		elemType := mapGoTypeToTs(t.Elem(), children)
+		elemType := mapCollectionElemTypeToTs(t.Elem(), children)
 		tsType = fmt.Sprintf("%s[]", elemType)
 	case reflect.Struct:
 		name := t.Name()
@@ -140,6 +140,19 @@ func mapGoTypeToTs(t reflect.Type, children map[string]interface{}) string {
 	}
 
 	return tsType
+}
+
+func mapCollectionElemTypeToTs(t reflect.Type, children map[string]interface{}) string {
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	elemType := mapGoTypeToTs(t, children)
+	if strings.Contains(elemType, " | ") {
+		return fmt.Sprintf("(%s)", elemType)
+	}
+
+	return elemType
 }
 
 func GenerateTypes(entities []interface{}, dir string) error {

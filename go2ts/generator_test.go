@@ -20,7 +20,7 @@ type SimpleUser struct {
 }
 
 type WithPointer struct {
-	ID    int     `json:"id"`
+	ID    int      `json:"id"`
 	Score *float64 `json:"score"`
 }
 
@@ -36,6 +36,14 @@ type AddressDTO struct {
 
 type WithSlice struct {
 	Tags []string `json:"tags"`
+}
+
+type Lead struct {
+	ID int `json:"id"`
+}
+
+type WithPointerSlice struct {
+	Leads []*Lead `json:"leads,omitempty"`
 }
 
 type WithBool struct {
@@ -99,6 +107,16 @@ func TestGenerateTypes_SliceField(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(dir, "WithSlice.ts"))
 	require.NoError(t, err)
 	assert.Contains(t, string(content), "tags: string[]")
+}
+
+func TestGenerateTypes_PointerSliceField(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, go2ts.GenerateTypes([]interface{}{WithPointerSlice{}}, dir))
+
+	content, err := os.ReadFile(filepath.Join(dir, "WithPointerSlice.ts"))
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "leads?: Lead[]")
+	assert.NotContains(t, string(content), "Lead | null[]")
 }
 
 func TestGenerateTypes_BoolField(t *testing.T) {
