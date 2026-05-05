@@ -459,7 +459,7 @@ func MaxRule(attribute string, value any, args string, required bool, fail func(
 }
 
 func InRule(attribute string, value any, args string, required bool, fail func(Failure), subject any) {
-	if !isPresent(value) && !required {
+	if !required && isOptionalZeroValue(value) {
 		return
 	}
 	if args == "" {
@@ -474,6 +474,24 @@ func InRule(attribute string, value any, args string, required bool, fail func(F
 		}
 	}
 	fail(FailWith(CodeIn, map[string]any{"in": allowed}))
+}
+
+func isOptionalZeroValue(value any) bool {
+	if value == nil {
+		return true
+	}
+
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.String:
+		return strings.TrimSpace(rv.String()) == ""
+	case reflect.Slice, reflect.Map, reflect.Array:
+		return rv.Len() == 0
+	case reflect.Ptr, reflect.Interface:
+		return rv.IsNil()
+	default:
+		return rv.IsZero()
+	}
 }
 
 func DateRule(attribute string, value any, args string, required bool, fail func(Failure), subject any) {

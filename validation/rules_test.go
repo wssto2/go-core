@@ -225,6 +225,7 @@ func TestInRule(t *testing.T) {
 		{"value not in set", "d", "a,b,c", true},
 		{"int in set", 2, "1,2,3", false},
 		{"int not in set", 5, "1,2,3", true},
+		{"optional zero int is skipped", 0, "1,2,3", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
