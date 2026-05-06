@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/go2ts"
+	"github.com/wssto2/go-core/go2ts/testtypesa"
+	"github.com/wssto2/go-core/go2ts/testtypesb"
 )
 
 // --- test types ---
@@ -53,6 +55,14 @@ type WithBool struct {
 type WithSkipped struct {
 	ID     int    `json:"id"`
 	Secret string `json:"-"`
+}
+
+type OfferWithPricing struct {
+	Pricing testtypesa.Pricing `json:"pricing"`
+}
+
+type InvoiceWithPricing struct {
+	Pricing testtypesb.Pricing `json:"pricing"`
 }
 
 // --- tests ---
@@ -158,6 +168,30 @@ func TestGenerateTypes_DeduplicatesNestedTypes(t *testing.T) {
 	// AddressDTO.ts should exist
 	_, err := os.ReadFile(filepath.Join(dir, "AddressDTO.ts"))
 	require.NoError(t, err)
+}
+
+func TestGenerateTypes_RenamesCollidingNestedTypes(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, go2ts.GenerateTypes([]interface{}{OfferWithPricing{}, InvoiceWithPricing{}}, dir))
+
+	offerFile, err := os.ReadFile(filepath.Join(dir, "OfferWithPricing.ts"))
+	require.NoError(t, err)
+	invoiceFile, err := os.ReadFile(filepath.Join(dir, "InvoiceWithPricing.ts"))
+	require.NoError(t, err)
+
+	assert.Contains(t, string(offerFile), "pricing: Pricing")
+	assert.Contains(t, string(offerFile), "import type { Pricing }")
+	assert.Contains(t, string(invoiceFile), "pricing: InvoiceWithPricingPricing")
+	assert.Contains(t, string(invoiceFile), "import type { InvoiceWithPricingPricing }")
+
+	pricingFile, err := os.ReadFile(filepath.Join(dir, "Pricing.ts"))
+	require.NoError(t, err)
+	assert.Contains(t, string(pricingFile), "net: number")
+
+	renamedFile, err := os.ReadFile(filepath.Join(dir, "InvoiceWithPricingPricing.ts"))
+	require.NoError(t, err)
+	assert.Contains(t, string(renamedFile), "gross: number")
 }
 
 func TestGenerateTypes_ErrorOnNonStruct(t *testing.T) {

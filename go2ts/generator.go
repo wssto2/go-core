@@ -8,7 +8,55 @@ import (
 )
 
 type GenContext struct {
-	Processed map[string]bool
+	Processed  map[string]bool
+	TypeNames  map[string]string
+	NameOwners map[string]string
+}
+
+func (c *GenContext) ensureMaps() {
+	if c.Processed == nil {
+		c.Processed = make(map[string]bool)
+	}
+	if c.TypeNames == nil {
+		c.TypeNames = make(map[string]string)
+	}
+	if c.NameOwners == nil {
+		c.NameOwners = make(map[string]string)
+	}
+}
+
+func typeKey(t reflect.Type) string {
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.PkgPath() != "" && t.Name() != "" {
+		return t.PkgPath() + "." + t.Name()
+	}
+	return t.String()
+}
+
+func (c *GenContext) resolveTypeName(t reflect.Type, parentName string) string {
+	c.ensureMaps()
+
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	key := typeKey(t)
+	if resolved, ok := c.TypeNames[key]; ok {
+		return resolved
+	}
+
+	baseName := t.Name()
+	resolvedName := baseName
+	if owner, ok := c.NameOwners[baseName]; ok && owner != key && parentName != "" {
+		resolvedName = parentName + baseName
+	}
+
+	c.TypeNames[key] = resolvedName
+	c.NameOwners[resolvedName] = key
+
+	return resolvedName
 }
 
 // Converts a Go struct to a TypeScript type definition.
@@ -25,7 +73,7 @@ func structToTs(s interface{}, ctx *GenContext) (string, string, map[string]inte
 		return "", "", nil, fmt.Errorf("expected a struct, got %s", reflectType.Kind())
 	}
 
-	typeName := reflectType.Name()
+	typeName := ctx.resolveTypeName(reflectType, "")
 
 	// Avoid regenerating the same struct
 	if ctx.Processed[typeName] {
@@ -59,7 +107,7 @@ func structToTs(s interface{}, ctx *GenContext) (string, string, map[string]inte
 
 		canBeUndefined := strings.Contains(jsonTag, "omitempty")
 
-		fieldType := mapGoTypeToTs(field.Type, children)
+		fieldType := mapGoTypeToTs(field.Type, typeName, children, ctx)
 
 		if field.Name == "ID" {
 			fieldType += " | null"
@@ -78,7 +126,7 @@ func structToTs(s interface{}, ctx *GenContext) (string, string, map[string]inte
 }
 
 // Maps Go type to TypeScript equivalent, collecting nested structs
-func mapGoTypeToTs(t reflect.Type, children map[string]interface{}) string {
+func mapGoTypeToTs(t reflect.Type, parentName string, children map[string]interface{}, ctx *GenContext) string {
 	isPointer := false
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
@@ -96,7 +144,7 @@ func mapGoTypeToTs(t reflect.Type, children map[string]interface{}) string {
 	case reflect.String:
 		tsType = "string"
 	case reflect.Slice, reflect.Array:
-		elemType := mapCollectionElemTypeToTs(t.Elem(), children)
+		elemType := mapCollectionElemTypeToTs(t.Elem(), parentName, children, ctx)
 		tsType = fmt.Sprintf("%s[]", elemType)
 	case reflect.Struct:
 		name := t.Name()
@@ -128,8 +176,9 @@ func mapGoTypeToTs(t reflect.Type, children map[string]interface{}) string {
 		case "Enum":
 			tsType = "boolean"
 		default:
-			tsType = name
-			children[name] = reflect.New(t).Interface()
+			resolvedName := ctx.resolveTypeName(t, parentName)
+			tsType = resolvedName
+			children[resolvedName] = reflect.New(t).Interface()
 		}
 	default:
 		tsType = "any"
@@ -142,12 +191,12 @@ func mapGoTypeToTs(t reflect.Type, children map[string]interface{}) string {
 	return tsType
 }
 
-func mapCollectionElemTypeToTs(t reflect.Type, children map[string]interface{}) string {
+func mapCollectionElemTypeToTs(t reflect.Type, parentName string, children map[string]interface{}, ctx *GenContext) string {
 	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
 
-	elemType := mapGoTypeToTs(t, children)
+	elemType := mapGoTypeToTs(t, parentName, children, ctx)
 	if strings.Contains(elemType, " | ") {
 		return fmt.Sprintf("(%s)", elemType)
 	}
@@ -161,7 +210,7 @@ func GenerateTypes(entities []interface{}, dir string) error {
 		return fmt.Errorf("error creating directory: %w", err)
 	}
 
-	ctx := &GenContext{Processed: make(map[string]bool)}
+	ctx := &GenContext{}
 
 	pending := entities
 	for len(pending) > 0 {

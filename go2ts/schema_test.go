@@ -5,6 +5,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/wssto2/go-core/go2ts/testtypesa"
+	"github.com/wssto2/go-core/go2ts/testtypesb"
 )
 
 // ── parseValidationTag ───────────────────────────────────────────────────────
@@ -219,6 +222,14 @@ type RequestWithNested struct {
 	Address NestedChild `json:"address"`
 }
 
+type RequestA struct {
+	Pricing testtypesa.RequestPricing `json:"pricing"`
+}
+
+type RequestB struct {
+	Pricing testtypesb.RequestPricing `json:"pricing"`
+}
+
 func TestStructToZod_SimpleRequest(t *testing.T) {
 	ctx := &GenContext{Processed: make(map[string]bool)}
 	name, output, children, err := structToZod(SimpleRequest{}, ctx)
@@ -398,6 +409,53 @@ func TestGenerateSchemas_DeduplicatesNestedTypes(t *testing.T) {
 	// Shared should appear only once.
 	if _, err := os.Stat(dir + "/Shared.ts"); os.IsNotExist(err) {
 		t.Error("missing Shared.ts")
+	}
+}
+
+func TestGenerateSchemas_RenamesCollidingNestedTypes(t *testing.T) {
+	dir := t.TempDir()
+
+	err := GenerateSchemas([]interface{}{RequestA{}, RequestB{}}, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	requestAContent, err := os.ReadFile(dir + "/RequestA.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestBContent, err := os.ReadFile(dir + "/RequestB.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(requestAContent), "import { RequestPricingSchema } from './RequestPricing';") {
+		t.Errorf("expected RequestA to use bare RequestPricing import, output:\n%s", string(requestAContent))
+	}
+	if !strings.Contains(string(requestAContent), "pricing: RequestPricingSchema,") {
+		t.Errorf("expected RequestA to use RequestPricingSchema, output:\n%s", string(requestAContent))
+	}
+	if !strings.Contains(string(requestBContent), "import { RequestBRequestPricingSchema } from './RequestBRequestPricing';") {
+		t.Errorf("expected RequestB to use renamed import, output:\n%s", string(requestBContent))
+	}
+	if !strings.Contains(string(requestBContent), "pricing: RequestBRequestPricingSchema,") {
+		t.Errorf("expected RequestB to use renamed schema, output:\n%s", string(requestBContent))
+	}
+
+	pricingContent, err := os.ReadFile(dir + "/RequestPricing.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(pricingContent), "amount: z.number().min(0),") {
+		t.Errorf("expected RequestPricing.ts to contain amount field, output:\n%s", string(pricingContent))
+	}
+
+	renamedContent, err := os.ReadFile(dir + "/RequestBRequestPricing.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(renamedContent), "rate: z.number().int().min(1),") {
+		t.Errorf("expected RequestBRequestPricing.ts to contain rate field, output:\n%s", string(renamedContent))
 	}
 }
 

@@ -80,6 +80,10 @@ func knownCustomType(name string) bool {
 // mapGoTypeToZodBase maps a Go reflect.Type to a base Zod expression.
 // Returns (zodExpr, isNullable).
 func mapGoTypeToZodBase(t reflect.Type) (string, bool) {
+	return mapGoTypeToZodBaseScoped(t, "", nil, nil)
+}
+
+func mapGoTypeToZodBaseScoped(t reflect.Type, parentName string, ctx *GenContext, children map[string]interface{}) (string, bool) {
 	isNullable := false
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
@@ -128,7 +132,14 @@ func mapGoTypeToZodBase(t reflect.Type) (string, bool) {
 		case "Enum":
 			return "z.number().int()", isNullable
 		default:
-			return fmt.Sprintf("%sSchema", t.Name()), isNullable
+			resolvedName := t.Name()
+			if ctx != nil {
+				resolvedName = ctx.resolveTypeName(t, parentName)
+			}
+			if children != nil {
+				children[resolvedName] = reflect.New(t).Interface()
+			}
+			return fmt.Sprintf("%sSchema", resolvedName), isNullable
 		}
 	}
 	return "z.unknown()", isNullable
@@ -191,6 +202,16 @@ func isNumericLiteral(s string) bool {
 // hasCrossField is true when the validation tag contained cross-field rules
 // that were skipped (they need manual .superRefine() on the object schema).
 func fieldToZodExpr(ft reflect.Type, validationTag string) (expr string, hasCrossField bool) {
+	return fieldToZodExprScoped(ft, validationTag, "", nil, nil)
+}
+
+func fieldToZodExprScoped(
+	ft reflect.Type,
+	validationTag string,
+	parentName string,
+	ctx *GenContext,
+	children map[string]interface{},
+) (expr string, hasCrossField bool) {
 	rules := parseValidationTag(validationTag)
 	isRequired := hasValRule(rules, "required")
 
@@ -205,7 +226,7 @@ func fieldToZodExpr(ft reflect.Type, validationTag string) (expr string, hasCros
 		return buildLiteralUnion(inArgs), hasCrossField
 	}
 
-	base, isNullable := mapGoTypeToZodBase(ft)
+	base, isNullable := mapGoTypeToZodBaseScoped(ft, parentName, ctx, children)
 	expr = base
 
 	// needsOrEmpty: non-required format rules on non-nullable strings must allow
@@ -295,7 +316,7 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 		return "", "", nil, fmt.Errorf("expected a struct, got %s", rt.Kind())
 	}
 
-	typeName = rt.Name()
+	typeName = ctx.resolveTypeName(rt, "")
 	if ctx.Processed[typeName] {
 		return "", "", nil, nil
 	}
@@ -326,7 +347,7 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 		}
 
 		validationTag := field.Tag.Get("validation")
-		zodExpr, hasCrossField := fieldToZodExpr(field.Type, validationTag)
+		zodExpr, hasCrossField := fieldToZodExprScoped(field.Type, validationTag, typeName, ctx, children)
 
 		fieldsBuilder.WriteString(fmt.Sprintf("  %s: %s,\n", jsonName, zodExpr))
 
@@ -341,7 +362,8 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 			ft = ft.Elem()
 		}
 		if ft.Kind() == reflect.Struct && !knownCustomType(ft.Name()) && ft.Name() != "" && ft.Name() != typeName {
-			children[ft.Name()] = reflect.New(ft).Interface()
+			childName := ctx.resolveTypeName(ft, typeName)
+			children[childName] = reflect.New(ft).Interface()
 		}
 	}
 
@@ -389,7 +411,7 @@ func GenerateSchemas(structs []interface{}, dir string) error {
 		return fmt.Errorf("error creating directory: %w", err)
 	}
 
-	ctx := &GenContext{Processed: make(map[string]bool)}
+	ctx := &GenContext{}
 
 	pending := structs
 	for len(pending) > 0 {
