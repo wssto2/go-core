@@ -17,6 +17,7 @@ type Datatable[T any] struct {
 	dialect          string // "mysql" | "sqlite" | "postgres"
 	tableName        string
 	columns          map[string]bool
+	columnAliases    map[string]string
 	queryParams      QueryParams
 	searchableFields []string
 	filters          []Filter
@@ -81,6 +82,14 @@ func (d *Datatable[T]) WithDefaultOrder(column, direction string) *Datatable[T] 
 	if d.queryParams.OrderDir == "" {
 		d.queryParams.OrderDir = direction
 	}
+	return d
+}
+
+// WithColumnAliases registers a mapping from public API field names to DB column names.
+// This lets callers accept sort keys from a business-facing API while still ordering by
+// the actual selected database column.
+func (d *Datatable[T]) WithColumnAliases(aliases map[string]string) *Datatable[T] {
+	d.columnAliases = aliases
 	return d
 }
 
@@ -331,6 +340,12 @@ func (d *Datatable[T]) Get(ctx context.Context) (*DatatableResult[T], error) {
 		safeDirection = "ASC"
 	} else {
 		safeDirection = "DESC"
+	}
+
+	if d.columnAliases != nil {
+		if dbColumn, ok := d.columnAliases[d.queryParams.OrderCol]; ok {
+			d.queryParams.OrderCol = dbColumn
+		}
 	}
 
 	// Validate orderCol against allowed columns whitelist

@@ -126,6 +126,49 @@ func TestGet_OrderColNotInWhitelistFallsBackToID(t *testing.T) {
 	assert.Len(t, result.Data, 5)
 }
 
+func TestGet_WithColumnAliases_TranslatesOrderColumn(t *testing.T) {
+	db := testDB(t)
+	params := datatable.QueryParams{
+		Page:     1,
+		PerPage:  5,
+		OrderCol: "headline",
+		OrderDir: "asc",
+		Filters:  map[string]string{},
+	}
+
+	dt := datatable.New[Article](db, params).
+		WithColumns([]string{"id", "title", "status"}).
+		WithColumnAliases(map[string]string{"headline": "title"})
+
+	result, err := dt.Get(context.Background())
+	require.NoError(t, err)
+	require.Len(t, result.Data, 5)
+	assert.Equal(t, "Alpha post", result.Data[0].Title)
+	assert.Equal(t, "Beta post", result.Data[1].Title)
+	assert.Equal(t, "Delta article", result.Data[2].Title)
+}
+
+func TestGet_WithColumnAliases_InvalidTargetFallsBackToID(t *testing.T) {
+	db := testDB(t)
+	params := datatable.QueryParams{
+		Page:     1,
+		PerPage:  5,
+		OrderCol: "headline",
+		OrderDir: "desc",
+		Filters:  map[string]string{},
+	}
+
+	dt := datatable.New[Article](db, params).
+		WithColumns([]string{"id", "title", "status"}).
+		WithColumnAliases(map[string]string{"headline": "missing_column"})
+
+	result, err := dt.Get(context.Background())
+	require.NoError(t, err)
+	require.Len(t, result.Data, 5)
+	assert.Equal(t, 5, result.Data[0].ID)
+	assert.Equal(t, 1, result.Data[4].ID)
+}
+
 func TestGet_SearchFiltersResults(t *testing.T) {
 	db := testDB(t)
 	params := datatable.QueryParams{
@@ -395,9 +438,9 @@ func searchDB(t *testing.T) *gorm.DB {
 func TestGet_ConcatSearch_MultiColumn(t *testing.T) {
 	db := searchDB(t)
 	params := datatable.QueryParams{
-		Page:    1,
-		PerPage: 10,
-		Search:  "John Smith",
+		Page:     1,
+		PerPage:  10,
+		Search:   "John Smith",
 		OrderCol: "id", OrderDir: "asc",
 		Filters: map[string]string{},
 	}
@@ -415,9 +458,9 @@ func TestGet_ConcatSearch_MultiColumn(t *testing.T) {
 func TestGet_ConcatWSSearch(t *testing.T) {
 	db := searchDB(t)
 	params := datatable.QueryParams{
-		Page:    1,
-		PerPage: 10,
-		Search:  "INV/2024",
+		Page:     1,
+		PerPage:  10,
+		Search:   "INV/2024",
 		OrderCol: "id", OrderDir: "asc",
 		Filters: map[string]string{},
 	}
@@ -436,9 +479,9 @@ func TestGet_ConcatWSSearch(t *testing.T) {
 func TestGet_ConcatWSSearch_MultipleMatches(t *testing.T) {
 	db := searchDB(t)
 	params := datatable.QueryParams{
-		Page:    1,
-		PerPage: 10,
-		Search:  "INV",
+		Page:     1,
+		PerPage:  10,
+		Search:   "INV",
 		OrderCol: "id", OrderDir: "asc",
 		Filters: map[string]string{},
 	}
