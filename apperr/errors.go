@@ -120,6 +120,11 @@ func (e *AppError) WithFields(fields map[string]string) *AppError {
 	return e
 }
 
+func HasCode(err error, code Code) bool {
+	var appErr *AppError
+	return errors.As(err, &appErr) && appErr.Code == code
+}
+
 // Common Constructors
 
 func NotFound(message string) *AppError {
