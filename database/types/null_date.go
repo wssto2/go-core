@@ -118,3 +118,8 @@ func (d *NullDate) Set(t time.Time) {
 	v := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 	d.value = &v
 }
+
+// IsNull reports whether the value is NULL.
+func (d NullDate) IsNull() bool {
+	return d.value == nil
+}

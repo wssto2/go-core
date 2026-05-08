@@ -112,3 +112,8 @@ func (f NullFloat) Get() *float64 {
 func (f *NullFloat) Set(v float64) {
 	f.value = &v
 }
+
+// IsNull reports whether the value is NULL.
+func (f NullFloat) IsNull() bool {
+	return f.value == nil
+}

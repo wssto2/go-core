@@ -255,7 +255,7 @@ func (c catalogPageShellComposer) composeCatalog(ctx context.Context, locale, pa
 			ID:          p.ID,
 			Name:        p.Name,
 			SKU:         p.SKU,
-			Description: p.Description.Get(),
+			Description: p.Description.GetOrEmpty(),
 			Price:       p.Price.Get(),
 			Stock:       p.Stock,
 			Active:      p.Active.Get(),
@@ -289,13 +289,13 @@ func (c catalogPageShellComposer) composeProductDetail(ctx context.Context, prod
 		ID:           p.ID,
 		Name:         p.Name,
 		SKU:          p.SKU,
-		Description:  p.Description.Get(),
+		Description:  p.Description.GetOrEmpty(),
 		Price:        p.Price.Get(),
 		Stock:        p.Stock,
 		Active:       p.Active.Get(),
-		ImageURL:     p.ImageURL.Get(),
-		ThumbnailURL: p.ThumbnailURL.Get(),
-		ImageStatus:  p.ImageStatus.Get(),
+		ImageURL:     p.ImageURL.GetOrEmpty(),
+		ThumbnailURL: p.ThumbnailURL.GetOrEmpty(),
+		ImageStatus:  p.ImageStatus.GetOrEmpty(),
 	}
 }
 

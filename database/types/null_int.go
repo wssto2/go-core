@@ -107,3 +107,8 @@ func (i NullInt) Get() *int {
 func (i *NullInt) Set(v int) {
 	i.value = &v
 }
+
+// IsNull reports whether the value is NULL.
+func (i NullInt) IsNull() bool {
+	return i.value == nil
+}

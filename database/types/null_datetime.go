@@ -124,3 +124,8 @@ func (d NullDateTime) Get() *time.Time {
 func (d *NullDateTime) Set(t time.Time) {
 	d.value = &t
 }
+
+// IsNull reports whether the value is NULL.
+func (d NullDateTime) IsNull() bool {
+	return d.value == nil
+}
