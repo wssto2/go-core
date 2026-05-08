@@ -11,22 +11,12 @@ import (
 	"gorm.io/gorm/schema"
 )
 
-// Enum wraps a boolean logic for database enums.
-// Warning: This implementation maps specific ENUM values (often "1"/"0") to boolean true/false.
 type Enum struct {
-	value bool
+	value string
 }
 
-func NewEnum[T bool | int | string](value T) Enum {
-	switch v := any(value).(type) {
-	case bool:
-		return Enum{value: v}
-	case int:
-		return Enum{value: v == 1}
-	case string:
-		return Enum{value: v == "1"}
-	}
-	return Enum{value: false}
+func NewEnum(value string) Enum {
+	return Enum{value: value}
 }
 
 func (e Enum) GormDataType() string {
@@ -44,24 +34,19 @@ func (e Enum) GormDBDataType(db *gorm.DB, field *schema.Field) string {
 }
 
 func (e Enum) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
-	val := "0"
-	if e.value {
-		val = "1"
-	}
-	return clause.Expr{SQL: "?", Vars: []interface{}{val}}
+	return clause.Expr{SQL: "?", Vars: []interface{}{e.value}}
 }
 
 func (e *Enum) Scan(value interface{}) error {
-	switch v := value.(type) {
+	switch typedValue := value.(type) {
 	case string:
-		e.value = v == "1"
+		e.value = typedValue
 	case []byte:
-		e.value = string(v) == "1"
-	case int64:
-		e.value = v == 1
+		e.value = string(typedValue)
 	default:
 		return fmt.Errorf("unsupported type for Enum: %T", value)
 	}
+
 	return nil
 }
 
@@ -74,28 +59,22 @@ func (e *Enum) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &v); err != nil {
 		return err
 	}
-	switch val := v.(type) {
-	case bool:
-		e.value = val
-	case float64:
-		e.value = val == 1
+	switch typedValue := v.(type) {
 	case string:
-		e.value = val == "1" || val == "true"
+		e.value = typedValue
+	case []byte:
+		e.value = string(typedValue)
+	default:
+		return fmt.Errorf("unsupported type for Enum: %T", v)
 	}
+
 	return nil
 }
 
-func (e Enum) Get() bool {
+func (e Enum) Get() string {
 	return e.value
 }
 
-func (e *Enum) Set(v bool) {
+func (e *Enum) Set(v string) {
 	e.value = v
-}
-
-func (e Enum) String() string {
-	if e.value {
-		return "1"
-	}
-	return "0"
 }
