@@ -77,12 +77,6 @@ func knownCustomType(name string) bool {
 	return false
 }
 
-// mapGoTypeToZodBase maps a Go reflect.Type to a base Zod expression.
-// Returns (zodExpr, isNullable).
-func mapGoTypeToZodBase(t reflect.Type) (string, bool) {
-	return mapGoTypeToZodBaseScoped(t, "", nil, nil)
-}
-
 func mapGoTypeToZodBaseScoped(t reflect.Type, parentName string, ctx *GenContext, children map[string]interface{}) (string, bool) {
 	isNullable := false
 	if t.Kind() == reflect.Ptr {
@@ -101,7 +95,7 @@ func mapGoTypeToZodBaseScoped(t reflect.Type, parentName string, ctx *GenContext
 	case reflect.String:
 		return "z.string()", isNullable
 	case reflect.Slice, reflect.Array:
-		elemExpr, _ := mapGoTypeToZodBase(t.Elem())
+		elemExpr, _ := mapGoTypeToZodBaseScoped(t.Elem(), parentName, ctx, children)
 		return fmt.Sprintf("z.array(%s)", elemExpr), isNullable
 	case reflect.Struct:
 		switch t.Name() {
