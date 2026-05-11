@@ -13,6 +13,27 @@ type GenContext struct {
 	NameOwners map[string]string
 }
 
+// NamedEntry pairs a Go value with an explicit TypeScript name override.
+// Use As to construct one.
+type NamedEntry struct {
+	value interface{}
+	name  string
+}
+
+// As generates the TypeScript type for v using name instead of the struct's
+// own name. Pass it in the slice anywhere a plain struct value is accepted:
+//
+//	go2ts.GenerateTypes([]any{
+//	    domainlead.Lead{},
+//	    go2ts.As(domainlead.Phase{}, "LeadPhase"),
+//	}, dir)
+//
+// The override applies everywhere the type appears — including as a nested
+// field type in other generated structs.
+func As(v interface{}, name string) NamedEntry {
+	return NamedEntry{value: v, name: name}
+}
+
 func (c *GenContext) ensureMaps() {
 	if c.Processed == nil {
 		c.Processed = make(map[string]bool)
@@ -57,6 +78,27 @@ func (c *GenContext) resolveTypeName(t reflect.Type, parentName string) string {
 	c.NameOwners[resolvedName] = key
 
 	return resolvedName
+}
+
+// unwrapEntry returns the underlying value and, if the entry is a NamedEntry,
+// pre-seeds the name override into ctx before the type is processed.
+func unwrapEntry(entry interface{}, ctx *GenContext) interface{} {
+	named, ok := entry.(NamedEntry)
+	if !ok {
+		return entry
+	}
+
+	t := reflect.TypeOf(named.value)
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	ctx.ensureMaps()
+	key := typeKey(t)
+	ctx.TypeNames[key] = named.name
+	ctx.NameOwners[named.name] = key
+
+	return named.value
 }
 
 // Converts a Go struct to a TypeScript type definition.
@@ -214,7 +256,7 @@ func GenerateTypes(entities []interface{}, dir string) error {
 
 	pending := entities
 	for len(pending) > 0 {
-		current := pending[0]
+		current := unwrapEntry(pending[0], ctx)
 		pending = pending[1:]
 
 		typeName, typeDef, children, err := structToTs(current, ctx)

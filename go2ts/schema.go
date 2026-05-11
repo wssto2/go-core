@@ -415,7 +415,7 @@ func GenerateSchemas(structs []interface{}, dir string) error {
 
 	pending := structs
 	for len(pending) > 0 {
-		current := pending[0]
+		current := unwrapEntry(pending[0], ctx)
 		pending = pending[1:]
 
 		typeName, output, children, err := structToZod(current, ctx)
