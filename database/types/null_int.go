@@ -104,6 +104,22 @@ func (i NullInt) Get() *int {
 	return i.value
 }
 
+func (i NullInt) GetOrEmpty() int {
+	if i.value == nil {
+		return 0
+	}
+
+	return *i.value
+}
+
+func (i NullInt) GetOrDefault(defaultValue int) int {
+	if i.value == nil {
+		return defaultValue
+	}
+
+	return *i.value
+}
+
 func (i *NullInt) Set(v int) {
 	i.value = &v
 }

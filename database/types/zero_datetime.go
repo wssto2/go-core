@@ -142,6 +142,26 @@ func (d ZeroDateTime) Get() *time.Time {
 	return d.value
 }
 
+func (d ZeroDateTime) GetOrEmpty() time.Time {
+	if d.value == nil {
+		return time.Time{}
+	}
+
+	return *d.value
+}
+
+func (d ZeroDateTime) GetOrDefault(defaultValue time.Time) time.Time {
+	if d.value == nil {
+		return defaultValue
+	}
+
+	return *d.value
+}
+
 func (d *ZeroDateTime) Set(t time.Time) {
 	d.value = &t
+}
+
+func (d *ZeroDateTime) IsNull() bool {
+	return d.value == nil
 }

@@ -125,6 +125,22 @@ func (b NullBool) Get() *bool {
 	return b.value
 }
 
+func (b NullBool) GetOrEmpty() bool {
+	if b.value == nil {
+		return false
+	}
+
+	return *b.value
+}
+
+func (b NullBool) GetOrDefault(defaultValue bool) bool {
+	if b.value == nil {
+		return defaultValue
+	}
+
+	return *b.value
+}
+
 // Set sets the value.
 func (b *NullBool) Set(value bool) {
 	b.value = &value

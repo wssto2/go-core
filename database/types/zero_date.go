@@ -143,7 +143,27 @@ func (d ZeroDate) Get() *time.Time {
 	return d.value
 }
 
+func (d ZeroDate) GetOrEmpty() time.Time {
+	if d.value == nil {
+		return time.Time{}
+	}
+
+	return *d.value
+}
+
+func (d ZeroDate) GetOrDefault(defaultValue time.Time) time.Time {
+	if d.value == nil {
+		return defaultValue
+	}
+
+	return *d.value
+}
+
 func (d *ZeroDate) Set(t time.Time) {
 	v := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 	d.value = &v
+}
+
+func (d *ZeroDate) IsNull() bool {
+	return d.value == nil
 }

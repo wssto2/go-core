@@ -121,6 +121,22 @@ func (d NullDateTime) Get() *time.Time {
 	return d.value
 }
 
+func (d NullDateTime) GetOrEmpty() time.Time {
+	if d.value == nil {
+		return time.Time{}
+	}
+
+	return *d.value
+}
+
+func (d NullDateTime) GetOrDefault(defaultValue time.Time) time.Time {
+	if d.value == nil {
+		return defaultValue
+	}
+
+	return *d.value
+}
+
 func (d *NullDateTime) Set(t time.Time) {
 	d.value = &t
 }

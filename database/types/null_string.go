@@ -133,6 +133,15 @@ func (s NullString) GetOrEmpty() string {
 	if s.value == nil {
 		return ""
 	}
+
+	return *s.value
+}
+
+func (s NullString) GetOrDefault(defaultValue string) string {
+	if s.value == nil {
+		return defaultValue
+	}
+
 	return *s.value
 }
 

@@ -114,6 +114,22 @@ func (d NullDate) Get() *time.Time {
 	return d.value
 }
 
+func (d NullDate) GetOrEmpty() time.Time {
+	if d.value == nil {
+		return time.Time{}
+	}
+
+	return *d.value
+}
+
+func (d NullDate) GetOrDefault(defaultValue time.Time) time.Time {
+	if d.value == nil {
+		return defaultValue
+	}
+
+	return *d.value
+}
+
 func (d *NullDate) Set(t time.Time) {
 	v := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 	d.value = &v

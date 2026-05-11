@@ -35,6 +35,7 @@ type AppBuilder struct {
 	perUserLimiter      ratelimit.Limiter
 	sharedGlobalLimiter ratelimit.Limiter
 	spaConfig           *frontend.SPAConfig
+	trustedOrigins      []string
 }
 
 // New creates a new AppBuilder with the given config.
@@ -322,6 +323,19 @@ func (b *AppBuilder) WithSPAConfig(cfg frontend.SPAConfig) *AppBuilder {
 	return b
 }
 
+// WithTrustedOrigins registers HTTP origins that are allowed to load resources
+// from this app (img-src) and embed it in iframes (frame-ancestors). Pass full
+// URLs or bare origins — only the scheme and host are used.
+//
+//	bootstrap.New(cfg).
+//	    DefaultInfrastructure().
+//	    WithTrustedOrigins(os.Getenv("LEGACY_URL")).
+//	    ...
+func (b *AppBuilder) WithTrustedOrigins(origins ...string) *AppBuilder {
+	b.trustedOrigins = append(b.trustedOrigins, origins...)
+	return b
+}
+
 // WithTrustedProxies configures the proxies Gin will trust for client-IP and
 // forwarded-proto resolution. Passing no values disables proxy trust.
 func (b *AppBuilder) WithTrustedProxies(proxies ...string) *AppBuilder {
@@ -456,6 +470,13 @@ func (b *AppBuilder) Build() (*App, error) {
 	}
 	if b.perUserLimiter != nil {
 		b.engine.Use(middlewares.RateLimit(b.perUserLimiter, true, false))
+	}
+
+	// TrustedOriginsMiddleware patches the CSP set by Security and runs inside
+	// Security's ctx.Next() call, so headers are updated before the handler
+	// writes the response body.
+	if len(b.trustedOrigins) > 0 {
+		b.engine.Use(middlewares.TrustedOriginsMiddleware(b.trustedOrigins...))
 	}
 
 	if b.spaConfig != nil {

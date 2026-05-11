@@ -109,6 +109,22 @@ func (f NullFloat) Get() *float64 {
 	return f.value
 }
 
+func (f NullFloat) GetOrEmpty() float64 {
+	if f.value == nil {
+		return 0
+	}
+
+	return *f.value
+}
+
+func (f NullFloat) GetOrDefault(defaultValue float64) float64 {
+	if f.value == nil {
+		return defaultValue
+	}
+
+	return *f.value
+}
+
 func (f *NullFloat) Set(v float64) {
 	f.value = &v
 }
