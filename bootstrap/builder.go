@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -422,7 +423,10 @@ func (b *AppBuilder) WithHttp() *AppBuilder {
 		viteCfg := b.spaConfig.Vite
 		viteCfg = viteCfg.WithDefaults()
 		if viteCfg.ManifestPath != "" && viteCfg.AssetsURLPrefix != "" {
-			b.engine.Static(viteCfg.AssetsURLPrefix, "frontend/dist")
+			// Derive the assets directory from the manifest path:
+			// e.g. "./frontend/dist/.vite/manifest.json" → "./frontend/dist"
+			assetsDir := filepath.Dir(filepath.Dir(viteCfg.ManifestPath))
+			b.engine.Static(viteCfg.AssetsURLPrefix, assetsDir)
 		}
 	}
 
