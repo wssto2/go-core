@@ -406,6 +406,24 @@ func (b *AppBuilder) WithDBTokenAuth(store auth.TokenStore, resolver auth.Identi
 	return b
 }
 
+// WithAuthProvider binds a custom auth.Provider, replacing any provider previously
+// registered by WithJWTAuth or WithDBTokenAuth. Use this when you need a provider
+// that the built-in helpers do not cover — for example, combining multiple strategies
+// with auth.NewMultiProvider:
+//
+//	dbProvider  := auth.NewDBTokenProvider(store, resolver, pool)
+//	jwtProvider := auth.NewJWTProvider(cfg, resolver)
+//	.WithAuthProvider(auth.NewMultiProvider(jwtProvider, dbProvider))
+func (b *AppBuilder) WithAuthProvider(provider auth.Provider) *AppBuilder {
+	if provider == nil {
+		b.errors = append(b.errors, fmt.Errorf("auth provider must not be nil"))
+		return b
+	}
+	Bind[auth.Provider](b.container, provider)
+
+	return b
+}
+
 func (b *AppBuilder) WithHttp() *AppBuilder {
 	port := b.cfg.HTTP.Port
 	if port == 0 {
