@@ -107,6 +107,7 @@ type DBTokenProvider struct {
 	store    TokenStore
 	resolver IdentityResolver
 	pool     workerPool
+	cache    *tokenCache // nil = disabled
 }
 
 // workerPool is a minimal interface for submitting background jobs,
@@ -115,15 +116,41 @@ type workerPool interface {
 	Submit(ctx context.Context, job func(context.Context) error) error
 }
 
+// DBProviderOption configures a DBTokenProvider.
+type DBProviderOption func(*DBTokenProvider)
+
+// WithVerifyCache enables an in-memory cache for token verification results.
+// Repeated requests with the same token skip the DB lookup for up to ttl.
+// Revoked tokens remain valid in cache until evicted (up to ttl); choose a
+// short TTL (e.g. 30s) to bound the staleness window after logout.
+func WithVerifyCache(ttl time.Duration) DBProviderOption {
+	return func(p *DBTokenProvider) {
+		p.cache = newTokenCache(ttl)
+	}
+}
+
 // NewDBTokenProvider returns a DBTokenProvider that uses pool for bounded
 // background UpdateTouch jobs. The pool should be started before the server
 // begins serving requests (bootstrap does this automatically via Boot).
-func NewDBTokenProvider(store TokenStore, res IdentityResolver, pool workerPool) *DBTokenProvider {
-	return &DBTokenProvider{store: store, resolver: res, pool: pool}
+func NewDBTokenProvider(store TokenStore, res IdentityResolver, pool workerPool, opts ...DBProviderOption) *DBTokenProvider {
+	p := &DBTokenProvider{store: store, resolver: res, pool: pool}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
 }
 
 // Verify validates the token against the store and resolves the user.
+// If a cache is configured and the token was recently validated, the cached
+// identity is returned without any DB round-trips.
 func (p *DBTokenProvider) Verify(ctx context.Context, token string) (Identifiable, error) {
+	if p.cache != nil {
+		if e, ok := p.cache.get(token); ok {
+			p.touchAsync(e.tokenID)
+			return e.user, nil
+		}
+	}
+
 	ut, err := p.store.FindValidToken(ctx, token)
 	if err != nil {
 		return nil, errors.New("unauthorized: invalid or expired token")
@@ -131,7 +158,31 @@ func (p *DBTokenProvider) Verify(ctx context.Context, token string) (Identifiabl
 
 	p.touchAsync(ut.ID)
 
-	return p.resolver(ctx, strconv.Itoa(int(ut.UserID)))
+	user, err := p.resolver(ctx, strconv.Itoa(int(ut.UserID)))
+	if err != nil {
+		return nil, err
+	}
+
+	if p.cache != nil {
+		p.cache.set(token, ut.ID, user, ut.ExpiresAt)
+	}
+
+	return user, nil
+}
+
+// InvalidateToken removes a token from the verify cache immediately.
+// Call this on logout so revoked tokens are not served from cache.
+func (p *DBTokenProvider) InvalidateToken(token string) {
+	if p.cache != nil {
+		p.cache.delete(token)
+	}
+}
+
+// Stop shuts down the cache's background sweep goroutine, if any.
+func (p *DBTokenProvider) Stop() {
+	if p.cache != nil {
+		p.cache.Stop()
+	}
 }
 
 // touchAsync updates the token's last-used timestamp in the background.
