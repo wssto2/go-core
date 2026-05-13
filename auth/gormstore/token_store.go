@@ -6,20 +6,39 @@ import (
 	"time"
 
 	"github.com/wssto2/go-core/auth"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
-// dummyRefreshTokenHash is a pre-computed bcrypt hash used to perform a constant-time
-// comparison when no DB candidates are found, preventing timing-based prefix enumeration.
-var dummyRefreshTokenHash, _ = bcrypt.GenerateFromPassword([]byte("$dummy-refresh-token$"), bcrypt.DefaultCost)
+type TokenStoreOption func(*gormTokenStore)
 
-type gormTokenStore struct {
-	db *gorm.DB
+// WithRefreshHasher overrides the hasher used for refresh token storage and
+// verification. Defaults to BcryptHasher. Use HMACHasher for high-entropy
+// random tokens to eliminate the bcrypt latency (~80ms per operation).
+func WithRefreshHasher(h auth.Hasher) TokenStoreOption {
+	return func(s *gormTokenStore) {
+		s.refreshHasher = h
+		s.dummyHash, _ = h.Hash("$dummy-refresh-token$")
+	}
 }
 
-func NewGormTokenStore(db *gorm.DB) auth.TokenStore {
-	return &gormTokenStore{db: db}
+type gormTokenStore struct {
+	db            *gorm.DB
+	refreshHasher auth.Hasher
+	dummyHash     string // pre-computed hash for timing-safe "no candidates" path
+}
+
+func NewGormTokenStore(db *gorm.DB, opts ...TokenStoreOption) auth.TokenStore {
+	defaultHasher := &auth.BcryptHasher{}
+	dummyHash, _ := defaultHasher.Hash("$dummy-refresh-token$")
+	s := &gormTokenStore{
+		db:            db,
+		refreshHasher: defaultHasher,
+		dummyHash:     dummyHash,
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func (s *gormTokenStore) FindValidToken(ctx context.Context, val string) (*auth.Token, error) {
@@ -49,14 +68,14 @@ func (s *gormTokenStore) FindByRefreshToken(ctx context.Context, refresh string)
 	// Perform a dummy comparison when no candidates exist to normalize timing
 	// and prevent attackers from enumerating valid refresh token prefixes.
 	if len(candidates) == 0 {
-		_ = bcrypt.CompareHashAndPassword(dummyRefreshTokenHash, []byte(refresh))
+		s.refreshHasher.Compare("$dummy-refresh-token$", s.dummyHash)
 		return nil, gorm.ErrRecordNotFound
 	}
 
 	// Iterate ALL candidates before returning to avoid early-exit timing leaks.
 	var found *auth.Token
 	for _, c := range candidates {
-		if (&auth.BcryptHasher{}).Compare(refresh, c.RefreshToken) && found == nil {
+		if s.refreshHasher.Compare(refresh, c.RefreshToken) && found == nil {
 			found = &c
 		}
 	}
@@ -77,7 +96,7 @@ func (s *gormTokenStore) RotateRefreshToken(ctx context.Context, id uint64, newR
 	if len(newRefresh) < 8 {
 		return errors.New("refresh token too short")
 	}
-	hashed, err := (&auth.BcryptHasher{}).Hash(newRefresh)
+	hashed, err := s.refreshHasher.Hash(newRefresh)
 	if err != nil {
 		return err
 	}
@@ -95,7 +114,7 @@ func (s *gormTokenStore) FindAndRotateRefreshToken(ctx context.Context, oldRefre
 if len(newRefresh) < 8 {
 return nil, errors.New("new refresh token too short")
 }
-hashed, err := (&auth.BcryptHasher{}).Hash(newRefresh)
+hashed, err := s.refreshHasher.Hash(newRefresh)
 if err != nil {
 return nil, err
 }
@@ -116,7 +135,7 @@ return err
 if token.ID == 0 {
 return auth.ErrUnauthorized
 }
-if !(&auth.BcryptHasher{}).Compare(oldRefresh, token.RefreshToken) {
+if !s.refreshHasher.Compare(oldRefresh, token.RefreshToken) {
 return auth.ErrUnauthorized
 }
 if token.Revoked || token.IsExpired() {
