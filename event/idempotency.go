@@ -71,7 +71,7 @@ func ConfirmKey(ctx context.Context, tx *gorm.DB, key string, resp []byte) error
 	if resp != nil {
 		updates["response"] = resp
 	}
-	return tx.WithContext(ctx).Model(&IdempotencyRecord{}).Where("key = ?", key).Updates(updates).Error
+	return tx.WithContext(ctx).Model(&IdempotencyRecord{}).Where("`key` = ?", key).Updates(updates).Error
 }
 
 // GetResponse fetches stored response for a key if present. Found==false when no record.
@@ -80,7 +80,7 @@ func GetResponse(ctx context.Context, db *gorm.DB, key string) (resp []byte, fou
 		return nil, false, gorm.ErrInvalidDB
 	}
 	var r IdempotencyRecord
-	if err := db.WithContext(ctx).Where("key = ?", key).First(&r).Error; err != nil {
+	if err := db.WithContext(ctx).Where("`key` = ?", key).First(&r).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, false, nil
 		}
@@ -136,7 +136,7 @@ func (s *DBProcessedStore) Release(ctx context.Context, id string) error {
 	if id == "" {
 		return nil
 	}
-	return s.db.WithContext(ctx).Where("key = ?", id).Delete(&IdempotencyRecord{}).Error
+	return s.db.WithContext(ctx).Where("`key` = ?", id).Delete(&IdempotencyRecord{}).Error
 }
 
 // GetResponse fetches the stored response payload for a key, if present.
