@@ -103,6 +103,7 @@ func (b *AppBuilder) setupDatabase() {
 	regCfg := database.RegistryConfig{
 		LogLevel:           b.cfg.Database.LogLevel,
 		SlowQueryThreshold: b.cfg.Database.SlowQueryThreshold,
+		LogParameters:      b.cfg.Database.LogParameters,
 	}
 
 	connections := make([]database.ConnectionConfig, 0, len(b.cfg.Database.Connections))

@@ -92,6 +92,11 @@ type DatabaseConfig struct {
 
 	// SlowQueryThreshold is the duration above which a query is considered slow.
 	SlowQueryThreshold time.Duration `env:"DATABASE_SLOW_QUERY_THRESHOLD"`
+
+	// LogParameters controls whether actual query parameter values are shown in
+	// logged SQL. Defaults to false (values hidden with ? placeholders). Set to
+	// true only in non-production environments via DATABASE_LOG_PARAMETERS=true.
+	LogParameters bool `env:"DATABASE_LOG_PARAMETERS"`
 }
 
 type LogConfig struct {

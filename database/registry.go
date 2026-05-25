@@ -309,7 +309,7 @@ func (r *Registry) buildLogger() logger.Interface {
 			SlowThreshold:             r.cfg.SlowQueryThreshold,
 			LogLevel:                  level,
 			IgnoreRecordNotFoundError: true,
-			ParameterizedQueries:      true,
+			ParameterizedQueries:      !r.cfg.LogParameters,
 			Colorful:                  false,
 		},
 	)

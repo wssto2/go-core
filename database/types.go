@@ -76,6 +76,12 @@ type RegistryConfig struct {
 	// SlowQueryThreshold is the duration above which a query is considered slow.
 	// Default: 1 second.
 	SlowQueryThreshold time.Duration
+
+	// LogParameters controls whether actual query parameter values are included
+	// in the logged SQL output. When true, real values are shown in place of ?
+	// placeholders. When false (default), placeholders are kept to avoid
+	// leaking sensitive data in logs. Only enable in non-production environments.
+	LogParameters bool
 }
 
 func (c RegistryConfig) withDefaults() RegistryConfig {
