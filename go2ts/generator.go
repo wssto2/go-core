@@ -254,6 +254,12 @@ func GenerateTypes(entities []interface{}, dir string) error {
 
 	ctx := &GenContext{}
 
+	// Pre-register all aliases so cross-references in other types resolve correctly
+	// regardless of the order entries appear in the slice.
+	for _, entry := range entities {
+		unwrapEntry(entry, ctx)
+	}
+
 	pending := entities
 	for len(pending) > 0 {
 		current := unwrapEntry(pending[0], ctx)

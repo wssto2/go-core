@@ -208,3 +208,41 @@ func TestGenerateTypes_CreatesOutputDirectory(t *testing.T) {
 	_, err := os.Stat(dir)
 	assert.NoError(t, err)
 }
+
+// Phase is a type that would collide with a common name; aliased to "LeadPhase".
+type Phase struct {
+	ID    int    `json:"id"`
+	Label string `json:"label"`
+}
+
+type LeadWithPhase struct {
+	ID    int    `json:"id"`
+	Phase *Phase `json:"phase,omitempty"`
+}
+
+// TestGenerateTypes_AliasAppliesBeforeParentIsProcessed verifies that when a
+// parent type (LeadWithPhase) is listed before the As() alias entry for its
+// nested type (Phase → "LeadPhase"), the generated parent file still references
+// the aliased name and not the original Go struct name.
+func TestGenerateTypes_AliasAppliesBeforeParentIsProcessed(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, go2ts.GenerateTypes([]interface{}{
+		LeadWithPhase{},
+		go2ts.As(Phase{}, "LeadPhase"),
+	}, dir))
+
+	parent, err := os.ReadFile(filepath.Join(dir, "LeadWithPhase.ts"))
+	require.NoError(t, err)
+	src := string(parent)
+
+	assert.Contains(t, src, "phase?: LeadPhase | null", "parent should reference the aliased name")
+	assert.Contains(t, src, "import type { LeadPhase } from './LeadPhase'")
+	assert.NotContains(t, src, "import type { Phase }", "original name must not appear as import")
+
+	_, err = os.ReadFile(filepath.Join(dir, "LeadPhase.ts"))
+	require.NoError(t, err, "aliased file LeadPhase.ts must be generated")
+
+	_, err = os.Stat(filepath.Join(dir, "Phase.ts"))
+	assert.True(t, os.IsNotExist(err), "Phase.ts must not be generated when aliased")
+}
