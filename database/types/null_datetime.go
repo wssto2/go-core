@@ -35,7 +35,7 @@ func (d NullDateTime) Value() (driver.Value, error) {
 	if d.value == nil {
 		return nil, nil
 	}
-	return d.value.Format("2006-01-02 15:04:05"), nil
+	return d.value.In(time.Local).Format("2006-01-02 15:04:05"), nil
 }
 
 func (d *NullDateTime) Scan(value interface{}) error {
@@ -47,13 +47,13 @@ func (d *NullDateTime) Scan(value interface{}) error {
 	case time.Time:
 		d.value = &v
 	case []byte:
-		t, err := time.Parse("2006-01-02 15:04:05", string(v))
+		t, err := time.ParseInLocation("2006-01-02 15:04:05", string(v), time.Local)
 		if err != nil {
 			return err
 		}
 		d.value = &t
 	case string:
-		t, err := time.Parse("2006-01-02 15:04:05", v)
+		t, err := time.ParseInLocation("2006-01-02 15:04:05", v, time.Local)
 		if err != nil {
 			return err
 		}
@@ -86,14 +86,14 @@ func (d NullDateTime) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
 	if d.value == nil {
 		return clause.Expr{SQL: "NULL"}
 	}
-	return clause.Expr{SQL: "?", Vars: []interface{}{d.value.Format("2006-01-02 15:04:05")}}
+	return clause.Expr{SQL: "?", Vars: []interface{}{d.value.In(time.Local).Format("2006-01-02 15:04:05")}}
 }
 
 func (d NullDateTime) MarshalJSON() ([]byte, error) {
 	if d.value == nil {
 		return []byte(database.Null), nil
 	}
-	return json.Marshal(d.value.Format("2006-01-02 15:04:05"))
+	return json.Marshal(d.value.In(time.Local).Format("2006-01-02 15:04:05"))
 }
 
 func (d *NullDateTime) UnmarshalJSON(data []byte) error {
@@ -109,7 +109,7 @@ func (d *NullDateTime) UnmarshalJSON(data []byte) error {
 		d.value = nil
 		return nil
 	}
-	t, err := time.Parse("2006-01-02 15:04:05", s)
+	t, err := time.ParseInLocation("2006-01-02 15:04:05", s, time.Local)
 	if err != nil {
 		return err
 	}

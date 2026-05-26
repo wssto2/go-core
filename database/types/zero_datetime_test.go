@@ -17,7 +17,7 @@ func TestZeroDateTime_NilValue_WritesMysql5Zero(t *testing.T) {
 }
 
 func TestZeroDateTime_NonNilValue_WritesFormatted(t *testing.T) {
-	ts := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
+	ts := time.Date(2024, 6, 15, 12, 0, 0, 0, time.Local)
 	d := NewZeroDateTime(ts)
 	v, err := d.Value()
 	if err != nil {
@@ -49,7 +49,7 @@ func TestZeroDateTime_ScanZeroTime_ReturnsNil(t *testing.T) {
 }
 
 func TestZeroDateTime_ScanRealTime_ReturnsTime(t *testing.T) {
-	ts := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
+	ts := time.Date(2024, 6, 15, 12, 0, 0, 0, time.Local)
 	var d ZeroDateTime
 	if err := d.Scan(ts); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -91,7 +91,7 @@ func TestZeroDateTime_UnmarshalJSON_Mysql5ZeroStringIsNil(t *testing.T) {
 }
 
 func TestZeroDateTime_RoundTrip(t *testing.T) {
-	ts := time.Date(2025, 1, 31, 8, 30, 0, 0, time.UTC)
+	ts := time.Date(2025, 1, 31, 8, 30, 0, 0, time.Local)
 	d := NewZeroDateTime(ts)
 
 	b, err := d.MarshalJSON()
