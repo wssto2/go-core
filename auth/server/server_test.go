@@ -99,7 +99,15 @@ func TestParse_TamperedToken(t *testing.T) {
 	tok, err := i.Issue(context.Background(), "alice", time.Minute)
 	require.NoError(t, err)
 
-	tampered := tok[:len(tok)-1] + "A"
+	// Replace the last character with a different one to guarantee the
+	// signature changes. Using a conditional replacement avoids the 1-in-64
+	// chance that the original last character is already the replacement.
+	last := tok[len(tok)-1]
+	replacement := byte('A')
+	if last == replacement {
+		replacement = 'B'
+	}
+	tampered := tok[:len(tok)-1] + string(replacement)
 	_, err = i.Parse(tampered)
 	assert.ErrorIs(t, err, ErrTokenInvalid)
 }

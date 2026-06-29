@@ -237,9 +237,14 @@ func (r *Registry) openConnection(cfg ConnectionConfig) (*gorm.DB, error) {
 }
 
 func (r *Registry) openMySQL(cfg ConnectionConfig) (*gorm.DB, error) {
+	charset := cfg.Charset
+	if charset == "" {
+		charset = "utf8mb4"
+	}
+
 	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local",
-		cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database,
+		"%s:%s@tcp(%s:%s)/%s?charset=%s&parseTime=true&loc=Local",
+		cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database, charset,
 	)
 	if cfg.SQLMode != "" {
 		dsn += "&sql_mode=" + url.QueryEscape("'"+cfg.SQLMode+"'")

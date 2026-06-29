@@ -68,6 +68,12 @@ type DatabaseConnectionConfig struct {
 	//   "ALLOW_INVALID_DATES,NO_ENGINE_SUBSTITUTION"
 	SQLMode string
 
+	// Charset overrides the connection charset in the MySQL DSN.
+	// Defaults to "utf8mb4" when empty, which requires MySQL >= 5.5.3.
+	// Set to "utf8" when connecting to older MySQL servers (< 5.5.3) that do
+	// not support utf8mb4.
+	Charset string
+
 	// Maximum number of connections in the idle connection
 	// pool. Default: 5
 	MaxIdleConns int

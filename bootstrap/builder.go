@@ -117,6 +117,7 @@ func (b *AppBuilder) setupDatabase() {
 			Username:        conn.Username,
 			Password:        conn.Password,
 			SQLMode:         conn.SQLMode,
+			Charset:         conn.Charset,
 			MaxIdleConns:    conn.MaxIdleConns,
 			MaxOpenConns:    conn.MaxOpenConns,
 			ConnMaxLifetime: conn.ConnMaxLifetime,

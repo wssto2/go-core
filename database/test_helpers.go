@@ -122,5 +122,17 @@ func openSQLiteMemory() (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open SQLite in-memory: %w", err)
 	}
+
+	// SQLite :memory: databases are private to each physical connection.
+	// If the pool opens a second connection it gets a brand-new, empty
+	// database — causing "no such table" errors in tests that use goroutines
+	// (e.g. resource.FindByID with multiple WithCount calls). Pin the pool
+	// to a single connection so all operations share the same in-memory DB.
+	sqlDB, err := conn.DB()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get underlying sql.DB: %w", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+
 	return conn, nil
 }

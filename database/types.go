@@ -40,6 +40,12 @@ type ConnectionConfig struct {
 	// See https://dev.mysql.com/doc/refman/8.0/en/sql-mode.html for the full list.
 	SQLMode string
 
+	// Charset overrides the connection charset in the MySQL DSN.
+	// Defaults to "utf8mb4" when empty, which requires MySQL >= 5.5.3.
+	// Set to "utf8" when connecting to older MySQL servers (< 5.5.3) that do
+	// not support utf8mb4.
+	Charset string
+
 	// Pool settings — zero values use the defaults below.
 	MaxIdleConns    int // default: 5
 	MaxOpenConns    int // default: 75
