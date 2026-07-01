@@ -171,12 +171,19 @@ func coerceSlice(field reflect.Value, v []interface{}, isMultipart bool) *valida
 	return nil
 }
 
-// coerceMap handles JSON objects → map fields.
+// coerceMap handles JSON objects → map or struct fields.
 func coerceMap(field reflect.Value, v map[string]interface{}) *validation.Failure {
-	if field.Kind() != reflect.Map {
+	switch field.Kind() {
+	case reflect.Map:
+		return coerceMapIntoMap(field, v)
+	case reflect.Struct:
+		return coerceMapIntoStruct(field, v)
+	default:
 		return utils.Ptr(validation.Fail(validation.CodeMustBeObject))
 	}
+}
 
+func coerceMapIntoMap(field reflect.Value, v map[string]interface{}) *validation.Failure {
 	mapValue := reflect.MakeMap(field.Type())
 	for key, val := range v {
 		elem := reflect.New(field.Type().Elem()).Elem()
@@ -187,5 +194,20 @@ func coerceMap(field reflect.Value, v map[string]interface{}) *validation.Failur
 	}
 
 	field.Set(mapValue)
+	return nil
+}
+
+func coerceMapIntoStruct(field reflect.Value, v map[string]interface{}) *validation.Failure {
+	for _, meta := range getFieldMeta(field.Type()) {
+		rawVal, present := v[meta.formKey]
+		if !present || rawVal == nil {
+			continue
+		}
+
+		if msg := coerceValue(field.Field(meta.index), rawVal, false); msg != nil {
+			return msg
+		}
+	}
+
 	return nil
 }

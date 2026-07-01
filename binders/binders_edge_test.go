@@ -263,6 +263,35 @@ func TestBindRaw_JsonDashExcludesField(t *testing.T) {
 	}
 }
 
+func TestBindRaw_ArrayOfObjects_CoercesIntoStructSlice(t *testing.T) {
+	type Item struct {
+		Name  string  `json:"name"`
+		Price float64 `json:"price"`
+	}
+	type Req struct {
+		Items []Item `json:"items"`
+	}
+	raw := map[string]any{
+		"items": []interface{}{
+			map[string]interface{}{"name": "tires", "price": 100.5},
+			map[string]interface{}{"name": "rims", "price": 200.0},
+		},
+	}
+	var req Req
+	if err := BindRaw(&req, raw, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(req.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(req.Items))
+	}
+	if req.Items[0].Name != "tires" || req.Items[0].Price != 100.5 {
+		t.Errorf("unexpected item[0]: %+v", req.Items[0])
+	}
+	if req.Items[1].Name != "rims" || req.Items[1].Price != 200.0 {
+		t.Errorf("unexpected item[1]: %+v", req.Items[1])
+	}
+}
+
 // helpers
 
 func isAppErr(err error, out **apperr.AppError) bool {
