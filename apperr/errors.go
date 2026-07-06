@@ -18,7 +18,14 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 )
+
+// apperrPkgPrefix identifies stack frames belonging to this package so they
+// can be skipped when locating the real caller site.
+const apperrPkgPrefix = "github.com/wssto2/go-core/apperr."
+
+const maxStackDepth = 32
 
 // Level defines the log level for the error.
 type Level string
@@ -38,8 +45,9 @@ type AppError struct {
 	Message  string            // User-friendly message
 	LogLevel Level             // Suggestion for logging level
 	Fields   map[string]string // Optional field-level detail (e.g. for 409 conflicts)
-	File     string            // Source file
-	Line     int               // Source line
+	File     string            // Source file of the real call site (outside this package)
+	Line     int               // Source line of the real call site
+	Stack    []string          // Call stack ("file:line" entries), outermost first, excluding this package's own frames
 }
 
 func (e *AppError) Error() string {
@@ -53,8 +61,40 @@ func (e *AppError) Unwrap() error {
 	return e.Err
 }
 
-func newWithSkip(err error, message string, code Code, skip int) *AppError {
-	_, file, line, _ := runtime.Caller(skip)
+// captureStack walks the call stack starting at its caller, skipping any
+// leading frames that belong to this package (so wrapper functions like
+// Internal/NotFound/BadRequest don't themselves show up as the call site),
+// and returns the first frame outside the package plus the full remaining
+// stack.
+func captureStack() (file string, line int, stack []string) {
+	var pcs [maxStackDepth]uintptr
+	n := runtime.Callers(2, pcs[:]) // skip runtime.Callers and captureStack itself
+	frames := runtime.CallersFrames(pcs[:n])
+
+	skippingInternal := true
+	for {
+		frame, more := frames.Next()
+		if skippingInternal && strings.HasPrefix(frame.Function, apperrPkgPrefix) {
+			if !more {
+				break
+			}
+			continue
+		}
+		skippingInternal = false
+
+		stack = append(stack, fmt.Sprintf("%s:%d", frame.File, frame.Line))
+		if file == "" {
+			file, line = frame.File, frame.Line
+		}
+		if !more {
+			break
+		}
+	}
+	return file, line, stack
+}
+
+func newWithSkip(err error, message string, code Code) *AppError {
+	file, line, stack := captureStack()
 	return &AppError{
 		Err:      err,
 		Code:     code,
@@ -62,12 +102,13 @@ func newWithSkip(err error, message string, code Code, skip int) *AppError {
 		LogLevel: LevelError,
 		File:     file,
 		Line:     line,
+		Stack:    stack,
 	}
 }
 
 // New creates a generic AppError.
 func New(err error, message string, code Code) *AppError {
-	return newWithSkip(err, message, code, 2)
+	return newWithSkip(err, message, code)
 }
 
 // Wrap wraps err in a new AppError with the given message and code.
@@ -78,7 +119,7 @@ func Wrap(err error, message string, code Code) *AppError {
 	if err == nil {
 		return New(nil, message, code)
 	}
-	_, file, line, _ := runtime.Caller(1)
+	file, line, stack := captureStack()
 	return &AppError{
 		Err:      err, // preserve original as cause, accessible via errors.As/Is
 		Code:     code,
@@ -86,6 +127,7 @@ func Wrap(err error, message string, code Code) *AppError {
 		LogLevel: LevelError,
 		File:     file,
 		Line:     line,
+		Stack:    stack,
 	}
 }
 
@@ -94,7 +136,7 @@ func Wrap(err error, message string, code Code) *AppError {
 func WrapPreserve(err error, message string) *AppError {
 	var appErr *AppError
 	if errors.As(err, &appErr) {
-		_, file, line, _ := runtime.Caller(1)
+		file, line, stack := captureStack()
 		return &AppError{
 			Err:      err,
 			Code:     appErr.Code,
@@ -102,6 +144,7 @@ func WrapPreserve(err error, message string) *AppError {
 			LogLevel: appErr.LogLevel,
 			File:     file,
 			Line:     line,
+			Stack:    stack,
 		}
 	}
 	return New(err, message, CodeInternal)
