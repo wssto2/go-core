@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/validation"
@@ -289,6 +290,107 @@ func TestBindRaw_ArrayOfObjects_CoercesIntoStructSlice(t *testing.T) {
 	}
 	if req.Items[1].Name != "rims" || req.Items[1].Price != 200.0 {
 		t.Errorf("unexpected item[1]: %+v", req.Items[1])
+	}
+}
+
+// --- pointer field coercion ---
+
+func TestBindRaw_PointerInt_JSON_CoercesRealValue(t *testing.T) {
+	t.Parallel()
+
+	type Req struct {
+		BodyTypeID *int `json:"bodyTypeId"`
+	}
+	raw := map[string]any{"bodyTypeId": float64(42)}
+	var req Req
+	if err := BindRaw(&req, raw, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.BodyTypeID == nil || *req.BodyTypeID != 42 {
+		t.Fatalf("expected BodyTypeID=&42, got %v", req.BodyTypeID)
+	}
+}
+
+func TestBindRaw_PointerBool_JSON_CoercesRealValue(t *testing.T) {
+	t.Parallel()
+
+	type Req struct {
+		IsConfirmed *bool `json:"isConfirmed"`
+	}
+	raw := map[string]any{"isConfirmed": false}
+	var req Req
+	if err := BindRaw(&req, raw, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.IsConfirmed == nil || *req.IsConfirmed != false {
+		t.Fatalf("expected IsConfirmed=&false, got %v", req.IsConfirmed)
+	}
+}
+
+func TestBindRaw_PointerField_ExplicitNull_LeavesNil(t *testing.T) {
+	t.Parallel()
+
+	type Req struct {
+		BodyTypeID *int `json:"bodyTypeId"`
+	}
+	raw := map[string]any{"bodyTypeId": nil}
+	var req Req
+	if err := BindRaw(&req, raw, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.BodyTypeID != nil {
+		t.Fatalf("expected BodyTypeID to remain nil, got %v", req.BodyTypeID)
+	}
+}
+
+func TestBindRaw_PointerTime_JSON_ParsesRFC3339String(t *testing.T) {
+	t.Parallel()
+
+	type Req struct {
+		FirstRegistrationDate *time.Time `json:"firstRegistrationDate"`
+	}
+	raw := map[string]any{"firstRegistrationDate": "2019-06-01T00:00:00Z"}
+	var req Req
+	if err := BindRaw(&req, raw, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.FirstRegistrationDate == nil {
+		t.Fatal("expected FirstRegistrationDate to be set, got nil")
+	}
+	want := time.Date(2019, 6, 1, 0, 0, 0, 0, time.UTC)
+	if !req.FirstRegistrationDate.Equal(want) {
+		t.Fatalf("expected %v, got %v", want, *req.FirstRegistrationDate)
+	}
+}
+
+func TestBindRaw_Time_JSON_ParsesRFC3339String(t *testing.T) {
+	t.Parallel()
+
+	type Req struct {
+		CreatedAt time.Time `json:"createdAt"`
+	}
+	raw := map[string]any{"createdAt": "2019-06-01T00:00:00Z"}
+	var req Req
+	if err := BindRaw(&req, raw, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := time.Date(2019, 6, 1, 0, 0, 0, 0, time.UTC)
+	if !req.CreatedAt.Equal(want) {
+		t.Fatalf("expected %v, got %v", want, req.CreatedAt)
+	}
+}
+
+func TestBindRaw_PointerInt_InvalidType_ReturnsFailure(t *testing.T) {
+	t.Parallel()
+
+	type Req struct {
+		BodyTypeID *int `json:"bodyTypeId"`
+	}
+	raw := map[string]any{"bodyTypeId": "not-a-number"}
+	var req Req
+	err := BindRaw(&req, raw, false)
+	if err == nil {
+		t.Fatal("expected error for JSON string into *int field")
 	}
 }
 

@@ -1,6 +1,7 @@
 package binders
 
 import (
+	"encoding/json"
 	"math"
 	"reflect"
 	"strconv"
@@ -21,6 +22,20 @@ func coerceValue(field reflect.Value, value any, isMultipart bool) *validation.F
 		return nil
 	}
 
+	// Pointer fields (used to distinguish "not provided" from an explicit
+	// zero, e.g. for nullable DB columns) allocate on first write, then
+	// coerce into the pointed-to value.
+	if field.Kind() == reflect.Ptr {
+		return coercePointer(field, value, isMultipart)
+	}
+
+	// Types with custom JSON decoding (e.g. time.Time) are handled by
+	// round-tripping the already-decoded value back through their own
+	// UnmarshalJSON, rather than by the generic kind-based switch below.
+	if unmarshaler, ok := jsonUnmarshaler(field); ok {
+		return coerceViaUnmarshaler(unmarshaler, value)
+	}
+
 	switch v := value.(type) {
 	case string:
 		return coerceString(field, v, isMultipart)
@@ -35,6 +50,40 @@ func coerceValue(field reflect.Value, value any, isMultipart bool) *validation.F
 	default:
 		return utils.Ptr(validation.Fail(validation.CodeInvalidType))
 	}
+}
+
+// coercePointer allocates field (if nil) and coerces value into the
+// pointed-to element.
+func coercePointer(field reflect.Value, value any, isMultipart bool) *validation.Failure {
+	if field.IsNil() {
+		field.Set(reflect.New(field.Type().Elem()))
+	}
+	return coerceValue(field.Elem(), value, isMultipart)
+}
+
+// jsonUnmarshaler returns field's json.Unmarshaler implementation, if any.
+// time.Time is the primary case: JSON parsing decodes it as a plain string,
+// so it must be routed through its own UnmarshalJSON rather than the
+// generic kind-based switch in coerceValue.
+func jsonUnmarshaler(field reflect.Value) (json.Unmarshaler, bool) {
+	if !field.CanAddr() {
+		return nil, false
+	}
+	u, ok := field.Addr().Interface().(json.Unmarshaler)
+	return u, ok
+}
+
+// coerceViaUnmarshaler re-marshals the already-decoded value back to JSON
+// bytes and feeds them to u.UnmarshalJSON.
+func coerceViaUnmarshaler(u json.Unmarshaler, value any) *validation.Failure {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return utils.Ptr(validation.Fail(validation.CodeInvalidType))
+	}
+	if err := u.UnmarshalJSON(raw); err != nil {
+		return utils.Ptr(validation.Fail(validation.CodeInvalidType))
+	}
+	return nil
 }
 
 // coerceString handles string → target kind.
