@@ -100,7 +100,7 @@ func mapGoTypeToZodBaseScoped(t reflect.Type, parentName string, ctx *GenContext
 	case reflect.Struct:
 		switch t.Name() {
 		case "Time":
-			return "z.string().datetime()", isNullable
+			return "z.string().datetime({ offset: true })", isNullable
 		case "String":
 			return "z.string()", isNullable
 		case "NullString":
@@ -118,9 +118,9 @@ func mapGoTypeToZodBaseScoped(t reflect.Type, parentName string, ctx *GenContext
 		case "NullDate":
 			return "z.string().date()", true
 		case "DateTime":
-			return "z.string().datetime()", isNullable
+			return "z.string().datetime({ offset: true })", isNullable
 		case "NullDateTime":
-			return "z.string().datetime()", true
+			return "z.string().datetime({ offset: true })", true
 		case "Bool":
 			return "z.boolean()", isNullable
 		case "Enum":
@@ -266,15 +266,15 @@ func fieldToZodExprScoped(
 				needsOrEmpty = true
 			}
 		case "date":
-			if !strings.Contains(expr, ".date()") && !strings.Contains(expr, ".datetime()") {
+			if !strings.Contains(expr, ".date()") && !strings.Contains(expr, ".datetime(") {
 				expr += ".date()"
 				if !isRequired && !isNullable {
 					needsOrEmpty = true
 				}
 			}
 		case "date_time":
-			if !strings.Contains(expr, ".datetime()") {
-				expr += ".datetime()"
+			if !strings.Contains(expr, ".datetime(") {
+				expr += ".datetime({ offset: true })"
 				if !isRequired && !isNullable {
 					needsOrEmpty = true
 				}
