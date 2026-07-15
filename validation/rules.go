@@ -494,7 +494,22 @@ func isOptionalZeroValue(value any) bool {
 	}
 }
 
+// DateValuer is implemented by strongly-typed date/date-time value objects
+// (e.g. an application's own Date/DateTime wrapper) that guarantee their own
+// wire-format invariants at construction/unmarshal time — a malformed string
+// can never end up inside one. DateRule and DateTimeRule treat such values
+// as already validated and only need to check presence via IsZero, rather
+// than re-parsing a string.
+type DateValuer interface {
+	IsZero() bool
+}
+
 func DateRule(attribute string, value any, args string, required bool, fail func(Failure), subject any) {
+	if dv, ok := value.(DateValuer); ok {
+		checkDateValuer(dv, value, required, fail)
+		return
+	}
+
 	str, ok := value.(string)
 	if !ok {
 		if !isPresent(value) && !required {
@@ -512,6 +527,11 @@ func DateRule(attribute string, value any, args string, required bool, fail func
 }
 
 func DateTimeRule(attribute string, value any, args string, required bool, fail func(Failure), subject any) {
+	if dv, ok := value.(DateValuer); ok {
+		checkDateValuer(dv, value, required, fail)
+		return
+	}
+
 	str, ok := value.(string)
 	if !ok {
 		if !isPresent(value) && !required {
@@ -524,6 +544,22 @@ func DateTimeRule(attribute string, value any, args string, required bool, fail 
 		return
 	}
 	if _, err := time.Parse(time.RFC3339, str); err != nil {
+		fail(Fail(CodeDate))
+	}
+}
+
+// checkDateValuer applies presence/zero semantics for a DateValuer-typed
+// field. isPresent(raw) is used (rather than calling a method on dv) so that
+// a nil pointer whose pointee implements IsZero via a value receiver is
+// detected via reflection instead of dereferencing the nil pointer.
+func checkDateValuer(dv DateValuer, raw any, required bool, fail func(Failure)) {
+	if !isPresent(raw) {
+		if required {
+			fail(Fail(CodeDate))
+		}
+		return
+	}
+	if required && dv.IsZero() {
 		fail(Fail(CodeDate))
 	}
 }

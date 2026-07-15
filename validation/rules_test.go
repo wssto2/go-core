@@ -254,6 +254,49 @@ func TestDateTimeRule(t *testing.T) {
 	assert.Empty(t, collectFailures(DateTimeRule, "", "", false))
 }
 
+// fakeDateValuer is a minimal stand-in for a strongly-typed date wrapper
+// (e.g. a shared.Date) that implements DateValuer.
+type fakeDateValuer struct{ zero bool }
+
+func (f fakeDateValuer) IsZero() bool { return f.zero }
+
+func TestDateRule_DateValuer(t *testing.T) {
+	// Non-zero DateValuer value: always passes regardless of required.
+	assert.Empty(t, collectFailures(DateRule, fakeDateValuer{zero: false}, "", false))
+	assert.Empty(t, collectFailures(DateRule, fakeDateValuer{zero: false}, "", true))
+
+	// Zero DateValuer value: passes when optional, fails when required.
+	assert.Empty(t, collectFailures(DateRule, fakeDateValuer{zero: true}, "", false))
+	failures := collectFailures(DateRule, fakeDateValuer{zero: true}, "", true)
+	assert.NotEmpty(t, failures)
+	assert.Equal(t, CodeDate, failures[0].Code)
+
+	// nil DateValuer-typed value: treated as absent, not as a zero-string parse failure.
+	var nilValuer *fakeNilableDateValuer
+	assert.Empty(t, collectFailures(DateRule, nilValuer, "", false))
+	failures = collectFailures(DateRule, nilValuer, "", true)
+	assert.NotEmpty(t, failures)
+	assert.Equal(t, CodeDate, failures[0].Code)
+}
+
+func TestDateTimeRule_DateValuer(t *testing.T) {
+	assert.Empty(t, collectFailures(DateTimeRule, fakeDateValuer{zero: false}, "", true))
+
+	failures := collectFailures(DateTimeRule, fakeDateValuer{zero: true}, "", true)
+	assert.NotEmpty(t, failures)
+	assert.Equal(t, CodeDate, failures[0].Code)
+
+	assert.Empty(t, collectFailures(DateTimeRule, fakeDateValuer{zero: true}, "", false))
+}
+
+// fakeNilableDateValuer implements DateValuer via a pointer receiver so a
+// nil *fakeNilableDateValuer still satisfies the DateValuer interface
+// (non-nil interface value wrapping a nil pointer), exercising the
+// isPresent(raw) nil-pointer detection path in checkDateValuer.
+type fakeNilableDateValuer struct{}
+
+func (f *fakeNilableDateValuer) IsZero() bool { return f == nil }
+
 func TestYearRule(t *testing.T) {
 	assert.Empty(t, collectFailures(YearRule, "2024", "", false))
 	assert.NotEmpty(t, collectFailures(YearRule, "24", "", false))
