@@ -446,7 +446,7 @@ func TestGenerateSchemas_RenamesCollidingNestedTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(pricingContent), "amount: z.number().min(0),") {
+	if !strings.Contains(string(pricingContent), "amount: z.number().min(0).refine((n) => n !== 0, { params: { code: 'required' } }),") {
 		t.Errorf("expected RequestPricing.ts to contain amount field, output:\n%s", string(pricingContent))
 	}
 
@@ -454,7 +454,7 @@ func TestGenerateSchemas_RenamesCollidingNestedTypes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(renamedContent), "rate: z.number().int().min(1),") {
+	if !strings.Contains(string(renamedContent), "rate: z.number().int().min(1).refine((n) => n !== 0, { params: { code: 'required' } }),") {
 		t.Errorf("expected RequestBRequestPricing.ts to contain rate field, output:\n%s", string(renamedContent))
 	}
 }

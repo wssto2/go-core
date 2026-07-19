@@ -34,6 +34,46 @@ type OutboxWorker struct {
 	exitWhenIdle bool
 }
 
+// What it is: the transactional outbox pattern. The problem it solves is
+// subtle and it's the one people miss:
+// // BROKEN — the classic dual-write bug:
+// tx.Commit()                    // vehicle marked sold ✓
+// publishEvent("vehicle.sold")   // ← process crashes HERE → event lost forever
+//
+//	//   or: publish succeeds but tx rolled back → phantom event
+//
+// The outbox fixes it by making the event part of the transaction:
+//
+//	s.transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
+//	    repo.Update(txCtx, &vehicle)                          // mark sold
+//	    outbox.Write(txCtx, VehicleSoldEvent{ID: vehicle.ID}) // same tx, same commit
+//	    return nil
+//	})
+//
+// Later, NewOutboxWorker polls the outbox table (pollInterval, batchSize)
+// and publishes rows that committed. Crash-safe: unpublished rows are
+// still there after restart.
+//
+// Real use case from your domain: a vehicle is sold → you must de-list it from
+// three external portals. If you call the portal APIs inline, the sale request
+// is slow and fails when a portal is down. If you fire-and-forget a goroutine,
+// a deploy at the wrong moment silently leaves a sold car advertised.
+// Outbox: the "sold" event commits atomically with the sale, and the worker
+// retries portal de-listing until it succeeds.
+//
+// Litmus test: "if the server restarts at the worst possible moment, is it
+// a bug for this side effect to be lost or to fire spuriously?" If yes → outbox.
+// How they compose (this is the part that makes it click)
+// They're not three alternatives — they're three layers that often stack:
+// Outbox row = durable what to do.
+// A loop run under Manager = the always-on consumer that picks it up.
+// A Pool inside that consumer = doing a batch of
+// 100 rows with 5 in flight.
+//
+// One sentence each:
+// - Pool — parallelism inside one job; caller waits.
+// - Manager — lifecycle for loops that never finish.
+// - Outbox — durability + atomicity for side effects of a commit.
 func NewOutboxWorker(db *gorm.DB, publish PublishFunc, log *slog.Logger, pollInterval time.Duration, batchSize int, opts ...WorkerOption) *OutboxWorker {
 	if log == nil {
 		log = slog.Default()

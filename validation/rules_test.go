@@ -13,16 +13,56 @@ func collectFailures(rule func(string, any, string, bool, func(Failure), any), v
 }
 
 func TestRequiredRule_PresenceSemantics(t *testing.T) {
-	t.Run("zero int is present", func(t *testing.T) {
-		assert.Empty(t, collectFailures(RequiredRule, 0, "", true))
+	t.Run("zero int is missing", func(t *testing.T) {
+		failures := collectFailures(RequiredRule, 0, "", true)
+		assert.Len(t, failures, 1)
+		assert.Equal(t, CodeRequired, failures[0].Code)
 	})
 
-	t.Run("zero float is present", func(t *testing.T) {
-		assert.Empty(t, collectFailures(RequiredRule, 0.0, "", true))
+	t.Run("zero float is missing", func(t *testing.T) {
+		failures := collectFailures(RequiredRule, 0.0, "", true)
+		assert.Len(t, failures, 1)
+		assert.Equal(t, CodeRequired, failures[0].Code)
 	})
 
-	t.Run("false is present", func(t *testing.T) {
-		assert.Empty(t, collectFailures(RequiredRule, false, "", true))
+	t.Run("zero uint is missing", func(t *testing.T) {
+		failures := collectFailures(RequiredRule, uint(0), "", true)
+		assert.Len(t, failures, 1)
+		assert.Equal(t, CodeRequired, failures[0].Code)
+	})
+
+	t.Run("non-zero int is present", func(t *testing.T) {
+		assert.Empty(t, collectFailures(RequiredRule, 42, "", true))
+	})
+
+	t.Run("negative int is present", func(t *testing.T) {
+		assert.Empty(t, collectFailures(RequiredRule, -1, "", true))
+	})
+
+	t.Run("non-nil pointer to zero int is present", func(t *testing.T) {
+		zero := 0
+		assert.Empty(t, collectFailures(RequiredRule, &zero, "", true))
+	})
+
+	t.Run("nil int pointer is missing", func(t *testing.T) {
+		var value *int
+		failures := collectFailures(RequiredRule, value, "", true)
+		assert.Len(t, failures, 1)
+		assert.Equal(t, CodeRequired, failures[0].Code)
+	})
+
+	t.Run("bool panics as invalid rule config", func(t *testing.T) {
+		assert.Panics(t, func() {
+			collectFailures(RequiredRule, false, "", true)
+		})
+		assert.Panics(t, func() {
+			collectFailures(RequiredRule, true, "", true)
+		})
+	})
+
+	t.Run("non-nil pointer to bool is present", func(t *testing.T) {
+		val := false
+		assert.Empty(t, collectFailures(RequiredRule, &val, "", true))
 	})
 
 	t.Run("empty string is missing", func(t *testing.T) {

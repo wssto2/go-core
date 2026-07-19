@@ -156,6 +156,21 @@ func isStringBase(t reflect.Type) bool {
 	return false
 }
 
+// isNumericBase reports whether t maps to a plain z.number() base. Pointers
+// deliberately return false: a non-nil pointer to zero is a legitimately
+// provided value under the "required means non-zero" numeric contract, so
+// pointer numerics must not receive the non-zero refine.
+func isNumericBase(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return true
+	default:
+		return false
+	}
+}
+
 // buildLiteralUnion generates a Zod literal or union of literals from a
 // comma-separated list of values (e.g. "1,2" → "z.union([z.literal(1), z.literal(2)])").
 func buildLiteralUnion(args string) string {
@@ -227,11 +242,19 @@ func fieldToZodExprScoped(
 	// empty string since Go's validator skips format checks on empty non-required fields.
 	needsOrEmpty := false
 
+	// needsNonZero: "required" on a non-pointer numeric field means non-zero on
+	// the Go side, so the schema must reject 0 too. Appended after the loop
+	// because .refine() returns ZodEffects, which would break any subsequent
+	// .min()/.max() chaining. Pointer numerics keep nullable presence semantics.
+	needsNonZero := false
+
 	for _, r := range rules {
 		switch r.name {
 		case "required":
 			if isStringBase(ft) {
 				expr += ".min(1)"
+			} else if isNumericBase(ft) {
+				needsNonZero = true
 			}
 		case "min":
 			expr += fmt.Sprintf(".min(%s)", r.args)
@@ -280,6 +303,10 @@ func fieldToZodExprScoped(
 				}
 			}
 		}
+	}
+
+	if needsNonZero {
+		expr += ".refine((n) => n !== 0, { params: { code: 'required' } })"
 	}
 
 	// Allow empty string for non-required format-validated string fields,

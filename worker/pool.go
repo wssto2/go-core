@@ -57,6 +57,29 @@ func WithMetrics(m Metrics) Option {
 }
 
 // New creates a new Pool using functional options. Defaults: workers=1, queueSize=workers, logger=slog.Default().
+// What it is: a bounded set of goroutines inside one operation. It exists for
+// exactly one reason: unbounded go func() fan-out is dangerous, so you cap it.
+
+// Real use case from your domain: stamping warranty watermarks onto 40 vehicle
+// photos (postsave/steps/stamp_warranty_photos.go territory). Each stamp is
+// independent CPU/IO work. Sequentially: 40 × 200ms = 8s.
+// Naively: go per photo → 40 goroutines, 40 open files, memory spike.
+// Pool with 5 workers: ~1.6s, bounded resources.
+//
+// pool := worker.New(worker.WithSize(5))
+//
+//	for _, photo := range photos {
+//	    photo := photo
+//	    pool.Submit(func() { stamp(ctx, photo) })
+//	}
+//
+// pool.Wait() // caller still waits — this is SYNCHRONOUS, just parallel
+//
+// Key property: the caller waits for the result. It's not "background"
+// at all — it's parallelism within a request. If the process dies, work is
+// gone, and that's fine because the caller saw the error.
+// Litmus test: "I have N independent pieces of one job and want
+// them faster" → Pool.
 func New(opts ...Option) *Pool {
 	options := &Options{Workers: 1}
 	for _, o := range opts {

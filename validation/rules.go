@@ -25,6 +25,25 @@ var (
 func RequiredRule(attribute string, value any, args string, required bool, fail func(Failure), subject any) {
 	if !isPresent(value) {
 		fail(Fail(CodeRequired))
+		return
+	}
+
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Bool:
+		panic(apperr.Internal(NewErrInvalidRuleConfig("required", attribute,
+			"bool is always present so the rule can never fail; drop it or model the field as *bool")))
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		// For numeric fields "required" means non-zero: an absent numeric in a
+		// decoded request body is indistinguishable from an explicit zero, so
+		// treating zero as present would make the rule unfailable. Fields where
+		// zero is a legitimate provided value must be modeled as pointers —
+		// a non-nil pointer to zero passes (presence is the pointer itself).
+		if v.IsZero() {
+			fail(Fail(CodeRequired))
+		}
 	}
 }
 

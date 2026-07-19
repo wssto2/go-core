@@ -34,6 +34,27 @@ type Manager struct {
 	successAfter time.Duration // running longer than this resets restart count; defaults to 30s
 }
 
+// What it is: not about work items at all. It supervises daemons — loops that
+// start at boot and stop at shutdown — handling lifecycle, graceful stop,
+// logging, metrics.
+//
+// Real use cases from your domain:
+// - A poller that syncs listings to the HR/RS portals every 5 minutes
+// (sync_portals_hr.go as a background loop instead of inline).
+// - The legacy reservation-check cron (PokeReservationCheck exists precisely
+// because some external cron polls a watermark — a Manager-run loop is the Go-native version of that cron).
+// - An auto-deactivation sweep (AutoDeactivateDaysThreshold implies one:
+// "every night, deactivate vehicles older than N days").
+//
+// mgr := worker.NewManager(logger)
+// mgr.Add("portal-sync", portalSyncLoop)      // runs forever
+// mgr.Add("auto-deactivate", deactivateLoop)  // runs forever
+// mgr.Start(ctx)  // at boot; Stop() at shutdown drains them gracefully
+//
+// Key property: no caller is waiting. These loops own themselves; Manager just
+// makes sure they start, stop cleanly on SIGTERM, and get observed.
+// Litmus test: "this should be running whether or not any request comes
+// in" → Manager.
 func NewManager(logger *slog.Logger, opts ...ManagerOption) *Manager {
 	m := &Manager{
 		logger:       logger,
