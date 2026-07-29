@@ -84,9 +84,29 @@ func ErrorHandler(log *slog.Logger, translator *i18n.Translator, debug bool) gin
 
 		status := apperr.GetHTTPStatus(appErr)
 
+		message := appErr.Message
+		if appErr.Reason != "" && translator != nil {
+			locale := ctx.GetString("locale")
+			if locale == "" {
+				locale = "en"
+			}
+			key := "errors." + string(appErr.Reason)
+			// TWith returns the key itself when no translation exists;
+			// keep the original message in that case.
+			if translated := translator.TWith(key, locale, appErr.Params); translated != key {
+				message = translated
+			}
+		}
+
 		resp := gin.H{
 			"success": false,
-			"error":   appErr.Message,
+			"error":   message,
+		}
+		if appErr.Reason != "" {
+			resp["code"] = appErr.Reason
+			if len(appErr.Params) > 0 {
+				resp["params"] = appErr.Params
+			}
 		}
 		if len(appErr.Fields) > 0 {
 			resp["fields"] = appErr.Fields
