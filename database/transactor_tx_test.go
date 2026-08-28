@@ -109,6 +109,84 @@ func TestWithinTransaction_RollsBackOnPanic(t *testing.T) {
 	}
 }
 
+func TestWithinTransaction_NestedCallJoinsAmbientTransaction(t *testing.T) {
+	db := openTestDB(t)
+	outer := NewTransactor(db)
+	inner := NewTransactor(db) // separate Transactor instance, same underlying db
+
+	var outerTx, innerTx *gorm.DB
+
+	err := outer.WithinTransaction(context.Background(), func(ctx context.Context) error {
+		tx, ok := TxFromContext(ctx)
+		if !ok {
+			return errors.New("outer tx not found in context")
+		}
+		outerTx = tx
+
+		if err := tx.Exec("INSERT INTO items(name) VALUES (?)", "outer-write").Error; err != nil {
+			return err
+		}
+
+		return inner.WithinTransaction(ctx, func(innerCtx context.Context) error {
+			innerTxFromCtx, ok := TxFromContext(innerCtx)
+			if !ok {
+				return errors.New("inner tx not found in context")
+			}
+			innerTx = innerTxFromCtx
+
+			return innerTxFromCtx.Exec("INSERT INTO items(name) VALUES (?)", "inner-write").Error
+		})
+	})
+	if err != nil {
+		t.Fatalf("transaction failed: %v", err)
+	}
+
+	if outerTx != innerTx {
+		t.Fatal("expected nested WithinTransaction to join the ambient transaction, got a distinct one")
+	}
+
+	var count int64
+
+	countQuery := "SELECT COUNT(*) FROM items WHERE name IN (?, ?)"
+	if err := db.Raw(countQuery, "outer-write", "inner-write").Scan(&count).Error; err != nil {
+		t.Fatalf("count query failed: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 rows committed together, got %d", count)
+	}
+}
+
+func TestWithinTransaction_NestedCallErrorRollsBackOuter(t *testing.T) {
+	db := openTestDB(t)
+	outer := NewTransactor(db)
+	inner := NewTransactor(db)
+
+	err := outer.WithinTransaction(context.Background(), func(ctx context.Context) error {
+		tx, ok := TxFromContext(ctx)
+		if !ok {
+			return errors.New("outer tx not found in context")
+		}
+		if err := tx.Exec("INSERT INTO items(name) VALUES (?)", "outer-should-rollback").Error; err != nil {
+			return err
+		}
+
+		return inner.WithinTransaction(ctx, func(_ context.Context) error {
+			return errors.New("simulated failure in nested call")
+		})
+	})
+	if err == nil {
+		t.Fatal("expected error to propagate from nested WithinTransaction")
+	}
+
+	var count int64
+	if err := db.Raw("SELECT COUNT(*) FROM items WHERE name = ?", "outer-should-rollback").Scan(&count).Error; err != nil {
+		t.Fatalf("count query failed: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected outer write to roll back when nested call fails, got %d rows", count)
+	}
+}
+
 func TestWithinTransaction_RollsBack(t *testing.T) {
 	db := openTestDB(t)
 	trans := NewTransactor(db)

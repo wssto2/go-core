@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -396,7 +397,10 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 
 	if len(children) > 0 {
 		sb.WriteString("\n")
-		for childName := range children {
+		// children is a map; emit imports in sorted key order so repeated runs
+		// produce byte-identical files (otherwise a regen-and-diff CI guard
+		// reports phantom drift).
+		for _, childName := range sortedKeys(children) {
 			sb.WriteString(fmt.Sprintf("import { %sSchema } from './%s';\n", childName, childName))
 		}
 	}
@@ -452,10 +456,24 @@ func GenerateSchemas(structs []interface{}, dir string) error {
 			return fmt.Errorf("error writing %s: %w", path, err)
 		}
 
-		for _, child := range children {
-			pending = append(pending, child)
+		// Enqueue in sorted order too: traversal order decides which type wins
+		// a generated-name collision, so it must not vary between runs.
+		for _, childName := range sortedKeys(children) {
+			pending = append(pending, children[childName])
 		}
 	}
 
 	return nil
+}
+
+// sortedKeys returns the map's keys in ascending order. Used to make generated
+// output independent of Go's randomized map iteration order.
+func sortedKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	return keys
 }

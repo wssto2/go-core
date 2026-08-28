@@ -273,9 +273,14 @@ func GenerateTypes(entities []interface{}, dir string) error {
 			continue
 		}
 
-		// Imports
+		// Imports. children is a map, so iterate it in sorted key order:
+		// unordered iteration made the emitted import block differ between
+		// otherwise identical runs, which defeats any "regenerate and diff"
+		// drift check in CI.
+		childNames := sortedKeys(children)
+
 		out := "// This file is auto-generated. Do not edit manually.\n"
-		for childName := range children {
+		for _, childName := range childNames {
 			// Avoid circular imports
 			if childName == typeName {
 				continue
@@ -294,8 +299,10 @@ func GenerateTypes(entities []interface{}, dir string) error {
 			return fmt.Errorf("error writing file: %w", err)
 		}
 
-		for _, child := range children {
-			pending = append(pending, child)
+		// Enqueue children in the same sorted order, so the traversal order
+		// (and thus which type wins an alias-name collision) is stable too.
+		for _, childName := range childNames {
+			pending = append(pending, children[childName])
 		}
 	}
 

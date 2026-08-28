@@ -44,7 +44,18 @@ func NewTransactor(conn *gorm.DB) Transactor {
 //
 // Additionally, when possible this stores the underlying *sql.Tx in the
 // context so sqlc-based repositories can construct a Querier bound to that tx.
+//
+// If ctx already carries a transaction (started by an outer WithinTransaction
+// call, possibly on a different Transactor instance over the same database),
+// fn runs directly against it instead of starting a nested transaction —
+// nested Begin() calls don't compose into one atomic unit, they'd silently
+// open a second, independent transaction on another pooled connection. The
+// outermost caller owns commit/rollback.
 func (t *gormTransactor) WithinTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	if _, ok := TxFromContext(ctx); ok {
+		return fn(ctx)
+	}
+
 	tx := t.conn.WithContext(ctx).Begin()
 	if tx.Error != nil {
 		return fmt.Errorf("begin transaction: %w", tx.Error)
