@@ -40,9 +40,19 @@ func GetQueryInt(ctx *gin.Context, key string) (int, bool) {
 // Returns (id, true) on success, (0, false) after writing the error response.
 // The handler must return immediately on false.
 func GetPathID(ctx *gin.Context) (int, bool) {
-	id, ok := GetParamInt(ctx, "id")
+	return GetPathIDNamed(ctx, "id")
+}
+
+// GetPathIDNamed is GetPathID for a path parameter under an arbitrary name
+// (e.g. "customerID", "evaluationID"). It validates the parameter is a
+// positive integer and writes a 400 Bad Request using the standard error
+// envelope if it is missing, non-numeric or non-positive. Returns (id, true)
+// on success, (0, false) after writing the error response — the handler must
+// return immediately on false.
+func GetPathIDNamed(ctx *gin.Context, key string) (int, bool) {
+	id, ok := GetParamInt(ctx, key)
 	if !ok || id <= 0 {
-		_ = ctx.Error(apperr.BadRequest("invalid id: must be a positive integer"))
+		_ = ctx.Error(apperr.BadRequest("invalid " + key + ": must be a positive integer"))
 		ctx.Abort()
 		return 0, false
 	}

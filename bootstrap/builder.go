@@ -37,6 +37,7 @@ type AppBuilder struct {
 	sharedGlobalLimiter ratelimit.Limiter
 	spaConfig           *frontend.SPAConfig
 	trustedOrigins      []string
+	idempotencyStore    *middlewares.IdempotencyStore
 }
 
 // New creates a new AppBuilder with the given config.
@@ -257,6 +258,26 @@ func (b *AppBuilder) WithRateLimit(l ratelimit.Limiter) *AppBuilder {
 // with per-endpoint limits inside each module.
 func (b *AppBuilder) WithGlobalRateLimit(l ratelimit.Limiter) *AppBuilder {
 	b.sharedGlobalLimiter = l
+	return b
+}
+
+// WithIdempotency enables HTTP-level request deduplication for every route.
+// Requests that carry an Idempotency-Key header and share the same key run
+// the handler once; concurrent duplicates block until the first finishes and
+// then receive its captured response, and later duplicates within ttl replay
+// it without re-running the handler. Requests without the header are
+// unaffected, so this is safe to apply globally — clients opt in per request.
+//
+// Chain it before WithModules so the middleware is in place when modules
+// register their routes.
+//
+//	bootstrap.New(cfg).
+//	    DefaultInfrastructure().
+//	    WithIdempotency(24 * time.Hour).
+//	    WithModules(...)
+func (b *AppBuilder) WithIdempotency(ttl time.Duration) *AppBuilder {
+	b.idempotencyStore = middlewares.NewInMemoryIdempotencyStore(ttl)
+
 	return b
 }
 
@@ -484,6 +505,12 @@ func (b *AppBuilder) WithHttp() *AppBuilder {
 func (b *AppBuilder) Build() (*App, error) {
 	if len(b.errors) > 0 {
 		return nil, fmt.Errorf("bootstrap: wiring errors: %v", b.errors)
+	}
+
+	// Idempotency runs ahead of the rate limiters so a replayed response
+	// short-circuits before consuming any request budget.
+	if b.idempotencyStore != nil {
+		b.engine.Use(middlewares.Idempotency(b.idempotencyStore))
 	}
 
 	// Apply rate limiters after all With* calls so callers can chain them in
