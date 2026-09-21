@@ -288,6 +288,23 @@ func TestGet_EmptyResultIsEmpty(t *testing.T) {
 	assert.Equal(t, 0, result.To)
 }
 
+// A page past the end is empty, but last_page still describes the result set.
+func TestGet_PagePastEndKeepsLastPage(t *testing.T) {
+	db := testDB(t)
+	params := datatable.QueryParams{Page: 25, PerPage: 2, OrderCol: "id", OrderDir: "asc", Filters: map[string]string{}}
+
+	dt := datatable.New[Article](db, params).
+		WithColumns([]string{"id", "title", "status"})
+
+	result, err := dt.Get(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, result.Data)
+	assert.Equal(t, int64(5), result.Total)
+	assert.Equal(t, 3, result.LastPage)
+	assert.Equal(t, 0, result.From)
+	assert.Equal(t, 0, result.To)
+}
+
 // TestGet_WithMapper_Deprecated verifies that the deprecated WithMapper no-op
 // compiles and does not panic. Callers should transform rows in the handler.
 func TestGet_WithMapper_Deprecated(t *testing.T) {

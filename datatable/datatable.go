@@ -372,9 +372,16 @@ func (d *Datatable[T]) Get(ctx context.Context) (*DatatableResult[T], error) {
 	}
 
 	// Metadata
+	// last_page describes the whole result set, so it is set whenever there
+	// are rows at all - also for a page past the end, which used to report
+	// last_page 0 next to a non-zero total. from/to describe this page and
+	// stay 0 when it is empty.
 	var lastPage, from, to int
-	if len(data) > 0 {
+	if total > 0 {
 		lastPage = (int(total) + d.queryParams.GetPerPage() - 1) / d.queryParams.GetPerPage()
+	}
+
+	if len(data) > 0 {
 		from = (d.queryParams.GetPage()-1)*d.queryParams.GetPerPage() + 1
 		to = from + len(data) - 1
 	}
