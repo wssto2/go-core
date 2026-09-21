@@ -136,3 +136,26 @@ func TestRateLimitMiddleware_XUserIDHeaderIgnored(t *testing.T) {
 	r.ServeHTTP(w2, req2)
 	require.Equal(t, http.StatusTooManyRequests, w2.Code, "X-User-ID header must not influence the rate-limit key")
 }
+
+// IPRateLimit counts only paths under its prefix: the SPA shell and assets are
+// never answered with a JSON 429.
+func TestIPRateLimit_OnlyUnderPrefix(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	lim := ratelimit.NewInMemoryLimiter(1, time.Minute)
+	r := gin.New()
+	r.Use(IPRateLimit(lim, "/api/"))
+	r.GET("/api/ping", func(c *gin.Context) { c.Status(http.StatusOK) })
+	r.GET("/dashboard", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	serve := func(path string) int {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+
+		return w.Code
+	}
+
+	require.Equal(t, http.StatusOK, serve("/api/ping"))
+	require.Equal(t, http.StatusTooManyRequests, serve("/api/ping"))
+	require.Equal(t, http.StatusOK, serve("/dashboard"))
+	require.Equal(t, http.StatusOK, serve("/dashboard"))
+}

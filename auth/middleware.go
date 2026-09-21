@@ -26,6 +26,10 @@ func Authenticated(provider Provider) gin.HandlerFunc {
 
 		SetUser(ctx, user)
 
+		if !enforceUserRateLimit(ctx, user) {
+			return
+		}
+
 		ctx.Next()
 	}
 }

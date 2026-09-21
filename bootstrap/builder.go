@@ -34,6 +34,8 @@ type AppBuilder struct {
 	server              HTTPServer
 	errors              []error // accumulate wiring errors, report all at once in build
 	perUserLimiter      ratelimit.Limiter
+	ipLimiter           ratelimit.Limiter
+	ipLimiterPrefix     string
 	sharedGlobalLimiter ratelimit.Limiter
 	spaConfig           *frontend.SPAConfig
 	trustedOrigins      []string
@@ -213,28 +215,42 @@ func (b *AppBuilder) setupHTTPMiddlewares() {
 
 }
 
-// WithRateLimit attaches a global per-IP rate limiter to every route.
-// It is applied before authentication, making it effective against bots and
-// brute-force attacks that target unauthenticated endpoints (e.g. /auth/login).
+// WithRateLimit limits each authenticated user: every user gets its own
+// request bucket, keyed by user ID.
 //
-// The limiter keys by authenticated user ID when a user is present in context,
-// WithRateLimit attaches a per-user/IP rate limiter to every route.
-// Each authenticated user (or anonymous IP) gets its own independent request
-// bucket, making it effective against individual abusers and brute-force
-// attacks while leaving capacity for other users unaffected.
-//
-// Keys: authenticated user ID, falling back to client IP for anonymous
-// requests. For a server-wide cap shared across ALL users combine this with
-// WithGlobalRateLimit.
+// It is enforced by auth.Authenticated right after the identity is resolved
+// (auth.DeferUserRateLimit). An engine-level limiter runs before the route
+// groups' authentication and never sees the user, so the previous "per user"
+// key fell back to the client IP for every request and everyone behind one NAT
+// shared a bucket. Routes without Authenticated are not counted here: add
+// WithIPRateLimit for anonymous traffic (login, public endpoints).
 //
 //	bootstrap.New(cfg).
 //	    DefaultInfrastructure().
-//	    WithGlobalRateLimit(ratelimit.NewInMemoryLimiter(5000, time.Minute)).
+//	    WithIPRateLimit(ratelimit.NewInMemoryLimiter(3000, time.Minute)).
 //	    WithRateLimit(ratelimit.NewInMemoryLimiter(300, time.Minute)).
 //	    WithJWTAuth(resolver).
 //	    ...
 func (b *AppBuilder) WithRateLimit(l ratelimit.Limiter) *AppBuilder {
 	b.perUserLimiter = l
+	return b
+}
+
+// WithIPRateLimit limits requests per client IP on the API: paths under
+// pathPrefix, "/api/" when omitted. The SPA shell and static assets are left
+// alone, so a limited browser still loads the page instead of a JSON 429 body.
+//
+// Size the ceiling for a whole office behind one NAT: it is a guard against a
+// single flooding machine and brute force on anonymous endpoints, while
+// WithRateLimit budgets each signed-in user.
+func (b *AppBuilder) WithIPRateLimit(l ratelimit.Limiter, pathPrefix ...string) *AppBuilder {
+	b.ipLimiter = l
+	b.ipLimiterPrefix = "/api/"
+
+	if len(pathPrefix) > 0 {
+		b.ipLimiterPrefix = pathPrefix[0]
+	}
+
 	return b
 }
 
@@ -515,12 +531,17 @@ func (b *AppBuilder) Build() (*App, error) {
 
 	// Apply rate limiters after all With* calls so callers can chain them in
 	// any order. Global shared limiter runs first (server-wide circuit breaker),
-	// then per-user limiter (individual abuse protection).
+	// then the per-IP API guard, then the per-user limit (armed here, enforced
+	// by auth.Authenticated).
 	if b.sharedGlobalLimiter != nil {
 		b.engine.Use(middlewares.RateLimit(b.sharedGlobalLimiter, false, false))
 	}
+	if b.ipLimiter != nil {
+		b.engine.Use(middlewares.IPRateLimit(b.ipLimiter, b.ipLimiterPrefix))
+	}
+	// Enforced by auth.Authenticated once the user is known (per user ID).
 	if b.perUserLimiter != nil {
-		b.engine.Use(middlewares.RateLimit(b.perUserLimiter, true, false))
+		b.engine.Use(auth.DeferUserRateLimit(b.perUserLimiter))
 	}
 
 	// TrustedOriginsMiddleware patches the CSP set by Security and runs inside

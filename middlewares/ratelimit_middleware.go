@@ -3,6 +3,7 @@ package middlewares
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/apperr"
@@ -73,6 +74,41 @@ func RateLimit(l rl.Limiter, perUser bool, perEndpoint bool) gin.HandlerFunc {
 				})
 				return
 			}
+		}
+
+		ctx.Next()
+	}
+}
+
+// IPRateLimit limits requests per client IP, counting only paths that start
+// with pathPrefix (all paths when it is empty).
+//
+// It is the anonymous-traffic guard next to the per-user limit enforced after
+// authentication (auth.DeferUserRateLimit): it stops one machine flooding the
+// API or hammering the login endpoint. Scoped to the API prefix, it leaves the
+// SPA shell and static assets alone, so a limited user is never handed a JSON
+// error body in place of the page. Its ceiling must allow for everyone behind
+// one NAT.
+func IPRateLimit(l rl.Limiter, pathPrefix string) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		if pathPrefix != "" && !strings.HasPrefix(ctx.Request.URL.Path, pathPrefix) {
+			ctx.Next()
+
+			return
+		}
+
+		ok, err := l.Allow(ctx.Request.Context(), "ip:"+ctx.ClientIP())
+		if err != nil {
+			_ = ctx.Error(apperr.Internal(err))
+			ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"success": false, "error": "rate limiter internal error"})
+
+			return
+		}
+
+		if !ok {
+			ctx.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"success": false, "error": "rate limit exceeded"})
+
+			return
 		}
 
 		ctx.Next()
