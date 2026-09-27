@@ -99,6 +99,8 @@ func LenRule(attribute string, value any, args string, required bool, fail func(
 		panic(apperr.Internal(err))
 	}
 
+	value = derefNonNil(value)
+
 	actualLen, ok := lengthOf(value)
 	if !ok {
 		fail(Fail(CodeLen))
@@ -119,6 +121,8 @@ func BetweenRule(attribute string, value any, args string, required bool, fail f
 	if err != nil {
 		panic(apperr.Internal(err))
 	}
+
+	value = derefNonNil(value)
 
 	switch v := value.(type) {
 	case string:
@@ -287,6 +291,23 @@ func UUIDRule(attribute string, value any, args string, required bool, fail func
 	}
 }
 
+// derefNonNil follows non-nil pointers to the value they point to, so the size
+// rules (min, max, between, len) check an optional *int64 / *string field's
+// value instead of silently passing it. A nil pointer is returned unchanged:
+// it means "not provided", which is the required rule's concern.
+func derefNonNil(value any) any {
+	target := reflect.ValueOf(value)
+	for target.Kind() == reflect.Pointer && !target.IsNil() {
+		target = target.Elem()
+	}
+
+	if !target.IsValid() || target.Kind() == reflect.Pointer {
+		return value
+	}
+
+	return target.Interface()
+}
+
 func isPresent(value any) bool {
 	if value == nil {
 		return false
@@ -314,6 +335,8 @@ func MinRule(attribute string, value any, args string, required bool, fail func(
 	if err != nil {
 		panic(apperr.Internal(err))
 	}
+
+	value = derefNonNil(value)
 
 	switch v := value.(type) {
 	case string:
@@ -400,6 +423,8 @@ func MaxRule(attribute string, value any, args string, required bool, fail func(
 	if err != nil {
 		panic(apperr.Internal(err))
 	}
+
+	value = derefNonNil(value)
 
 	switch v := value.(type) {
 	case string:
