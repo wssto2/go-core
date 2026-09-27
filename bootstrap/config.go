@@ -33,6 +33,14 @@ type HTTPConfig struct {
 	// which can help prevent data loss and ensure a smooth shutdown.
 	ShutdownTimeout time.Duration `env:"HTTP_SHUTDOWN_TIMEOUT"`
 
+	// How long Shutdown lets in-flight requests finish on their own before it
+	// cancels every request context. Long-lived requests (Server-Sent Events,
+	// long polling) only end when their context ends, so without this they
+	// would hold Shutdown for the whole ShutdownTimeout. Normal requests that
+	// finish within the grace period are drained untouched; one still running
+	// after it sees its context cancelled. Capped at ShutdownTimeout.
+	ShutdownGracePeriod time.Duration `env:"HTTP_SHUTDOWN_GRACE_PERIOD"`
+
 	// Amount of time allowed to read request headers. This is important to prevent
 	// slow clients from consuming server resources by sending headers very slowly.
 	// Setting this timeout can help protect your server from certain types of
@@ -43,6 +51,32 @@ type HTTPConfig struct {
 	// X-Forwarded-For / X-Forwarded-Proto headers. Safe default is nil, which
 	// disables proxy trust entirely.
 	TrustedProxies []string
+}
+
+// Defaults applied when ShutdownTimeout / ShutdownGracePeriod are not set.
+const (
+	defaultShutdownTimeout     = 10 * time.Second
+	defaultShutdownGracePeriod = 3 * time.Second
+)
+
+// shutdownTimeout is ShutdownTimeout, or its default when unset.
+func (c HTTPConfig) shutdownTimeout() time.Duration {
+	if c.ShutdownTimeout <= 0 {
+		return defaultShutdownTimeout
+	}
+
+	return c.ShutdownTimeout
+}
+
+// shutdownGracePeriod is ShutdownGracePeriod (or its default when unset),
+// never longer than the shutdown timeout.
+func (c HTTPConfig) shutdownGracePeriod() time.Duration {
+	grace := c.ShutdownGracePeriod
+	if grace <= 0 {
+		grace = defaultShutdownGracePeriod
+	}
+
+	return min(grace, c.shutdownTimeout())
 }
 
 type DatabaseConnectionConfig struct {

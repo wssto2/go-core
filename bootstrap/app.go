@@ -142,12 +142,10 @@ func (a *App) bootModules(ctx context.Context) error {
 func (a *App) Shutdown(log *slog.Logger) {
 	log.Info("shutting_down")
 
-	timeout := a.cfg.HTTP.ShutdownTimeout
-	if timeout == 0 {
-		timeout = 10
-	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	// ShutdownTimeout is a time.Duration (not seconds): multiplying it by
+	// time.Second overflowed int64 for any timeout of 10 s or more and handed
+	// the server and the modules an already expired context.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), a.cfg.HTTP.shutdownTimeout())
 	defer cancel()
 
 	// Mark service as draining so readiness probes fail fast (zero-downtime friendly)
@@ -158,7 +156,10 @@ func (a *App) Shutdown(log *slog.Logger) {
 		}
 	}
 
-	// First, shutdown HTTP server to stop accepting new requests
+	// First, shut down the HTTP server: stop accepting new requests, drain the
+	// in-flight ones and, after the grace period, cancel the request contexts
+	// that are still open (Server-Sent Events, long polling) so they end
+	// instead of holding the shutdown for the whole timeout.
 	if a.httpServer != nil {
 		if err := a.httpServer.Shutdown(shutdownCtx); err != nil {
 			log.Error("http_shutdown_failed", "error", err)

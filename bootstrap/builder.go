@@ -511,7 +511,7 @@ func (b *AppBuilder) WithHttp() *AppBuilder {
 		IdleTimeout:       idleTimeout,
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
-	b.server = &serverWrapper{srv: srv}
+	b.server = newServerWrapper(srv, b.cfg.HTTP.shutdownGracePeriod())
 
 	return b
 }
