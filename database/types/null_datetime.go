@@ -18,21 +18,29 @@ type NullDateTime struct {
 	value *time.Time
 }
 
+// NewNullDateTime creates a NullDateTime from a time.Time. Go's zero time
+// means "no value", like nil: it is stored as NULL.
 func NewNullDateTime(value time.Time) NullDateTime {
+	if value.IsZero() {
+		return NullDateTime{value: nil}
+	}
+
 	return NullDateTime{value: &value}
 }
 
 // NewNullDateTimePtr creates a NullDateTime from a *time.Time.
-// If the pointer is nil, the resulting NullDateTime will serialize as JSON null.
+// If the pointer is nil, or points to Go's zero time, the resulting
+// NullDateTime is NULL (and serializes as JSON null).
 func NewNullDateTimePtr(value *time.Time) NullDateTime {
-	if value == nil {
-		return NullDateTime{}
+	if value == nil || value.IsZero() {
+		return NullDateTime{value: nil}
 	}
+
 	return NullDateTime{value: value}
 }
 
 func (d NullDateTime) Value() (driver.Value, error) {
-	if d.value == nil {
+	if d.value == nil || d.value.IsZero() {
 		return nil, nil
 	}
 	return d.value.In(time.Local).Format("2006-01-02 15:04:05"), nil
@@ -83,7 +91,7 @@ func (d NullDateTime) GormDBDataType(db *gorm.DB, field *schema.Field) string {
 }
 
 func (d NullDateTime) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
-	if d.value == nil {
+	if d.value == nil || d.value.IsZero() {
 		return clause.Expr{SQL: "NULL"}
 	}
 	return clause.Expr{SQL: "?", Vars: []interface{}{d.value.In(time.Local).Format("2006-01-02 15:04:05")}}
@@ -137,7 +145,14 @@ func (d NullDateTime) GetOrDefault(defaultValue time.Time) time.Time {
 	return *d.value
 }
 
+// Set replaces the value; Go's zero time clears it (stored as NULL).
 func (d *NullDateTime) Set(t time.Time) {
+	if t.IsZero() {
+		d.value = nil
+
+		return
+	}
+
 	d.value = &t
 }
 

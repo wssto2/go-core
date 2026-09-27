@@ -45,8 +45,8 @@ func NewZeroDatePtr(value *time.Time) ZeroDate {
 }
 
 // zeroDateValue truncates value to its calendar date (at UTC midnight), or returns nil
-// when that date is Go's zero date (0001-01-01), which ZeroDate treats as "no
-// value" so it is never written as 0001-01-01.
+// when that date is Go's zero date (0001-01-01), which ZeroDate and NullDate
+// treat as "no value" so it is never written as 0001-01-01.
 func zeroDateValue(value time.Time) *time.Time {
 	t := time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
 	if t.IsZero() {
