@@ -28,23 +28,36 @@ type ZeroDate struct {
 	value *time.Time
 }
 
+// NewZeroDate creates a ZeroDate from a time.Time. Go's zero time (and any
+// time on 0001-01-01) means "no value", like nil: it is stored as 0000-00-00.
 func NewZeroDate(value time.Time) ZeroDate {
-	t := time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
-	return ZeroDate{value: &t}
+	return ZeroDate{value: zeroDateValue(value)}
 }
 
 // NewZeroDatePtr creates a ZeroDate from a *time.Time.
-// A nil pointer will be stored as 0000-00-00 in the database.
+// A nil pointer, or one to Go's zero time, will be stored as 0000-00-00 in the database.
 func NewZeroDatePtr(value *time.Time) ZeroDate {
 	if value == nil {
 		return ZeroDate{}
 	}
+
+	return ZeroDate{value: zeroDateValue(*value)}
+}
+
+// zeroDateValue truncates value to its calendar date (at UTC midnight), or returns nil
+// when that date is Go's zero date (0001-01-01), which ZeroDate treats as "no
+// value" so it is never written as 0001-01-01.
+func zeroDateValue(value time.Time) *time.Time {
 	t := time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
-	return ZeroDate{value: &t}
+	if t.IsZero() {
+		return nil
+	}
+
+	return &t
 }
 
 func (d ZeroDate) Value() (driver.Value, error) {
-	if d.value == nil {
+	if d.value == nil || d.value.IsZero() {
 		return mysql5ZeroDate, nil
 	}
 	return d.value.Format("2006-01-02"), nil
@@ -105,7 +118,7 @@ func (d ZeroDate) GormDBDataType(db *gorm.DB, field *schema.Field) string {
 }
 
 func (d ZeroDate) GormValue(ctx context.Context, db *gorm.DB) clause.Expr {
-	if d.value == nil {
+	if d.value == nil || d.value.IsZero() {
 		return clause.Expr{SQL: "?", Vars: []interface{}{mysql5ZeroDate}}
 	}
 	return clause.Expr{SQL: "?", Vars: []interface{}{d.value.Format("2006-01-02")}}
@@ -159,9 +172,9 @@ func (d ZeroDate) GetOrDefault(defaultValue time.Time) time.Time {
 	return *d.value
 }
 
+// Set replaces the value; Go's zero time clears it (stored as 0000-00-00).
 func (d *ZeroDate) Set(t time.Time) {
-	v := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
-	d.value = &v
+	d.value = zeroDateValue(t)
 }
 
 func (d *ZeroDate) IsNull() bool {
