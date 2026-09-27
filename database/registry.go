@@ -236,21 +236,31 @@ func (r *Registry) openConnection(cfg ConnectionConfig) (*gorm.DB, error) {
 	}
 }
 
-func (r *Registry) openMySQL(cfg ConnectionConfig) (*gorm.DB, error) {
+// mysqlDSN builds the go-sql-driver/mysql DSN for cfg.
+//
+// clientFoundRows makes an UPDATE report the rows it matched, not only the rows
+// whose values changed. Without it, an UPDATE that writes a row's current values
+// affects 0 rows, and a repository checking RowsAffected == 0 for "not found"
+// answers not-found for a row that exists.
+func mysqlDSN(cfg ConnectionConfig) string {
 	charset := cfg.Charset
 	if charset == "" {
 		charset = "utf8mb4"
 	}
 
 	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/%s?charset=%s&parseTime=true&loc=Local",
+		"%s:%s@tcp(%s:%s)/%s?charset=%s&parseTime=true&loc=Local&clientFoundRows=true",
 		cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.Database, charset,
 	)
 	if cfg.SQLMode != "" {
 		dsn += "&sql_mode=" + url.QueryEscape("'"+cfg.SQLMode+"'")
 	}
 
-	conn, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
+	return dsn
+}
+
+func (r *Registry) openMySQL(cfg ConnectionConfig) (*gorm.DB, error) {
+	conn, err := gorm.Open(mysql.Open(mysqlDSN(cfg)), &gorm.Config{
 		Logger:                 r.buildLogger(),
 		PrepareStmt:            true,
 		SkipDefaultTransaction: true,
