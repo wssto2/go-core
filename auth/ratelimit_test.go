@@ -58,6 +58,31 @@ func TestDeferUserRateLimit_KeysByUserNotIP(t *testing.T) {
 	require.Equal(t, http.StatusOK, get(r, "/me", "b"), "another user on the same IP is not limited by user a")
 }
 
+// keyedUser is an identity with its own rate-limit key (a service account).
+type keyedUser struct {
+	stubUser
+	key string
+}
+
+func (u keyedUser) RateLimitKey() string { return u.key }
+
+// Two identities that share a user ID (service accounts, ID 0) but name their
+// own keys get separate buckets.
+func TestDeferUserRateLimit_KeysByRateLimitKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	r.Use(DeferUserRateLimit(ratelimit.NewInMemoryLimiter(1, time.Minute)))
+	r.GET("/me", Authenticated(tokenProvider{
+		"s1": keyedUser{key: "service:1"},
+		"s2": keyedUser{key: "service:2"},
+	}), func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	require.Equal(t, http.StatusOK, get(r, "/me", "s1"))
+	require.Equal(t, http.StatusTooManyRequests, get(r, "/me", "s1"))
+	require.Equal(t, http.StatusOK, get(r, "/me", "s2"), "another service account with the same user ID is not limited by the first")
+}
+
 // Unauthenticated routes and failed authentication are not counted.
 func TestDeferUserRateLimit_OnlyAuthenticatedRequestsCount(t *testing.T) {
 	r := newLimitedRouter(1)

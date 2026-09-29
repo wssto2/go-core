@@ -27,6 +27,25 @@ func DeferUserRateLimit(l ratelimit.Limiter) gin.HandlerFunc {
 	}
 }
 
+// RateLimitKeyer is implemented by an identity whose user ID does not tell it
+// apart, such as a service account that is not a row of the users table: its
+// requests are counted under RateLimitKey instead of "user:<id>", so each one
+// gets its own bucket.
+type RateLimitKeyer interface {
+	RateLimitKey() string
+}
+
+// rateLimitKey is the bucket an identity's requests are counted in.
+func rateLimitKey(user Identifiable) string {
+	if k, ok := user.(RateLimitKeyer); ok {
+		if key := k.RateLimitKey(); key != "" {
+			return key
+		}
+	}
+
+	return "user:" + strconv.Itoa(user.GetID())
+}
+
 // enforceUserRateLimit applies the limiter DeferUserRateLimit armed, if any.
 // It reports whether the request may continue; otherwise the response is sent.
 func enforceUserRateLimit(ctx *gin.Context, user Identifiable) bool {
@@ -40,7 +59,7 @@ func enforceUserRateLimit(ctx *gin.Context, user Identifiable) bool {
 		return true
 	}
 
-	allowed, err := limiter.Allow(ctx.Request.Context(), "user:"+strconv.Itoa(user.GetID()))
+	allowed, err := limiter.Allow(ctx.Request.Context(), rateLimitKey(user))
 	if err != nil {
 		_ = ctx.Error(apperr.Internal(err))
 		ctx.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"success": false, "error": "rate limiter internal error"})
