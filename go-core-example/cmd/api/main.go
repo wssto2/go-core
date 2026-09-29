@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"go-core-example/internal/domain/access"
 	domainauth "go-core-example/internal/domain/auth"
 	"go-core-example/internal/domain/product"
 
@@ -97,6 +98,7 @@ func main() {
 		WithJWTAuth(authMod.IdentityResolver).
 		WithModules(
 			authMod,
+			access.NewModule(), // authz demo: roles, bindings, filtered lead list
 			productMod,
 			pageDataModule,
 		).
