@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/wssto2/go-core/apperr"
@@ -235,21 +236,20 @@ func (s *Store) Bind(ctx context.Context, actor authz.Subject, b authz.Binding) 
 			ScopeLevel: b.Scope.Level, ScopeID: b.Scope.ID,
 			CreatedBy: actor.ID, CreatedAt: s.now(),
 		}
-		exists := func() (bool, error) {
-			var n int64
-			err := tx.Model(&roleBindingModel{}).Where(
-				"subject_kind = ? AND subject_id = ? AND role_id = ? AND role_key = ? AND scope_level = ? AND scope_id = ?",
-				row.SubjectKind, row.SubjectID, row.RoleID, row.RoleKey, row.ScopeLevel, row.ScopeID).Count(&n).Error
-			return n > 0, err
-		}
-		if dup, err := exists(); err != nil {
+		var n int64
+		err = tx.Model(&roleBindingModel{}).Where(
+			"subject_kind = ? AND subject_id = ? AND role_id = ? AND role_key = ? AND scope_level = ? AND scope_id = ?",
+			row.SubjectKind, row.SubjectID, row.RoleID, row.RoleKey, row.ScopeLevel, row.ScopeID).Count(&n).Error
+		if err != nil {
 			return apperr.Wrap(err, "check binding", apperr.CodeInternal)
-		} else if dup {
+		}
+		if n > 0 {
 			return authz.ErrDuplicateBinding
 		}
 		if err := tx.Create(&row).Error; err != nil {
-			// a concurrent identical Bind may have won between the check and the insert
-			if dup, cerr := exists(); cerr == nil && dup {
+			// a concurrent identical Bind may have committed after our pre-check; under
+			// REPEATABLE READ we cannot see it, but the unique index refuses the insert
+			if isDuplicateKey(err) {
 				return authz.ErrDuplicateBinding
 			}
 			return apperr.Wrap(err, "create binding", apperr.CodeInternal)
@@ -442,4 +442,16 @@ func snapshotBinding(b authz.Binding) any {
 		role = fmt.Sprintf("#%d", b.Role.ID)
 	}
 	return bindingSnapshot{Subject: b.Subject.String(), Role: role, Scope: b.Scope.String()}
+}
+
+// isDuplicateKey recognises a unique-index violation without importing a
+// database driver: gorm's translated error when the application enabled
+// TranslateError, otherwise the message MySQL / MariaDB ("Duplicate entry") and
+// SQLite ("UNIQUE constraint failed") give.
+func isDuplicateKey(err error) bool {
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "Duplicate entry") || strings.Contains(msg, "UNIQUE constraint failed")
 }
