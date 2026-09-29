@@ -94,3 +94,24 @@ func TestNewEngineRequiresItsParts(t *testing.T) {
 		assert.ErrorAs(t, err, &ve)
 	})
 }
+
+// Own and OwnLocation are not nested: a principal holding both (seller and manager at the same dealer)
+// keeps both clauses, so the list reaches its own leads at other locations as well as its location's.
+func TestAccessKeepsOwnAndOwnLocationSideBySide(t *testing.T) {
+	w := newSmallWorld(t)
+	w.Bind(user(7), "seller", authztest.Dealer(1))
+	w.Bind(user(7), "manager", authztest.Dealer(1))
+	set, err := w.Engine.Access(w.As(authz.User(7, 10)), "crm.lead:view")
+	require.NoError(t, err)
+	got := map[authz.Qualifier]bool{}
+	for _, c := range set.Clauses {
+		got[c.Qualifier] = true
+	}
+	assert.Equal(t, map[authz.Qualifier]bool{authz.QualifierOwn: true, authz.QualifierOwnLocation: true}, got)
+
+	// And both reach a record: its own lead at location 11, and a colleague's lead at location 10.
+	assert.NoError(t, w.Engine.RequireOn(w.As(authz.User(7, 10)), "crm.lead:view",
+		authz.Resource{Scope: authztest.Location(11), Owner: 7, OwnerLocation: 11}))
+	assert.NoError(t, w.Engine.RequireOn(w.As(authz.User(7, 10)), "crm.lead:view",
+		authz.Resource{Scope: authztest.Location(10), Owner: 8, OwnerLocation: 10}))
+}

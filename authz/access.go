@@ -55,7 +55,9 @@ func (a AccessSet) Unrestricted(h *Hierarchy) bool {
 	return false
 }
 
-// Widest returns the widest qualifier among the clauses (zero when empty).
+// Widest returns the highest-ranked qualifier among the clauses (zero when empty),
+// for display. Own and OwnLocation are not nested (see Qualifier), so a principal
+// holding both is reported as OwnLocation while its access is their union.
 func (a AccessSet) Widest() Qualifier {
 	var w Qualifier
 	for _, c := range a.Clauses {

@@ -2,8 +2,13 @@ package authz
 
 import "fmt"
 
-// Qualifier says whose records a grant of an ownable permission reaches. The
-// order is the order of width: Own < OwnLocation < All.
+// Qualifier says whose records a grant of an ownable permission reaches.
+//
+// All reaches every record in the scope, so it covers the other two. Own and
+// OwnLocation are NOT nested: a record the principal owns may sit at another
+// location, and a record at the principal's location may be someone else's.
+// Neither covers the other (see Covers). The numeric order (Own < OwnLocation <
+// All) is only a display ranking, used by AccessSet.Widest and MyAccess.
 type Qualifier int
 
 const (
@@ -33,8 +38,9 @@ func (q Qualifier) String() string {
 // Valid reports whether q is one of the three qualifiers.
 func (q Qualifier) Valid() bool { return q >= QualifierOwn && q <= QualifierAll }
 
-// Covers reports whether q reaches at least as many records as other.
-func (q Qualifier) Covers(other Qualifier) bool { return q >= other }
+// Covers reports whether every record other reaches is also reached by q: All
+// covers every qualifier, and Own and OwnLocation cover only themselves.
+func (q Qualifier) Covers(other Qualifier) bool { return q == QualifierAll || q == other }
 
 // ParseQualifier is the inverse of String.
 func ParseQualifier(s string) (Qualifier, error) {

@@ -100,9 +100,15 @@ func TestComputedRoleMustSatisfyRequires(t *testing.T) {
 }
 
 func TestQualifierOrderAndText(t *testing.T) {
-	assert.True(t, authz.QualifierAll.Covers(authz.QualifierOwnLocation))
-	assert.True(t, authz.QualifierOwnLocation.Covers(authz.QualifierOwn))
+	// All covers everything; Own and OwnLocation are not nested, so each covers only itself.
+	for _, q := range []authz.Qualifier{authz.QualifierOwn, authz.QualifierOwnLocation, authz.QualifierAll} {
+		assert.True(t, authz.QualifierAll.Covers(q))
+		assert.True(t, q.Covers(q))
+	}
+	assert.False(t, authz.QualifierOwnLocation.Covers(authz.QualifierOwn))
 	assert.False(t, authz.QualifierOwn.Covers(authz.QualifierOwnLocation))
+	assert.False(t, authz.QualifierOwn.Covers(authz.QualifierAll))
+	assert.False(t, authz.QualifierOwnLocation.Covers(authz.QualifierAll))
 	assert.False(t, authz.Qualifier(0).Valid())
 	for _, q := range []authz.Qualifier{authz.QualifierOwn, authz.QualifierOwnLocation, authz.QualifierAll} {
 		b, err := q.MarshalText()
