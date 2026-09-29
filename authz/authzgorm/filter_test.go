@@ -73,6 +73,7 @@ func columnShape() shape {
 		name: "columns",
 		seed: func(t *testing.T, db *gorm.DB) map[int]authz.Resource {
 			t.Helper()
+			require.NoError(t, db.Migrator().DropTable(&lead{}))
 			require.NoError(t, db.AutoMigrate(&lead{}))
 			out := map[int]authz.Resource{}
 			var rows []lead
@@ -145,6 +146,7 @@ func expressionShape() shape {
 		name: "expressions",
 		seed: func(t *testing.T, db *gorm.DB) map[int]authz.Resource {
 			t.Helper()
+			require.NoError(t, db.Migrator().DropTable(&xlead{}, &person{}, &assignment{}))
 			require.NoError(t, db.AutoMigrate(&xlead{}, &person{}, &assignment{}))
 			creators := map[int]int{10: 101, 11: 102, 20: 103}
 			require.NoError(t, db.Create(&[]person{{ID: 101, LocationID: 10}, {ID: 102, LocationID: 11}, {ID: 103, LocationID: 20}}).Error)
@@ -188,6 +190,27 @@ type binding struct {
 // when RequireOn allows it, whether owner and location are plain columns or
 // trusted SQL expressions over other tables.
 func TestFilterAgreesWithRequireOn(t *testing.T) {
+	checkFilterAgreesWithRequireOn(t, func(t *testing.T) *gorm.DB {
+		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		require.NoError(t, err)
+		return db
+	})
+}
+
+// TestFilterAgreesWithRequireOnOnMariaDB runs the same property against a real
+// MariaDB when AUTHZ_MARIADB_DSN is set (see the authz package documentation).
+func TestFilterAgreesWithRequireOnOnMariaDB(t *testing.T) {
+	if _, ok := authztest.MariaDB(t); !ok {
+		t.Skip(authztest.MariaDBEnv + " is not set")
+	}
+	checkFilterAgreesWithRequireOn(t, func(t *testing.T) *gorm.DB {
+		db, _ := authztest.MariaDB(t)
+		return db
+	})
+}
+
+func checkFilterAgreesWithRequireOn(t *testing.T, open func(*testing.T) *gorm.DB) {
+	t.Helper()
 	cases := map[string][]binding{
 		"no bindings":                       nil,
 		"own at dealer 1":                   {{"own", authztest.Dealer(1)}},
@@ -211,8 +234,7 @@ func TestFilterAgreesWithRequireOn(t *testing.T) {
 
 	for _, sh := range []shape{columnShape(), expressionShape()} {
 		t.Run(sh.name, func(t *testing.T) {
-			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-			require.NoError(t, err)
+			db := open(t)
 			resources := sh.seed(t, db)
 
 			nonEmpty, partial := 0, 0

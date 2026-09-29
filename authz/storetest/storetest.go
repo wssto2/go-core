@@ -10,6 +10,7 @@ package storetest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"reflect"
 	"slices"
@@ -93,6 +94,7 @@ func Run(t *testing.T, newStore Factory) {
 		"DeleteRoleInUse":              deleteRoleInUse,
 		"BindingsForRole":              bindingsForRole,
 		"ConcurrentBinds":              concurrentBinds,
+		"ConcurrentRoleUpdates":        concurrentRoleUpdates,
 	}
 	for _, name := range slices.Sorted(maps.Keys(cases)) {
 		t.Run(name, func(t *testing.T) { cases[name](check{t}, newStore(t)) })
@@ -360,4 +362,45 @@ func concurrentBinds(c check, s authz.Store) {
 	got, err := s.BindingsFor(ctx, bob())
 	c.noErr(err, "list")
 	c.equal(n, len(got), "every distinct binding was stored")
+}
+
+// concurrentRoleUpdates saves the same role from several goroutines at once.
+// Every save succeeds and the stored role is exactly one of the writes, never a
+// mix of two (the grants of one writer with the name of another).
+func concurrentRoleUpdates(c check, s authz.Store) {
+	ctx := context.Background()
+	role, err := s.SaveRole(ctx, actor(), sampleRole())
+	c.noErr(err, "create")
+
+	const n = 8
+	grantsOf := func(i int) []authz.Grant {
+		return []authz.Grant{
+			{Permission: fmt.Sprintf("w.x:a%d", i), Qualifier: authz.QualifierAll},
+			{Permission: fmt.Sprintf("w.x:b%d", i), Qualifier: authz.QualifierAll},
+		}
+	}
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := range n {
+		wg.Go(func() {
+			r := role
+			r.Name = fmt.Sprintf("v%d", i)
+			r.Grants = grantsOf(i)
+			_, errs[i] = s.SaveRole(ctx, actor(), r)
+		})
+	}
+	wg.Wait()
+	for _, err := range errs {
+		c.noErr(err, "concurrent update")
+	}
+
+	got, err := s.Role(ctx, role.ID)
+	c.noErr(err, "load")
+	var winner int
+	_, scanErr := fmt.Sscanf(got.Name, "v%d", &winner)
+	c.noErr(scanErr, "the name is one of the writes")
+	c.true(winner >= 0 && winner < n && sameElements(grantsOf(winner), got.Grants), "grants belong to the same write as the name")
+	roles, err := s.ListRoles(ctx)
+	c.noErr(err, "list")
+	c.equal(1, len(roles), "no duplicate role")
 }

@@ -118,8 +118,10 @@ func TestDatabaseRefusesABindingWithBothRoleReferences(t *testing.T) {
 
 // The store reads and writes on behalf of an engine: a full round trip through
 // Admin and Engine over the real tables.
-func TestEngineOverGormStore(t *testing.T) {
-	db := newDB(t)
+func TestEngineOverGormStore(t *testing.T) { engineOverGormStore(t, newDB(t)) }
+
+func engineOverGormStore(t *testing.T, db *gorm.DB) {
+	t.Helper()
 	store := gormstore.New(db, gormstore.WithAudit(audit.NewRepository(database.NewTransactor(db))))
 
 	cat := authz.NewCatalogue()

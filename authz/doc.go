@@ -58,18 +58,31 @@
 // (for example from an event); the TTL ([DefaultCacheTTL]) is only the backstop
 // for a change made by another process.
 //
-// # SQL not verified on MariaDB 10.3
+// # MariaDB 10.3
 //
-// The test suites run on SQLite only. Written to be safe on MariaDB 10.3 but not
-// yet run there:
+// The default test run uses SQLite. The SQL is also verified against a real
+// MariaDB 10.3.39 by integration tests that skip unless AUTHZ_MARIADB_DSN is
+// set. To run them:
 //
-//   - authzgorm.Filter output: equality, IN, IS NULL, AND/OR (no JSON functions,
-//     CTEs or locking); plus any trusted expression the application supplies
-//     (its own subqueries are the application's to check).
-//   - gormstore.MySQLSchema and Migrate: the CHECK constraint on role_bindings
-//     (enforced from MariaDB 10.2.1) and the six-column unique index.
-//   - gormstore: SELECT ... FOR UPDATE on a role row (no SKIP LOCKED is used),
-//     and duplicate-binding detection (a pre-check plus the unique index).
+//	docker run -d --rm --name authz-mariadb -e MARIADB_ROOT_PASSWORD=authzpw \
+//	    -e MARIADB_DATABASE=authz -p 33063:3306 mariadb:10.3.39
+//	# wait until: docker exec authz-mariadb mysqladmin -uroot -pauthzpw ping
+//	AUTHZ_MARIADB_DSN='root:authzpw@tcp(127.0.0.1:33063)/authz?parseTime=true&charset=utf8mb4&loc=UTC' \
+//	    go test -race ./authz/...
+//	docker stop authz-mariadb
+//
+// They cover: the store conformance suite over gormstore.MySQLSchema and over
+// gormstore.Migrate (with and without audit), including concurrent binds and
+// role updates; the CHECK constraint and six-column unique index; the
+// SELECT ... FOR UPDATE role lock; and the authzgorm property test (filtered
+// rows equal RequireOn decisions), including expression-based owner and
+// location. Tests drop and recreate the authz and audit tables (and the property
+// test's own tables) in that database, so point the DSN at a scratch database.
+//
+// Nothing the package emits uses JSON_TABLE, SKIP LOCKED, FOR SHARE or
+// FOR UPDATE OF. Not covered: MariaDB versions other than 10.3.39, MySQL 8, and
+// the trusted SQL expressions an application supplies to authzgorm.Columns (their
+// subqueries are the application's to check).
 //
 // # Concurrency
 //
