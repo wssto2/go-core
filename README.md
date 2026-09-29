@@ -38,6 +38,7 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 * `bootstrap` → application lifecycle, DI container, config
 * `web` → HTTP handling, response format, helpers
 * `auth` → authentication, JWT, policies, middleware
+* `authz` → roles, bindings at a scope, per-record access, delegation, list filtering (see `authz/doc.go`; sub-packages `authzgorm`, `gormstore`, `authzhttp`, `authzts`, `authztest`, `storetest`)
 * `database` → repositories, transactions, types
 * `validation` → input validation system
 * `binders` → request binding (JSON, multipart)

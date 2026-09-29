@@ -1,0 +1,1493 @@
+{
+ "catalogue": [
+  [
+   "Rabljena vozila",
+   "Procjene",
+   "usedvehicle.evaluation:view",
+   "Pregled",
+   "o"
+  ],
+  [
+   "Rabljena vozila",
+   "Procjene",
+   "usedvehicle.evaluation:create",
+   "Unos",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Procjene",
+   "usedvehicle.evaluation:update",
+   "Uređivanje",
+   "o"
+  ],
+  [
+   "Rabljena vozila",
+   "Procjene",
+   "usedvehicle.evaluation:archive",
+   "Arhiviranje",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Procjene",
+   "usedvehicle.evaluation:valuate",
+   "Eurotax procjena (naplaćuje se)",
+   "s"
+  ],
+  [
+   "Rabljena vozila",
+   "Procjene",
+   "usedvehicle.evaluation:reconcile",
+   "Usklađivanje Eurotax naplate",
+   "sg"
+  ],
+  [
+   "Rabljena vozila",
+   "Procjene · Zapisnik o stanju",
+   "usedvehicle.evaluation.conditionreport:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Procjene · Zapisnik o stanju",
+   "usedvehicle.evaluation.conditionreport:manage",
+   "Uređivanje",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Procjene · Usporedba s tržištem",
+   "usedvehicle.evaluation.marketcomparison:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Procjene · Usporedba s tržištem",
+   "usedvehicle.evaluation.marketcomparison:manage",
+   "Uređivanje",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Procjene · Ponuda za otkup",
+   "usedvehicle.evaluation.offer:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Procjene · Ponuda za otkup",
+   "usedvehicle.evaluation.offer:manage",
+   "Izrada i uređivanje",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Procjene · Ponuda za otkup",
+   "usedvehicle.evaluation.offer:delete",
+   "Brisanje",
+   "s"
+  ],
+  [
+   "Rabljena vozila",
+   "Procjene · Ponuda za otkup",
+   "usedvehicle.evaluation.offer:decide",
+   "Odluka o otkupu",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Preuzimanje",
+   "usedvehicle.takeover:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Preuzimanje",
+   "usedvehicle.takeover:create",
+   "Unos vozila",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Preuzimanje",
+   "usedvehicle.takeover:update",
+   "Uređivanje",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Preuzimanje",
+   "usedvehicle.takeover:confirm",
+   "Potvrda preuzimanja",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Preuzimanje",
+   "usedvehicle.takeover:return",
+   "Vraćanje u procjenu",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Preuzimanje · Kupoprodajni ugovor",
+   "usedvehicle.takeover.contract:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Preuzimanje · Kupoprodajni ugovor",
+   "usedvehicle.takeover.contract:manage",
+   "Uređivanje",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Preuzimanje · Primopredajni zapisnik",
+   "usedvehicle.takeover.handoverrecord:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Preuzimanje · Primopredajni zapisnik",
+   "usedvehicle.takeover.handoverrecord:manage",
+   "Uređivanje",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Priprema",
+   "usedvehicle.preparation:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Priprema",
+   "usedvehicle.preparation:create",
+   "Unos vozila",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Priprema",
+   "usedvehicle.preparation:update",
+   "Uređivanje (i oprema)",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Priprema",
+   "usedvehicle.preparation:activate",
+   "Objava vozila",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Priprema",
+   "usedvehicle.preparation:return",
+   "Vraćanje u preuzimanje",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Priprema · Pregled vozila",
+   "usedvehicle.preparation.inspectionform:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Priprema · Pregled vozila",
+   "usedvehicle.preparation.inspectionform:manage",
+   "Popunjavanje",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Priprema · Radni nalozi",
+   "usedvehicle.preparation.order:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Priprema · Radni nalozi",
+   "usedvehicle.preparation.order:manage",
+   "Izrada i uređivanje",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Priprema · Radni nalozi",
+   "usedvehicle.preparation.order:delete",
+   "Brisanje",
+   "s"
+  ],
+  [
+   "Rabljena vozila",
+   "Priprema · Troškovi popravka",
+   "usedvehicle.preparation.repaircost:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Priprema · Troškovi popravka",
+   "usedvehicle.preparation.repaircost:manage",
+   "Unos i uređivanje",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Priprema · Troškovi popravka",
+   "usedvehicle.preparation.repaircost:delete",
+   "Brisanje",
+   "s"
+  ],
+  [
+   "Rabljena vozila",
+   "Prodaja",
+   "usedvehicle.sale:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Prodaja",
+   "usedvehicle.sale:update",
+   "Uređivanje (i oprema)",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Prodaja",
+   "usedvehicle.sale:status",
+   "Rezervacija / status vozila",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Prodaja",
+   "usedvehicle.sale:sell",
+   "Označavanje prodanim",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Prodaja",
+   "usedvehicle.sale:return",
+   "Vraćanje u pripremu",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Prodaja",
+   "usedvehicle.sale:archive",
+   "Nerealizirana komisijska prodaja",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Cijene",
+   "usedvehicle.price:update",
+   "Promjena cijena",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Cijene · Kalkulacija",
+   "usedvehicle.price.calculation:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Cijene · Kalkulacija",
+   "usedvehicle.price.calculation:manage",
+   "Spremanje",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Cijene · Isplativost",
+   "usedvehicle.price.profitability:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Isporuka",
+   "usedvehicle.delivery:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Isporuka",
+   "usedvehicle.delivery:create",
+   "Unos vozila u isporuku",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Isporuka",
+   "usedvehicle.delivery:deliver",
+   "Potvrda isporuke",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Isporuka",
+   "usedvehicle.delivery:return",
+   "Vraćanje u prodaju",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Isporuka",
+   "usedvehicle.delivery:invoice",
+   "Nalog za fakturiranje",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Isporuka",
+   "usedvehicle.delivery:protocol",
+   "Primopredajni zapisnik",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Isporuka · Plaćanja",
+   "usedvehicle.delivery.payments:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Isporuka · Plaćanja",
+   "usedvehicle.delivery.payments:record",
+   "Evidentiranje uplata",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Isporuka · Plaćanja",
+   "usedvehicle.delivery.payments:reverse",
+   "Storniranje uplata",
+   "s"
+  ],
+  [
+   "Rabljena vozila",
+   "Isporuka · Dodatne usluge",
+   "usedvehicle.delivery.additionalservices:manage",
+   "Dodavanje i uređivanje",
+   ""
+  ],
+  [
+   "Rabljena vozila",
+   "Isporuka · Dodatne usluge",
+   "usedvehicle.delivery.additionalservices:delete",
+   "Brisanje",
+   "s"
+  ],
+  [
+   "Rabljena vozila",
+   "Arhiva",
+   "usedvehicle.archive:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Unos novih vozila",
+   "newvehicle:create",
+   "Ručni unos mimo VEGA uvoza",
+   "y"
+  ],
+  [
+   "Nova vozila",
+   "Naručeno",
+   "newvehicle.ordered:view",
+   "Pregled",
+   "g"
+  ],
+  [
+   "Nova vozila",
+   "Naručeno",
+   "newvehicle.ordered:update",
+   "Uređivanje (i oprema)",
+   "g"
+  ],
+  [
+   "Nova vozila",
+   "Otpremni centar",
+   "newvehicle.dispatchcenter:view",
+   "Pregled",
+   "g"
+  ],
+  [
+   "Nova vozila",
+   "Otpremni centar",
+   "newvehicle.dispatchcenter:update",
+   "Uređivanje (i oprema)",
+   "g"
+  ],
+  [
+   "Nova vozila",
+   "Transport",
+   "newvehicle.transport:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Transport",
+   "newvehicle.transport:update",
+   "Uređivanje",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Zaliha / prodaja",
+   "newvehicle.stock:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Zaliha / prodaja",
+   "newvehicle.stock:update",
+   "Uređivanje (i oprema)",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Isporuka",
+   "newvehicle.delivery:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Isporuka",
+   "newvehicle.delivery:update",
+   "Podaci primopredaje",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Isporuka",
+   "newvehicle.delivery:invoice",
+   "Nalog za fakturiranje",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Isporuka",
+   "newvehicle.delivery:protocol",
+   "Primopredajni zapisnik",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Isporuka · Plaćanja",
+   "newvehicle.delivery.payments:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Isporuka · Plaćanja",
+   "newvehicle.delivery.payments:record",
+   "Evidentiranje uplata",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Isporuka · Plaćanja",
+   "newvehicle.delivery.payments:reverse",
+   "Storniranje uplata",
+   "s"
+  ],
+  [
+   "Nova vozila",
+   "Isporuka · Dodatne usluge",
+   "newvehicle.delivery.additionalservices:manage",
+   "Dodavanje i uređivanje",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Isporuka · Dodatne usluge",
+   "newvehicle.delivery.additionalservices:delete",
+   "Brisanje",
+   "s"
+  ],
+  [
+   "Nova vozila",
+   "Arhiva",
+   "newvehicle.archive:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Transportni listovi",
+   "transport.list:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Transportni listovi",
+   "transport.list:create",
+   "Izrada",
+   ""
+  ],
+  [
+   "Nova vozila",
+   "Transportni listovi",
+   "transport.list:dispatch",
+   "Otprema",
+   "g"
+  ],
+  [
+   "Nova vozila",
+   "Transportni listovi",
+   "transport.list:takeover",
+   "Preuzimanje",
+   ""
+  ],
+  [
+   "Interna burza",
+   "Katalog",
+   "internalmarket.catalogue:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Interna burza",
+   "Katalog",
+   "internalmarket.catalogue:request",
+   "Traženje vozila",
+   ""
+  ],
+  [
+   "Interna burza",
+   "Zahtjevi",
+   "internalmarket.request:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Interna burza",
+   "Zahtjevi",
+   "internalmarket.request:create",
+   "Slanje",
+   ""
+  ],
+  [
+   "Interna burza",
+   "Zahtjevi",
+   "internalmarket.request:decide",
+   "Odobravanje",
+   ""
+  ],
+  [
+   "CRM",
+   "Kupci",
+   "crm.customer:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "CRM",
+   "Kupci",
+   "crm.customer:create",
+   "Unos",
+   ""
+  ],
+  [
+   "CRM",
+   "Kupci",
+   "crm.customer:update",
+   "Uređivanje",
+   ""
+  ],
+  [
+   "CRM",
+   "Leadovi (i Podsjetnici)",
+   "crm.lead:view",
+   "Pregled",
+   "o"
+  ],
+  [
+   "CRM",
+   "Leadovi (i Podsjetnici)",
+   "crm.lead:create",
+   "Unos",
+   ""
+  ],
+  [
+   "CRM",
+   "Leadovi (i Podsjetnici)",
+   "crm.lead:update",
+   "Uređivanje",
+   "o"
+  ],
+  [
+   "CRM",
+   "Leadovi (i Podsjetnici)",
+   "crm.lead:assign",
+   "Dodjela drugima",
+   ""
+  ],
+  [
+   "CRM",
+   "Uvoz leadova",
+   "crm.leadimport:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "CRM",
+   "Uvoz leadova",
+   "crm.leadimport:create",
+   "Uvoz (XLSX)",
+   ""
+  ],
+  [
+   "CRM",
+   "Usmjeravanje leadova",
+   "crm.leadrouting:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "CRM",
+   "Usmjeravanje leadova",
+   "crm.leadrouting:update",
+   "Uređivanje",
+   ""
+  ],
+  [
+   "CRM",
+   "Ponude",
+   "crm.offer:view",
+   "Pregled",
+   "o"
+  ],
+  [
+   "CRM",
+   "Ponude",
+   "crm.offer:create",
+   "Izrada",
+   ""
+  ],
+  [
+   "CRM",
+   "Ponude",
+   "crm.offer:update",
+   "Uređivanje",
+   "o"
+  ],
+  [
+   "CRM",
+   "Ponude",
+   "crm.offer:delete",
+   "Brisanje",
+   "so"
+  ],
+  [
+   "CRM",
+   "Ugovori",
+   "crm.contract:view",
+   "Pregled",
+   "o"
+  ],
+  [
+   "CRM",
+   "Ugovori",
+   "crm.contract:create",
+   "Izrada",
+   ""
+  ],
+  [
+   "CRM",
+   "Ugovori",
+   "crm.contract:update",
+   "Uređivanje",
+   "o"
+  ],
+  [
+   "CRM",
+   "Ugovori",
+   "crm.contract:delete",
+   "Brisanje nacrta",
+   "so"
+  ],
+  [
+   "CRM",
+   "Ugovori",
+   "crm.contract:approvediscount",
+   "Odobravanje dodatnog rabata",
+   ""
+  ],
+  [
+   "CRM",
+   "Ugovori",
+   "crm.contract:realize",
+   "Realizacija",
+   ""
+  ],
+  [
+   "CRM",
+   "Ugovori",
+   "crm.contract:sendorder",
+   "Slanje narudžbe (VEGA)",
+   ""
+  ],
+  [
+   "CRM",
+   "Ugovori",
+   "crm.contract:storno",
+   "Storno realizacije",
+   "s"
+  ],
+  [
+   "CRM",
+   "Ugovori · Dokumentacija",
+   "crm.contract.documents:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "CRM",
+   "Ugovori · Dokumentacija",
+   "crm.contract.documents:submit",
+   "Predaja",
+   ""
+  ],
+  [
+   "CRM",
+   "Ugovori · Dokumentacija",
+   "crm.contract.documents:verify",
+   "Provjera",
+   ""
+  ],
+  [
+   "CRM",
+   "Plan prodaje",
+   "sales.plan:view",
+   "Pregled",
+   "o"
+  ],
+  [
+   "CRM",
+   "Plan prodaje",
+   "sales.plan:distribute",
+   "Raspodjela po prodavačima",
+   ""
+  ],
+  [
+   "CRM",
+   "Plan prodaje",
+   "sales.plan:manage",
+   "Planiranje",
+   ""
+  ],
+  [
+   "CRM",
+   "Plan prodaje",
+   "sales.plan:margin",
+   "Marža",
+   "s"
+  ],
+  [
+   "Uvozi",
+   "VEGA uvoz",
+   "vegaimport:view",
+   "Pregled",
+   "g"
+  ],
+  [
+   "Administracija",
+   "Korisnici",
+   "iam.user:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Administracija",
+   "Korisnici",
+   "iam.user:manage",
+   "Unos, uređivanje i dodjela uloga",
+   ""
+  ],
+  [
+   "Administracija",
+   "Korisnici",
+   "iam.user:delete",
+   "Brisanje",
+   "s"
+  ],
+  [
+   "Administracija",
+   "Korisnici",
+   "iam.user:impersonate",
+   "Prijava kao drugi korisnik",
+   "sg"
+  ],
+  [
+   "Administracija",
+   "Servisni računi",
+   "iam.serviceaccount:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Administracija",
+   "Servisni računi",
+   "iam.serviceaccount:manage",
+   "Izrada računa i ključeva",
+   "sg"
+  ],
+  [
+   "Administracija",
+   "Servisni računi",
+   "iam.serviceaccount:revoke",
+   "Opoziv ključeva",
+   ""
+  ],
+  [
+   "Administracija",
+   "Uloge",
+   "iam.role:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Administracija",
+   "Uloge",
+   "iam.role:manage",
+   "Izrada i uređivanje",
+   "sg"
+  ],
+  [
+   "Administracija",
+   "Uloge",
+   "iam.role:delete",
+   "Brisanje",
+   "sg"
+  ],
+  [
+   "Administracija",
+   "Koncesionari",
+   "dealer:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Administracija",
+   "Koncesionari",
+   "dealer:manage",
+   "Unos i uređivanje",
+   ""
+  ],
+  [
+   "Administracija",
+   "Koncesionari",
+   "dealer:delete",
+   "Brisanje",
+   "sg"
+  ],
+  [
+   "Administracija",
+   "Koncesionari · Lokacije",
+   "dealer.location:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Administracija",
+   "Koncesionari · Lokacije",
+   "dealer.location:manage",
+   "Unos i uređivanje",
+   ""
+  ],
+  [
+   "Administracija",
+   "Koncesionari · Parametri",
+   "dealer.settings:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Administracija",
+   "Koncesionari · Parametri",
+   "dealer.settings:manage",
+   "Uređivanje",
+   ""
+  ],
+  [
+   "Administracija",
+   "Koncesionari · Konto",
+   "dealer.account:view",
+   "Pregled",
+   ""
+  ],
+  [
+   "Administracija",
+   "Koncesionari · Konto",
+   "dealer.account:manage",
+   "Uređivanje",
+   ""
+  ],
+  [
+   "Administracija",
+   "Koncesionari · Programi",
+   "dealer.programme:manage",
+   "Uređivanje",
+   "g"
+  ],
+  [
+   "Administracija",
+   "Koncesionari · Obavijesti",
+   "notification.policy:manage",
+   "Uređivanje",
+   ""
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "Karakteristike",
+   "characteristic:view",
+   "view",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "Karakteristike",
+   "characteristic:manage",
+   "manage",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "Karakteristike",
+   "characteristic:delete",
+   "delete",
+   "ys"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "Jezici",
+   "locale:view",
+   "view",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "Jezici",
+   "locale:manage",
+   "manage",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "ARV definicije · Kategorije",
+   "arvdefinition.category:view",
+   "view",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "ARV definicije · Kategorije",
+   "arvdefinition.category:manage",
+   "manage",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "ARV definicije · Marke",
+   "arvdefinition.brand:view",
+   "view",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "ARV definicije · Marke",
+   "arvdefinition.brand:manage",
+   "manage",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "ARV definicije · Modeli",
+   "arvdefinition.model:view",
+   "view",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "ARV definicije · Modeli",
+   "arvdefinition.model:manage",
+   "manage",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "ARV definicije · Verzije",
+   "arvdefinition.version:view",
+   "view",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "ARV definicije · Verzije",
+   "arvdefinition.version:manage",
+   "manage",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "ARV definicije · Pravila cijena",
+   "arvdefinition.pricerule:view",
+   "view",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "ARV definicije · Pravila cijena",
+   "arvdefinition.pricerule:manage",
+   "manage",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "Neisporučene obavijesti",
+   "notification.deadletter:view",
+   "view",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "Neisporučene obavijesti",
+   "notification.deadletter:retry",
+   "retry",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "Opće postavke",
+   "settings.general:view",
+   "view",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "Opće postavke",
+   "settings.general:manage",
+   "manage",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "Carinske stope",
+   "settings.customsrate:view",
+   "view",
+   "y"
+  ],
+  [
+   "Sustav (samo Webmaster)",
+   "Carinske stope",
+   "settings.customsrate:manage",
+   "manage",
+   "y"
+  ],
+  [
+   "Podrška",
+   "Prijave problema",
+   "incident:view",
+   "Pregled svojih prijava",
+   ""
+  ],
+  [
+   "Podrška",
+   "Prijave problema",
+   "incident:create",
+   "Prijava problema",
+   ""
+  ],
+  [
+   "Podrška",
+   "Prijave problema",
+   "incident:manage",
+   "Obrada svih prijava",
+   "g"
+  ]
+ ],
+ "roles": {
+  "distribution": {
+   "name": "Distribucijski centar",
+   "scope": "organization",
+   "vehicles": "Nova",
+   "legacy": "",
+   "grants": {
+    "incident:view": "A",
+    "incident:create": "A",
+    "newvehicle.ordered:view": "A",
+    "newvehicle.ordered:update": "A",
+    "newvehicle.dispatchcenter:view": "A",
+    "newvehicle.dispatchcenter:update": "A",
+    "newvehicle.transport:view": "A",
+    "newvehicle.transport:update": "A",
+    "newvehicle.stock:view": "A",
+    "newvehicle.archive:view": "A",
+    "transport.list:view": "A",
+    "transport.list:create": "A",
+    "transport.list:dispatch": "A",
+    "vegaimport:view": "A"
+   }
+  },
+  "director": {
+   "name": "Direktor",
+   "scope": "dealer",
+   "vehicles": "Sva",
+   "legacy": "",
+   "grants": {
+    "incident:view": "A",
+    "incident:create": "A",
+    "usedvehicle.evaluation:view": "A",
+    "usedvehicle.evaluation.conditionreport:view": "A",
+    "usedvehicle.evaluation.marketcomparison:view": "A",
+    "usedvehicle.evaluation.offer:view": "A",
+    "usedvehicle.takeover:view": "A",
+    "usedvehicle.takeover.contract:view": "A",
+    "usedvehicle.takeover.handoverrecord:view": "A",
+    "usedvehicle.preparation:view": "A",
+    "usedvehicle.preparation.inspectionform:view": "A",
+    "usedvehicle.preparation.order:view": "A",
+    "usedvehicle.preparation.repaircost:view": "A",
+    "usedvehicle.sale:view": "A",
+    "usedvehicle.price.calculation:view": "A",
+    "usedvehicle.price.profitability:view": "A",
+    "usedvehicle.delivery:view": "A",
+    "usedvehicle.delivery.payments:view": "A",
+    "usedvehicle.archive:view": "A",
+    "newvehicle.transport:view": "A",
+    "newvehicle.stock:view": "A",
+    "newvehicle.delivery:view": "A",
+    "newvehicle.delivery.payments:view": "A",
+    "newvehicle.archive:view": "A",
+    "transport.list:view": "A",
+    "internalmarket.catalogue:view": "A",
+    "internalmarket.request:view": "A",
+    "crm.customer:view": "A",
+    "crm.lead:view": "A",
+    "crm.leadimport:view": "A",
+    "crm.leadrouting:view": "A",
+    "crm.offer:view": "A",
+    "crm.contract:view": "A",
+    "crm.contract.documents:view": "A",
+    "sales.plan:view": "A",
+    "usedvehicle.evaluation.offer:decide": "A",
+    "crm.contract:approvediscount": "A",
+    "crm.contract:storno": "A",
+    "sales.plan:distribute": "A",
+    "sales.plan:manage": "A",
+    "sales.plan:margin": "A",
+    "internalmarket.request:decide": "A",
+    "iam.user:view": "A",
+    "dealer:view": "A"
+   }
+  },
+  "dealeradmin": {
+   "name": "Administrator koncesionara",
+   "scope": "dealer",
+   "vehicles": "Sva",
+   "legacy": "",
+   "grants": {
+    "incident:view": "A",
+    "incident:create": "A",
+    "iam.user:view": "A",
+    "iam.user:manage": "A",
+    "iam.user:delete": "A",
+    "iam.role:view": "A",
+    "iam.serviceaccount:view": "A",
+    "iam.serviceaccount:revoke": "A",
+    "dealer:view": "A",
+    "dealer:manage": "A",
+    "dealer.location:view": "A",
+    "dealer.location:manage": "A",
+    "dealer.settings:view": "A",
+    "dealer.settings:manage": "A",
+    "dealer.account:view": "A",
+    "dealer.account:manage": "A",
+    "notification.policy:manage": "A",
+    "crm.leadrouting:view": "A",
+    "crm.leadrouting:update": "A",
+    "crm.customer:view": "A",
+    "crm.lead:view": "A",
+    "crm.lead:update": "A",
+    "crm.lead:assign": "A",
+    "crm.leadimport:view": "A",
+    "crm.leadimport:create": "A"
+   }
+  },
+  "salesmanager": {
+   "name": "Voditelj prodaje",
+   "scope": "dealer",
+   "vehicles": "Sva",
+   "legacy": "",
+   "grants": {
+    "incident:view": "A",
+    "incident:create": "A",
+    "crm.customer:view": "A",
+    "crm.customer:create": "A",
+    "crm.customer:update": "A",
+    "internalmarket.catalogue:view": "A",
+    "internalmarket.catalogue:request": "A",
+    "internalmarket.request:view": "A",
+    "internalmarket.request:create": "A",
+    "usedvehicle.evaluation.conditionreport:view": "A",
+    "usedvehicle.evaluation.conditionreport:manage": "A",
+    "usedvehicle.evaluation.marketcomparison:view": "A",
+    "usedvehicle.evaluation.marketcomparison:manage": "A",
+    "usedvehicle.evaluation.offer:view": "A",
+    "usedvehicle.evaluation.offer:manage": "A",
+    "crm.lead:view": "L",
+    "crm.lead:create": "A",
+    "crm.lead:update": "L",
+    "crm.offer:view": "L",
+    "crm.offer:create": "A",
+    "crm.offer:update": "L",
+    "crm.offer:delete": "L",
+    "crm.contract:view": "L",
+    "crm.contract:create": "A",
+    "crm.contract:update": "L",
+    "crm.contract:delete": "L",
+    "crm.contract:approvediscount": "A",
+    "crm.contract:realize": "A",
+    "crm.contract:sendorder": "A",
+    "crm.contract.documents:view": "A",
+    "crm.contract.documents:submit": "A",
+    "sales.plan:view": "L",
+    "sales.plan:distribute": "A",
+    "usedvehicle.evaluation:view": "L",
+    "usedvehicle.evaluation:create": "A",
+    "usedvehicle.evaluation:update": "L",
+    "usedvehicle.evaluation:archive": "A",
+    "usedvehicle.evaluation:valuate": "A",
+    "usedvehicle.evaluation.offer:decide": "A",
+    "usedvehicle.takeover:view": "A",
+    "usedvehicle.preparation:view": "A",
+    "usedvehicle.sale:view": "A",
+    "usedvehicle.sale:update": "A",
+    "usedvehicle.sale:status": "A",
+    "usedvehicle.sale:sell": "A",
+    "usedvehicle.sale:return": "A",
+    "usedvehicle.sale:archive": "A",
+    "usedvehicle.price:update": "A",
+    "usedvehicle.price.calculation:view": "A",
+    "usedvehicle.price.calculation:manage": "A",
+    "usedvehicle.price.profitability:view": "A",
+    "usedvehicle.delivery:view": "A",
+    "usedvehicle.delivery.payments:view": "A",
+    "usedvehicle.archive:view": "A",
+    "newvehicle.stock:view": "A",
+    "newvehicle.delivery:view": "A",
+    "newvehicle.delivery.payments:view": "A",
+    "newvehicle.archive:view": "A",
+    "internalmarket.request:decide": "A"
+   }
+  },
+  "salesused": {
+   "name": "Prodajni savjetnik – rabljena",
+   "scope": "dealer",
+   "vehicles": "Rabljena",
+   "legacy": "",
+   "grants": {
+    "incident:view": "A",
+    "incident:create": "A",
+    "crm.customer:view": "A",
+    "crm.customer:create": "A",
+    "crm.customer:update": "A",
+    "crm.lead:view": "S",
+    "crm.lead:create": "A",
+    "crm.lead:update": "S",
+    "crm.offer:view": "A",
+    "crm.offer:create": "A",
+    "crm.offer:update": "S",
+    "crm.contract:view": "S",
+    "crm.contract:create": "A",
+    "crm.contract:update": "S",
+    "crm.contract.documents:view": "A",
+    "crm.contract.documents:submit": "A",
+    "sales.plan:view": "S",
+    "internalmarket.catalogue:view": "A",
+    "internalmarket.catalogue:request": "A",
+    "internalmarket.request:view": "A",
+    "internalmarket.request:create": "A",
+    "usedvehicle.evaluation.conditionreport:view": "A",
+    "usedvehicle.evaluation.conditionreport:manage": "A",
+    "usedvehicle.evaluation.marketcomparison:view": "A",
+    "usedvehicle.evaluation.marketcomparison:manage": "A",
+    "usedvehicle.evaluation.offer:view": "A",
+    "usedvehicle.evaluation.offer:manage": "A",
+    "usedvehicle.evaluation:view": "S",
+    "usedvehicle.evaluation:create": "A",
+    "usedvehicle.evaluation:update": "S",
+    "usedvehicle.evaluation:valuate": "A",
+    "usedvehicle.takeover:view": "A",
+    "usedvehicle.sale:view": "A",
+    "usedvehicle.sale:update": "A",
+    "usedvehicle.sale:status": "A",
+    "usedvehicle.sale:sell": "A",
+    "usedvehicle.delivery:view": "A",
+    "usedvehicle.delivery:create": "A",
+    "usedvehicle.delivery:deliver": "A",
+    "usedvehicle.delivery:invoice": "A",
+    "usedvehicle.delivery:protocol": "A",
+    "usedvehicle.delivery.payments:view": "A",
+    "usedvehicle.delivery.additionalservices:manage": "A",
+    "usedvehicle.archive:view": "A"
+   }
+  },
+  "salesnew": {
+   "name": "Prodajni savjetnik – nova",
+   "scope": "dealer",
+   "vehicles": "Nova",
+   "legacy": "",
+   "grants": {
+    "incident:view": "A",
+    "incident:create": "A",
+    "crm.customer:view": "A",
+    "crm.customer:create": "A",
+    "crm.customer:update": "A",
+    "crm.lead:view": "S",
+    "crm.lead:create": "A",
+    "crm.lead:update": "S",
+    "crm.offer:view": "A",
+    "crm.offer:create": "A",
+    "crm.offer:update": "S",
+    "crm.contract:view": "S",
+    "crm.contract:create": "A",
+    "crm.contract:update": "S",
+    "crm.contract.documents:view": "A",
+    "crm.contract.documents:submit": "A",
+    "sales.plan:view": "S",
+    "newvehicle.transport:view": "A",
+    "newvehicle.stock:view": "A",
+    "newvehicle.stock:update": "A",
+    "newvehicle.delivery:view": "A",
+    "newvehicle.delivery:update": "A",
+    "newvehicle.delivery:invoice": "A",
+    "newvehicle.delivery:protocol": "A",
+    "newvehicle.delivery.payments:view": "A",
+    "newvehicle.delivery.additionalservices:manage": "A",
+    "newvehicle.archive:view": "A"
+   }
+  },
+  "servicemanager": {
+   "name": "Voditelj servisa",
+   "scope": "dealer",
+   "vehicles": "Rabljena",
+   "legacy": "",
+   "grants": {
+    "incident:view": "A",
+    "incident:create": "A",
+    "usedvehicle.preparation:view": "A",
+    "usedvehicle.preparation:update": "A",
+    "usedvehicle.preparation.inspectionform:view": "A",
+    "usedvehicle.preparation.inspectionform:manage": "A",
+    "usedvehicle.preparation.order:view": "A",
+    "usedvehicle.preparation.order:manage": "A",
+    "usedvehicle.preparation.repaircost:view": "A",
+    "usedvehicle.preparation.repaircost:manage": "A",
+    "usedvehicle.preparation:create": "A",
+    "usedvehicle.preparation:activate": "A",
+    "usedvehicle.preparation:return": "A",
+    "usedvehicle.preparation.order:delete": "A",
+    "usedvehicle.preparation.repaircost:delete": "A",
+    "usedvehicle.takeover:view": "A",
+    "usedvehicle.sale:view": "A",
+    "usedvehicle.archive:view": "A"
+   }
+  },
+  "serviceadvisor": {
+   "name": "Servisni savjetnik",
+   "scope": "dealer",
+   "vehicles": "Rabljena",
+   "legacy": "",
+   "grants": {
+    "incident:view": "A",
+    "incident:create": "A",
+    "usedvehicle.preparation:view": "A",
+    "usedvehicle.preparation:update": "A",
+    "usedvehicle.preparation.inspectionform:view": "A",
+    "usedvehicle.preparation.inspectionform:manage": "A",
+    "usedvehicle.preparation.order:view": "A",
+    "usedvehicle.preparation.order:manage": "A",
+    "usedvehicle.preparation.repaircost:view": "A",
+    "usedvehicle.preparation.repaircost:manage": "A"
+   }
+  },
+  "backoffice": {
+   "name": "Back office",
+   "scope": "dealer",
+   "vehicles": "Sva",
+   "legacy": "",
+   "grants": {
+    "incident:view": "A",
+    "incident:create": "A",
+    "crm.customer:view": "A",
+    "crm.offer:view": "A",
+    "crm.contract:view": "A",
+    "crm.contract.documents:view": "A",
+    "crm.contract.documents:verify": "A",
+    "usedvehicle.delivery:view": "A",
+    "usedvehicle.delivery:invoice": "A",
+    "usedvehicle.delivery:protocol": "A",
+    "usedvehicle.delivery.payments:view": "A",
+    "usedvehicle.delivery.payments:record": "A",
+    "usedvehicle.delivery.payments:reverse": "A",
+    "newvehicle.delivery:view": "A",
+    "newvehicle.delivery:invoice": "A",
+    "newvehicle.delivery:protocol": "A",
+    "newvehicle.delivery.payments:view": "A",
+    "newvehicle.delivery.payments:record": "A",
+    "newvehicle.delivery.payments:reverse": "A"
+   }
+  },
+  "marketing": {
+   "name": "Marketing",
+   "scope": "dealer",
+   "vehicles": "Sva",
+   "legacy": "",
+   "grants": {
+    "incident:view": "A",
+    "incident:create": "A",
+    "crm.customer:view": "A",
+    "crm.customer:create": "A",
+    "crm.customer:update": "A",
+    "crm.lead:view": "A",
+    "crm.lead:create": "A",
+    "crm.lead:update": "A",
+    "crm.lead:assign": "A",
+    "crm.leadimport:view": "A",
+    "crm.leadimport:create": "A",
+    "crm.leadrouting:view": "A",
+    "crm.leadrouting:update": "A"
+   }
+  }
+ }
+}
