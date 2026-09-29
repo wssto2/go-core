@@ -59,7 +59,7 @@ func (*Module) Register(c *bootstrap.Container) error {
 	api := eng.Group("/api/v1")
 	api.Use(coreauth.Authenticated(bootstrap.MustResolve[coreauth.Provider](c)))
 	api.Use(authzhttp.Principals(principalOf(db)))
-	api.Use(authzhttp.PinTenant(engine)) // tenancy.ScopeByTenant keeps working as a second wall
+	api.Use(authzhttp.PinTenant(engine)) // legacy tenancy.ScopeByTenant callers fail closed
 	RegisterRoutes(api, NewService(db, engine), engine)
 	return nil
 }

@@ -111,26 +111,67 @@ func TestPrincipalsRejectsWhatItCannotResolve(t *testing.T) {
 	assert.Equal(t, 401, do(t, r, "/", nil).Code)
 }
 
-func TestPinTenant(t *testing.T) {
+func TestPinTenantFailsClosed(t *testing.T) {
 	w := world(t)
-	w.Bind(authz.Subject{Kind: authz.KindUser, ID: 1}, "seller", authztest.Location(10)) // dealer 1
-	w.Bind(authz.Subject{Kind: authz.KindUser, ID: 2}, "webmaster", authztest.Org())
-	w.Bind(authz.Subject{Kind: authz.KindUser, ID: 3}, "seller", authztest.Dealer(1))
-	w.Bind(authz.Subject{Kind: authz.KindUser, ID: 3}, "seller", authztest.Dealer(2))
+	sub := func(id int) authz.Subject { return authz.Subject{Kind: authz.KindUser, ID: id} }
+	w.Bind(sub(1), "seller", authztest.Location(10)) // one tenant (dealer 1) through a location
+	w.Bind(sub(2), "webmaster", authztest.Org())     // root
+	w.Bind(sub(3), "seller", authztest.Dealer(1))    // two tenants
+	w.Bind(sub(3), "seller", authztest.Dealer(2))
+	w.Bind(sub(5), "webmaster", authztest.Org()) // root plus a dealer binding: still root
+	w.Bind(sub(5), "seller", authztest.Dealer(1))
+	// user 4 has no bindings at all
 
 	r := router(authzhttp.PinTenant(w.Engine))
 	r.GET("/tenant", func(ctx *gin.Context) {
-		id, ok := tenancy.TenantIDFromContext(ctx.Request.Context())
-		if !ok {
-			ctx.String(200, "none")
-			return
-		}
-		ctx.String(200, "tenant %d", id)
+		c := ctx.Request.Context()
+		id, _ := tenancy.TenantIDFromContext(c)
+		ctx.String(200, "tenant=%d all=%t", id, tenancy.AllTenantsFromContext(c))
 	})
-	assert.Equal(t, "tenant 1", do(t, r, "/tenant", map[string]string{"X-Test-User": "1"}).Body.String())
-	assert.Equal(t, "none", do(t, r, "/tenant", map[string]string{"X-Test-User": "2"}).Body.String(), "the root crosses tenants")
-	assert.Equal(t, "none", do(t, r, "/tenant", map[string]string{"X-Test-User": "3"}).Body.String(), "two tenants pin none")
-	assert.Equal(t, "none", do(t, r, "/tenant", map[string]string{"X-Test-User": "4"}).Body.String())
+	tests := []struct {
+		name, user, want string
+	}{
+		{"one tenant, through a location binding", "1", "tenant=1 all=false"},
+		{"root binding crosses tenants explicitly", "2", "tenant=0 all=true"},
+		{"several tenants pin nothing", "3", "tenant=0 all=false"},
+		{"no bindings pin nothing", "4", "tenant=0 all=false"},
+		{"a root binding wins over a tenant one", "5", "tenant=0 all=true"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, do(t, r, "/tenant", map[string]string{"X-Test-User": tt.user}).Body.String())
+		})
+	}
+}
+
+func TestLegacyTenantScopeSeesNothingUnlessPinned(t *testing.T) {
+	type row struct {
+		ID       int
+		DealerID int
+	}
+	db, cleanup, err := database.PrepareTestDB(&row{})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = cleanup() })
+	require.NoError(t, db.Create(&[]row{{DealerID: 1}, {DealerID: 2}, {DealerID: 2}}).Error)
+
+	w := world(t)
+	sub := func(id int) authz.Subject { return authz.Subject{Kind: authz.KindUser, ID: id} }
+	w.Bind(sub(1), "seller", authztest.Dealer(1))
+	w.Bind(sub(2), "webmaster", authztest.Org())
+	w.Bind(sub(3), "seller", authztest.Dealer(1))
+	w.Bind(sub(3), "seller", authztest.Dealer(2))
+
+	r := router(authzhttp.PinTenant(w.Engine))
+	r.GET("/rows", func(ctx *gin.Context) {
+		var got []row
+		err := db.Scopes(tenancy.ScopeByTenant(ctx.Request.Context(), "dealer_id")).Find(&got).Error
+		require.NoError(t, err)
+		ctx.String(200, "%d", len(got))
+	})
+	assert.Equal(t, "1", do(t, r, "/rows", map[string]string{"X-Test-User": "1"}).Body.String(), "pinned to dealer 1")
+	assert.Equal(t, "3", do(t, r, "/rows", map[string]string{"X-Test-User": "2"}).Body.String(), "root sees all")
+	assert.Equal(t, "0", do(t, r, "/rows", map[string]string{"X-Test-User": "3"}).Body.String(), "two dealers must not fall back to every dealer")
+	assert.Equal(t, "0", do(t, r, "/rows", map[string]string{"X-Test-User": "4"}).Body.String(), "no bindings sees nothing")
 }
 
 func TestMeAccess(t *testing.T) {

@@ -77,10 +77,17 @@ func RequireAny(a authz.Authorizer, permissions ...string) gin.HandlerFunc {
 	}
 }
 
-// PinTenant puts the principal's tenant in the tenancy context when every one of
-// its bindings is pinned to the same tenant, so tenancy.ScopeByTenant keeps
-// working as a second wall. It does nothing for a principal at the root or with
-// several tenants. Run it after Principals.
+// PinTenant establishes the tenancy context for legacy tenancy.ScopeByTenant
+// callers, failing closed:
+//
+//   - some binding at the root: tenancy.WithAllTenants (crosses tenants);
+//   - every binding pinned to exactly one tenant: tenancy.WithTenantID;
+//   - anything else (several tenants, no bindings, a binding whose chain has no
+//     tenant): nothing is set, so ScopeByTenant matches no rows.
+//
+// authz's own Access / authzgorm.Filter already constrain by the binding's
+// chain; this only keeps code that still relies on ScopeByTenant safe. Run it
+// after Principals.
 func PinTenant(e *authz.Engine) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		p, ok := authz.PrincipalFrom(ctx.Request.Context())
@@ -93,7 +100,9 @@ func PinTenant(e *authz.Engine) gin.HandlerFunc {
 			abort(ctx, err)
 			return
 		}
-		if tenant, ok := eff.Tenant(); ok {
+		if _, root := eff.Tenants(); root {
+			ctx.Request = ctx.Request.WithContext(tenancy.WithAllTenants(ctx.Request.Context()))
+		} else if tenant, ok := eff.Tenant(); ok {
 			ctx.Request = ctx.Request.WithContext(tenancy.WithTenantID(ctx.Request.Context(), tenant))
 		}
 		ctx.Next()
