@@ -49,33 +49,133 @@ func roles() []authz.Role {
 
 func ptr(i int) *int { return &i }
 
-// seed inserts a lead for every combination of place, owner and vehicle kind.
-func seed(t *testing.T, db *gorm.DB) []lead {
-	t.Helper()
-	require.NoError(t, db.AutoMigrate(&lead{}))
-	var rows []lead
-	id := 0
-	for _, place := range [][2]int{{1, 10}, {1, 11}, {2, 20}} {
-		for _, owner := range []*int{nil, ptr(0), ptr(1), ptr(2), ptr(3)} {
-			for _, kind := range []*int{nil, ptr(1), ptr(2)} {
-				id++
-				rows = append(rows, lead{ID: id, DealerID: place[0], LocationID: place[1], OwnerID: owner, KindID: kind})
-			}
-		}
-	}
-	require.NoError(t, db.Create(&rows).Error)
-	return rows
+// shape is one way of laying leads out in tables. The same access set must
+// select the same rows in every shape, whether the owner and the location are
+// plain columns or come from other tables through trusted SQL.
+type shape struct {
+	name string
+	// seed fills the tables and returns the ID of every lead with its resource.
+	seed func(t *testing.T, db *gorm.DB) map[int]authz.Resource
+	// query returns the IDs the access set selects.
+	query func(db *gorm.DB, access authz.AccessSet) ([]int, error)
 }
 
-func resourceOf(r lead) authz.Resource {
-	res := authz.Resource{Scope: authztest.Location(r.LocationID), Ancestors: []authz.Scope{authztest.Dealer(r.DealerID)}, OwnerLocation: r.LocationID}
-	if r.OwnerID != nil {
-		res.Owner = *r.OwnerID
+func kindAttr(kind *int) map[string]string {
+	if kind == nil {
+		return nil
 	}
-	if r.KindID != nil {
-		res.Attrs = map[string]string{"vehiclekind": map[int]string{1: "used", 2: "new"}[*r.KindID]}
+	return map[string]string{"vehiclekind": map[int]string{1: "used", 2: "new"}[*kind]}
+}
+
+// columnShape: owner, location and dealer are columns of the lead table.
+func columnShape() shape {
+	return shape{
+		name: "columns",
+		seed: func(t *testing.T, db *gorm.DB) map[int]authz.Resource {
+			t.Helper()
+			require.NoError(t, db.AutoMigrate(&lead{}))
+			out := map[int]authz.Resource{}
+			var rows []lead
+			id := 0
+			for _, place := range [][2]int{{1, 10}, {1, 11}, {2, 20}} {
+				for _, owner := range []*int{nil, ptr(0), ptr(1), ptr(2), ptr(3)} {
+					for _, kind := range []*int{nil, ptr(1), ptr(2)} {
+						id++
+						rows = append(rows, lead{ID: id, DealerID: place[0], LocationID: place[1], OwnerID: owner, KindID: kind})
+						res := authz.Resource{Scope: authztest.Location(place[1]), Ancestors: []authz.Scope{authztest.Dealer(place[0])}, OwnerLocation: place[1], Attrs: kindAttr(kind)}
+						if owner != nil {
+							res.Owner = *owner
+						}
+						out[id] = res
+					}
+				}
+			}
+			require.NoError(t, db.Create(&rows).Error)
+			return out
+		},
+		query: func(db *gorm.DB, access authz.AccessSet) ([]int, error) {
+			got := []int{}
+			err := db.Model(&lead{}).Scopes(authzgorm.Filter(access, leadColumns)).Order("id").Pluck("id", &got).Error
+			return got, err
+		},
 	}
-	return res
+}
+
+// xlead has no owner or location column: the location is its creator's (a
+// person), the owner is whoever an assignment row names (or nobody).
+type xlead struct {
+	ID        int `gorm:"primaryKey"`
+	DealerID  int
+	CreatorID int
+	KindID    *int
+}
+
+type person struct {
+	ID         int `gorm:"primaryKey"`
+	LocationID int
+}
+
+type assignment struct {
+	LeadID     int
+	AssignedTo *int
+}
+
+const creatorLocation = "SELECT location_id FROM people WHERE people.id = xleads.creator_id"
+
+var xleadColumns = authzgorm.Columns{
+	Levels:            map[string]string{"dealer": "xleads.dealer_id"},
+	LevelExprs:        map[string]string{"location": creatorLocation},
+	OwnerLocationExpr: creatorLocation,
+	// visible unless another user is assigned; "unowned is own" is the legacy lead rule
+	OwnerMatch: func(r authzgorm.OwnerRequest) (authzgorm.Expr, bool) {
+		if r.UnownedIsOwn {
+			return authzgorm.Expr{
+				SQL:  "xleads.id NOT IN (SELECT lead_id FROM assignments WHERE assigned_to IS NOT NULL AND assigned_to != ?)",
+				Args: []any{r.UserID},
+			}, true
+		}
+		return authzgorm.Expr{SQL: "xleads.id IN (SELECT lead_id FROM assignments WHERE assigned_to = ?)", Args: []any{r.UserID}}, true
+	},
+	Attrs: map[string]string{"vehiclekind": "CASE xleads.kind_id WHEN 1 THEN 'used' WHEN 2 THEN 'new' END"},
+}
+
+// expressionShape: the same leads, but through other tables.
+func expressionShape() shape {
+	return shape{
+		name: "expressions",
+		seed: func(t *testing.T, db *gorm.DB) map[int]authz.Resource {
+			t.Helper()
+			require.NoError(t, db.AutoMigrate(&xlead{}, &person{}, &assignment{}))
+			creators := map[int]int{10: 101, 11: 102, 20: 103}
+			require.NoError(t, db.Create(&[]person{{ID: 101, LocationID: 10}, {ID: 102, LocationID: 11}, {ID: 103, LocationID: 20}}).Error)
+			out := map[int]authz.Resource{}
+			id := 0
+			// -1: no assignment row at all; 0: a row with a NULL assignee
+			for _, place := range [][2]int{{1, 10}, {1, 11}, {2, 20}} {
+				for _, assignee := range []int{-1, 0, 1, 2, 3} {
+					for _, kind := range []*int{nil, ptr(1), ptr(2)} {
+						id++
+						require.NoError(t, db.Create(&xlead{ID: id, DealerID: place[0], CreatorID: creators[place[1]], KindID: kind}).Error)
+						res := authz.Resource{Scope: authztest.Location(place[1]), Ancestors: []authz.Scope{authztest.Dealer(place[0])}, OwnerLocation: place[1], Attrs: kindAttr(kind)}
+						switch {
+						case assignee == 0:
+							require.NoError(t, db.Create(&assignment{LeadID: id}).Error)
+						case assignee > 0:
+							require.NoError(t, db.Create(&assignment{LeadID: id, AssignedTo: ptr(assignee)}).Error)
+							res.Owner = assignee
+						}
+						out[id] = res
+					}
+				}
+			}
+			return out
+		},
+		query: func(db *gorm.DB, access authz.AccessSet) ([]int, error) {
+			got := []int{}
+			err := db.Model(&xlead{}).Scopes(authzgorm.Filter(access, xleadColumns)).Order("xleads.id").Pluck("xleads.id", &got).Error
+			return got, err
+		},
+	}
 }
 
 type binding struct {
@@ -85,12 +185,9 @@ type binding struct {
 
 // TestFilterAgreesWithRequireOn is the property that matters: for every
 // principal and every row, the row is returned by the filtered query exactly
-// when RequireOn allows it.
+// when RequireOn allows it, whether owner and location are plain columns or
+// trusted SQL expressions over other tables.
 func TestFilterAgreesWithRequireOn(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	require.NoError(t, err)
-	rows := seed(t, db)
-
 	cases := map[string][]binding{
 		"no bindings":                       nil,
 		"own at dealer 1":                   {{"own", authztest.Dealer(1)}},
@@ -112,44 +209,51 @@ func TestFilterAgreesWithRequireOn(t *testing.T) {
 		user, location int
 	}{{1, 10}, {2, 11}, {3, 20}, {4, 0}}
 
-	nonEmpty, partial := 0, 0
-	for name, bindings := range cases {
-		for _, pr := range principals {
-			t.Run(fmt.Sprintf("%s/user%d", name, pr.user), func(t *testing.T) {
-				w := authztest.NewWorld(t, catalogue(t), roles()...)
-				w.Places.AddDealer(1).AddDealer(2).AddLocation(10, 1).AddLocation(11, 1).AddLocation(20, 2)
-				// the owner IDs in the data are 1..3; user 4 owns nothing
-				principal := authz.User(pr.user, pr.location)
-				for _, b := range bindings {
-					w.Bind(principal.Subject, b.role, b.scope)
-				}
-				ctx := w.As(principal)
+	for _, sh := range []shape{columnShape(), expressionShape()} {
+		t.Run(sh.name, func(t *testing.T) {
+			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+			require.NoError(t, err)
+			resources := sh.seed(t, db)
 
-				access, err := w.Engine.Access(ctx, "crm.lead:view")
-				require.NoError(t, err)
+			nonEmpty, partial := 0, 0
+			for name, bindings := range cases {
+				for _, pr := range principals {
+					t.Run(fmt.Sprintf("%s/user%d", name, pr.user), func(t *testing.T) {
+						w := authztest.NewWorld(t, catalogue(t), roles()...)
+						w.Places.AddDealer(1).AddDealer(2).AddLocation(10, 1).AddLocation(11, 1).AddLocation(20, 2)
+						// the owner IDs in the data are 1..3; user 4 owns nothing
+						principal := authz.User(pr.user, pr.location)
+						for _, b := range bindings {
+							w.Bind(principal.Subject, b.role, b.scope)
+						}
+						ctx := w.As(principal)
 
-				got := []int{}
-				require.NoError(t, db.Model(&lead{}).Scopes(authzgorm.Filter(access, leadColumns)).Order("id").Pluck("id", &got).Error)
+						access, err := w.Engine.Access(ctx, "crm.lead:view")
+						require.NoError(t, err)
+						got, err := sh.query(db, access)
+						require.NoError(t, err)
 
-				want := []int{}
-				for _, r := range rows {
-					if w.Engine.RequireOn(ctx, "crm.lead:view", resourceOf(r)) == nil {
-						want = append(want, r.ID)
-					}
+						want := []int{}
+						for id := 1; id <= len(resources); id++ {
+							if w.Engine.RequireOn(ctx, "crm.lead:view", resources[id]) == nil {
+								want = append(want, id)
+							}
+						}
+						assert.Equal(t, want, got)
+						if len(got) > 0 {
+							nonEmpty++
+						}
+						if len(got) > 0 && len(got) < len(resources) {
+							partial++
+						}
+					})
 				}
-				assert.Equal(t, want, got)
-				if len(got) > 0 {
-					nonEmpty++
-				}
-				if len(got) > 0 && len(got) < len(rows) {
-					partial++
-				}
-			})
-		}
+			}
+			// guard against a vacuous comparison: most cases return some rows, many a strict subset
+			assert.Greater(t, nonEmpty, 30)
+			assert.Greater(t, partial, 30)
+		})
 	}
-	// guard against a vacuous comparison: most cases return some rows, many a strict subset
-	assert.Greater(t, nonEmpty, 30)
-	assert.Greater(t, partial, 30)
 }
 
 func dryRun(t *testing.T, access authz.AccessSet, cols authzgorm.Columns) (string, []any) {
@@ -295,3 +399,71 @@ func TestBuildRejectsUnsafeColumns(t *testing.T) {
 }
 
 func user(id int) authz.Subject { return authz.Subject{Kind: authz.KindUser, ID: id} }
+
+func TestExpressionColumnsSQLAndValidation(t *testing.T) {
+	w := authztest.NewWorld(t, catalogue(t), roles()...)
+	w.Places.AddDealer(1).AddLocation(10, 1)
+	w.Bind(user(1), "own", authztest.Location(10))
+	w.Bind(user(2), "ownloc", authztest.Dealer(1))
+	set := func(id int) authz.AccessSet {
+		s, err := w.Engine.Access(w.As(authz.User(id, 10)), "crm.lead:view")
+		require.NoError(t, err)
+		return s
+	}
+
+	t.Run("own through an arbitrary predicate, arguments in order", func(t *testing.T) {
+		cond, err := authzgorm.Build(set(1), xleadColumns, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "(((SELECT location_id FROM people WHERE people.id = xleads.creator_id) = ? AND xleads.dealer_id = ? AND (xleads.id NOT IN (SELECT lead_id FROM assignments WHERE assigned_to IS NOT NULL AND assigned_to != ?))))", cond.SQL)
+		assert.Equal(t, []any{10, 1, 1}, cond.Args)
+	})
+	t.Run("own location through an expression", func(t *testing.T) {
+		cond, err := authzgorm.Build(set(2), xleadColumns, nil)
+		require.NoError(t, err)
+		assert.Contains(t, cond.SQL, "(SELECT location_id FROM people WHERE people.id = xleads.creator_id) = ?")
+		assert.Equal(t, []any{1, 10}, cond.Args)
+	})
+	t.Run("an owner predicate that cannot be expressed matches nothing", func(t *testing.T) {
+		for name, match := range map[string]func(authzgorm.OwnerRequest) (authzgorm.Expr, bool){
+			"declines": func(authzgorm.OwnerRequest) (authzgorm.Expr, bool) { return authzgorm.Expr{}, false },
+			"empty":    func(authzgorm.OwnerRequest) (authzgorm.Expr, bool) { return authzgorm.Expr{SQL: " "}, true },
+			"placeholder count": func(authzgorm.OwnerRequest) (authzgorm.Expr, bool) {
+				return authzgorm.Expr{SQL: "a = ? AND b = ?", Args: []any{1}}, true
+			},
+			"too many arguments": func(authzgorm.OwnerRequest) (authzgorm.Expr, bool) {
+				return authzgorm.Expr{SQL: "a = 1", Args: []any{1}}, true
+			},
+		} {
+			cols := xleadColumns
+			cols.OwnerMatch = match
+			cond, err := authzgorm.Build(set(1), cols, nil)
+			require.NoError(t, err, name)
+			assert.True(t, cond.None, name)
+		}
+	})
+	t.Run("the owner request carries the principal and the pool flag", func(t *testing.T) {
+		var got authzgorm.OwnerRequest
+		cols := xleadColumns
+		cols.OwnerMatch = func(r authzgorm.OwnerRequest) (authzgorm.Expr, bool) {
+			got = r
+			return authzgorm.Expr{SQL: "1 = 1"}, true
+		}
+		_, err := authzgorm.Build(set(1), cols, nil)
+		require.NoError(t, err)
+		assert.Equal(t, authzgorm.OwnerRequest{UserID: 1, UnownedIsOwn: true}, got)
+	})
+	t.Run("a plain field and its expression together, or a placeholder in a value expression, are rejected", func(t *testing.T) {
+		for name, cols := range map[string]authzgorm.Columns{
+			"level twice":          {Levels: map[string]string{"dealer": "d"}, LevelExprs: map[string]string{"dealer": "SELECT 1"}},
+			"owner twice":          {Owner: "o", OwnerMatch: xleadColumns.OwnerMatch},
+			"location twice":       {OwnerLocation: "l", OwnerLocationExpr: "SELECT 1"},
+			"placeholder in level": {LevelExprs: map[string]string{"dealer": "SELECT ?"}},
+			"placeholder in loc":   {OwnerLocationExpr: "SELECT ?"},
+			"empty level expr":     {LevelExprs: map[string]string{"dealer": " "}},
+			"unsafe plain owner":   {Owner: "o; DROP"},
+		} {
+			_, err := authzgorm.Build(authz.AccessSet{}, cols, nil)
+			assert.Error(t, err, name)
+		}
+	})
+}

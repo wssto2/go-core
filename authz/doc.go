@@ -36,9 +36,35 @@
 // A binding below the hierarchy's root pins a tenant (see
 // [Hierarchy.WithTenantLevel]). Access clauses carry the whole chain from the
 // binding's scope up to the root, and authzgorm.Filter constrains every level
-// the table has a column for, so a dealer binding can never reach another
-// dealer's rows even if a permission check has a bug. Only a root-scoped
-// binding crosses tenants.
+// the table can express, so a dealer binding can never reach another dealer's
+// rows even if a permission check has a bug. Only a root-scoped binding crosses
+// tenants.
+//
+// Code still using tenancy.ScopeByTenant is kept safe by authzhttp.PinTenant,
+// which fails closed: a root binding sets tenancy.WithAllTenants, exactly one
+// tenant sets tenancy.WithTenantID, and anything else (several tenants, no
+// bindings) sets nothing, so ScopeByTenant matches no rows.
+//
+// # Caching
+//
+// The effective-access [Cache] is per process. Admin evicts the affected
+// entries when a role or binding changes, which is immediate for a single
+// instance (arv-next runs one). With several instances, call Evict on each
+// (for example from an event); the TTL ([DefaultCacheTTL]) is only the backstop
+// for a change made by another process.
+//
+// # SQL not verified on MariaDB 10.3
+//
+// The test suites run on SQLite only. Written to be safe on MariaDB 10.3 but not
+// yet run there:
+//
+//   - authzgorm.Filter output: equality, IN, IS NULL, AND/OR (no JSON functions,
+//     CTEs or locking); plus any trusted expression the application supplies
+//     (its own subqueries are the application's to check).
+//   - gormstore.MySQLSchema and Migrate: the CHECK constraint on role_bindings
+//     (enforced from MariaDB 10.2.1) and the six-column unique index.
+//   - gormstore: SELECT ... FOR UPDATE on a role row (no SKIP LOCKED is used),
+//     and duplicate-binding detection (a pre-check plus the unique index).
 //
 // # Concurrency
 //

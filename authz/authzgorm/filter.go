@@ -15,26 +15,58 @@ import (
 	"gorm.io/gorm"
 )
 
+// Expr is trusted SQL written in code, with ? placeholders and their arguments.
+// It is never built from user input; only Args are bound values.
+type Expr struct {
+	SQL  string
+	Args []any
+}
+
+// OwnerRequest is what OwnerMatch is asked to express.
+type OwnerRequest struct {
+	// UserID is the principal's ID.
+	UserID int
+	// UnownedIsOwn is the permission's flag: records with no owner also match.
+	UnownedIsOwn bool
+}
+
 // Columns maps an access set onto one table.
 //
-// Column names must be hardcoded identifiers (optionally table-qualified), never
-// user input. Attribute expressions are trusted SQL written in code, for example
-// a CASE over a joined column; only the values compared against them are bound
-// as arguments.
+// Plain columns (Levels, Owner, OwnerLocation) are hardcoded identifiers,
+// optionally table-qualified, validated and quoted. When a table cannot say it
+// with one column (the owner lives in another table, the location is the
+// creator's), use the trusted-SQL counterpart instead: LevelExprs,
+// OwnerLocationExpr, OwnerMatch, Attrs. Never build any of these from user
+// input; only the compared values are bound as arguments.
 type Columns struct {
 	// Levels maps a hierarchy level to the column holding that level's ID, for
 	// example {"dealer": "dealer_id", "location": "location_id"}. A clause is
-	// constrained by every level of its chain that the table has a column for,
-	// so a location binding also pins the dealer (the tenant wall). A table with
-	// none of a clause's levels cannot be narrowed to that clause, and the clause
+	// constrained by every level of its chain the table can express, so a
+	// location binding also pins the dealer (the tenant wall). A table with none
+	// of a clause's levels cannot be narrowed to that clause, and the clause
 	// matches nothing.
 	Levels map[string]string
+	// LevelExprs maps a level to a SQL expression yielding that level's ID, for
+	// levels a table reaches through another table, for example
+	// "(SELECT location_id FROM users WHERE users.id = offers.created_by)". It is
+	// compared as (expr) = ?. A level must not be in both Levels and LevelExprs.
+	LevelExprs map[string]string
 	// Owner is the column holding the owning user's ID (Own qualifier). NULL and
-	// zero both mean unowned. Without it, Own clauses match nothing.
+	// zero both mean unowned.
 	Owner string
+	// OwnerMatch expresses the Own qualifier as an arbitrary predicate, for an
+	// owner that is not a column of this table. It returns the predicate and its
+	// arguments, or false when it cannot be expressed (the clause then matches
+	// nothing). Set at most one of Owner and OwnerMatch. Without either, Own
+	// clauses match nothing.
+	OwnerMatch func(OwnerRequest) (Expr, bool)
 	// OwnerLocation is the column holding the record's location ID (OwnLocation
-	// qualifier). Without it, OwnLocation clauses match nothing.
+	// qualifier).
 	OwnerLocation string
+	// OwnerLocationExpr is a SQL expression yielding the record's location ID,
+	// compared as (expr) = ?. Set at most one of OwnerLocation and
+	// OwnerLocationExpr. Without either, OwnLocation clauses match nothing.
+	OwnerLocationExpr string
 	// Attrs maps an attribute key to the SQL expression yielding its value on
 	// this table. A role constraint on an attribute the table cannot express
 	// makes that clause match nothing.
@@ -110,21 +142,55 @@ func (c Columns) check() error {
 	bad := func(kind, name string) error {
 		return fmt.Errorf("authzgorm: %s column %q is not a plain identifier", kind, name)
 	}
+	both := func(what string) error {
+		return fmt.Errorf("authzgorm: %s is set twice (plain column and expression)", what)
+	}
 	for level, col := range c.Levels {
 		if !identifier.MatchString(col) {
 			return bad("level "+level, col)
+		}
+		if _, dup := c.LevelExprs[level]; dup {
+			return both("level " + level)
+		}
+	}
+	for level, expr := range c.LevelExprs {
+		if err := checkValueExpr("level "+level, expr); err != nil {
+			return err
 		}
 	}
 	if c.Owner != "" && !identifier.MatchString(c.Owner) {
 		return bad("owner", c.Owner)
 	}
+	if c.Owner != "" && c.OwnerMatch != nil {
+		return both("owner")
+	}
 	if c.OwnerLocation != "" && !identifier.MatchString(c.OwnerLocation) {
 		return bad("owner location", c.OwnerLocation)
 	}
-	for key, expr := range c.Attrs {
-		if strings.TrimSpace(expr) == "" {
-			return fmt.Errorf("authzgorm: attribute %q has an empty expression", key)
+	if c.OwnerLocation != "" && c.OwnerLocationExpr != "" {
+		return both("owner location")
+	}
+	if c.OwnerLocationExpr != "" {
+		if err := checkValueExpr("owner location", c.OwnerLocationExpr); err != nil {
+			return err
 		}
+	}
+	for key, expr := range c.Attrs {
+		if err := checkValueExpr("attribute "+key, expr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkValueExpr validates an expression that yields a value: non-empty, and no
+// placeholders (its compared value is bound by the filter, not by the caller).
+func checkValueExpr(what, expr string) error {
+	if strings.TrimSpace(expr) == "" {
+		return fmt.Errorf("authzgorm: %s has an empty expression", what)
+	}
+	if strings.Contains(expr, "?") {
+		return fmt.Errorf("authzgorm: %s expression must not contain placeholders", what)
 	}
 	return nil
 }
@@ -142,11 +208,18 @@ func clauseSQL(access authz.AccessSet, c authz.Clause, cols Columns, quote func(
 		}
 		pinned := false
 		for _, s := range chain {
-			if col := cols.Levels[s.Level]; col != "" && s.ID != 0 {
-				conds = append(conds, quote(col)+" = ?")
-				args = append(args, s.ID)
-				pinned = true
+			if s.ID == 0 {
+				continue
 			}
+			if col := cols.Levels[s.Level]; col != "" {
+				conds = append(conds, quote(col)+" = ?")
+			} else if expr := cols.LevelExprs[s.Level]; expr != "" {
+				conds = append(conds, "("+expr+") = ?")
+			} else {
+				continue
+			}
+			args = append(args, s.ID)
+			pinned = true
 		}
 		if !pinned {
 			return "", nil, false
@@ -156,22 +229,41 @@ func clauseSQL(access authz.AccessSet, c authz.Clause, cols Columns, quote func(
 	switch c.Qualifier {
 	case authz.QualifierAll:
 	case authz.QualifierOwnLocation:
-		if cols.OwnerLocation == "" || access.Principal.Location == 0 {
+		if access.Principal.Location == 0 {
 			return "", nil, false
 		}
-		conds = append(conds, quote(cols.OwnerLocation)+" = ?")
+		switch {
+		case cols.OwnerLocation != "":
+			conds = append(conds, quote(cols.OwnerLocation)+" = ?")
+		case cols.OwnerLocationExpr != "":
+			conds = append(conds, "("+cols.OwnerLocationExpr+") = ?")
+		default:
+			return "", nil, false
+		}
 		args = append(args, access.Principal.Location)
 	case authz.QualifierOwn:
-		if cols.Owner == "" || access.Principal.Kind != authz.KindUser {
+		if access.Principal.Kind != authz.KindUser {
 			return "", nil, false
 		}
-		col := quote(cols.Owner)
-		if access.UnownedIsOwn {
-			conds = append(conds, "("+col+" = ? OR "+col+" IS NULL OR "+col+" = 0)")
-		} else {
-			conds = append(conds, col+" = ?")
+		switch {
+		case cols.OwnerMatch != nil:
+			e, ok := cols.OwnerMatch(OwnerRequest{UserID: access.Principal.ID, UnownedIsOwn: access.UnownedIsOwn})
+			if !ok || strings.TrimSpace(e.SQL) == "" || strings.Count(e.SQL, "?") != len(e.Args) {
+				return "", nil, false // inexpressible or malformed: match nothing
+			}
+			conds = append(conds, "("+e.SQL+")")
+			args = append(args, e.Args...)
+		case cols.Owner != "":
+			col := quote(cols.Owner)
+			if access.UnownedIsOwn {
+				conds = append(conds, "("+col+" = ? OR "+col+" IS NULL OR "+col+" = 0)")
+			} else {
+				conds = append(conds, col+" = ?")
+			}
+			args = append(args, access.Principal.ID)
+		default:
+			return "", nil, false
 		}
-		args = append(args, access.Principal.ID)
 	default:
 		return "", nil, false
 	}
