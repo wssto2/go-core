@@ -18,6 +18,8 @@ var (
 	ErrForbidden = errors.New("authz: forbidden")
 	// ErrEscalation means an actor tried to give away more than it holds.
 	ErrEscalation = errors.New("authz: escalation")
+	// ErrSelfAssignment means an actor tried to bind a role to itself.
+	ErrSelfAssignment = errors.New("authz: cannot assign a role to yourself")
 	// ErrLastAdmin means a change would remove the actor's own last access to a
 	// protected permission.
 	ErrLastAdmin = errors.New("authz: would remove last access")
@@ -42,8 +44,11 @@ const (
 	ReasonForbidden  apperr.Reason = "authz.forbidden"
 	ReasonEscalation apperr.Reason = "authz.escalation"
 	ReasonLastAdmin  apperr.Reason = "authz.last_admin"
-	ReasonInvalid    apperr.Reason = "authz.invalid"
-	ReasonRoleInUse  apperr.Reason = "authz.role_in_use"
+
+	// ReasonSelfAssignment is returned when an actor binds a role to itself.
+	ReasonSelfAssignment apperr.Reason = "authz.self_assignment"
+	ReasonInvalid        apperr.Reason = "authz.invalid"
+	ReasonRoleInUse      apperr.Reason = "authz.role_in_use"
 )
 
 func forbidden(permission string) error {

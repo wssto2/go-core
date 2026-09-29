@@ -25,10 +25,21 @@ type AdminConfig struct {
 }
 
 // Admin is the write side of authorization: it saves roles and manages bindings
-// on behalf of the principal in the context, enforcing delegation (no
-// escalation, no scope wider than the actor's) and the lock-out rule, then
-// evicts the cache so the change applies on the next request. Writes are audited
-// by the Store.
+// on behalf of the principal in the context, then evicts the cache so the change
+// applies on the next request. Writes are audited by the Store.
+//
+// Delegation differs for roles and bindings:
+//
+//   - Saving a role is strict: every grant must be held by the actor, at least as
+//     widely and broadly (no escalation through a custom role).
+//   - Assigning a role is about where and about dangerous permissions: the actor
+//     needs ManageBindings at a scope containing the target, and the role may
+//     contain a System permission only if the actor holds it, and an
+//     OrganizationOnly one only if the actor holds ManageBindings at the root.
+//     A dealer administrator can therefore assign a sales role they cannot
+//     themselves use. Nobody can assign a role to themselves.
+//   - Removing your own binding is allowed, but never your last access to a
+//     Protected permission (the last-admin lock-out).
 type Admin struct {
 	e         *Engine
 	store     Store
@@ -125,6 +136,10 @@ func (a *Admin) Bind(ctx context.Context, b Binding) (Binding, error) {
 	if err := a.e.h.Check(b.Scope); err != nil {
 		return Binding{}, apperr.BadRequestErr(err)
 	}
+	if b.Subject == actor.Subject {
+		return Binding{}, apperr.Wrap(ErrSelfAssignment, "you cannot assign a role to yourself", apperr.CodePermissionDenied).
+			WithLog(apperr.LevelWarn).WithReason(ReasonSelfAssignment)
+	}
 	if err := a.e.RequireOn(ctx, a.bindings, Resource{Scope: b.Scope}); err != nil {
 		return Binding{}, err
 	}
@@ -132,7 +147,7 @@ func (a *Admin) Bind(ctx context.Context, b Binding) (Binding, error) {
 	if err != nil {
 		return Binding{}, storeErr(err)
 	}
-	if err := a.e.CanBind(ctx, actor, role, b.Scope); err != nil {
+	if err := a.e.CanBind(ctx, actor, role, b.Scope, a.bindings); err != nil {
 		return Binding{}, err
 	}
 	saved, err := a.store.Bind(ctx, actor.Subject, b)
@@ -143,8 +158,9 @@ func (a *Admin) Bind(ctx context.Context, b Binding) (Binding, error) {
 	return saved, nil
 }
 
-// Unbind removes a binding. It needs the same right as creating it, and refuses
-// to remove the actor's own last access to a protected permission.
+// Unbind removes a binding. It needs the same rights as creating it, and refuses
+// to remove the actor's own last access to a protected permission (removing your
+// own binding is otherwise allowed).
 func (a *Admin) Unbind(ctx context.Context, id int) error {
 	actor, err := a.actor(ctx)
 	if err != nil {
@@ -158,7 +174,7 @@ func (a *Admin) Unbind(ctx context.Context, id int) error {
 		return err
 	}
 	if role, err := a.e.lookupRole(ctx, b.Role); err == nil {
-		if err := a.e.CanBind(ctx, actor, role, b.Scope); err != nil {
+		if err := a.e.CanBind(ctx, actor, role, b.Scope, a.bindings); err != nil {
 			return err
 		}
 	} else if !errors.Is(err, ErrRoleNotFound) {

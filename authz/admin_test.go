@@ -22,11 +22,10 @@ func newAdminWorld(t *testing.T) (*authztest.World, *authz.Admin) {
 	return w, w.Admin(manageRoles, manageBindings, manageBindings)
 }
 
-// dealerAdmin makes user id a dealer administrator of dealer 1: it manages
-// bindings there and holds lead permissions (all leads), but cannot build roles.
+// dealerAdmin makes user id the user administrator of dealer 1: it manages
+// bindings there and holds no sales permission at all.
 func dealerAdmin(w *authztest.World, id int) authz.Principal {
-	role := w.SaveRole(authz.Role{Name: "dealer admin", Grants: authz.Grants(authz.QualifierAll,
-		manageBindings, "crm.lead:view", "crm.lead:update", "vehicle.stock:view")})
+	role := w.SaveRole(authz.Role{Name: "dealer admin", Grants: authz.Grants(authz.QualifierAll, manageBindings)})
 	w.BindCustom(user(id), role.ID, authztest.Dealer(1))
 	return authz.User(id, 0)
 }
@@ -136,16 +135,20 @@ func TestSavingARoleAppliesToHoldersImmediately(t *testing.T) {
 
 func TestBindDelegation(t *testing.T) {
 	w, admin := newAdminWorld(t)
-	w.Bind(user(1), "importer", authztest.Org())
-	actor := dealerAdmin(w, 9)
-	// the actor manages bindings at the organization, but holds lead permissions at dealer 1 only
-	scattered := w.SaveRole(authz.Role{Name: "user manager", Grants: authz.Grants(authz.QualifierAll, manageBindings)})
-	w.BindCustom(user(8), scattered.ID, authztest.Org())
-	w.BindCustom(user(8), 1, authztest.Dealer(1)) // custom role 1: dealer admin (leads etc.)
-	scatteredActor := authz.User(8, 0)
-
+	w.Bind(user(1), "importer", authztest.Org())  // everything except System
+	w.Bind(user(2), "webmaster", authztest.Org()) // everything
+	da := dealerAdmin(w, 9)                       // users at dealer 1, no sales permissions
+	// a system-permission holder who also manages bindings, at dealer 1
+	sysAdmin := w.SaveRole(authz.Role{Name: "sys admin", Grants: authz.Grants(authz.QualifierAll, manageBindings, "system.job:run")})
+	w.BindCustom(user(8), sysAdmin.ID, authztest.Dealer(1))
+	// a custom role that contains a System permission, and one that is plain sales
+	sysRole := w.SaveRole(authz.Role{Name: "job runner", Grants: authz.Grants(authz.QualifierAll, "system.job:run", "vehicle.stock:view")})
 	leadRole := w.SaveRole(authz.Role{Name: "lead reader", Grants: authz.Grants(authz.QualifierAll, "crm.lead:view")})
 
+	bind := func(subject int, role authz.RoleRef, scope authz.Scope) authz.Binding {
+		return authz.Binding{Subject: user(subject), Role: role, Scope: scope}
+	}
+	key := func(k string) authz.RoleRef { return authz.RoleRef{Key: k} }
 	tests := []struct {
 		name    string
 		actor   authz.Principal
@@ -153,45 +156,60 @@ func TestBindDelegation(t *testing.T) {
 		wantErr error
 		problem authz.ProblemCode
 	}{
-		{"dealer admin binds at its dealer", actor, authz.Binding{Subject: user(50), Role: leadRole.Ref(), Scope: authztest.Dealer(1)}, nil, ""},
-		{"dealer admin binds at a location of its dealer", actor, authz.Binding{Subject: user(51), Role: leadRole.Ref(), Scope: authztest.Location(10)}, nil, ""},
-		{"dealer admin binds a service account", actor, authz.Binding{Subject: authz.Subject{Kind: authz.KindServiceAccount, ID: 7}, Role: leadRole.Ref(), Scope: authztest.Dealer(1)}, nil, ""},
-		{"dealer admin cannot bind at another dealer", actor, authz.Binding{Subject: user(52), Role: leadRole.Ref(), Scope: authztest.Dealer(2)}, authz.ErrForbidden, ""},
-		{"dealer admin cannot bind at the organization", actor, authz.Binding{Subject: user(53), Role: leadRole.Ref(), Scope: authztest.Org()}, authz.ErrForbidden, ""},
-		{"dealer admin cannot bind a role it does not hold", actor, authz.Binding{Subject: user(54), Role: authz.RoleRef{Key: "manager"}, Scope: authztest.Dealer(1)}, authz.ErrEscalation, ""},
-		{"dealer admin cannot make a webmaster", actor, authz.Binding{Subject: user(55), Role: authz.RoleRef{Key: "webmaster"}, Scope: authztest.Dealer(1)}, nil, authz.ProblemOrganizationOnly},
-		{"importer cannot make a webmaster", authz.User(1, 0), authz.Binding{Subject: user(56), Role: authz.RoleRef{Key: "webmaster"}, Scope: authztest.Org()}, authz.ErrEscalation, ""},
-		{"importer binds a lead role at an organization", authz.User(1, 0), authz.Binding{Subject: user(57), Role: leadRole.Ref(), Scope: authztest.Org()}, nil, ""},
-		{"scope wider than the actor holds the permissions at", scatteredActor, authz.Binding{Subject: user(58), Role: leadRole.Ref(), Scope: authztest.Dealer(2)}, authz.ErrEscalation, ""},
-		{"scope wider than the actor holds: organization", scatteredActor, authz.Binding{Subject: user(59), Role: leadRole.Ref(), Scope: authztest.Org()}, authz.ErrEscalation, ""},
-		{"within where the actor holds them", scatteredActor, authz.Binding{Subject: user(60), Role: leadRole.Ref(), Scope: authztest.Location(11)}, nil, ""},
-		{"organization-only permission below the root", authz.User(1, 0), authz.Binding{Subject: user(61), Role: authz.RoleRef{Key: "importer"}, Scope: authztest.Dealer(1)}, nil, authz.ProblemOrganizationOnly},
-		{"unknown scope", authz.User(1, 0), authz.Binding{Subject: user(62), Role: leadRole.Ref(), Scope: authztest.Dealer(99)}, authz.ErrInvalidScope, ""},
-		{"malformed scope", authz.User(1, 0), authz.Binding{Subject: user(63), Role: leadRole.Ref(), Scope: authz.Scope{Level: "dealer"}}, authz.ErrInvalidScope, ""},
-		{"no such role", authz.User(1, 0), authz.Binding{Subject: user(64), Role: authz.RoleRef{ID: 999}, Scope: authztest.Dealer(1)}, authz.ErrRoleNotFound, ""},
+		// a dealer administrator assigns roles it cannot itself use
+		{"dealer admin binds a sales role at its dealer", da, bind(50, key("seller"), authztest.Dealer(1)), nil, ""},
+		{"dealer admin binds a sales manager role at its dealer", da, bind(51, key("manager"), authztest.Dealer(1)), nil, ""},
+		{"dealer admin binds at a location of its dealer", da, bind(52, key("seller"), authztest.Location(10)), nil, ""},
+		{"dealer admin binds a service account", da, authz.Binding{Subject: authz.Subject{Kind: authz.KindServiceAccount, ID: 7}, Role: leadRole.Ref(), Scope: authztest.Dealer(1)}, nil, ""},
+		{"dealer admin cannot bind at another dealer", da, bind(53, key("seller"), authztest.Dealer(2)), authz.ErrForbidden, ""},
+		{"dealer admin cannot bind at another dealer's location", da, bind(54, key("seller"), authztest.Location(20)), authz.ErrForbidden, ""},
+		{"dealer admin cannot bind at the organization", da, bind(55, key("seller"), authztest.Org()), authz.ErrForbidden, ""},
+		{"dealer admin cannot bind a role with a system permission", da, bind(56, sysRole.Ref(), authztest.Dealer(1)), authz.ErrEscalation, ""},
+		{"dealer admin cannot make a webmaster (organization-only below the root)", da, bind(57, key("webmaster"), authztest.Dealer(1)), nil, authz.ProblemOrganizationOnly},
+		// Uvoznik: everything except System, at the root
+		{"importer binds any non-system role anywhere", authz.User(1, 0), bind(60, key("manager"), authztest.Dealer(2)), nil, ""},
+		{"importer binds at the organization", authz.User(1, 0), bind(61, leadRole.Ref(), authztest.Org()), nil, ""},
+		{"importer binds an organization-only role at the root", authz.User(1, 0), bind(62, key("reporter"), authztest.Org()), nil, ""},
+		{"importer cannot bind an organization-only role below the root", authz.User(1, 0), bind(63, key("reporter"), authztest.Dealer(1)), nil, authz.ProblemOrganizationOnly},
+		{"importer cannot make a webmaster", authz.User(1, 0), bind(64, key("webmaster"), authztest.Org()), authz.ErrEscalation, ""},
+		{"importer cannot bind a custom role with a system permission", authz.User(1, 0), bind(65, sysRole.Ref(), authztest.Dealer(1)), authz.ErrEscalation, ""},
+		// only a System holder binds a System role
+		{"webmaster binds a webmaster", authz.User(2, 0), bind(70, key("webmaster"), authztest.Org()), nil, ""},
+		{"webmaster binds a system role", authz.User(2, 0), bind(71, sysRole.Ref(), authztest.Dealer(2)), nil, ""},
+		{"a system holder binds a system role where it holds it", authz.User(8, 0), bind(72, sysRole.Ref(), authztest.Dealer(1)), nil, ""},
+		{"a system holder cannot bind it where it does not manage bindings", authz.User(8, 0), bind(73, sysRole.Ref(), authztest.Dealer(2)), authz.ErrForbidden, ""},
+		// nobody assigns themselves
+		{"dealer admin cannot bind itself", da, bind(9, key("seller"), authztest.Dealer(1)), authz.ErrSelfAssignment, ""},
+		{"importer cannot bind itself", authz.User(1, 0), bind(1, leadRole.Ref(), authztest.Dealer(1)), authz.ErrSelfAssignment, ""},
+		{"webmaster cannot bind itself", authz.User(2, 0), bind(2, key("seller"), authztest.Org()), authz.ErrSelfAssignment, ""},
+		// malformed requests
+		{"unknown scope", authz.User(1, 0), bind(80, leadRole.Ref(), authztest.Dealer(99)), authz.ErrInvalidScope, ""},
+		{"malformed scope", authz.User(1, 0), bind(81, leadRole.Ref(), authz.Scope{Level: "dealer"}), authz.ErrInvalidScope, ""},
+		{"no such role", authz.User(1, 0), bind(82, authz.RoleRef{ID: 999}, authztest.Dealer(1)), authz.ErrRoleNotFound, ""},
 		{"invalid subject", authz.User(1, 0), authz.Binding{Subject: authz.Subject{Kind: "robot", ID: 1}, Role: leadRole.Ref(), Scope: authztest.Dealer(1)}, authz.ErrInvalidScope, ""},
 	}
+	badRequest := map[string]bool{"unknown scope": true, "malformed scope": true, "invalid subject": true}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b, err := admin.Bind(w.As(tt.actor), tt.binding)
-			if tt.problem != "" {
+			switch {
+			case tt.problem != "":
 				var ve *authz.ValidationError
 				require.ErrorAs(t, err, &ve)
 				assert.True(t, ve.Has(tt.problem))
-				return
-			}
-			if tt.wantErr == nil {
+			case tt.wantErr == nil:
 				require.NoError(t, err)
 				assert.NotZero(t, b.ID)
 				assert.Equal(t, tt.actor.ID, b.CreatedBy)
-				return
-			}
-			require.Error(t, err)
-			if tt.name == "invalid subject" || tt.name == "unknown scope" || tt.name == "malformed scope" {
+			case badRequest[tt.name]:
+				require.Error(t, err)
 				assert.True(t, apperr.HasCode(err, apperr.CodeBadRequest), err)
-				return
+			default:
+				assert.ErrorIs(t, err, tt.wantErr)
+				if tt.wantErr == authz.ErrSelfAssignment {
+					assert.True(t, apperr.HasReason(err, authz.ReasonSelfAssignment))
+				}
 			}
-			assert.ErrorIs(t, err, tt.wantErr)
 		})
 	}
 }
@@ -216,18 +234,42 @@ func TestBindingAppliesAtOnce(t *testing.T) {
 	assert.ErrorIs(t, admin.Unbind(root, b.ID), authz.ErrBindingNotFound)
 }
 
-func TestUnbindNeedsTheSameRightAsBind(t *testing.T) {
+func TestUnbindNeedsTheSameRightsAsBind(t *testing.T) {
 	w, admin := newAdminWorld(t)
 	w.Bind(user(1), "webmaster", authztest.Org())
-	b := w.Bind(user(7), "manager", authztest.Dealer(1))
-	actor := dealerAdmin(w, 9)
+	w.Bind(user(3), "importer", authztest.Org())
+	da := dealerAdmin(w, 9)
 
-	// the dealer admin does not hold the manager role's permissions: it cannot take them away either
-	assert.ErrorIs(t, admin.Unbind(w.As(actor), b.ID), authz.ErrEscalation)
-	// and a binding at another dealer is out of its scope
+	seller := w.Bind(user(7), "seller", authztest.Dealer(1))
+	manager := w.Bind(user(6), "manager", authztest.Dealer(1))
 	other := w.Bind(user(8), "seller", authztest.Dealer(2))
-	assert.ErrorIs(t, admin.Unbind(w.As(actor), other.ID), authz.ErrForbidden)
-	assert.NoError(t, admin.Unbind(w.As(authz.User(1, 0)), b.ID))
+	system := w.Bind(user(5), "webmaster", authztest.Org())
+	sysRole := w.SaveRole(authz.Role{Name: "job runner", Grants: authz.Grants(authz.QualifierAll, "system.job:run")})
+	sysBinding := w.BindCustom(user(4), sysRole.ID, authztest.Dealer(1))
+
+	// the dealer admin removes roles it cannot itself use, at its own dealer
+	assert.NoError(t, admin.Unbind(w.As(da), seller.ID))
+	assert.NoError(t, admin.Unbind(w.As(da), manager.ID))
+	// but not another dealer's, and not one carrying a system permission
+	assert.ErrorIs(t, admin.Unbind(w.As(da), other.ID), authz.ErrForbidden)
+	assert.ErrorIs(t, admin.Unbind(w.As(da), sysBinding.ID), authz.ErrEscalation)
+	// Uvoznik cannot take away a webmaster, the webmaster can
+	assert.ErrorIs(t, admin.Unbind(w.As(authz.User(3, 0)), system.ID), authz.ErrEscalation)
+	assert.NoError(t, admin.Unbind(w.As(authz.User(1, 0)), system.ID))
+	assert.NoError(t, admin.Unbind(w.As(authz.User(3, 0)), other.ID))
+}
+
+func TestRemovingYourOwnBindingIsAllowedUnlessItIsYourLastAdminAccess(t *testing.T) {
+	w := newSmallWorld(t)
+	admin := w.Admin(manageRoles, manageBindings, manageBindings)
+	da := dealerAdmin(w, 9)
+	own := w.Bind(da.Subject, "seller", authztest.Dealer(1))
+	assert.NoError(t, admin.Unbind(w.As(da), own.ID), "a binding that is not the last admin access")
+
+	bindings, err := w.Store.BindingsFor(context.Background(), da.Subject)
+	require.NoError(t, err)
+	require.Len(t, bindings, 1)
+	assert.ErrorIs(t, admin.Unbind(w.As(da), bindings[0].ID), authz.ErrLastAdmin)
 }
 
 func TestLastAdminLockOut(t *testing.T) {

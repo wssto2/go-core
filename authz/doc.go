@@ -23,8 +23,13 @@
 //     organization > dealer > location) and how a scope finds its parent.
 //   - [Engine]: Require, RequireOn and Access. Deny by default; the union of
 //     all bindings; the widest access wins.
-//   - [Admin]: delegation (no escalation), last-admin lock-out and cache
-//     eviction around a [Store].
+//   - [Admin]: role and binding management around a [Store]. Saving a role is
+//     strict (every grant must be held by the actor, as widely). Assigning a
+//     role needs the bindings-management permission at a scope containing the
+//     target, forbids System permissions the actor does not hold and
+//     organization-only ones unless the actor manages bindings at the root, and
+//     never lets anyone assign a role to themselves. It also guards the
+//     last-admin lock-out and evicts the cache.
 //
 // Sub-packages: authzgorm (turn an [AccessSet] into a WHERE clause),
 // authz/gormstore (a [Store] on GORM, audited), authzhttp (gin middleware and

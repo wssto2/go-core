@@ -54,6 +54,7 @@ func smallRoles() []authz.Role {
 		}},
 		{Key: "dealerlead", Name: "Dealer lead", Grants: authz.Grants(authz.QualifierAll,
 			"crm.lead:view", "crm.lead:update", "crm.lead:assign")},
+		{Key: "reporter", Name: "Reporter", Grants: authz.Grants(authz.QualifierAll, "report.group:view")},
 		authz.ComputedRole("webmaster", "Webmaster", authz.All()),
 		authz.ComputedRole("importer", "Importer", authz.AllExcept(authz.IsSystem)),
 	}

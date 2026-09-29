@@ -29,15 +29,23 @@ func (e *Engine) CanSaveRole(ctx context.Context, actor Principal, role Role) er
 	if err != nil {
 		return err
 	}
-	return e.holdsAll(eff, role, func(Clause) bool { return true })
+	return e.holdsAll(eff, role)
 }
 
-// CanBind reports whether the actor may bind the role at the scope: the scope
-// exists, no organization-only permission lands below the root, and every grant
-// of the role is one the actor holds at a scope containing the target scope, at
-// least as widely and broadly. It does not check the actor's right to manage
-// bindings; Admin does.
-func (e *Engine) CanBind(ctx context.Context, actor Principal, role Role, scope Scope) error {
+// CanBind reports whether the actor may assign the role at the scope. Assigning
+// is not giving away what you hold: a dealer administrator with no sales
+// permissions may hand out a sales role at their dealer. So the rule is about
+// where and about the dangerous permissions, not about holding every grant:
+//
+//  1. the actor holds manageBindings at a scope containing the target scope;
+//  2. the role contains no System permission the actor does not hold (at a scope
+//     containing the target);
+//  3. the role contains no OrganizationOnly permission unless the actor holds
+//     manageBindings at the root;
+//  4. OrganizationOnly permissions can only be bound at the root.
+//
+// It does not forbid assigning to oneself: Admin does.
+func (e *Engine) CanBind(ctx context.Context, actor Principal, role Role, scope Scope, manageBindings string) error {
 	if err := role.Validate(e.cat); err != nil {
 		return apperr.BadRequestErr(err)
 	}
@@ -48,9 +56,10 @@ func (e *Engine) CanBind(ctx context.Context, actor Principal, role Role, scope 
 		}
 		return apperr.Internal(err)
 	}
-	if !e.h.IsRoot(scope) {
+	grants := role.Resolve(e.cat)
+	if !e.h.IsRoot(scope) { // (4)
 		var problems []Problem
-		for _, g := range role.Resolve(e.cat) {
+		for _, g := range grants {
 			if p, ok := e.cat.Lookup(g.Permission); ok && p.OrganizationOnly {
 				problems = append(problems, Problem{Code: ProblemOrganizationOnly, Permission: p.ID,
 					Detail: "can only be bound at " + e.h.RootLevel()})
@@ -64,12 +73,36 @@ func (e *Engine) CanBind(ctx context.Context, actor Principal, role Role, scope 
 	if err != nil {
 		return err
 	}
-	return e.holdsAll(eff, role, func(c Clause) bool { return chain.Within(c.Scope) })
+	if !holdsWithin(eff, manageBindings, chain.Within) { // (1)
+		return forbidden(manageBindings)
+	}
+	atRoot := holdsWithin(eff, manageBindings, func(s Scope) bool { return e.h.IsRoot(s) })
+	for _, g := range grants {
+		p, _ := e.cat.Lookup(g.Permission)
+		if p.System && !holdsWithin(eff, p.ID, chain.Within) { // (2)
+			return escalation(p.ID, "a system permission the actor does not hold")
+		}
+		if p.OrganizationOnly && !atRoot { // (3)
+			return escalation(p.ID, "organization-only permissions need "+manageBindings+" at "+e.h.RootLevel())
+		}
+	}
+	return nil
 }
 
-// holdsAll checks that eff holds every grant of the role through a clause that
-// also passes the extra test (scope containment, for bindings).
-func (e *Engine) holdsAll(eff *Effective, role Role, extra func(Clause) bool) error {
+// holdsWithin reports whether eff holds the permission through a clause whose
+// scope satisfies the test (qualifier and attributes do not matter).
+func holdsWithin(eff *Effective, permission string, within func(Scope) bool) bool {
+	for _, c := range eff.grants[permission] {
+		if within(c.Scope) {
+			return true
+		}
+	}
+	return false
+}
+
+// holdsAll checks that eff holds every grant of the role, at least as widely and
+// broadly, through a single clause each.
+func (e *Engine) holdsAll(eff *Effective, role Role) error {
 	for _, g := range role.Resolve(e.cat) {
 		perm, _ := e.cat.Lookup(g.Permission)
 		wanted := attrsFor(perm, role.Attrs)
@@ -79,7 +112,7 @@ func (e *Engine) holdsAll(eff *Effective, role Role, extra func(Clause) bool) er
 		}
 		covered := false
 		for _, c := range clauses {
-			if extra(c) && c.Qualifier.Covers(g.Qualifier) && attrsCover(c.Attrs, wanted) {
+			if c.Qualifier.Covers(g.Qualifier) && attrsCover(c.Attrs, wanted) {
 				covered = true
 				break
 			}
