@@ -15,6 +15,9 @@ type APIKey struct {
 	Revoked    bool      `json:"revoked" gorm:"default:false"`
 	CreatedAt  time.Time `json:"created_at"`
 	LastUsedAt time.Time `json:"last_used_at"`
+	// ExpiresAt, when set, is the instant after which the key is no longer
+	// valid. Nil means it never expires. ValidateAPIKey enforces it.
+	ExpiresAt *time.Time `json:"expires_at,omitempty" gorm:"null"`
 }
 
 // APIKeyStore is the persistence port for API keys.
@@ -30,14 +33,18 @@ func GenerateAPIKey() (string, error) {
 	return GenerateRefreshToken()
 }
 
-// ValidateAPIKey verifies the provided raw key using the store. On failure
-// ErrUnauthorized is returned to align with other auth helpers.
+// ValidateAPIKey verifies the provided raw key using the store: the key must
+// exist, not be revoked and not have expired. On failure ErrUnauthorized is
+// returned to align with other auth helpers.
 func ValidateAPIKey(ctx context.Context, store APIKeyStore, raw string) (*APIKey, error) {
 	ak, err := store.FindByKey(ctx, raw)
 	if err != nil {
 		return nil, ErrUnauthorized
 	}
 	if ak.Revoked {
+		return nil, ErrUnauthorized
+	}
+	if ak.ExpiresAt != nil && !time.Now().Before(*ak.ExpiresAt) {
 		return nil, ErrUnauthorized
 	}
 	return ak, nil

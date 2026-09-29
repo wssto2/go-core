@@ -14,5 +14,5 @@ type Tenant interface {
 // without necessarily belonging to a tenant (system admins, for example).
 type TenantAware interface {
 	GetTenantID() int // returns 0 if the user is a super-admin with no tenant
-	HasTenant() bool  // true if this user is scoped to a specific tenant
+	HasTenant() bool  // true if scoped to a tenant; false marks a super-admin that crosses tenants
 }

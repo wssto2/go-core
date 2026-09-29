@@ -59,14 +59,14 @@ func (r *gormRepository) GetDatatable(ctx context.Context, params datatable.Quer
 		WithScope(func(q *gorm.DB, table string) *gorm.DB {
 			return q.Where(table + ".deleted_at IS NULL")
 		}).
-		Get()
+		Get(ctx)
 }
 
 func (r *gormRepository) FindForResource(ctx context.Context, id int) (resource.Response[Product], error) {
 	return resource.New[Product](r.db(ctx)).
 		WithCount("audit_logs", "entity_id", "entity_type = 'products'").
 		WithoutDeleted("deleted_at").
-		FindByID(id)
+		FindByID(ctx, id)
 }
 
 func (r *gormRepository) FindAll(ctx context.Context) ([]Product, error) {
