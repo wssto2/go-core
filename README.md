@@ -113,6 +113,7 @@ user := auth.MustGetUser[MyUser](ctx)
 * GORM-based repositories
 * Transaction support via context
 * Custom nullable & typed fields
+* SQL migrations per connection (`database/migrate`, goose): `migrations/<connection>/<yyyymmddhhmmss>_<name>.sql`, each database records its own versions; `MarkApplied` adopts a database whose changes ran by hand. `go-core new migration <name> -c <connection>` creates one
 
 ---
 

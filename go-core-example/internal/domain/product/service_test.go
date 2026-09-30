@@ -22,7 +22,7 @@ func TestService_Create_WritesAuditAndOutboxEvent(t *testing.T) {
 		t.Fatalf("open db: %v", err)
 	}
 
-	if err := database.SafeMigrate(db, &Product{}, &event.OutboxEvent{}); err != nil {
+	if err := db.AutoMigrate(&Product{}, &event.OutboxEvent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -67,7 +67,7 @@ func TestService_Create_RollsBackOnAuditFailure(t *testing.T) {
 		t.Fatalf("open db: %v", err)
 	}
 
-	if err := database.SafeMigrate(db, &Product{}, &event.OutboxEvent{}); err != nil {
+	if err := db.AutoMigrate(&Product{}, &event.OutboxEvent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -102,7 +102,7 @@ func TestService_Update_ChangesFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := database.SafeMigrate(db, &Product{}, &event.OutboxEvent{}); err != nil {
+	if err := db.AutoMigrate(&Product{}, &event.OutboxEvent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -139,7 +139,7 @@ func TestService_Delete_SoftDeletes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := database.SafeMigrate(db, &Product{}, &event.OutboxEvent{}); err != nil {
+	if err := db.AutoMigrate(&Product{}, &event.OutboxEvent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 

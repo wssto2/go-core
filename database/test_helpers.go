@@ -17,7 +17,7 @@ func PrepareTestDB(models ...interface{}) (*gorm.DB, func() error, error) {
 	}
 
 	if len(models) > 0 {
-		if err := SafeMigrate(conn, models...); err != nil {
+		if err := conn.AutoMigrate(models...); err != nil {
 			sqlDB, _ := conn.DB()
 			if sqlDB != nil {
 				_ = sqlDB.Close()

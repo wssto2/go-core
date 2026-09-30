@@ -13,7 +13,7 @@ func NewTestRegistry(t *testing.T, models ...any) (*database.Registry, func()) {
 	// Optionally migrate models into the "test" connection
 	conn := reg.MustGet("test")
 	if len(models) > 0 {
-		if err := database.SafeMigrate(conn, models...); err != nil {
+		if err := conn.AutoMigrate(models...); err != nil {
 			err = cleanup()
 			if err != nil {
 				t.Fatalf("failed to cleanup: %v", err)
