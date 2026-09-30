@@ -9,22 +9,23 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 	"unicode"
 )
 
 // ModuleData is passed to every module template.
 type ModuleData struct {
-	GoModule   string // e.g. "go-core-example"
-	Package    string // e.g. "product"
-	Pascal     string // e.g. "Product"
-	Features   Features
+	GoModule string // e.g. "go-core-example"
+	Package  string // e.g. "product"
+	Pascal   string // e.g. "Product"
+	Features Features
 }
 
 // Features controls which optional sections are rendered.
 type Features struct {
-	Events      bool
-	Audit       bool
-	Worker      bool
+	Events bool
+	Audit  bool
+	Worker bool
 }
 
 // GenerateModule writes all module files into outDir.
@@ -63,33 +64,20 @@ func GenerateModule(outDir string, data ModuleData) ([]string, error) {
 	return written, nil
 }
 
-// GenerateMigration creates a timestamped GORM AutoMigrate stub.
-func GenerateMigration(outDir, name string, goModule string) (string, error) {
-	if err := os.MkdirAll(outDir, 0755); err != nil {
+// GenerateMigration creates <outDir>/<yyyymmddhhmmss>_<name>.sql, an empty goose
+// migration for database/migrate (outDir is migrations/<connection name>).
+func GenerateMigration(outDir, name string, now time.Time) (string, error) {
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir: %w", err)
 	}
 
-	data := struct {
-		GoModule string
-		Name     string
-		Pascal   string
-	}{GoModule: goModule, Name: name, Pascal: ToPascal(name)}
+	path := filepath.Join(outDir, fmt.Sprintf("%s_%s.sql", now.Format("20060102150405"), ToSnake(name)))
+	content := "-- +goose Up\n-- " + name + "\n\n"
 
-	content, err := render("migration.go", migrationTpl, data)
-	if err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return "", err
 	}
 
-	formatted, fmtErr := format.Source(content)
-	if fmtErr != nil {
-		formatted = content
-	}
-
-	filename := fmt.Sprintf("migrate_%s.go", ToSnake(name))
-	path := filepath.Join(outDir, filename)
-	if err := os.WriteFile(path, formatted, 0644); err != nil {
-		return "", err
-	}
 	return path, nil
 }
 
@@ -185,7 +173,8 @@ func DetectGoModule(dir string) string {
 // ActionName strips the package prefix from an event Pascal name and returns
 // the snake_case action part.
 // e.g. Package="order", Pascal="OrderShipped" → "shipped"
-//      Package="order", Pascal="Shipped"       → "shipped"
+//
+//	Package="order", Pascal="Shipped"       → "shipped"
 func ActionName(pkg, pascal string) string {
 	pkgPascal := ToPascal(pkg)
 	trimmed := pascal

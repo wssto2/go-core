@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/wssto2/go-core/cmd/go-core/scaffold"
+	"time"
 )
 
 func TestToPascal(t *testing.T) {
@@ -155,16 +156,16 @@ func TestGenerateModule_NoDuplicateFiles(t *testing.T) {
 
 func TestGenerateMigration(t *testing.T) {
 	dir := t.TempDir()
-	path, err := scaffold.GenerateMigration(dir, "add_status_to_orders", "acme/shop")
+	path, err := scaffold.GenerateMigration(dir, "add_status_to_orders", time.Date(2026, 9, 30, 16, 5, 9, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("GenerateMigration: %v", err)
 	}
-	if _, err := os.Stat(path); err != nil {
-		t.Errorf("migration file not created: %v", err)
+	if want := filepath.Join(dir, "20260930160509_add_status_to_orders.sql"); path != want {
+		t.Errorf("path = %s, want %s", path, want)
 	}
 	content, _ := os.ReadFile(path)
-	if !strings.Contains(string(content), "MigrateAddStatusToOrders") {
-		t.Errorf("migration file missing expected function name")
+	if !strings.HasPrefix(string(content), "-- +goose Up\n") {
+		t.Errorf("migration does not start with the goose annotation:\n%s", content)
 	}
 }
 

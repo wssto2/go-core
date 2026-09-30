@@ -446,25 +446,6 @@ func (w *{{.Pascal}}Worker) Run(ctx context.Context) error {
 }
 `
 
-// migrationTpl generates a GORM AutoMigrate stub.
-const migrationTpl = `package migrations
-
-import (
-	"fmt"
-	"gorm.io/gorm"
-)
-
-// Migrate{{.Pascal}} applies the {{.Name}} schema change.
-func Migrate{{.Pascal}}(db *gorm.DB) error {
-	// TODO: implement migration
-	// Example: return db.AutoMigrate(&MyModel{})
-	if err := db.Exec("-- {{.Name}} migration").Error; err != nil {
-		return fmt.Errorf("migrate {{.Name}}: %w", err)
-	}
-	return nil
-}
-`
-
 // eventTpl generates a standalone event file (for go-core new event).
 const eventTpl = `package {{.Package}}
 

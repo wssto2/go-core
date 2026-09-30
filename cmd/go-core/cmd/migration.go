@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
@@ -14,21 +15,24 @@ import (
 
 var migrationCmd = &cobra.Command{
 	Use:     "migration [name]",
-	Short:   "Generate a migration stub",
+	Short:   "Generate an empty SQL migration (goose) in migrations/<connection>/",
 	Example: "  go-core new migration add_status_to_orders",
 	Args:    cobra.MaximumNArgs(1),
 	RunE:    runMigration,
 }
 
-var migrationOutDir string
+var (
+	migrationOutDir     string
+	migrationConnection string
+)
 
 func init() {
-	migrationCmd.Flags().StringVarP(&migrationOutDir, "out", "o", "", "Output directory (default: ./internal/migrations)")
+	migrationCmd.Flags().StringVarP(&migrationConnection, "connection", "c", "local", "Database connection the migration is for")
+	migrationCmd.Flags().StringVarP(&migrationOutDir, "out", "o", "", "Output directory (default: ./migrations/<connection>)")
 }
 
 func runMigration(cmd *cobra.Command, args []string) error {
 	cwd, _ := os.Getwd()
-	goModule := scaffold.DetectGoModule(cwd)
 
 	var name string
 	if len(args) > 0 {
@@ -57,10 +61,10 @@ func runMigration(cmd *cobra.Command, args []string) error {
 	name = strings.TrimSpace(name)
 	outDir := migrationOutDir
 	if outDir == "" {
-		outDir = filepath.Join(cwd, "internal", "migrations")
+		outDir = filepath.Join(cwd, "migrations", migrationConnection)
 	}
 
-	path, err := scaffold.GenerateMigration(outDir, name, goModule)
+	path, err := scaffold.GenerateMigration(outDir, name, time.Now())
 	if err != nil {
 		return fmt.Errorf("%s %s", style.Error.Render("✗"), err)
 	}
