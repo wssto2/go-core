@@ -1,5 +1,5 @@
 // Package database provides GORM-based database access, connection registry,
-// repository helpers, transaction management, and schema migration utilities.
+// repository helpers and transaction management (migrations: database/migrate).
 //
 // Services register named connections at startup through the Registry:
 //

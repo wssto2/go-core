@@ -50,8 +50,8 @@ func (m *Module) Register(c *bootstrap.Container) error {
 	db := bootstrap.MustResolve[*database.Registry](c).Primary()
 	tx := database.NewTransactor(db)
 
-	// Run AutoMigrate to create/update the products, audit_logs, and outbox_events tables.
-	if err := database.SafeMigrate(db, &Product{}, &audit.AuditLog{}, &event.OutboxEvent{}); err != nil {
+	// Demo only: a real app creates these tables with database/migrate.
+	if err := db.AutoMigrate(&Product{}, &audit.AuditLog{}, &event.OutboxEvent{}); err != nil {
 		return fmt.Errorf("product: migrate: %w", err)
 	}
 	if err := seedDemoCatalog(db); err != nil {

@@ -39,7 +39,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 	if err := db.Exec("CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY, entity_type TEXT, entity_id INTEGER)").Error; err != nil {
 		t.Fatalf("create audit_logs: %v", err)
 	}
-	if err := database.SafeMigrate(db, &Product{}, &event.OutboxEvent{}); err != nil {
+	if err := db.AutoMigrate(&Product{}, &event.OutboxEvent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return db

@@ -324,9 +324,6 @@ import (
 	{{- if .Features.Audit}}
 	"github.com/wssto2/go-core/audit"
 	{{- end}}
-	{{- if .Features.Events}}
-	"github.com/wssto2/go-core/event"
-	{{- end}}
 	{{- if .Features.Worker}}
 	"github.com/wssto2/go-core/worker"
 	{{- end}}
@@ -350,9 +347,8 @@ func (m *Module) Register(c *bootstrap.Container) error {
 	m.log = bootstrap.MustResolve[*slog.Logger](c)
 	db := bootstrap.MustResolve[*database.Registry](c).Primary()
 
-	if err := database.SafeMigrate(db, &{{.Pascal}}{}{{if .Features.Events}}, &event.OutboxEvent{}{{end}}); err != nil {
-		return fmt.Errorf("{{.Package}}: migrate: %w", err)
-	}
+	// The table comes from a migration, never from the module at start:
+	// go-core new migration create_{{.Package}} -c <connection>, then write its CREATE TABLE.
 
 	{{- if .Features.Audit}}
 	auditRepo := bootstrap.MustResolve[audit.Repository](c)

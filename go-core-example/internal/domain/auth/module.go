@@ -31,7 +31,8 @@ func (m *Module) Name() string { return "auth" }
 func (m *Module) Register(c *bootstrap.Container) error {
 	db := bootstrap.MustResolve[*database.Registry](c).Primary()
 
-	if err := database.SafeMigrate(db, &User{}); err != nil {
+	// Demo only: a real app creates its tables with database/migrate.
+	if err := db.AutoMigrate(&User{}); err != nil {
 		return fmt.Errorf("auth: migrate: %w", err)
 	}
 
