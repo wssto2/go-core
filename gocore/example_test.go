@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 	"testing/fstest"
 	"time"
 
@@ -129,10 +131,15 @@ var things = fstest.MapFS{
 }
 
 // Migrations collects the goose files a feature ships (a flat embed.FS) for a
-// connection. Run never migrates: it refuses to start while any is pending, and
-// the application migrates explicitly with Migrate, from its main.
-func ExampleApp_Migrate() {
-	for _, migrate := range []bool{false, true} {
+// connection. Run never migrates: it refuses to start while any is pending,
+// and the deploy runs "./myapp migrate" first. Run reads the command line;
+// RunCommand takes the arguments, for tests.
+func ExampleApp_RunCommand() {
+	defer func(args []string) { os.Args = args }(os.Args)
+
+	os.Args = []string{"/srv/myapp"}
+
+	for _, args := range [][]string{{}, {"migrate"}, {"migrate", "status"}, {"help"}, {"serve"}} {
 		reg, cleanup := database.NewTestRegistry("local", "shared")
 		app := gocore.New(bootstrap.DefaultConfig(),
 			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
@@ -140,18 +147,45 @@ func ExampleApp_Migrate() {
 		app.Migrations(things)         // the primary connection
 		app.Migrations(things, Shared) // another one: a module can be installed On(Shared)
 
-		if migrate {
-			fmt.Println(app.Migrate(context.Background()))
-		} else {
-			fmt.Println(app.RunContext(context.Background()))
+		fmt.Println(strings.TrimSpace("$ myapp " + strings.Join(args, " ")))
+
+		if err := app.RunCommand(context.Background(), args, os.Stdout); err != nil {
+			fmt.Println(err)
 		}
 
 		_ = cleanup()
 	}
 	// Output:
+	// $ myapp
 	// gocore: cannot start, 1 problem(s):
-	//   1. 2 migration(s) are pending: local/20261015000000_things.sql, shared/20261015000000_things.sql. Fix: run the application's migrate step (app.Migrate) before starting it; Run never migrates
-	// <nil>
+	//   1. 2 migration(s) are pending: local/20261015000000_things.sql, shared/20261015000000_things.sql. Fix: run "myapp migrate" before starting it; Run never migrates
+	// $ myapp migrate
+	// $ myapp migrate status
+	// local      pending  20261015000000_things.sql
+	// shared     pending  20261015000000_things.sql
+	// $ myapp help
+	// Usage: myapp [command]
+	//
+	// Commands:
+	//   (none)          check the application, then serve it
+	//   migrate         apply every pending migration, then exit
+	//   migrate status  list applied and pending migrations, then exit
+	//   help            show this list
+	// $ myapp serve
+	// gocore: unknown command "serve": the commands are migrate, migrate status and help
+}
+
+func ExampleApp_Migrate() {
+	reg, cleanup := database.NewTestRegistry("local")
+	defer func() { _ = cleanup() }()
+
+	app := gocore.New(bootstrap.DefaultConfig(),
+		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+
+	app.Migrations(things)
+
+	fmt.Println(app.Migrate(context.Background()))
+	// Output: <nil>
 }
 
 // MigrationsByConnection collects the application's own migrations, one

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/wssto2/go-core/database"
@@ -21,7 +23,7 @@ import (
 //	app.Migrations(migrations)         // the primary connection
 //	app.Migrations(migrations, Shared) // another one
 //
-// Nothing runs until the application migrates, see Migrate.
+// Nothing runs until the application migrates: "./myapp migrate", see RunCommand.
 func (a *App) Migrations(files fs.FS, conn ...database.Connection) {
 	if len(conn) > 1 {
 		a.fail("Migrations was given more than one connection", "call Migrations once per connection")
@@ -44,7 +46,7 @@ func (a *App) Migrations(files fs.FS, conn ...database.Connection) {
 //	  local/20260930121914_user_signins.sql
 //	  shared/20261002080000_configurator_index.sql
 //
-// Nothing runs until the application migrates, see Migrate.
+// Nothing runs until the application migrates: "./myapp migrate", see RunCommand.
 func (a *App) MigrationsByConnection(dirs fs.FS) {
 	a.migrations = append(a.migrations, migrationSource{fsys: dirs})
 	a.migrateNow()
@@ -58,16 +60,9 @@ type migrationSource struct {
 
 // Migrate applies every pending migration collected by Migrations and
 // MigrationsByConnection, connection by connection. Run never migrates: it
-// refuses to start while any migration is pending. The application decides
-// when to migrate, in its main (a "migrate" argument) or as a deploy step:
-//
-//	if len(os.Args) > 1 && os.Args[1] == "migrate" {
-//	    err = app.Migrate(ctx)
-//	} else {
-//	    err = app.Run()
-//	}
-//
-// It does nothing when no migrations were collected. On MySQL a failed
+// refuses to start while any migration is pending. A deploy runs
+// "./myapp migrate" (see RunCommand) before "./myapp"; call Migrate yourself in
+// tests and in an application with its own command line. It does nothing when no migrations were collected. On MySQL a failed
 // migration's DDL is not rolled back, so the error names the file to repair.
 func (a *App) Migrate(ctx context.Context) error {
 	m, err := a.migrator()
@@ -85,6 +80,10 @@ func (a *App) migrator() (*migrate.Migrator, error) {
 	}
 
 	if a.registry == nil {
+		if len(a.problems) > 0 {
+			return nil, &StartupError{Problems: append([]Problem(nil), a.problems...)}
+		}
+
 		return nil, errors.New("gocore: migrations were collected but no database is configured: " +
 			"add a connection to the database config, or pass gocore.WithRegistry")
 	}
@@ -153,6 +152,15 @@ func (a *App) pendingProblems(ctx context.Context) []Problem {
 
 	return []Problem{{
 		What: fmt.Sprintf("%d migration(s) are pending: %s", len(names), list),
-		Fix:  "run the application's migrate step (app.Migrate) before starting it; Run never migrates",
+		Fix:  fmt.Sprintf("run %q before starting it; Run never migrates", binary()+" migrate"),
 	}}
+}
+
+// binary is the name the operator typed to start the application.
+func binary() string {
+	if len(os.Args) == 0 {
+		return "app"
+	}
+
+	return filepath.Base(os.Args[0])
 }

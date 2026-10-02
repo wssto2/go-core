@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"runtime"
@@ -340,7 +341,7 @@ func TestRunRefusesToStartWhileMigrationsArePending(t *testing.T) {
 		t.Fatalf("want one start-up problem, got %v", err)
 	}
 
-	if p := se.Problems[0]; !strings.Contains(p.What, "20261015000000_things.sql") || !strings.Contains(p.Fix, "app.Migrate") {
+	if p := se.Problems[0]; !strings.Contains(p.What, "20261015000000_things.sql") || !strings.Contains(p.Fix, " migrate\"") {
 		t.Errorf("problem does not name the file and the fix: %+v", p)
 	}
 }
@@ -367,5 +368,50 @@ func TestRunNamesBothFilesOfADuplicateVersion(t *testing.T) {
 	err := app.RunContext(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "20261015000000_a.sql") || !strings.Contains(err.Error(), "20261015000000_b.sql") {
 		t.Fatalf("want both files named, got %v", err)
+	}
+}
+
+func TestCommandsDoNotServeAndCloseTheDatabase(t *testing.T) {
+	for _, args := range [][]string{{"migrate"}, {"migrate", "status"}, {"help"}} {
+		app, _ := runnable(t)
+		Later[fmt.Stringer](app) // never set: serving would refuse, a command does not care
+
+		var out strings.Builder
+		if err := app.RunCommand(context.Background(), args, &out); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+
+		if _, err := app.registry.Get("local"); err == nil {
+			t.Errorf("%v: the database was left open", args)
+		}
+	}
+}
+
+func TestUnknownCommandIsAnError(t *testing.T) {
+	app, _ := runnable(t)
+
+	err := app.RunCommand(context.Background(), []string{"frobnicate"}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "migrate status") {
+		t.Fatalf("want an error naming the commands, got %v", err)
+	}
+}
+
+func TestMigrateStatusListsPendingThenApplied(t *testing.T) {
+	app, _ := runnable(t)
+	app.Migrations(fstest.MapFS{"20261015000000_things.sql": {Data: []byte("-- +goose Up\nCREATE TABLE things (id INTEGER);")}})
+
+	var out strings.Builder
+	if err := app.migrationStatus(t.Context(), &out); err != nil || !strings.Contains(out.String(), "pending") {
+		t.Fatalf("status = %q, %v", out.String(), err)
+	}
+
+	if err := app.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+
+	if err := app.migrationStatus(t.Context(), &out); err != nil || !strings.Contains(out.String(), "applied") {
+		t.Fatalf("status = %q, %v", out.String(), err)
 	}
 }
