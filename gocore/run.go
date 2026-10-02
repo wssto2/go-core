@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/bootstrap"
+	"github.com/wssto2/go-core/middlewares"
 	"github.com/wssto2/go-core/observability"
 	"github.com/wssto2/go-core/route"
 	"github.com/wssto2/go-core/worker"
@@ -265,4 +267,27 @@ func (m *featuresModule) Shutdown(ctx context.Context) error {
 	case <-ctx.Done():
 		return fmt.Errorf("gocore: background workers did not stop in time: %w", ctx.Err())
 	}
+}
+
+// Handler returns the installed routes as an http.Handler without opening a
+// port or booting modules, for tests. It checks the application first, like
+// Run, and maps errors the way a running application does, but leaves out the
+// rest of the middleware stack (request id, CORS, rate limits).
+func (a *App) Handler() (http.Handler, error) {
+	if err := a.Check(); err != nil {
+		return nil, err
+	}
+
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(middlewares.ErrorHandler(a.log, nil, true))
+
+	for _, r := range a.routes {
+		if err := r.Mount(engine, a.authorizer); err != nil {
+			return nil, err
+		}
+	}
+
+	return engine, nil
 }
