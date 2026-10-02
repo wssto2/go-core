@@ -41,3 +41,19 @@ func (r *Registry) Database(conn Connection) (*gorm.DB, error) {
 
 	return db, nil
 }
+
+// Unavailable returns a *gorm.DB whose every query fails with err. It stands
+// in for a connection that could not be resolved while an application is still
+// being assembled, so the failure is reported once, with the rest of the
+// start-up problems, instead of as a nil pointer in the middle of wiring.
+func Unavailable(err error) *gorm.DB {
+	db, openErr := openSQLiteMemory()
+	if openErr != nil {
+		return &gorm.DB{Config: &gorm.Config{}, Error: err}
+	}
+
+	failed := db.Session(&gorm.Session{})
+	_ = failed.AddError(err)
+
+	return failed
+}

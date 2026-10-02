@@ -53,3 +53,13 @@ func TestRegistryGetKeepsStringForm(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestUnavailableFailsEveryQuery(t *testing.T) {
+	boom := errors.New("boom")
+	db := database.Unavailable(boom)
+
+	var n int
+	if err := db.Raw("select 1").Scan(&n).Error; !errors.Is(err, boom) {
+		t.Fatalf("want boom, got %v", err)
+	}
+}
