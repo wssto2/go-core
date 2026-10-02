@@ -110,11 +110,17 @@ Layer 3 — imports Layers 0–2:
 Layer 4 — imports Layers 0–3 (and authz):
   bootstrap, frontend, go2ts, route
 
+Layer 4+ — imports route and go2ts, never bootstrap or gocore:
+  contract (TypeScript generation from route groups)
+
 Layer 5 — imports Layers 0–4:
   gocore
 
 Layer 6 — test support for Layer 5:
   gocoretest
+
+Test support with no go-core imports (SQLite, MySQL, MariaDB harness):
+  database/dbtest
 
 Layer 7 — example only:
   go-core-example
@@ -138,6 +144,62 @@ Specific prohibitions:
   imports it.
 
 Verify with: `go build ./...` — an import cycle produces "import cycle not allowed".
+
+### 4.1 Module layout
+
+A module is a feature go-core ships (identity, access, notifications, ...). It
+is the same shape as an application's own feature, so the package layout is a
+convention, not a framework. `authz` is the existing example.
+
+```
+go-core/<module>/            the facade: Install, options, the public interfaces apps use.
+                             The only package that imports gocore.
+  <core>/                    framework-free: types, ports, services (apperr, validation only)
+  gormstore/                 the default SQL adapter (GORM), MariaDB 10.3 safe
+  storetest/                 the conformance suite every store passes
+  http/                      typed routes (route.Get ...), inputs, DTOs, and
+                             Routes = route.Group("<module>", ...)
+  <module>test/              memory stores, fakes, a fixed clock
+  migrations/                //go:embed *.sql; goose files <release-date>_<name>.sql
+```
+
+The template of the facade:
+
+```go
+// Install puts the module into app and returns what other features need.
+func Install(app *gocore.App, opts ...Option) Users {
+    cfg := options(opts)
+    store := gormstore.New(app.Database(cfg.conn))
+
+    app.Migrations(migrations.Files, cfg.conn...) // the connection the store lives on
+    app.Permissions(Permissions)
+    app.Routes(http.Show.To(handler.Show))
+
+    return newUsers(store, app.Clock())
+}
+```
+
+Rules for the migrations of a module:
+
+- Flat `embed.FS` of goose files; `Install` hands it over with its connection
+  (`app.Migrations(files)` for the primary, `app.Migrations(files, Shared)` for
+  another). The application's own migrations stay one directory per connection
+  (`app.MigrationsByConnection`).
+- The version is the release date (`20261015000000_authz_roles.sql`); several
+  files of one release count up in the last digits. Two files with one version on
+  one connection stop start-up and are both named.
+- A file is immutable once a tag contains it, `-rc` tags included: an
+  application may already have applied it. A change is a new file.
+- Files follow the application rules: first line `-- +goose Up`, `--` comments,
+  one change per file, `IF NOT EXISTS` where MariaDB allows. They run on
+  MariaDB 10.3 and MySQL; `dbtest.RequirePortable(t, migrations.Files)` is the
+  test every module has.
+- A schema test holds the files equal to the GORM models the store uses (see
+  `authz/gormstore/schema_test.go`).
+
+Release rule: a module is tagged `vX.Y.Z-rc.N` until the new application has
+used it; only then does the plain tag follow. Until then its API may still
+change between rc tags.
 
 ---
 

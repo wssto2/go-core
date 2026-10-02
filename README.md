@@ -172,6 +172,51 @@ rec := gocoretest.Do(t, app, http.MethodGet, "/tickets/7", nil)
 ticket := gocoretest.Decode[Ticket](t, rec)
 ```
 
+### Migrations
+
+An application keeps its own goose files in one directory per connection; a module ships a flat `embed.FS` and hands it over with its connection. Both are collected by `Install`; none runs until you say so (`gocore/example_test.go`):
+
+```go
+app.MigrationsByConnection(migrations)            // migrations/local/..., migrations/shared/...
+app.Migrations(authzmigrations.Files)             // a module's files, on the primary connection
+app.Migrations(authzmigrations.Files, Shared)     // or on another one
+```
+
+`Run` never migrates. It reads the command line, so the deploy is `./myapp migrate`, then `./myapp`:
+
+```
+./myapp                  check, then serve
+./myapp migrate          apply every pending migration (app and modules, every connection), then exit
+./myapp migrate status   list applied and pending migrations per connection, then exit
+./myapp help             list the commands (an unknown one exits non-zero)
+```
+
+Commands never serve or boot modules; they use the database connections and close them. While any migration is pending, starting to serve stops with one start-up problem whose fix is `run "myapp migrate" before starting it`. `app.Migrate(ctx)` is public for tests and for applications with their own command line; `gocoretest.New` migrates as features are installed. `RunCommand(ctx, args, out)` takes the arguments, for tests.
+
+All sources of a connection run as one set in version order; two files with one version stop the run and name both. A module's files use its release date as version and never change once tagged.
+
+**Test on every database** (`database/dbtest`). `dbtest.Run(t, func(t *testing.T, db *gorm.DB) { ... })` runs on SQLite always, and on MySQL and MariaDB when `GOCORE_MYSQL_DSN` / `GOCORE_MARIADB_DSN` are set (`root:pw@tcp(127.0.0.1:3310)/`). A server run gets an empty schema it creates and drops itself, so it may run DDL and use several connections; the others skip with a message. `dbtest.RequirePortable(t, migrations.Files)` fails on what MariaDB 10.3 rejects (SKIP LOCKED, FOR UPDATE OF, FOR SHARE, JSON_TABLE, `->>`, RETURNING, window functions). `authztest.MariaDB` uses the same schemas; `AUTHZ_MARIADB_DSN` still works.
+
+### TypeScript contract
+
+A feature's `Routes` group (`route.Group("tickets", ...)`) is its contract. One line per feature generates everything, without building the app or opening a database (`contract/example_test.go`):
+
+```go
+contract.Generate("frontend/generated", tickets.Routes, leads.Routes)
+```
+
+writes `frontend/generated/tickets/{entities,schemas,routes}.ts`: the output types, the input types as Zod schemas (keeping `max:` bounds), and the route table the client builds typed requests from:
+
+```ts
+import { route } from "@wssto2/vue-core";
+export const ticketsRoutes = {
+  show: route<ShowInput, Ticket>("GET", "/tickets/:id", { permission: "tickets.ticket:view" }),
+  events: route.raw("GET", "/events", { public: true }),
+} as const;
+```
+
+The key is the route's `.Name` without the group prefix (`tickets.show` is `show`); without a name it is the method and path (`GET /tickets/:id` is `getTicketsById`). `route.None` and `route.Empty` become `void`. Every file's first line names the go-core version that wrote it.
+
 ---
 
 ## Error Handling
