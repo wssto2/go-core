@@ -95,9 +95,11 @@ func ExampleGroup() {
 	// Output: no handler: DELETE /tickets/:id
 }
 
-// Raw declares a route served by a plain gin handler, such as a download.
+// Raw declares a route served by a plain gin handler, such as a download. Like
+// a typed route, it is declared first and bound with To.
 func ExampleRaw() {
-	export := route.Raw(http.MethodGet, "/tickets/export", func(c *gin.Context) {
+	declared := route.Raw(http.MethodGet, "/tickets/export")
+	export := declared.To(func(c *gin.Context) {
 		c.String(http.StatusOK, "id,title")
 	})
 
@@ -105,7 +107,7 @@ func ExampleRaw() {
 	engine := gin.New()
 	_ = export.Mount(engine, nil)
 
-	fmt.Println(export.Spec().Untyped, serve(engine, http.MethodGet, "/tickets/export").Body.String())
+	fmt.Println(declared.Spec().Untyped, serve(engine, http.MethodGet, "/tickets/export").Body.String())
 	// Output: true id,title
 }
 

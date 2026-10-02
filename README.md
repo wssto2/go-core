@@ -99,6 +99,8 @@ var (
 func showTicket(ctx context.Context, in ShowInput) (Ticket, error) { ... }
 ```
 
+What the typed form cannot express (Server-Sent Events, downloads, uploads) is declared with `route.Raw(method, path)` (same `.Name`, `.Requires`) and bound the same way with `.To(ginHandler)`; it is part of the route table without input or output types.
+
 **Install the feature** (`gocore/example_test.go`):
 
 ```go

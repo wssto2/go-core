@@ -132,52 +132,44 @@ func noAuthorizer(s Spec) error {
 		" but the application has no authorizer: pass gocore.WithAuthorizer(...) to gocore.New")
 }
 
-// RawRoute is a declared route with an untyped gin handler, for what the
-// typed form cannot express: Server-Sent Events, downloads, uploads. It shows
-// up in the route table with its method and path, without input or output.
+// RawRoute is a declared route whose handler is a plain gin handler, for what
+// the typed form cannot express: Server-Sent Events, downloads, uploads. It
+// shows up in the route table with its method and path, without input or
+// output. Declare it with Raw and bind its handler with To, like a typed route.
 type RawRoute struct {
-	d       *declaration
-	handler gin.HandlerFunc
+	d *declaration
 }
 
-// Raw declares a route served by a plain gin handler.
-func Raw(method, path string, handler gin.HandlerFunc) *RawRoute {
-	return &RawRoute{
-		d:       &declaration{spec: Spec{Method: method, Path: path, Untyped: true}},
-		handler: handler,
-	}
+// Raw declares a route that will be served by a plain gin handler.
+func Raw(method, path string) RawRoute {
+	return RawRoute{d: &declaration{spec: Spec{Method: method, Path: path, Untyped: true}}}
 }
 
 // Name gives the route a stable name.
-func (r *RawRoute) Name(name string) *RawRoute {
+func (r RawRoute) Name(name string) RawRoute {
 	r.d.spec.Name = name
 	return r
 }
 
 // Requires gates the route on a permission id from the authz catalogue.
-func (r *RawRoute) Requires(permission string) *RawRoute {
+func (r RawRoute) Requires(permission string) RawRoute {
 	r.d.spec.Permission = permission
 	return r
 }
 
 // Spec returns the declaration as data.
-func (r *RawRoute) Spec() Spec { return r.d.spec }
+func (r RawRoute) Spec() Spec { return r.d.spec }
 
-func (r *RawRoute) declaration() *declaration { return r.d }
+func (r RawRoute) declaration() *declaration { return r.d }
 
-// Mount registers the route on g behind its permission check.
-func (r *RawRoute) Mount(g gin.IRoutes, a authz.Authorizer) error {
-	chain := []gin.HandlerFunc{r.handler}
-
-	if p := r.d.spec.Permission; p != "" {
-		if a == nil {
-			return noAuthorizer(r.d.spec)
+// To binds the handler to the route.
+func (r RawRoute) To(handler gin.HandlerFunc) Bound {
+	return Bound{d: r.d, build: func(a authz.Authorizer) []gin.HandlerFunc {
+		chain := []gin.HandlerFunc{}
+		if p := r.d.spec.Permission; p != "" {
+			chain = append(chain, authzhttp.Require(a, p))
 		}
 
-		chain = []gin.HandlerFunc{authzhttp.Require(a, p), r.handler}
-	}
-
-	g.Handle(r.d.spec.Method, r.d.spec.Path, chain...)
-
-	return nil
+		return append(chain, handler)
+	}}
 }

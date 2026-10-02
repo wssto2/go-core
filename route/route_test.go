@@ -119,3 +119,19 @@ func TestNonStructInputIsRejected(t *testing.T) {
 		t.Fatalf("want error pointing at route.None, got %v", err)
 	}
 }
+
+func TestUnhandledCoversRawRoutes(t *testing.T) {
+	typed := route.Get[route.None, string]("/a")
+	raw := route.Raw(http.MethodGet, "/stream")
+	route.Group(typed, raw)
+
+	missing := route.Unhandled(typed.To(func(context.Context, route.None) (string, error) { return "", nil }))
+	if len(missing) != 1 || missing[0].Path != "/stream" {
+		t.Fatalf("want the raw route reported, got %v", missing)
+	}
+
+	bound := raw.To(func(*gin.Context) {})
+	if got := route.Unhandled(bound); len(got) != 0 && got[0].Path == "/stream" {
+		t.Fatalf("a bound raw route is not missing: %v", got)
+	}
+}
