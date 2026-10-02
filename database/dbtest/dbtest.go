@@ -19,6 +19,8 @@
 // databases; the database name inside the DSN is only where the connection
 // starts. The test may run DDL and use several connections (concurrency
 // tests), because the schema is its own.
+//
+// RequirePortable checks the SQL a module ships against what MariaDB 10.3 rejects.
 package dbtest
 
 import (
