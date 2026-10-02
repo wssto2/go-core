@@ -14,7 +14,7 @@ func TestInstallOrderIsCheckedByTheCompiler(t *testing.T) {
 	}
 
 	build := func(dir string) (string, error) {
-		out, err := exec.Command("go", "build", "-o", "/dev/null", "./testdata/"+dir).CombinedOutput()
+		out, err := exec.CommandContext(t.Context(), "go", "build", "-o", "/dev/null", "./testdata/"+dir).CombinedOutput() //nolint:gosec // fixed command, dir is a literal from this test
 		return string(out), err
 	}
 

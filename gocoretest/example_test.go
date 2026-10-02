@@ -54,7 +54,7 @@ type exampleT struct {
 }
 
 func (t *exampleT) Helper()                      {}
-func (t *exampleT) Log(args ...any)              {}
+func (t *exampleT) Log(...any)                   {}
 func (t *exampleT) Cleanup(f func())             { t.cleanups = append(t.cleanups, f) }
 func (t *exampleT) Context() context.Context     { return context.Background() }
 func (t *exampleT) Fatal(args ...any)            { log.Fatal(args...) }

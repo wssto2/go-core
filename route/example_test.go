@@ -45,7 +45,7 @@ func signedIn(a authz.Authorizer) route.Security {
 
 func serve(h http.Handler, method, target string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(method, target, nil))
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), method, target, nil))
 
 	return rec
 }

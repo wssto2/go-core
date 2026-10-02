@@ -150,7 +150,7 @@ func (a *App) RunContext(ctx context.Context) error {
 		return err
 	}
 
-	booted, err := a.build()
+	booted, err := a.build() //nolint:contextcheck // the health handler the builder installs makes its own contexts
 	if err != nil {
 		return err
 	}

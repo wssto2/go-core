@@ -78,7 +78,7 @@ func (a *App) RunContext(ctx context.Context) error {
 
 	// 2. Boot Phase
 	if err := a.bootModules(ctx); err != nil {
-		a.shutdown(log, a.booted)
+		a.shutdown(log, a.booted) //nolint:contextcheck // shutdown runs on a fresh timeout context: the run context is already done
 		return err
 	}
 
@@ -99,7 +99,7 @@ func (a *App) RunContext(ctx context.Context) error {
 		// Give the server a short window to detect immediate failures (e.g. port in use).
 		select {
 		case err := <-httpErrCh:
-			a.Shutdown(log)
+			a.Shutdown(log) //nolint:contextcheck // shutdown runs on a fresh timeout context: the run context is already done
 			return fmt.Errorf("http server failed to start: %w", err)
 		case <-time.After(100 * time.Millisecond):
 		}
@@ -110,7 +110,7 @@ func (a *App) RunContext(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 		case err := <-httpErrCh:
-			a.Shutdown(log)
+			a.Shutdown(log) //nolint:contextcheck // shutdown runs on a fresh timeout context: the run context is already done
 			return fmt.Errorf("http server stopped unexpectedly: %w", err)
 		}
 	} else {

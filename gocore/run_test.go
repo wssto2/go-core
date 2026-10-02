@@ -27,6 +27,15 @@ var (
 	upRoute     = route.Get[route.None, string]("/up")
 )
 
+func get(url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return http.DefaultClient.Do(req)
+}
+
 func passthrough(c *gin.Context) { c.Next() }
 
 func pong(context.Context, route.None) (string, error) { return "pong", nil }
@@ -117,7 +126,7 @@ func TestCheckRejectsDuplicateRoutes(t *testing.T) {
 func freePort(t *testing.T) int {
 	t.Helper()
 
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +227,11 @@ func TestRunShutdownOrder_HTTPThenWorkersThenModulesThenDatabase(t *testing.T) {
 	}})
 
 	w := &loopWorker{name: "w", started: make(chan struct{}), onStop: func() {
-		_, err := http.Get(url) //nolint:noctx // probing that the listener is gone
+		resp, err := get(url)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+
 		if err != nil {
 			ev.add("worker stopped, http already down")
 			return
@@ -240,7 +253,7 @@ func TestRunShutdownOrder_HTTPThenWorkersThenModulesThenDatabase(t *testing.T) {
 		default:
 		}
 
-		resp, err := http.Get(url) //nolint:noctx // readiness probe
+		resp, err := get(url)
 		if err != nil {
 			return false
 		}
@@ -293,7 +306,7 @@ func TestRunBootFailureStopsWhatStartedAndLeavesNothingRunning(t *testing.T) {
 	}
 
 	// no listener
-	l, lerr := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	l, lerr := (&net.ListenConfig{}).Listen(t.Context(), "tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if lerr != nil {
 		t.Fatalf("port still bound: %v", lerr)
 	}
