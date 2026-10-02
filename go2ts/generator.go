@@ -101,6 +101,19 @@ func unwrapEntry(entry interface{}, ctx *GenContext) interface{} {
 	return named.value
 }
 
+// wireName is the name a field travels under: its json name, else the name in
+// its path, query or form tag (a route input whose fields are bound from the
+// URL), else the Go field name.
+func wireName(field reflect.StructField) string {
+	for _, key := range []string{"json", "path", "query", "form"} {
+		if name, _, _ := strings.Cut(field.Tag.Get(key), ","); name != "" && name != "-" {
+			return name
+		}
+	}
+
+	return field.Name
+}
+
 // Converts a Go struct to a TypeScript type definition.
 func structToTs(s interface{}, ctx *GenContext) (string, string, map[string]interface{}, error) {
 	reflectType := reflect.TypeOf(s)
@@ -139,13 +152,7 @@ func structToTs(s interface{}, ctx *GenContext) (string, string, map[string]inte
 			continue
 		}
 
-		jsonName := field.Name
-		if jsonTag != "" {
-			parts := strings.Split(jsonTag, ",")
-			if parts[0] != "" {
-				jsonName = parts[0]
-			}
-		}
+		jsonName := wireName(field)
 
 		canBeUndefined := strings.Contains(jsonTag, "omitempty")
 

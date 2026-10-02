@@ -128,7 +128,7 @@ func TestNonStructInputIsRejected(t *testing.T) {
 func TestUnhandledCoversRawRoutes(t *testing.T) {
 	typed := route.Get[route.None, string]("/a")
 	raw := route.Raw(http.MethodGet, "/stream")
-	route.Group(typed, raw)
+	route.Group("t", typed, raw)
 
 	missing := route.Unhandled(typed.To(func(context.Context, route.None) (string, error) { return "", nil }))
 	if len(missing) != 1 || missing[0].Path != "/stream" {

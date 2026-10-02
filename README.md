@@ -93,7 +93,7 @@ A feature is a package with one `Install` function. Collaborators are ordinary a
 var (
     Show   = route.Get[ShowInput, Ticket]("/tickets/:id").Name("tickets.show").Requires(PermView)
     Close  = route.Delete[ShowInput, route.Empty]("/tickets/:id") // 204
-    Routes = route.Group(Show, Close)
+    Routes = route.Group("tickets", Show, Close)
 )
 
 func showTicket(ctx context.Context, in ShowInput) (Ticket, error) { ... }

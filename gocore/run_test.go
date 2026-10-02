@@ -25,7 +25,7 @@ var (
 	pingRoute   = route.Get[route.None, string]("/ping").Name("ping")
 	secretRoute = route.Get[route.None, string]("/secret").Name("secret").Requires("ops.secret:view")
 	lostRoute   = route.Get[route.None, string]("/lost").Name("lost")
-	_           = route.Group(pingRoute, secretRoute, lostRoute)
+	_           = route.Group("ops", pingRoute, secretRoute, lostRoute)
 	upRoute     = route.Get[route.None, string]("/up")
 )
 

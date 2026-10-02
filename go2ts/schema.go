@@ -361,12 +361,7 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 			continue
 		}
 
-		jsonName := field.Name
-		if jsonTag != "" {
-			if parts := strings.Split(jsonTag, ","); parts[0] != "" {
-				jsonName = parts[0]
-			}
-		}
+		jsonName := wireName(field)
 
 		validationTag := field.Tag.Get("validation")
 		zodExpr, hasCrossField := fieldToZodExprScoped(field.Type, validationTag, typeName, ctx, children)

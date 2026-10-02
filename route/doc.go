@@ -8,7 +8,7 @@
 //
 //	var (
 //	    Show   = route.Get[ShowInput, Ticket]("/tickets/:id").Requires(PermView)
-//	    Routes = route.Group(Show)
+//	    Routes = route.Group("tickets", Show)
 //	)
 //
 //	func (s *Service) Show(ctx context.Context, in ShowInput) (Ticket, error) { ... }

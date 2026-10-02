@@ -5,17 +5,21 @@ import (
 	"strings"
 )
 
-// Contract is the set of routes a feature offers, plus extra types its
+// Contract is the named set of routes a feature offers, plus extra types its
 // TypeScript contract needs. It is a package-level value: reading it never
 // installs or runs anything.
 type Contract struct {
+	name   string
 	routes []Declared
 	types  []reflect.Type
 }
 
-// Group collects a feature's routes into its Contract.
-func Group(routes ...Declared) *Contract {
-	c := &Contract{routes: routes}
+// Group collects a feature's routes into its Contract. The name is the
+// feature's: the folder its TypeScript is generated into and the name of its
+// route table ("tickets" gives ticketsRoutes). Use a single lowercase word, or
+// kebab-case words.
+func Group(name string, routes ...Declared) *Contract {
+	c := &Contract{name: name, routes: routes}
 	for _, r := range routes {
 		d := r.declaration()
 		d.groups = append(d.groups, c)
@@ -33,6 +37,9 @@ func (c *Contract) Types(values ...any) *Contract {
 
 	return c
 }
+
+// Name is the name the Contract was given.
+func (c *Contract) Name() string { return c.name }
 
 // Specs lists the declared routes in declaration order.
 func (c *Contract) Specs() []Spec {
