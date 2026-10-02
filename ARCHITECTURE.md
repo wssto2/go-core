@@ -107,10 +107,16 @@ Layer 2 — imports Layers 0–1:
 Layer 3 — imports Layers 0–2:
   binders, middlewares, datatable, resource, observability, web, audit, health
 
-Layer 4 — imports Layers 0–3:
-  bootstrap, frontend, go2ts
+Layer 4 — imports Layers 0–3 (and authz):
+  bootstrap, frontend, go2ts, route
 
-Layer 5 — example only:
+Layer 5 — imports Layers 0–4:
+  gocore
+
+Layer 6 — test support for Layer 5:
+  gocoretest
+
+Layer 7 — example only:
   go-core-example
 ```
 
@@ -121,6 +127,15 @@ Specific prohibitions:
 - `database` MUST NOT import `event`, `auth`, or `bootstrap`
 - `health`   MUST NOT import `bootstrap`
 - `resilience` MUST NOT import anything from go-core (pure algorithms)
+- `route`   MUST NOT import `bootstrap` or `gocore`: a route declaration is plain
+  data, readable (by a generator, for instance) without an application. It
+  imports `binders`, `validation`, `web` and `authz` / `authzhttp` for the adapter.
+- `gocore`  is the only package that knows both `route` and `bootstrap`; features
+  import `gocore` in their `Install` function and nothing in `bootstrap`
+  (old-style modules hosted with `App.Modules` are the exception).
+  `bootstrap`, `route`, `database`, `authz` MUST NOT import `gocore` or `gocoretest`.
+- `gocoretest` MUST be imported by `_test.go` files only; non-test code never
+  imports it.
 
 Verify with: `go build ./...` — an import cycle produces "import cycle not allowed".
 

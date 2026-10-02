@@ -28,6 +28,6 @@ func TestInstallOrderIsCheckedByTheCompiler(t *testing.T) {
 	}
 
 	if !strings.Contains(out, "undefined: users") {
-		t.Fatalf("want a error \"undefined: users\", got:\n%s", out)
+		t.Fatalf("want error \"undefined: users\", got:\n%s", out)
 	}
 }
