@@ -71,6 +71,7 @@ type App struct {
 	workers    []worker.Worker
 	catalogues []*authz.Catalogue
 	modules    []bootstrap.Module
+	migrations []migrationSource
 
 	problems []Problem
 	laters   []unsetter

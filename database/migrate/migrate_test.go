@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -132,5 +133,67 @@ func TestDirectoryWithoutConnectionFails(t *testing.T) {
 
 	if err := m.Up(context.Background()); err == nil {
 		t.Fatal("want an error: migrations/shared has no connection")
+	}
+}
+
+func TestModuleFilesJoinTheAppsOnTheirConnection(t *testing.T) {
+	ctx := context.Background()
+	reg := registry(t, "local", "shared")
+	module := fstest.MapFS{"20261015000000_mod.sql": file("CREATE TABLE mod (id INTEGER);")}
+	other := fstest.MapFS{"20261015000001_other.sql": file("CREATE TABLE other (id INTEGER);")}
+
+	m := migrate.New(reg, migrations, slog.Default()).Add("", module).Add("shared", other)
+	if err := m.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := tables(t, reg, "local"); !got["a"] || !got["mod"] || got["other"] {
+		t.Errorf("local tables = %v", got)
+	}
+
+	if got := tables(t, reg, "shared"); !got["s"] || !got["other"] || got["mod"] {
+		t.Errorf("shared tables = %v", got)
+	}
+
+	if err := m.MarkApplied(ctx, "local", []int64{20261015000000}); err != nil {
+		t.Errorf("marking a module version: %v", err)
+	}
+
+	if pending, err := m.Pending(ctx); err != nil || len(pending) != 0 {
+		t.Errorf("pending = %v, %v", pending, err)
+	}
+}
+
+func TestSameVersionOnOneConnectionNamesBothFiles(t *testing.T) {
+	module := fstest.MapFS{"20260102000000_mod.sql": file("CREATE TABLE mod (id INTEGER);")}
+	m := migrate.New(registry(t, "local", "shared"), migrations, slog.Default()).Add("local", module)
+
+	err := m.Up(context.Background())
+	if err == nil {
+		t.Fatal("want an error for two files with one version")
+	}
+
+	for _, want := range []string{"20260102000000_b.sql", "20260102000000_mod.sql"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %s", err, want)
+		}
+	}
+}
+
+func TestPendingListsWhatHasNotRun(t *testing.T) {
+	ctx := context.Background()
+	m := migrate.New(registry(t, "local", "shared"), migrations, slog.Default())
+
+	pending, err := m.Pending(ctx)
+	if err != nil || len(pending) != 4 {
+		t.Fatalf("pending = %d, %v; want 4", len(pending), err)
+	}
+
+	if err := m.Up(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if pending, err = m.Pending(ctx); err != nil || len(pending) != 0 {
+		t.Fatalf("pending after Up = %d, %v", len(pending), err)
 	}
 }
