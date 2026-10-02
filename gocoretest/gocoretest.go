@@ -104,7 +104,7 @@ func Do(t testing.TB, app *gocore.App, method, path string, body any) *httptest.
 		reader = bytes.NewReader(raw)
 	}
 
-	req := httptest.NewRequest(method, path, reader)
+	req := httptest.NewRequestWithContext(t.Context(), method, path, reader)
 	req.Header.Set("Content-Type", "application/json")
 
 	rec := httptest.NewRecorder()

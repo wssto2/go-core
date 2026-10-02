@@ -6,7 +6,7 @@ import (
 	"github.com/wssto2/go-core/validation"
 )
 
-// BindStrings fills the fields of v that carry the struct tag tag (for example
+// BindStrings fills the fields of v that carry the named struct tag (for example
 // `path:"id"` or `query:"page"`) from string values, such as URL path
 // parameters or the query string. Numbers and booleans are parsed from their
 // text; a field with a list type takes every value of its key. Fields without
@@ -60,7 +60,7 @@ func BindStrings[T any](v *T, tag string, values map[string][]string) error {
 }
 
 func isList(t reflect.Type) bool {
-	for t.Kind() == reflect.Ptr {
+	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 

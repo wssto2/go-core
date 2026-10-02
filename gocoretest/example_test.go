@@ -3,6 +3,7 @@ package gocoretest_test
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"testing"
 
@@ -34,7 +35,8 @@ func Install(app *gocore.App) {
 
 // A feature test is plain function calls: build the app, install, call.
 func Example() {
-	t := &testing.T{}
+	t := &exampleT{}
+	defer t.cleanup()
 
 	app := gocoretest.New(t)
 	Install(app)
@@ -42,4 +44,23 @@ func Example() {
 	rec := gocoretest.Do(t, app, http.MethodGet, "/tickets/7", nil)
 	fmt.Println(gocoretest.Decode[Ticket](t, rec))
 	// Output: {7 2026-01-02}
+}
+
+// exampleT lets an Example use the helpers that take a testing.TB.
+type exampleT struct {
+	testing.TB
+	cleanups []func()
+}
+
+func (t *exampleT) Helper()                      {}
+func (t *exampleT) Log(args ...any)              {}
+func (t *exampleT) Cleanup(f func())             { t.cleanups = append(t.cleanups, f) }
+func (t *exampleT) Context() context.Context     { return context.Background() }
+func (t *exampleT) Fatal(args ...any)            { log.Fatal(args...) }
+func (t *exampleT) Fatalf(f string, args ...any) { log.Fatalf(f, args...) }
+
+func (t *exampleT) cleanup() {
+	for _, f := range t.cleanups {
+		f()
+	}
 }

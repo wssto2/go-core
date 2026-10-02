@@ -99,9 +99,14 @@ func freePort(t *testing.T) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
-	return l.Addr().(*net.TCPAddr).Port
+	addr, ok := l.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatal("not a TCP address")
+	}
+
+	return addr.Port
 }
 
 func runnable(t *testing.T) (*App, int) {
@@ -150,16 +155,15 @@ func (w *loopWorker) Run(ctx context.Context) error {
 }
 
 type hookModule struct {
-	name     string
-	bootErr  error
-	onStop   func()
-	stopOnly bool
+	name    string
+	bootErr error
+	onStop  func()
 }
 
 func (m *hookModule) Name() string                        { return m.name }
 func (m *hookModule) Register(*bootstrap.Container) error { return nil }
 func (m *hookModule) Boot(context.Context) error          { return m.bootErr }
-func (m *hookModule) Shutdown(ctx context.Context) error  { m.onStop(); return nil }
+func (m *hookModule) Shutdown(_ context.Context) error    { m.onStop(); return nil }
 
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()

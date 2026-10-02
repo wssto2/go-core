@@ -78,7 +78,6 @@ func TestHandlerErrorMapsThroughApperr(t *testing.T) {
 	if rec := do(e, http.MethodGet, "/x", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
 	}
-
 }
 
 func TestPermissionIsChecked(t *testing.T) {
