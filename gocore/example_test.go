@@ -78,3 +78,22 @@ func ExampleLater() {
 	// gocore: gocore_test.Reads was used before it was set: call Set once every feature that needs it is installed
 	// 3
 }
+
+// Run (and Check, which Run calls first) report every wiring problem at once,
+// each with its fix.
+func ExampleApp_Check() {
+	reg, cleanup := database.NewTestRegistry("local")
+	defer func() { _ = cleanup() }()
+
+	app := gocore.New(bootstrap.DefaultConfig(),
+		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+
+	gocore.Later[Reads](app) // never set
+	_ = app.Database("shared")
+
+	fmt.Println(app.Check())
+	// Output:
+	// gocore: cannot start, 2 problem(s):
+	//   1. database: connection "shared" not found — was it registered at startup? (registered connections: local). Fix: register the connection in the database config, or fix its name
+	//   2. gocore.Later[gocore_test.Reads] was never set. Fix: call Set on it once every feature that needs it is installed
+}

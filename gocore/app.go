@@ -72,6 +72,7 @@ type App struct {
 
 	problems []Problem
 	laters   []unsetter
+	started  bool
 }
 
 // Option adjusts New.
