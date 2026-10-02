@@ -260,7 +260,7 @@ func TestSchemaNamesFieldsByPathAndQueryTags(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, go2ts.GenerateSchemas([]interface{}{routeInput{}}, dir))
 
-	content, err := os.ReadFile(filepath.Join(dir, "routeInput.ts"))
+	content, err := os.ReadFile(filepath.Join(dir, "routeInput.ts")) //nolint:gosec // test temp dir
 	require.NoError(t, err)
 
 	for _, want := range []string{"  id: z.number()", "  status: z.string().max(20)", "  title: z.string()", "  Plain: z.string()"} {

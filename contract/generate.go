@@ -56,7 +56,7 @@ func generateGroup(dir string, g *route.Contract) error {
 		return err
 	}
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // generated sources are for the whole team to read
 		return err
 	}
 
@@ -68,7 +68,7 @@ func generateGroup(dir string, g *route.Contract) error {
 			return err
 		}
 
-		if err := os.WriteFile(filepath.Join(dir, "entities.ts"), []byte(header+body), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "entities.ts"), []byte(header+body), 0o644); err != nil { //nolint:gosec // generated sources are for the whole team to read
 			return err
 		}
 	}
@@ -79,12 +79,12 @@ func generateGroup(dir string, g *route.Contract) error {
 			return err
 		}
 
-		if err := os.WriteFile(filepath.Join(dir, "schemas.ts"), []byte(header+body), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "schemas.ts"), []byte(header+body), 0o644); err != nil { //nolint:gosec // generated sources are for the whole team to read
 			return err
 		}
 	}
 
-	return os.WriteFile(filepath.Join(dir, "routes.ts"), []byte(header+routesFile(g.Name(), plan)), 0o644)
+	return os.WriteFile(filepath.Join(dir, "routes.ts"), []byte(header+routesFile(g.Name(), plan)), 0o644) //nolint:gosec // generated sources are for the whole team to read
 }
 
 // plan is what a group needs generated.
@@ -234,7 +234,7 @@ func checkNamed(spec route.Spec, t reflect.Type) error {
 // tsType renders t as a TypeScript type and lists the named structs it needs.
 func tsType(spec route.Spec, t reflect.Type) (string, []reflect.Type, error) {
 	switch t.Kind() {
-	case reflect.Ptr:
+	case reflect.Pointer:
 		expr, st, err := tsType(spec, t.Elem())
 		return expr + " | null", st, err
 	case reflect.Bool:
@@ -353,7 +353,7 @@ func generated(run func(dir string) error) (map[string]string, error) {
 	files := map[string]string{}
 
 	for _, e := range entries {
-		src, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		src, err := os.ReadFile(filepath.Join(dir, e.Name())) //nolint:gosec // our own scratch directory
 		if err != nil {
 			return nil, err
 		}

@@ -80,23 +80,23 @@ func TestGenerateMatchesGolden(t *testing.T) {
 	}
 
 	for _, name := range []string{"entities.ts", "schemas.ts", "routes.ts"} {
-		got, err := os.ReadFile(filepath.Join(dir, "tickets", name))
+		got, err := os.ReadFile(filepath.Join(dir, "tickets", name)) //nolint:gosec // test temp dir
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		golden := filepath.Join("testdata", "tickets", name)
 		if *update {
-			if err := os.MkdirAll(filepath.Dir(golden), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(golden), 0o750); err != nil {
 				t.Fatal(err)
 			}
 
-			if err := os.WriteFile(golden, got, 0o644); err != nil {
+			if err := os.WriteFile(golden, got, 0o600); err != nil { //nolint:gosec // fixed testdata path
 				t.Fatal(err)
 			}
 		}
 
-		want, err := os.ReadFile(golden)
+		want, err := os.ReadFile(golden) //nolint:gosec // fixed testdata path
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -120,7 +120,7 @@ func TestGenerateIsDeterministic(t *testing.T) {
 
 		got := ""
 		for _, name := range []string{"entities.ts", "schemas.ts", "routes.ts"} {
-			b, _ := os.ReadFile(filepath.Join(dir, "tickets", name))
+			b, _ := os.ReadFile(filepath.Join(dir, "tickets", name)) //nolint:gosec // test temp dir
 			got += string(b)
 		}
 

@@ -35,8 +35,8 @@ func ExampleGenerate() {
 		return
 	}
 
-	src, _ := os.ReadFile(filepath.Join(dir, "tickets", "routes.ts"))
-	_, table, _ := strings.Cut(string(src), "\n") // the first line names the go-core version
+	src, _ := os.ReadFile(filepath.Join(dir, "tickets", "routes.ts")) //nolint:gosec // temp dir
+	_, table, _ := strings.Cut(string(src), "\n")                     // the first line names the go-core version
 	fmt.Print(table)
 	// Output:
 	// import { route } from "@wssto2/vue-core";
