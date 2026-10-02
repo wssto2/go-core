@@ -19,16 +19,16 @@ import (
 // with Route.To or Raw.
 type Handled interface {
 	Spec() Spec
-	// Mount registers the route on r. a checks the route's permission; it may
-	// be nil only for a route that needs none.
-	Mount(r gin.IRoutes, a authz.Authorizer) error
+	// Mount registers the route on r, behind the authentication and the
+	// permission check the security settings provide.
+	Mount(r gin.IRoutes, security Security) error
 	declaration() *declaration
 }
 
 // Bound is a typed route together with its handler.
 type Bound struct {
 	d     *declaration
-	build func(a authz.Authorizer) []gin.HandlerFunc
+	build func(security Security) []gin.HandlerFunc
 	err   error
 }
 
@@ -48,13 +48,8 @@ func (r Route[In, Out]) To(handler func(ctx context.Context, in In) (Out, error)
 	hasBody := r.d.spec.Method == http.MethodPost || r.d.spec.Method == http.MethodPut || r.d.spec.Method == http.MethodPatch
 	empty := reflect.TypeFor[Out]() == reflect.TypeFor[Empty]()
 
-	b.build = func(a authz.Authorizer) []gin.HandlerFunc {
-		var chain []gin.HandlerFunc
-		if p := r.d.spec.Permission; p != "" {
-			chain = append(chain, authzhttp.Require(a, p))
-		}
-
-		return append(chain, func(c *gin.Context) {
+	b.build = func(security Security) []gin.HandlerFunc {
+		return append(security.guard(r.d.spec), func(c *gin.Context) {
 			var in In
 
 			if typed {
@@ -112,24 +107,65 @@ func (b Bound) Spec() Spec { return b.d.spec }
 
 func (b Bound) declaration() *declaration { return b.d }
 
-// Mount registers the route on r behind its permission check.
-func (b Bound) Mount(r gin.IRoutes, a authz.Authorizer) error {
-	if b.err != nil {
-		return b.err
+// Security is what routes are mounted behind: how a request is authenticated
+// and who may do what. A route that is not Public needs Authenticate; one that
+// Requires a permission also needs Authorizer.
+type Security struct {
+	// Authenticate runs, in order, before every non-public route. It must
+	// reject an unauthenticated request with apperr.Unauthorized (see
+	// auth.Authenticated) and leave the authz principal in the request context
+	// (see authzhttp.Principals).
+	Authenticate []gin.HandlerFunc
+	// Authorizer checks the permission of routes declared with Requires.
+	Authorizer authz.Authorizer
+}
+
+// guard is the chain in front of a route's handler.
+func (s Security) guard(spec Spec) []gin.HandlerFunc {
+	if spec.Public {
+		return nil
 	}
 
-	if b.d.spec.Permission != "" && a == nil {
-		return noAuthorizer(b.d.spec)
+	chain := append([]gin.HandlerFunc(nil), s.Authenticate...)
+	if spec.Permission != "" {
+		chain = append(chain, authzhttp.Require(s.Authorizer, spec.Permission))
 	}
 
-	r.Handle(b.d.spec.Method, b.d.spec.Path, b.build(a)...)
+	return chain
+}
+
+// check says what stops spec from being mounted with these settings.
+func (s Security) check(spec Spec) error {
+	switch {
+	case spec.Public && spec.Permission != "":
+		return errors.New("route " + spec.String() + " is Public but also Requires " + spec.Permission +
+			": remove .Public() so it needs sign-in, or remove .Requires(...)")
+	case spec.Public:
+		return nil
+	case len(s.Authenticate) == 0:
+		return errors.New("route " + spec.String() + " needs an authenticated user but the application has no authentication: " +
+			"pass gocore.WithAuthentication(...) to gocore.New, or mark the route .Public()")
+	case spec.Permission != "" && s.Authorizer == nil:
+		return errors.New("route " + spec.String() + " requires " + spec.Permission +
+			" but the application has no authorizer: pass gocore.WithAuthorizer(...) to gocore.New")
+	}
 
 	return nil
 }
 
-func noAuthorizer(s Spec) error {
-	return errors.New("route " + s.String() + " requires " + s.Permission +
-		" but the application has no authorizer: pass gocore.WithAuthorizer(...) to gocore.New")
+// Mount registers the route on r behind its authentication and permission check.
+func (b Bound) Mount(r gin.IRoutes, security Security) error {
+	if b.err != nil {
+		return b.err
+	}
+
+	if err := security.check(b.d.spec); err != nil {
+		return err
+	}
+
+	r.Handle(b.d.spec.Method, b.d.spec.Path, b.build(security)...)
+
+	return nil
 }
 
 // RawRoute is a declared route whose handler is a plain gin handler, for what
@@ -157,6 +193,12 @@ func (r RawRoute) Requires(permission string) RawRoute {
 	return r
 }
 
+// Public opens the route to anyone; see Route.Public.
+func (r RawRoute) Public() RawRoute {
+	r.d.spec.Public = true
+	return r
+}
+
 // Spec returns the declaration as data.
 func (r RawRoute) Spec() Spec { return r.d.spec }
 
@@ -164,12 +206,7 @@ func (r RawRoute) declaration() *declaration { return r.d }
 
 // To binds the handler to the route.
 func (r RawRoute) To(handler gin.HandlerFunc) Bound {
-	return Bound{d: r.d, build: func(a authz.Authorizer) []gin.HandlerFunc {
-		chain := []gin.HandlerFunc{}
-		if p := r.d.spec.Permission; p != "" {
-			chain = append(chain, authzhttp.Require(a, p))
-		}
-
-		return append(chain, handler)
+	return Bound{d: r.d, build: func(security Security) []gin.HandlerFunc {
+		return append(security.guard(r.d.spec), handler)
 	}}
 }

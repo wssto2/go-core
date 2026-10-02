@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/middlewares"
 	"github.com/wssto2/go-core/route"
@@ -20,6 +21,10 @@ type createInput struct {
 	Page  int    `query:"page"`
 	Title string `json:"title" validation:"required|max:10"`
 }
+
+func secured(a authz.Authorizer) route.Security { return signedIn(a) }
+
+func open() route.Security { return signedIn(nil) }
 
 func newEngine() *gin.Engine {
 	gin.SetMode(gin.TestMode)
@@ -46,7 +51,7 @@ func TestBindsPathQueryAndBodyThenValidates(t *testing.T) {
 	})
 
 	e := newEngine()
-	if err := r.Mount(e, nil); err != nil {
+	if err := r.Mount(e, open()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -73,7 +78,7 @@ func TestHandlerErrorMapsThroughApperr(t *testing.T) {
 	})
 
 	e := newEngine()
-	_ = r.Mount(e, nil)
+	_ = r.Mount(e, open())
 
 	if rec := do(e, http.MethodGet, "/x", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
@@ -86,7 +91,7 @@ func TestPermissionIsChecked(t *testing.T) {
 	})
 
 	denied := newEngine()
-	if err := r.Mount(denied, authztest.DenyAll()); err != nil {
+	if err := r.Mount(denied, secured(authztest.DenyAll())); err != nil {
 		t.Fatal(err)
 	}
 
@@ -95,7 +100,7 @@ func TestPermissionIsChecked(t *testing.T) {
 	}
 
 	allowed := newEngine()
-	_ = r.Mount(allowed, authztest.AllowAll())
+	_ = r.Mount(allowed, secured(authztest.AllowAll()))
 
 	if rec := do(allowed, http.MethodGet, "/x", ""); rec.Code != http.StatusOK {
 		t.Fatalf("status %d", rec.Code)
@@ -107,7 +112,7 @@ func TestMountWithoutAuthorizerSaysHowToFix(t *testing.T) {
 		return "", nil
 	})
 
-	err := r.Mount(newEngine(), nil)
+	err := r.Mount(newEngine(), secured(nil))
 	if err == nil || !strings.Contains(err.Error(), "gocore.WithAuthorizer") {
 		t.Fatalf("want an error naming the fix, got %v", err)
 	}
@@ -115,7 +120,7 @@ func TestMountWithoutAuthorizerSaysHowToFix(t *testing.T) {
 
 func TestNonStructInputIsRejected(t *testing.T) {
 	r := route.Get[int, string]("/x").To(func(context.Context, int) (string, error) { return "", nil })
-	if err := r.Mount(newEngine(), nil); err == nil || !strings.Contains(err.Error(), "route.None") {
+	if err := r.Mount(newEngine(), secured(nil)); err == nil || !strings.Contains(err.Error(), "route.None") {
 		t.Fatalf("want error pointing at route.None, got %v", err)
 	}
 }
@@ -133,5 +138,46 @@ func TestUnhandledCoversRawRoutes(t *testing.T) {
 	bound := raw.To(func(*gin.Context) {})
 	if got := route.Unhandled(bound); len(got) != 0 && got[0].Path == "/stream" {
 		t.Fatalf("a bound raw route is not missing: %v", got)
+	}
+}
+
+func rejectAll(c *gin.Context) {
+	_ = c.Error(apperr.Unauthorized("user not authenticated"))
+	c.Abort()
+}
+
+func TestNonPublicRoutesAreBehindAuthenticationAndPublicOnesAreNot(t *testing.T) {
+	handler := func(context.Context, route.None) (string, error) { return "ok", nil }
+	security := route.Security{Authenticate: []gin.HandlerFunc{rejectAll}}
+
+	e := newEngine()
+	if err := route.Get[route.None, string]("/private").To(handler).Mount(e, security); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := route.Get[route.None, string]("/open").Public().To(handler).Mount(e, security); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := do(e, http.MethodGet, "/private", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("private: status %d", rec.Code)
+	}
+
+	if rec := do(e, http.MethodGet, "/open", ""); rec.Code != http.StatusOK {
+		t.Fatalf("open: status %d", rec.Code)
+	}
+}
+
+func TestMountWithoutAuthenticationSaysHowToFix(t *testing.T) {
+	handler := func(context.Context, route.None) (string, error) { return "", nil }
+
+	err := route.Get[route.None, string]("/x").To(handler).Mount(newEngine(), route.Security{})
+	if err == nil || !strings.Contains(err.Error(), "gocore.WithAuthentication") || !strings.Contains(err.Error(), ".Public()") {
+		t.Fatalf("want an error naming both fixes, got %v", err)
+	}
+
+	err = route.Get[route.None, string]("/y").Public().Requires("a.b:view").To(handler).Mount(newEngine(), signedIn(nil))
+	if err == nil || !strings.Contains(err.Error(), "Public") {
+		t.Fatalf("a public route cannot require a permission, got %v", err)
 	}
 }

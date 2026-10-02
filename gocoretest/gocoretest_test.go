@@ -10,6 +10,8 @@ import (
 	"github.com/wssto2/go-core/route"
 )
 
+var Open = route.Get[ShowInput, Ticket]("/open/:id").Public()
+
 var Secret = route.Get[ShowInput, Ticket]("/secrets/:id").Requires("ops.secret:view")
 
 func TestPermissionRoutesNeedACatalogueAndAnAuthorizer(t *testing.T) {
@@ -17,7 +19,7 @@ func TestPermissionRoutesNeedACatalogueAndAnAuthorizer(t *testing.T) {
 	catalogue.MustDefine("ops.secret:view")
 
 	t.Run("denied", func(t *testing.T) {
-		app := gocoretest.New(t, gocoretest.Authorizer(authztest.DenyAll()))
+		app := gocoretest.New(t, gocoretest.SignedIn(authz.User(1, 0)), gocoretest.Authorizer(authztest.DenyAll()))
 		app.Permissions(catalogue)
 		app.Routes(Secret.To(Service{app}.Show))
 
@@ -27,7 +29,7 @@ func TestPermissionRoutesNeedACatalogueAndAnAuthorizer(t *testing.T) {
 	})
 
 	t.Run("allowed", func(t *testing.T) {
-		app := gocoretest.New(t, gocoretest.Authorizer(authztest.AllowAll()))
+		app := gocoretest.New(t, gocoretest.SignedIn(authz.User(1, 0)), gocoretest.Authorizer(authztest.AllowAll()))
 		app.Permissions(catalogue)
 		app.Routes(Secret.To(Service{app}.Show))
 
@@ -36,6 +38,19 @@ func TestPermissionRoutesNeedACatalogueAndAnAuthorizer(t *testing.T) {
 			t.Fatalf("got %+v", got)
 		}
 	})
+}
+
+func TestAnonymousRequestsAreRejectedExceptForPublicRoutes(t *testing.T) {
+	app := gocoretest.New(t)
+	app.Routes(Show.To(Service{app}.Show), Open.To(Service{app}.Show))
+
+	if rec := gocoretest.Do(t, app, http.MethodGet, "/tickets/1", nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("private route: status %d", rec.Code)
+	}
+
+	if rec := gocoretest.Do(t, app, http.MethodGet, "/open/1", nil); rec.Code != http.StatusOK {
+		t.Fatalf("public route: status %d", rec.Code)
+	}
 }
 
 func TestNamedDatabasesAreRegistered(t *testing.T) {

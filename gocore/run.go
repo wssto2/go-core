@@ -23,7 +23,8 @@ import (
 //
 // It reports: a Later that was never set, a declared route without a handler,
 // two routes on the same method and path, a route that Requires a permission
-// missing from the catalogue (or when there is no catalogue or authorizer), and
+// missing from the catalogue, a route that is neither Public nor has
+// authentication configured (or needs an authorizer and has none), and
 // a database or connection that could not be resolved.
 func (a *App) Check() error {
 	problems := append([]Problem(nil), a.problems...)
@@ -79,13 +80,6 @@ func (a *App) routeProblems() []Problem {
 			continue
 		}
 
-		if a.authorizer == nil {
-			problems = append(problems, Problem{
-				What: "route " + spec.String() + " requires " + spec.Permission + " but the application has no authorizer",
-				Fix:  "pass gocore.WithAuthorizer(engine) to gocore.New",
-			})
-		}
-
 		if !a.catalogued(spec.Permission) {
 			problems = append(problems, Problem{
 				What: "route " + spec.String() + " requires " + spec.Permission + ", which no permission catalogue defines",
@@ -97,12 +91,12 @@ func (a *App) routeProblems() []Problem {
 	// A dry mount finds what only mounting can: an input type that cannot be
 	// bound, or paths the router refuses (a clash of wildcards).
 	for i, r := range a.routes {
-		if duplicate[i] || (r.Spec().Permission != "" && a.authorizer == nil) {
+		if duplicate[i] {
 			continue
 		}
 
 		if err := a.dryMount(scratch, r); err != nil {
-			problems = append(problems, Problem{What: err.Error(), Fix: "declare the route with a struct input (or route.None) and a path no other route clashes with"})
+			problems = append(problems, Problem{What: err.Error(), Fix: "see the message: configure authentication or the authorizer, mark the route .Public(), declare a struct input (or route.None), or change a clashing path"})
 		}
 	}
 
@@ -118,7 +112,7 @@ func (a *App) dryMount(scratch *gin.Engine, r route.Handled) (err error) {
 		}
 	}()
 
-	return r.Mount(scratch, a.authorizer)
+	return r.Mount(scratch, a.security())
 }
 
 func (a *App) catalogued(permission string) bool {
@@ -215,7 +209,7 @@ func (m *featuresModule) Register(c *bootstrap.Container) error {
 	}
 
 	for _, r := range m.app.routes {
-		if err := r.Mount(engine, m.app.authorizer); err != nil {
+		if err := r.Mount(engine, m.app.security()); err != nil {
 			return err
 		}
 	}
@@ -283,7 +277,7 @@ func (a *App) Handler() (http.Handler, error) {
 	engine.Use(middlewares.ErrorHandler(a.log, nil, true))
 
 	for _, r := range a.routes {
-		if err := r.Mount(engine, a.authorizer); err != nil {
+		if err := r.Mount(engine, a.security()); err != nil {
 			return nil, err
 		}
 	}

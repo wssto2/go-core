@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 
 	"github.com/gin-gonic/gin"
+	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/route"
 )
@@ -32,6 +33,16 @@ func showTicket(_ context.Context, in ShowInput) (Ticket, error) {
 	return Ticket{ID: in.ID, Title: "Printer on fire"}, nil
 }
 
+// signedIn is how an application tells routes to authenticate: here every
+// request counts as authenticated. A real one is auth.Authenticated(provider)
+// and authzhttp.Principals(resolve); gocore.WithAuthentication passes them on.
+func signedIn(a authz.Authorizer) route.Security {
+	return route.Security{
+		Authenticate: []gin.HandlerFunc{func(c *gin.Context) { c.Next() }},
+		Authorizer:   a,
+	}
+}
+
 func serve(h http.Handler, method, target string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(method, target, nil))
@@ -53,7 +64,7 @@ func ExampleRoute_To() {
 	engine := gin.New()
 
 	bound := Show.To(showTicket)
-	if err := bound.Mount(engine, authztest.AllowAll()); err != nil {
+	if err := bound.Mount(engine, signedIn(authztest.AllowAll())); err != nil {
 		fmt.Println(err)
 		return
 	}
@@ -71,7 +82,7 @@ func ExampleEmpty() {
 	closeTicket := Close.To(func(context.Context, ShowInput) (route.Empty, error) {
 		return route.Empty{}, nil
 	})
-	_ = closeTicket.Mount(engine, nil)
+	_ = closeTicket.Mount(engine, signedIn(nil))
 
 	rec := serve(engine, http.MethodDelete, "/tickets/7")
 	fmt.Println(rec.Code, rec.Body.Len())
@@ -105,7 +116,7 @@ func ExampleRaw() {
 
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	_ = export.Mount(engine, nil)
+	_ = export.Mount(engine, signedIn(nil))
 
 	fmt.Println(declared.Spec().Untyped, serve(engine, http.MethodGet, "/tickets/export").Body.String())
 	// Output: true id,title
@@ -118,4 +129,21 @@ func ExampleContract_Types() {
 	contract := route.Group(Show).Types(Priority(0))
 	fmt.Println(contract.ExtraTypes()[0].Name())
 	// Output: Priority
+}
+
+// Public opens a route to anyone; every other route needs an authenticated
+// principal.
+func ExampleRoute_Public() {
+	login := route.Get[route.None, string]("/login").Public()
+	fmt.Println(login.Spec().Public, Show.Spec().Public)
+
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	_ = login.To(func(context.Context, route.None) (string, error) { return "form", nil }).
+		Mount(engine, route.Security{}) // no authentication configured: fine for a public route
+
+	fmt.Println(serve(engine, http.MethodGet, "/login").Code)
+	// Output:
+	// true false
+	// 200
 }

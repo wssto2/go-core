@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/gocoretest"
 	"github.com/wssto2/go-core/route"
@@ -38,7 +39,7 @@ func Example() {
 	t := &exampleT{}
 	defer t.cleanup()
 
-	app := gocoretest.New(t)
+	app := gocoretest.New(t, gocoretest.SignedIn(authz.User(7, 0)))
 	Install(app)
 
 	rec := gocoretest.Do(t, app, http.MethodGet, "/tickets/7", nil)

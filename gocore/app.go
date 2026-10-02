@@ -2,6 +2,7 @@ package gocore
 
 import (
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"log/slog"
 	"strings"
 	"time"
@@ -58,12 +59,13 @@ func (e *StartupError) Error() string {
 // An App is built on one goroutine, in main or in a test, and is not safe for
 // concurrent Install calls.
 type App struct {
-	cfg        bootstrap.Config
-	log        *slog.Logger
-	clock      Clock
-	registry   *database.Registry
-	authorizer authz.Authorizer
-	customize  []func(*bootstrap.AppBuilder)
+	cfg          bootstrap.Config
+	log          *slog.Logger
+	clock        Clock
+	registry     *database.Registry
+	authorizer   authz.Authorizer
+	authenticate []gin.HandlerFunc
+	customize    []func(*bootstrap.AppBuilder)
 
 	routes     []route.Handled
 	workers    []worker.Worker
@@ -82,6 +84,19 @@ type Option func(*App)
 // route declared with Requires. Without one, such a route stops start-up.
 func WithAuthorizer(a authz.Authorizer) Option {
 	return func(app *App) { app.authorizer = a }
+}
+
+// WithAuthentication sets how requests are authenticated, once for the whole
+// application. Every route is mounted behind it unless declared Public. Pass
+// the middleware that verifies the credentials and the one that puts the authz
+// principal on the request, in that order:
+//
+//	gocore.WithAuthentication(auth.Authenticated(provider), authzhttp.Principals(resolve))
+//
+// An unauthenticated request must be rejected with apperr.Unauthorized, as
+// those do. Without this option, any route that is not Public stops start-up.
+func WithAuthentication(middleware ...gin.HandlerFunc) Option {
+	return func(app *App) { app.authenticate = append(app.authenticate, middleware...) }
 }
 
 // WithClock replaces the system clock.
@@ -145,6 +160,11 @@ func New(cfg bootstrap.Config, opts ...Option) *App {
 	}
 
 	return app
+}
+
+// security is what routes are mounted behind.
+func (a *App) security() route.Security {
+	return route.Security{Authenticate: a.authenticate, Authorizer: a.authorizer}
 }
 
 func (a *App) fail(what, fix string) {

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/bootstrap"
@@ -26,11 +27,14 @@ var (
 	upRoute     = route.Get[route.None, string]("/up")
 )
 
+func passthrough(c *gin.Context) { c.Next() }
+
 func pong(context.Context, route.None) (string, error) { return "pong", nil }
 
 func TestCheckReportsEveryProblemWithItsFix(t *testing.T) {
 	app := testApp(t, "local")
 
+	app.authenticate = []gin.HandlerFunc{passthrough}
 	Later[fmt.Stringer](app)
 	app.Database("nope")
 	app.Routes(pingRoute.To(pong), secretRoute.To(pong)) // lostRoute has no handler
@@ -70,6 +74,7 @@ func TestCheckReportsEveryProblemWithItsFix(t *testing.T) {
 
 func TestCheckPassesWhenWiredCorrectly(t *testing.T) {
 	app := testApp(t, "local")
+	app.authenticate = []gin.HandlerFunc{passthrough}
 	app.authorizer = authztest.AllowAll()
 
 	cat := authz.NewCatalogue()
@@ -83,8 +88,25 @@ func TestCheckPassesWhenWiredCorrectly(t *testing.T) {
 	}
 }
 
+func TestCheckSaysHowToFixMissingAuthentication(t *testing.T) {
+	app := testApp(t, "local")
+	private := route.Get[route.None, string]("/private")
+	app.Routes(private.To(pong), route.Get[route.None, string]("/open").Public().To(pong))
+
+	err := app.Check()
+	if err == nil || !strings.Contains(err.Error(), "gocore.WithAuthentication") || !strings.Contains(err.Error(), ".Public()") {
+		t.Fatalf("want the fix in the message, got %v", err)
+	}
+
+	var se *StartupError
+	if !errors.As(err, &se) || len(se.Problems) != 1 {
+		t.Fatalf("only the non-public route is a problem, got %v", err)
+	}
+}
+
 func TestCheckRejectsDuplicateRoutes(t *testing.T) {
 	app := testApp(t, "local")
+	app.authenticate = []gin.HandlerFunc{passthrough}
 	app.Routes(pingRoute.To(pong), pingRoute.To(pong))
 
 	if err := app.Check(); err == nil || !strings.Contains(err.Error(), "installed twice") {
@@ -183,6 +205,7 @@ func TestRunShutdownOrder_HTTPThenWorkersThenModulesThenDatabase(t *testing.T) {
 	ev := &events{}
 	url := fmt.Sprintf("http://127.0.0.1:%d/up", port)
 
+	app.authenticate = []gin.HandlerFunc{passthrough}
 	app.Routes(upRoute.To(pong))
 	app.Modules(&hookModule{name: "old", onStop: func() {
 		// the database must still be open when old modules shut down

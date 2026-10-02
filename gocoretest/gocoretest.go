@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
@@ -32,6 +34,7 @@ type settings struct {
 	now        time.Time
 	databases  []string
 	authorizer authz.Authorizer
+	principal  *authz.Principal
 }
 
 // Option adjusts New.
@@ -47,6 +50,11 @@ func Databases(names ...string) Option { return func(s *settings) { s.databases 
 // Authorizer sets who may do what. Without it, routes that require a
 // permission fail the application check.
 func Authorizer(a authz.Authorizer) Option { return func(s *settings) { s.authorizer = a } }
+
+// SignedIn authenticates every request the test makes as p, so routes that
+// are not Public can be called in one line. Without it, every request is
+// unauthenticated and such routes answer 401.
+func SignedIn(p authz.Principal) Option { return func(s *settings) { s.principal = &p } }
 
 type fixedClock time.Time
 
@@ -70,11 +78,29 @@ func New(t testing.TB, opts ...Option) *gocore.App {
 		gocore.WithClock(fixedClock(s.now)),
 		gocore.WithLogger(slog.New(slog.NewTextHandler(testLog{t}, nil))),
 	}
+	appOpts = append(appOpts, gocore.WithAuthentication(authenticate(s.principal)))
+
 	if s.authorizer != nil {
 		appOpts = append(appOpts, gocore.WithAuthorizer(s.authorizer))
 	}
 
 	return gocore.New(bootstrap.DefaultConfig(), appOpts...)
+}
+
+// authenticate stands in for the application's real authentication: it
+// accepts every request as the principal, or rejects every request.
+func authenticate(p *authz.Principal) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if p == nil {
+			_ = c.Error(apperr.Unauthorized("user not authenticated"))
+			c.Abort()
+
+			return
+		}
+
+		c.Request = c.Request.WithContext(authz.WithPrincipal(c.Request.Context(), *p))
+		c.Next()
+	}
 }
 
 type testLog struct{ t testing.TB }

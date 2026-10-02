@@ -18,8 +18,11 @@ type Spec struct {
 	Path       string
 	Name       string
 	Permission string
-	In         reflect.Type
-	Out        reflect.Type
+	// Public is true for a route anyone may call. Every other route needs an
+	// authenticated principal, and Permission, when set, on top of that.
+	Public bool
+	In     reflect.Type
+	Out    reflect.Type
 	// Untyped is true for routes declared with Raw: they have no In or Out.
 	Untyped bool
 }
@@ -81,6 +84,14 @@ func (r Route[In, Out]) Name(name string) Route[In, Out] {
 // define it.
 func (r Route[In, Out]) Requires(permission string) Route[In, Out] {
 	r.d.spec.Permission = permission
+	return r
+}
+
+// Public opens the route to anyone, signed in or not (a login form, a health
+// probe). Without it the route needs an authenticated principal. A public
+// route cannot also Requires a permission.
+func (r Route[In, Out]) Public() Route[In, Out] {
+	r.d.spec.Public = true
 	return r
 }
 

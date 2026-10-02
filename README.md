@@ -113,6 +113,18 @@ func Install(app *gocore.App) {
 }
 ```
 
+**Secure by default.** Every route needs an authenticated principal unless it is declared `.Public()`; `.Requires(perm)` adds a permission check on top. The application sets authentication once, with the middleware go-core already has, and non-public routes are mounted behind it:
+
+```go
+app := gocore.New(cfg,
+    gocore.WithAuthentication(auth.Authenticated(provider), authzhttp.Principals(resolve)),
+    gocore.WithAuthorizer(engine))
+
+var Login = route.Get[route.None, Form]("/login").Public()   // anyone, signed in or not
+```
+
+An unauthenticated request to a non-public route gets the usual 401 envelope. A non-public route with no authentication configured is a start-up problem ("pass gocore.WithAuthentication(...) to gocore.New, or mark the route .Public()"). `route.Spec.Public` is part of the declaration, so generators can see it.
+
 `const Shared database.Connection = "shared"` names a connection once; `Registry.Database(Shared)` and `app.Database(Shared)` take it, and `Registry.Get("shared")` keeps working.
 
 **`main` reads top to bottom.** A feature used before the line that creates it does not compile (`gocore/testdata`, built by `TestInstallOrderIsCheckedByTheCompiler`):
@@ -148,12 +160,12 @@ gocore: cannot start, 2 problem(s):
   2. gocore.Later[gocore_test.Reads] was never set. Fix: call Set on it once every feature that needs it is installed
 ```
 
-The check covers an unset `Later`, a declared route with no handler, a `Requires` permission the catalogue does not define, a permission route with no authorizer, duplicate or refused routes, and an unknown connection. Then it boots; a failed boot stops what already started, in reverse. Shutdown order: HTTP, background workers and modules, database last.
+The check covers an unset `Later`, a declared route with no handler (typed or raw), a `Requires` permission the catalogue does not define, a non-public route with no authentication or a permission route with no authorizer, duplicate or refused routes, and an unknown connection. Then it boots; a failed boot stops what already started, in reverse. Shutdown order: HTTP, background workers and modules, database last.
 
 **Test a feature with plain calls** (`gocoretest/example_test.go`):
 
 ```go
-app := gocoretest.New(t)            // in-memory SQLite, fixed clock, test logger
+app := gocoretest.New(t, gocoretest.SignedIn(authz.User(7, 0))) // in-memory SQLite, fixed clock, test logger; requests are signed in as user 7 (without SignedIn they are anonymous: 401 except Public routes)
 Install(app)
 
 rec := gocoretest.Do(t, app, http.MethodGet, "/tickets/7", nil)

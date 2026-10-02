@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/gocore"
@@ -96,4 +97,28 @@ func ExampleApp_Check() {
 	// gocore: cannot start, 2 problem(s):
 	//   1. database: connection "shared" not found — was it registered at startup? (registered connections: local). Fix: register the connection in the database config, or fix its name
 	//   2. gocore.Later[gocore_test.Reads] was never set. Fix: call Set on it once every feature that needs it is installed
+}
+
+// WithAuthentication sets how requests are authenticated, once. Every route
+// is behind it unless declared Public; without it, a route that is not Public
+// stops start-up.
+func ExampleWithAuthentication() {
+	reg, cleanup := database.NewTestRegistry("local")
+	defer func() { _ = cleanup() }()
+
+	signedIn := func(c *gin.Context) { c.Next() } // really: auth.Authenticated(provider), authzhttp.Principals(resolve)
+
+	for _, opts := range [][]gocore.Option{
+		{gocore.WithAuthentication(signedIn)},
+		{}, // no authentication configured
+	} {
+		app := gocore.New(bootstrap.DefaultConfig(),
+			append(opts, gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))...)
+		Install(app)
+
+		fmt.Println(app.Check() == nil)
+	}
+	// Output:
+	// true
+	// false
 }
