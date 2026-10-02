@@ -36,7 +36,8 @@ type App struct {
 	engine     *gin.Engine
 	httpServer HTTPServer
 	modules    []Module
-	booted     []bool // booted[i]: modules[i].Boot returned nil; read after bootModules
+	booted     []bool             // booted[i]: modules[i].Boot returned nil; read after bootModules
+	cancelBoot context.CancelFunc // ends the context Boot received; called at shutdown
 }
 
 // NewApp constructs an App instance.
@@ -133,21 +134,30 @@ func (a *App) registerModules() error {
 	return nil
 }
 
-// bootModules boots all modules concurrently using errgroup.
-// If any module's Boot returns an error, the context is canceled and
-// bootModules returns the first error encountered.
+// bootModules boots all modules concurrently. Boot receives a context that
+// lives until shutdown, so a module may start workers on it. If any Boot
+// returns an error, that context is canceled (siblings still booting see it)
+// and bootModules returns the first error.
 func (a *App) bootModules(ctx context.Context) error {
-	g, gCtx := errgroup.WithContext(ctx)
+	// Not derived from the run context's cancellation: a signal must stop the
+	// HTTP server first, and only then end what Boot started.
+	bootCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	a.cancelBoot = cancel
+
+	var g errgroup.Group
+
 	a.booted = make([]bool, len(a.modules))
 	for i, m := range a.modules {
 		g.Go(func() error {
-			if err := m.Boot(gCtx); err != nil {
+			if err := m.Boot(bootCtx); err != nil {
+				cancel()
 				return fmt.Errorf("module %q boot failed: %w", m.Name(), err)
 			}
 			a.booted[i] = true
 			return nil
 		})
 	}
+
 	return g.Wait()
 }
 
@@ -183,6 +193,11 @@ func (a *App) shutdown(log *slog.Logger, only []bool) {
 		if err := a.httpServer.Shutdown(shutdownCtx); err != nil {
 			log.Error("http_shutdown_failed", "error", err)
 		}
+	}
+
+	// Boot's context ends here: workers started on it begin to stop.
+	if a.cancelBoot != nil {
+		a.cancelBoot()
 	}
 
 	// Shutdown modules in reverse order

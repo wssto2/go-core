@@ -233,14 +233,13 @@ func (m *featuresModule) Register(c *bootstrap.Container) error {
 	return nil
 }
 
-// Boot starts the workers on a context of their own: the one passed to Boot
-// ends as soon as every module has booted.
-func (m *featuresModule) Boot(context.Context) error {
+// Boot starts the workers on a context that ends when Shutdown cancels it.
+func (m *featuresModule) Boot(boot context.Context) error {
 	if m.mgr == nil {
 		return nil
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(boot)
 	m.cancel = cancel
 	m.mgr.Start(ctx)
 
