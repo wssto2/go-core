@@ -53,3 +53,28 @@ func ExampleApp() {
 	fmt.Println(app.Clock().Now().Format("2006-01-02"), app.Database(Shared) != nil)
 	// Output: 2026-10-02 true
 }
+
+type Reads interface{ Count() int }
+
+type reads struct{}
+
+func (reads) Count() int { return 3 }
+
+// Later breaks a real cycle between two features: one gets a promise that is
+// kept once both exist.
+func ExampleLater() {
+	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+
+	promise := gocore.Later[Reads](app)
+
+	_, err := promise.Get()
+	fmt.Println(err)
+
+	promise.Set(reads{})
+
+	r, _ := promise.Get()
+	fmt.Println(r.Count())
+	// Output:
+	// gocore: gocore_test.Reads was used before it was set: call Set once every feature that needs it is installed
+	// 3
+}

@@ -1,6 +1,7 @@
 package gocore
 
 import (
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -39,4 +40,17 @@ func TestDatabaseWithoutConfigurationIsAProblem(t *testing.T) {
 	if len(app.problems) != 1 || !strings.Contains(app.problems[0].Fix, "WithRegistry") {
 		t.Fatalf("got %+v", app.problems)
 	}
+}
+
+func TestLaterMustGetPanicsWithTheNamedError(t *testing.T) {
+	app := testApp(t, "local")
+	d := Later[fmt.Stringer](app)
+
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "fmt.Stringer") {
+			t.Fatalf("want a panic naming the type, got %v", r)
+		}
+	}()
+
+	d.MustGet()
 }

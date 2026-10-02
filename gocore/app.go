@@ -71,6 +71,7 @@ type App struct {
 	modules    []bootstrap.Module
 
 	problems []Problem
+	laters   []unsetter
 }
 
 // Option adjusts New.
