@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -325,5 +326,46 @@ func TestRunRefusesToStartOnCheckFailureAndClosesDatabase(t *testing.T) {
 	var se *StartupError
 	if !errors.As(err, &se) {
 		t.Fatalf("want *StartupError, got %v", err)
+	}
+}
+
+func TestRunRefusesToStartWhileMigrationsArePending(t *testing.T) {
+	app, _ := runnable(t)
+	app.Migrations(fstest.MapFS{"20261015000000_things.sql": {Data: []byte("-- +goose Up\nCREATE TABLE things (id INTEGER);")}})
+
+	err := app.RunContext(context.Background())
+
+	var se *StartupError
+	if !errors.As(err, &se) || len(se.Problems) != 1 {
+		t.Fatalf("want one start-up problem, got %v", err)
+	}
+
+	if p := se.Problems[0]; !strings.Contains(p.What, "20261015000000_things.sql") || !strings.Contains(p.Fix, "app.Migrate") {
+		t.Errorf("problem does not name the file and the fix: %+v", p)
+	}
+}
+
+func TestRunStartsOnceMigrated(t *testing.T) {
+	app, _ := runnable(t)
+	app.Migrations(fstest.MapFS{"20261015000000_things.sql": {Data: []byte("-- +goose Up\nCREATE TABLE things (id INTEGER);")}})
+
+	if err := app.Migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	if problems := app.pendingProblems(t.Context()); len(problems) != 0 {
+		t.Fatalf("pending after Migrate: %v", problems)
+	}
+}
+
+func TestRunNamesBothFilesOfADuplicateVersion(t *testing.T) {
+	app, _ := runnable(t)
+	file := &fstest.MapFile{Data: []byte("-- +goose Up\nSELECT 1;")}
+	app.Migrations(fstest.MapFS{"20261015000000_a.sql": file})
+	app.Migrations(fstest.MapFS{"20261015000000_b.sql": file})
+
+	err := app.RunContext(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "20261015000000_a.sql") || !strings.Contains(err.Error(), "20261015000000_b.sql") {
+		t.Fatalf("want both files named, got %v", err)
 	}
 }

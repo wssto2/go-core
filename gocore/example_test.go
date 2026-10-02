@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"testing/fstest"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -121,4 +122,65 @@ func ExampleWithAuthentication() {
 	// Output:
 	// true
 	// false
+}
+
+var things = fstest.MapFS{
+	"20261015000000_things.sql": {Data: []byte("-- +goose Up\nCREATE TABLE things (id INTEGER);")},
+}
+
+// Migrations collects the goose files a feature ships (a flat embed.FS) for a
+// connection. Run never migrates: it refuses to start while any is pending, and
+// the application migrates explicitly with Migrate, from its main.
+func ExampleApp_Migrate() {
+	for _, migrate := range []bool{false, true} {
+		reg, cleanup := database.NewTestRegistry("local", "shared")
+		app := gocore.New(bootstrap.DefaultConfig(),
+			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+
+		app.Migrations(things)         // the primary connection
+		app.Migrations(things, Shared) // another one: a module can be installed On(Shared)
+
+		if migrate {
+			fmt.Println(app.Migrate(context.Background()))
+		} else {
+			fmt.Println(app.RunContext(context.Background()))
+		}
+
+		_ = cleanup()
+	}
+	// Output:
+	// gocore: cannot start, 1 problem(s):
+	//   1. 2 migration(s) are pending: local/20261015000000_things.sql, shared/20261015000000_things.sql. Fix: run the application's migrate step (app.Migrate) before starting it; Run never migrates
+	// <nil>
+}
+
+// MigrationsByConnection collects the application's own migrations, one
+// directory per connection name.
+func ExampleApp_MigrationsByConnection() {
+	reg, cleanup := database.NewTestRegistry("local")
+	defer func() { _ = cleanup() }()
+
+	app := gocore.New(bootstrap.DefaultConfig(),
+		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+
+	app.MigrationsByConnection(fstest.MapFS{"local/20260101000000_orders.sql": things["20261015000000_things.sql"]})
+
+	fmt.Println(app.Migrate(context.Background()))
+	// Output: <nil>
+}
+
+// WithAutoMigrate applies migrations as they are collected, so a test that
+// installs a feature finds its tables ready. gocoretest.New does this.
+func ExampleWithAutoMigrate() {
+	reg, cleanup := database.NewTestRegistry("local")
+	defer func() { _ = cleanup() }()
+
+	app := gocore.New(bootstrap.DefaultConfig(),
+		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithAutoMigrate(context.Background()))
+
+	app.Migrations(things)
+
+	fmt.Println(app.Database().Exec("INSERT INTO things (id) VALUES (1)").Error)
+	// Output: <nil>
 }

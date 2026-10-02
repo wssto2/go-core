@@ -27,7 +27,13 @@ import (
 // authentication configured (or needs an authorizer and has none), and
 // a database or connection that could not be resolved.
 func (a *App) Check() error {
+	return a.checked(nil)
+}
+
+// checked is Check plus the extra problems.
+func (a *App) checked(extra []Problem) error {
 	problems := append([]Problem(nil), a.problems...)
+	problems = append(problems, extra...)
 
 	for _, l := range a.laters {
 		if !l.isSet() {
@@ -125,7 +131,8 @@ func (a *App) catalogued(permission string) bool {
 	return false
 }
 
-// Run checks the application, boots it, serves HTTP and waits for SIGINT or
+// Run checks the application (including that no migration is pending, see
+// Migrate), boots it, serves HTTP and waits for SIGINT or
 // SIGTERM. Then it shuts down: HTTP first, then the modules and background
 // workers drain, and the database closes last. A failing check or boot
 // returns an error with nothing left running.
@@ -146,7 +153,13 @@ func (a *App) RunContext(ctx context.Context) error {
 
 	defer a.closeDatabase()
 
-	if err := a.Check(); err != nil {
+	// Migrations are checked only here: Check stays free of database access.
+	var pending []Problem
+	if a.registry != nil {
+		pending = a.pendingProblems(ctx)
+	}
+
+	if err := a.checked(pending); err != nil {
 		return err
 	}
 
