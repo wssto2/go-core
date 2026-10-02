@@ -36,6 +36,8 @@ type App struct {
 	engine     *gin.Engine
 	httpServer HTTPServer
 	modules    []Module
+	booted     []bool             // booted[i]: modules[i].Boot returned nil; read after bootModules
+	cancelBoot context.CancelFunc // ends the context Boot received; called at shutdown
 }
 
 // NewApp constructs an App instance.
@@ -57,10 +59,17 @@ func (a *App) Container() *Container {
 
 // Run starts the application and its modules, then waits for a termination signal.
 func (a *App) Run() error {
-	log := MustResolve[*slog.Logger](a.container)
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	return a.RunContext(ctx)
+}
+
+// RunContext is Run that stops when ctx is done instead of on a signal. When
+// start-up fails (a module's Boot, the HTTP listener), everything that already
+// started is stopped again, in reverse order, before the error is returned.
+func (a *App) RunContext(ctx context.Context) error {
+	log := MustResolve[*slog.Logger](a.container)
 
 	// 1. Register Phase
 	if err := a.registerModules(); err != nil {
@@ -69,6 +78,7 @@ func (a *App) Run() error {
 
 	// 2. Boot Phase
 	if err := a.bootModules(ctx); err != nil {
+		a.shutdown(log, a.booted) //nolint:contextcheck // shutdown runs on a fresh timeout context: the run context is already done
 		return err
 	}
 
@@ -89,6 +99,7 @@ func (a *App) Run() error {
 		// Give the server a short window to detect immediate failures (e.g. port in use).
 		select {
 		case err := <-httpErrCh:
+			a.Shutdown(log) //nolint:contextcheck // shutdown runs on a fresh timeout context: the run context is already done
 			return fmt.Errorf("http server failed to start: %w", err)
 		case <-time.After(100 * time.Millisecond):
 		}
@@ -99,6 +110,7 @@ func (a *App) Run() error {
 		select {
 		case <-ctx.Done():
 		case err := <-httpErrCh:
+			a.Shutdown(log) //nolint:contextcheck // shutdown runs on a fresh timeout context: the run context is already done
 			return fmt.Errorf("http server stopped unexpectedly: %w", err)
 		}
 	} else {
@@ -122,24 +134,41 @@ func (a *App) registerModules() error {
 	return nil
 }
 
-// bootModules boots all modules concurrently using errgroup.
-// If any module's Boot returns an error, the context is canceled and
-// bootModules returns the first error encountered.
+// bootModules boots all modules concurrently. Boot receives a context that
+// lives until shutdown, so a module may start workers on it. If any Boot
+// returns an error, that context is canceled (siblings still booting see it)
+// and bootModules returns the first error.
 func (a *App) bootModules(ctx context.Context) error {
-	g, gCtx := errgroup.WithContext(ctx)
-	for _, m := range a.modules {
+	// Not derived from the run context's cancellation: a signal must stop the
+	// HTTP server first, and only then end what Boot started.
+	bootCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	a.cancelBoot = cancel
+
+	var g errgroup.Group
+
+	a.booted = make([]bool, len(a.modules))
+	for i, m := range a.modules {
 		g.Go(func() error {
-			if err := m.Boot(gCtx); err != nil {
+			if err := m.Boot(bootCtx); err != nil {
+				cancel()
 				return fmt.Errorf("module %q boot failed: %w", m.Name(), err)
 			}
+			a.booted[i] = true
 			return nil
 		})
 	}
+
 	return g.Wait()
 }
 
-// shutdown gracefully shuts down all modules.
+// Shutdown gracefully shuts down the HTTP server and all modules.
 func (a *App) Shutdown(log *slog.Logger) {
+	a.shutdown(log, nil)
+}
+
+// shutdown stops the HTTP server, then the modules in reverse order. With a
+// non-nil only, just the modules marked true are stopped (those that booted).
+func (a *App) shutdown(log *slog.Logger, only []bool) {
 	log.Info("shutting_down")
 
 	// ShutdownTimeout is a time.Duration (not seconds): multiplying it by
@@ -166,8 +195,16 @@ func (a *App) Shutdown(log *slog.Logger) {
 		}
 	}
 
+	// Boot's context ends here: workers started on it begin to stop.
+	if a.cancelBoot != nil {
+		a.cancelBoot()
+	}
+
 	// Shutdown modules in reverse order
 	for i := len(a.modules) - 1; i >= 0; i-- {
+		if only != nil && !only[i] {
+			continue
+		}
 		m := a.modules[i]
 		if err := m.Shutdown(shutdownCtx); err != nil {
 			log.Error("shutdown_failed", "module", m.Name(), "error", err)

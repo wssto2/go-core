@@ -40,6 +40,8 @@ type AppBuilder struct {
 	spaConfig           *frontend.SPAConfig
 	trustedOrigins      []string
 	idempotencyStore    *middlewares.IdempotencyStore
+	registry            *database.Registry // supplied with WithRegistry, else opened from cfg
+	log                 *slog.Logger       // supplied with WithLogger, else built from cfg
 }
 
 // New creates a new AppBuilder with the given config.
@@ -80,6 +82,11 @@ func (b *AppBuilder) DefaultInfrastructure() *AppBuilder {
 }
 
 func (b *AppBuilder) setupLogger() {
+	if b.log != nil {
+		OverwriteBind(b.container, b.log)
+		return
+	}
+
 	log, err := logger.New(logger.Config{
 		AppName:    b.cfg.App.Name,
 		LogDir:     b.cfg.Log.Dir,
@@ -97,20 +104,38 @@ func (b *AppBuilder) setupLogger() {
 }
 
 func (b *AppBuilder) setupDatabase() {
-	if len(b.cfg.Database.Connections) == 0 {
-		return // database is optional
+	reg := b.registry
+
+	if reg == nil {
+		if len(b.cfg.Database.Connections) == 0 {
+			return // database is optional
+		}
+
+		log := MustResolve[*slog.Logger](b.container)
+		reg = database.NewRegistryFromConfigs(log, registryConfig(b.cfg.Database), connectionConfigs(b.cfg.Database))
 	}
 
-	log := MustResolve[*slog.Logger](b.container)
+	OverwriteBind(b.container, reg)
 
-	regCfg := database.RegistryConfig{
-		LogLevel:           b.cfg.Database.LogLevel,
-		SlowQueryThreshold: b.cfg.Database.SlowQueryThreshold,
-		LogParameters:      b.cfg.Database.LogParameters,
+	// Audit repo — only when a primary DB exists
+	if reg.PrimaryName() != "" {
+		tx := database.NewTransactor(reg.Primary())
+		auditRepo := audit.NewRepository(tx)
+		Bind(b.container, auditRepo)
 	}
+}
 
-	connections := make([]database.ConnectionConfig, 0, len(b.cfg.Database.Connections))
-	for _, conn := range b.cfg.Database.Connections {
+func registryConfig(cfg DatabaseConfig) database.RegistryConfig {
+	return database.RegistryConfig{
+		LogLevel:           cfg.LogLevel,
+		SlowQueryThreshold: cfg.SlowQueryThreshold,
+		LogParameters:      cfg.LogParameters,
+	}
+}
+
+func connectionConfigs(cfg DatabaseConfig) []database.ConnectionConfig {
+	connections := make([]database.ConnectionConfig, 0, len(cfg.Connections))
+	for _, conn := range cfg.Connections {
 		connections = append(connections, database.ConnectionConfig{
 			Name:            conn.Name,
 			Driver:          conn.Driver,
@@ -128,15 +153,37 @@ func (b *AppBuilder) setupDatabase() {
 		})
 	}
 
-	reg := database.NewRegistryFromConfigs(log, regCfg, connections)
-	OverwriteBind(b.container, reg)
+	return connections
+}
 
-	// Audit repo — only when a primary DB exists
-	if reg.PrimaryName() != "" {
-		tx := database.NewTransactor(reg.Primary())
-		auditRepo := audit.NewRepository(tx)
-		Bind(b.container, auditRepo)
+// OpenDatabase opens every connection of cfg into a Registry and returns the
+// first failure as an error (NewRegistryFromConfigs panics instead). Pass the
+// result to AppBuilder.WithRegistry.
+func OpenDatabase(log *slog.Logger, cfg DatabaseConfig) (*database.Registry, error) {
+	reg := database.NewRegistry(log, registryConfig(cfg))
+
+	for _, conn := range connectionConfigs(cfg) {
+		if err := reg.Register(conn); err != nil {
+			_ = reg.CloseAll()
+			return nil, err
+		}
 	}
+
+	return reg, nil
+}
+
+// WithRegistry makes the application use reg instead of opening the
+// connections listed in the config. The caller closes it.
+func (b *AppBuilder) WithRegistry(reg *database.Registry) *AppBuilder {
+	b.registry = reg
+	return b
+}
+
+// WithLogger makes the application use log instead of building one from the
+// log config.
+func (b *AppBuilder) WithLogger(log *slog.Logger) *AppBuilder {
+	b.log = log
+	return b
 }
 
 func (b *AppBuilder) setupBus() {
