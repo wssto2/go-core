@@ -144,22 +144,31 @@ func (w *consumerWorker) tick(ctx context.Context) (int, []error, error) {
 
 	var errs []error
 
-	for i, ev := range due {
-		if ctx.Err() != nil {
-			return i, errs, nil // the leases end and the rest come due again
+	for _, ev := range due {
+		select {
+		case <-ctx.Done():
+			// Stopping: the leases end and the rest come due again.
+			return len(due), errs, nil
+		default:
 		}
 
-		if err := w.process(ctx, ev); err != nil {
-			errs = append(errs, fmt.Errorf("consumer %q, event %d: %w", c.name, ev.ID, err))
-		}
+		errs = append(errs, w.process(ctx, ev)) // nil when the handler succeeded; errors.Join skips it
 	}
 
 	return len(due), errs, nil
 }
 
 // process handles one claimed event and records the outcome. It returns the
-// handler's error.
+// handler's error, naming the consumer and the event.
 func (w *consumerWorker) process(ctx context.Context, ev claimedEvent) error {
+	if err := w.run(ctx, ev); err != nil {
+		return fmt.Errorf("consumer %q, event %d: %w", w.consumer.name, ev.ID, err)
+	}
+
+	return nil
+}
+
+func (w *consumerWorker) run(ctx context.Context, ev claimedEvent) error {
 	q, c := w.queue, w.consumer
 
 	handleErr := w.handle(ctx, ev)
