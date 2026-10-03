@@ -82,6 +82,8 @@ type App struct {
 	started  bool
 	// authenticatedBy is set once a feature has called Authenticate.
 	authenticatedBy bool
+	// authorizedBy is set once a feature has called Authorize.
+	authorizedBy bool
 }
 
 // Option adjusts New.

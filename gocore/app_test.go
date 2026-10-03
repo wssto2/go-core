@@ -12,6 +12,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
@@ -74,13 +75,16 @@ func TestAuthorizeSetsTheAuthorizerOnceAndFailReportsAtCheck(t *testing.T) {
 
 	app.Authorize(authztest.DenyAll())
 	app.Fail("access needs a SubjectDirectory", "pass the users")
+	if app.Authorizer() == nil {
+		t.Fatal("Authorizer returns what was set")
+	}
 
 	var startup *StartupError
 	if err := app.Check(); !errors.As(err, &startup) || len(startup.Problems) != 2 {
 		t.Fatalf("want two problems, got %v", err)
 	}
 
-	if !strings.Contains(startup.Problems[0].What, "set twice") || startup.Problems[1].Fix != "pass the users" {
+	if !strings.Contains(startup.Problems[0].What, "two features set the authorizer") || startup.Problems[1].Fix != "pass the users" {
 		t.Fatalf("problems: %v", startup.Problems)
 	}
 }
@@ -179,5 +183,17 @@ func TestFailIsListedWithTheOtherProblems(t *testing.T) {
 	err := app.Check()
 	if err == nil || !strings.Contains(err.Error(), "identity needs X. Fix: pass Y") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestAuthorizeReplacesWhatTheOptionsSet(t *testing.T) {
+	stand := authztest.DenyAll()
+	app := New(bootstrap.DefaultConfig(), WithLogger(slog.New(slog.DiscardHandler)), WithAuthorizer(stand))
+
+	engine := authztest.AllowAll()
+	app.Authorize(engine)
+
+	if app.Authorizer() != authz.Authorizer(engine) || len(app.problems) != 0 {
+		t.Fatalf("a feature replaces the stand-in: %v", app.problems)
 	}
 }
