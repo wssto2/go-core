@@ -1,5 +1,6 @@
 // Package storetest is the conformance suite every identity store must pass:
-// the account, sign-in history and session stores of identity/account.
+// the account, sign-in history, session, code and re-confirmation stores of
+// identity/account.
 //
 //	func TestMyStores(t *testing.T) {
 //		storetest.Run(t, func(t *testing.T) storetest.Stores { return storetest.Stores{...} })
@@ -22,11 +23,13 @@ import (
 	"github.com/wssto2/go-core/identity/account"
 )
 
-// Stores are the three stores under test, over one database.
+// Stores are the stores under test, over one database.
 type Stores struct {
 	Accounts account.Store
 	SignIns  account.SignInLog
 	Sessions account.SessionStore
+	Codes    account.CodeStore
+	Reauth   account.ReauthStore
 }
 
 // Factory returns new empty stores for one subtest.
@@ -102,6 +105,15 @@ func Run(t *testing.T, newStores Factory) {
 		"sessions/end opened by":         sessionsEndOpenedBy,
 		"sessions/long device name":      sessionsLongDevice,
 		"sessions/tokens are not stored": sessionsTokensDiffer,
+		"codes/issue and latest":         codesIssueAndLatest,
+		"codes/issue ends the live one":  codesIssueEndsLive,
+		"codes/issued since":             codesIssuedSince,
+		"codes/save verification":        codesSaveVerification,
+		"codes/consumed once":            codesConsumedOnce,
+		"codes/attempts are counted":     codesAttemptsCounted,
+		"codes/invalidate live":          codesInvalidateLive,
+		"reauth/find, create and save":   reauthFindCreateSave,
+		"reauth/one counter wins":        reauthOneWins,
 	} {
 		t.Run(name, func(t *testing.T) { fn(t, newStores(t)) })
 	}
@@ -601,5 +613,299 @@ func sessionsTokensDiffer(t *testing.T, s Stores) {
 		c.true(!seen[creds.Access] && !seen[creds.Refresh], "every token is new")
 
 		seen[creds.Access], seen[creds.Refresh] = true, true
+	}
+}
+
+func newCode(accountID int, p account.Purpose, at time.Duration) account.Code {
+	return account.Code{
+		AccountID: accountID, Purpose: p, Target: "new@example.test", Hash: strings.Repeat("a", 64),
+		ExpiresAt: base.Add(at + 15*time.Minute), IP: "10.0.0.1", CreatedAt: base.Add(at),
+	}
+}
+
+func codesIssueAndLatest(t *testing.T, s Stores) {
+	c := check{t}
+
+	_, err := s.Codes.Latest(ctx(), 1, account.PurposeEmailChange)
+	c.isErr(err, account.ErrCodeNotFound, "no code yet")
+
+	issued, err := s.Codes.Issue(ctx(), newCode(1, account.PurposeEmailChange, 0), base)
+	c.noErr(err, "issue")
+	c.true(issued.ID > 0, "the code has an id")
+
+	got, err := s.Codes.Latest(ctx(), 1, account.PurposeEmailChange)
+	c.noErr(err, "latest")
+	c.equal(issued.ID, got.ID, "id")
+	c.equal(1, got.AccountID, "account")
+	c.equal(account.PurposeEmailChange, got.Purpose, "purpose")
+	c.equal("new@example.test", got.Target, "target")
+	c.equal(strings.Repeat("a", 64), got.Hash, "hash")
+	c.equal(0, got.Attempts, "attempts")
+	c.equal("10.0.0.1", got.IP, "ip")
+	c.same(base, got.CreatedAt, "created at")
+	c.same(base.Add(15*time.Minute), got.ExpiresAt, "expires at")
+	c.true(got.ConsumedAt == nil && got.InvalidatedAt == nil, "a new code is live")
+
+	bare := newCode(1, account.PurposePasswordReset, 0)
+	bare.Target, bare.IP = "", ""
+	_, err = s.Codes.Issue(ctx(), bare, base)
+	c.noErr(err, "issue without a target or an ip")
+
+	got, err = s.Codes.Latest(ctx(), 1, account.PurposePasswordReset)
+	c.noErr(err, "latest of another purpose")
+	c.equal("", got.Target, "no target reads empty")
+
+	_, err = s.Codes.Latest(ctx(), 2, account.PurposeEmailChange)
+	c.isErr(err, account.ErrCodeNotFound, "another account has none")
+}
+
+func codesIssueEndsLive(t *testing.T, s Stores) {
+	c := check{t}
+
+	first, err := s.Codes.Issue(ctx(), newCode(1, account.PurposeEmailChange, 0), base)
+	c.noErr(err, "issue")
+
+	other, err := s.Codes.Issue(ctx(), newCode(1, account.PurposePasswordReset, 0), base)
+	c.noErr(err, "issue another purpose")
+
+	second, err := s.Codes.Issue(ctx(), newCode(1, account.PurposeEmailChange, time.Minute), base.Add(time.Minute))
+	c.noErr(err, "issue again")
+	c.true(second.ID > first.ID, "ids ascend")
+
+	latest, err := s.Codes.Latest(ctx(), 1, account.PurposeEmailChange)
+	c.noErr(err, "latest")
+	c.equal(second.ID, latest.ID, "the newest is the latest")
+	c.true(latest.InvalidatedAt == nil, "the new one is live")
+
+	// The first one was ended by the second: verifying it is a conflict.
+	c.isErr(s.Codes.SaveVerification(ctx(), first, 0, base.Add(2*time.Minute)), account.ErrCodeConflict, "the superseded code is not live")
+
+	// Another purpose is left alone.
+	consumed := other
+	at := base.Add(time.Minute)
+	consumed.ConsumedAt = &at
+	c.noErr(s.Codes.SaveVerification(ctx(), consumed, 0, at), "the other purpose's code is still live")
+}
+
+func codesIssuedSince(t *testing.T, s Stores) {
+	c := check{t}
+
+	for i := range 3 {
+		_, err := s.Codes.Issue(ctx(), newCode(1, account.PurposeEmailChange, time.Duration(i)*10*time.Minute), base.Add(time.Duration(i)*10*time.Minute))
+		c.noErr(err, "issue")
+	}
+
+	_, err := s.Codes.Issue(ctx(), newCode(1, account.PurposePasswordReset, 0), base)
+	c.noErr(err, "issue another purpose")
+
+	n, oldest, err := s.Codes.IssuedSince(ctx(), 1, account.PurposeEmailChange, base.Add(-time.Second))
+	c.noErr(err, "since")
+	c.equal(3, n, "all three")
+	c.same(base, oldest, "the oldest")
+
+	n, oldest, err = s.Codes.IssuedSince(ctx(), 1, account.PurposeEmailChange, base.Add(5*time.Minute))
+	c.noErr(err, "since")
+	c.equal(2, n, "the two after")
+	c.same(base.Add(10*time.Minute), oldest, "the oldest of those")
+
+	n, oldest, err = s.Codes.IssuedSince(ctx(), 1, account.PurposeEmailChange, base.Add(time.Hour))
+	c.noErr(err, "since")
+	c.equal(0, n, "none")
+	c.true(oldest.IsZero(), "no oldest")
+
+	n, _, err = s.Codes.IssuedSince(ctx(), 2, account.PurposeEmailChange, base)
+	c.noErr(err, "since")
+	c.equal(0, n, "another account")
+}
+
+func codesSaveVerification(t *testing.T, s Stores) {
+	c := check{t}
+
+	issued, err := s.Codes.Issue(ctx(), newCode(1, account.PurposeEmailChange, 0), base)
+	c.noErr(err, "issue")
+
+	at := base.Add(time.Minute)
+	issued.Attempts, issued.ConsumedAt = 0, &at
+	c.noErr(s.Codes.SaveVerification(ctx(), issued, 0, at), "consume")
+
+	got, err := s.Codes.Latest(ctx(), 1, account.PurposeEmailChange)
+	c.noErr(err, "latest")
+	c.true(got.ConsumedAt != nil, "consumed")
+	c.same(at, *got.ConsumedAt, "consumed at")
+
+	c.isErr(s.Codes.SaveVerification(ctx(), issued, 0, at), account.ErrCodeConflict, "a consumed code cannot be saved again")
+	c.isErr(s.Codes.SaveVerification(ctx(), account.Code{ID: 999}, 0, at), account.ErrCodeConflict, "an unknown code")
+}
+
+func codesConsumedOnce(t *testing.T, s Stores) {
+	c := check{t}
+
+	issued, err := s.Codes.Issue(ctx(), newCode(1, account.PurposeEmailChange, 0), base)
+	c.noErr(err, "issue")
+
+	const workers = 8
+
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		wins int
+		errs []error
+	)
+
+	for range workers {
+		wg.Go(func() {
+			read, err := s.Codes.Latest(ctx(), 1, account.PurposeEmailChange)
+			if err == nil {
+				at := base.Add(time.Minute)
+				read.ConsumedAt = &at
+				err = s.Codes.SaveVerification(ctx(), read, issued.Attempts, at)
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if err == nil {
+				wins++
+			} else {
+				errs = append(errs, err)
+			}
+		})
+	}
+
+	wg.Wait()
+
+	c.equal(1, wins, "exactly one verification consumes the code")
+
+	for _, err := range errs {
+		c.isErr(err, account.ErrCodeConflict, "the others conflict")
+	}
+}
+
+func codesAttemptsCounted(t *testing.T, s Stores) {
+	c := check{t}
+
+	issued, err := s.Codes.Issue(ctx(), newCode(1, account.PurposeEmailChange, 0), base)
+	c.noErr(err, "issue")
+
+	// Two wrong guesses that read the same state: one is saved, the other conflicts and must read again.
+	first, second := issued, issued
+	first.Attempts, second.Attempts = 1, 1
+
+	c.noErr(s.Codes.SaveVerification(ctx(), first, 0, base), "the first guess")
+	c.isErr(s.Codes.SaveVerification(ctx(), second, 0, base), account.ErrCodeConflict, "the second read a stale state")
+
+	read, err := s.Codes.Latest(ctx(), 1, account.PurposeEmailChange)
+	c.noErr(err, "latest")
+	c.equal(1, read.Attempts, "one attempt used")
+
+	read.Attempts = 2
+	at := base.Add(time.Second)
+	read.InvalidatedAt = &at
+	c.noErr(s.Codes.SaveVerification(ctx(), read, 1, at), "the guess that ends the code")
+
+	read, err = s.Codes.Latest(ctx(), 1, account.PurposeEmailChange)
+	c.noErr(err, "latest")
+	c.equal(2, read.Attempts, "attempts")
+	c.true(read.InvalidatedAt != nil, "invalidated")
+}
+
+func codesInvalidateLive(t *testing.T, s Stores) {
+	c := check{t}
+
+	issued, err := s.Codes.Issue(ctx(), newCode(1, account.PurposeEmailChange, 0), base)
+	c.noErr(err, "issue")
+
+	other, err := s.Codes.Issue(ctx(), newCode(2, account.PurposeEmailChange, 0), base)
+	c.noErr(err, "issue for another account")
+
+	c.noErr(s.Codes.InvalidateLive(ctx(), 1, account.PurposeEmailChange, base.Add(time.Minute)), "invalidate")
+	c.noErr(s.Codes.InvalidateLive(ctx(), 1, account.PurposeEmailChange, base.Add(time.Minute)), "invalidating again is fine")
+
+	got, err := s.Codes.Latest(ctx(), 1, account.PurposeEmailChange)
+	c.noErr(err, "latest")
+	c.equal(issued.ID, got.ID, "the code is still the latest")
+	c.true(got.InvalidatedAt != nil, "but ended")
+	c.same(base.Add(time.Minute), *got.InvalidatedAt, "ended at")
+
+	got, err = s.Codes.Latest(ctx(), 2, account.PurposeEmailChange)
+	c.noErr(err, "latest")
+	c.equal(other.ID, got.ID, "another account")
+	c.true(got.InvalidatedAt == nil, "its code is untouched")
+}
+
+func reauthFindCreateSave(t *testing.T, s Stores) {
+	c := check{t}
+
+	_, err := s.Reauth.Find(ctx(), 1)
+	c.isErr(err, account.ErrReauthNotFound, "no counter yet")
+
+	first := account.Attempts{AccountID: 1, Failures: 1, UpdatedAt: base}
+	c.noErr(s.Reauth.Create(ctx(), first), "create")
+	c.isErr(s.Reauth.Create(ctx(), first), account.ErrReauthConflict, "a second create loses")
+
+	got, err := s.Reauth.Find(ctx(), 1)
+	c.noErr(err, "find")
+	c.equal(1, got.Failures, "failures")
+	c.true(got.LockedUntil == nil, "not locked")
+	c.same(base, got.UpdatedAt, "updated at")
+
+	until := base.Add(15 * time.Minute)
+	locked := account.Attempts{AccountID: 1, Failures: 5, LockedUntil: &until, UpdatedAt: base.Add(time.Minute)}
+	c.noErr(s.Reauth.Save(ctx(), locked, first), "save over what was read")
+	c.isErr(s.Reauth.Save(ctx(), locked, first), account.ErrReauthConflict, "a stale read loses")
+
+	got, err = s.Reauth.Find(ctx(), 1)
+	c.noErr(err, "find")
+	c.equal(5, got.Failures, "failures")
+	c.true(got.LockedUntil != nil, "locked")
+	c.same(until, *got.LockedUntil, "locked until")
+
+	cleared := account.Attempts{AccountID: 1, UpdatedAt: base.Add(2 * time.Minute)}
+	c.noErr(s.Reauth.Save(ctx(), cleared, got), "clear, matching the lock as read")
+
+	got, err = s.Reauth.Find(ctx(), 1)
+	c.noErr(err, "find")
+	c.equal(0, got.Failures, "cleared")
+	c.true(got.LockedUntil == nil, "unlocked")
+
+	c.isErr(s.Reauth.Save(ctx(), cleared, account.Attempts{AccountID: 9, Failures: 1}), account.ErrReauthConflict, "no counter to save over")
+}
+
+func reauthOneWins(t *testing.T, s Stores) {
+	c := check{t}
+
+	c.noErr(s.Reauth.Create(ctx(), account.Attempts{AccountID: 1, Failures: 1, UpdatedAt: base}), "create")
+	read := account.Attempts{AccountID: 1, Failures: 1, UpdatedAt: base}
+
+	const workers = 8
+
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		wins int
+		errs []error
+	)
+
+	for range workers {
+		wg.Go(func() {
+			err := s.Reauth.Save(ctx(), account.Attempts{AccountID: 1, Failures: 2, UpdatedAt: base.Add(time.Second)}, read)
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if err == nil {
+				wins++
+			} else {
+				errs = append(errs, err)
+			}
+		})
+	}
+
+	wg.Wait()
+
+	c.equal(1, wins, "exactly one request counts from one read")
+
+	for _, err := range errs {
+		c.isErr(err, account.ErrReauthConflict, "the others conflict")
 	}
 }

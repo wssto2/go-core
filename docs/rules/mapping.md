@@ -14,6 +14,11 @@ it adds a rule file under `docs/rules/<module>/`.
 - IAM-USER-002 — five wrong passwords lock sign-in for fifteen minutes, derived from the history — `identity/account/signin.go` (`Lock.LockedUntil`) — rules: `docs/rules/identity/signin.md`
 - IAM-USER-003 — every sign-in event is on the person's history — `identity/account/signin.go` (`SignInEntry`), `identity/gormstore/store.go` — rules: `docs/rules/identity/signin.md`
 - IAM-USER-004 — sessions are listed and ended, and ending all ends what the person opened as somebody else — `identity/account/users.go`, `identity/gormstore/store.go` — rules: `docs/rules/identity/signin.md`
+- IAM-OTP-001 — a code is six random digits, stored only as an HMAC bound to account and purpose, and travels only by mail — `identity/account/codes.go` (`Codes.Issue`) — rules: `docs/rules/identity/codes.md`
+- IAM-OTP-002 — fifteen minutes, five attempts, single use, and exactly one winner among parallel verifications — `identity/account/codes.go` (`Codes.Verify`), `identity/gormstore/codes.go` (`SaveVerification`) — rules: `docs/rules/identity/codes.md`
+- IAM-OTP-003 — sixty seconds between sends, five an hour, a fresh code each time, an undelivered code is ended — `identity/account/codes.go` (`Codes.Issue`) — rules: `docs/rules/identity/codes.md`
+- IAM-OTP-004 — one live code per account and purpose, in one transaction — `identity/gormstore/codes.go` (`Codes.Issue`) — rules: `docs/rules/identity/codes.md`
+- IAM-REAUTH-001 — re-confirming the password locks after five wrong ones for fifteen minutes, counted before the check — `identity/account/reauth.go` (`Reauth.Confirm`), `identity/gormstore/reauth.go` — rules: `docs/rules/identity/reauth.md`
 
 ## access
 

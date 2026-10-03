@@ -42,7 +42,7 @@ func tables(t *testing.T, db *gorm.DB) {
 func empty(t *testing.T, db *gorm.DB) {
 	t.Helper()
 
-	for _, table := range []string{"accounts", "user_signins", "tokens"} {
+	for _, table := range []string{"accounts", "user_signins", "tokens", "user_verification_codes", "user_reauth_attempts"} {
 		require.NoError(t, db.Exec("DELETE FROM "+table).Error)
 	}
 }
@@ -56,7 +56,7 @@ func TestStoresConform(t *testing.T) {
 
 			stores := gormstore.New(db)
 
-			return storetest.Stores{Accounts: stores.Accounts, SignIns: stores.SignIns, Sessions: stores.Sessions}
+			return storetest.Stores{Accounts: stores.Accounts, SignIns: stores.SignIns, Sessions: stores.Sessions, Codes: stores.Codes, Reauth: stores.Reauth}
 		})
 	})
 }

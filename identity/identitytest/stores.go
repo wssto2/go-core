@@ -321,3 +321,163 @@ func (s *Sessions) EndOpenedBy(_ context.Context, actorID int, now time.Time) ([
 
 	return out, nil
 }
+
+// Codes is a memory account.CodeStore.
+type Codes struct {
+	mu   sync.Mutex
+	next int
+	rows []account.Code
+}
+
+// NewCodes returns an empty store.
+func NewCodes() *Codes { return &Codes{next: 1} }
+
+// Latest implements account.CodeStore.
+func (s *Codes) Latest(_ context.Context, accountID int, p account.Purpose) (account.Code, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i := len(s.rows) - 1; i >= 0; i-- {
+		if c := s.rows[i]; c.AccountID == accountID && c.Purpose == p {
+			return c, nil
+		}
+	}
+
+	return account.Code{}, account.ErrCodeNotFound
+}
+
+// IssuedSince implements account.CodeStore.
+func (s *Codes) IssuedSince(_ context.Context, accountID int, p account.Purpose, since time.Time) (int, time.Time, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	n, oldest := 0, time.Time{}
+
+	for _, c := range s.rows {
+		if c.AccountID != accountID || c.Purpose != p || !c.CreatedAt.After(since) {
+			continue
+		}
+
+		if n == 0 || c.CreatedAt.Before(oldest) {
+			oldest = c.CreatedAt
+		}
+
+		n++
+	}
+
+	return n, oldest, nil
+}
+
+// Issue implements account.CodeStore.
+func (s *Codes) Issue(_ context.Context, c account.Code, now time.Time) (account.Code, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.endLocked(c.AccountID, c.Purpose, now)
+
+	c.ID = s.next
+	s.next++
+	s.rows = append(s.rows, c)
+
+	return c, nil
+}
+
+func (s *Codes) endLocked(accountID int, p account.Purpose, now time.Time) {
+	for i := range s.rows {
+		if c := &s.rows[i]; c.AccountID == accountID && c.Purpose == p && c.ConsumedAt == nil && c.InvalidatedAt == nil {
+			at := now
+			c.InvalidatedAt = &at
+		}
+	}
+}
+
+// SaveVerification implements account.CodeStore.
+func (s *Codes) SaveVerification(_ context.Context, c account.Code, readAttempts int, _ time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i := range s.rows {
+		if s.rows[i].ID != c.ID {
+			continue
+		}
+
+		if s.rows[i].ConsumedAt != nil || s.rows[i].InvalidatedAt != nil || s.rows[i].Attempts != readAttempts {
+			return account.ErrCodeConflict
+		}
+
+		s.rows[i].Attempts, s.rows[i].ConsumedAt, s.rows[i].InvalidatedAt = c.Attempts, c.ConsumedAt, c.InvalidatedAt
+
+		return nil
+	}
+
+	return account.ErrCodeConflict
+}
+
+// InvalidateLive implements account.CodeStore.
+func (s *Codes) InvalidateLive(_ context.Context, accountID int, p account.Purpose, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.endLocked(accountID, p, now)
+
+	return nil
+}
+
+// Reauth is a memory account.ReauthStore.
+type Reauth struct {
+	mu   sync.Mutex
+	rows map[int]account.Attempts
+}
+
+// NewReauth returns an empty store.
+func NewReauth() *Reauth { return &Reauth{rows: map[int]account.Attempts{}} }
+
+// Find implements account.ReauthStore.
+func (s *Reauth) Find(_ context.Context, accountID int) (account.Attempts, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	a, ok := s.rows[accountID]
+	if !ok {
+		return account.Attempts{}, account.ErrReauthNotFound
+	}
+
+	return a, nil
+}
+
+// Create implements account.ReauthStore.
+func (s *Reauth) Create(_ context.Context, a account.Attempts) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.rows[a.AccountID]; ok {
+		return account.ErrReauthConflict
+	}
+
+	s.rows[a.AccountID] = a
+
+	return nil
+}
+
+// Save implements account.ReauthStore.
+func (s *Reauth) Save(_ context.Context, a, read account.Attempts) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cur, ok := s.rows[read.AccountID]
+	if !ok || cur.Failures != read.Failures || !sameTime(cur.LockedUntil, read.LockedUntil) {
+		return account.ErrReauthConflict
+	}
+
+	s.rows[a.AccountID] = a
+
+	return nil
+}
+
+func sameTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	return a.Equal(*b)
+}

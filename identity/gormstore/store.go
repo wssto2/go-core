@@ -40,13 +40,23 @@ var (
 	_ account.Store        = (*Accounts)(nil)
 	_ account.SignInLog    = (*SignIns)(nil)
 	_ account.SessionStore = (*Sessions)(nil)
+	_ account.CodeStore    = (*Codes)(nil)
+	_ account.ReauthStore  = (*Reauth)(nil)
 )
 
-// Stores are the three stores over one database.
+// Codes implements account.CodeStore.
+type Codes struct{ db *gorm.DB }
+
+// Reauth implements account.ReauthStore.
+type Reauth struct{ db *gorm.DB }
+
+// Stores are the stores over one database.
 type Stores struct {
 	Accounts *Accounts
 	SignIns  *SignIns
 	Sessions *Sessions
+	Codes    *Codes
+	Reauth   *Reauth
 }
 
 // Option adjusts New.
@@ -64,7 +74,7 @@ func New(db *gorm.DB, opts ...Option) Stores {
 		opt(sessions)
 	}
 
-	return Stores{Accounts: &Accounts{db: db}, SignIns: &SignIns{db: db}, Sessions: sessions}
+	return Stores{Accounts: &Accounts{db: db}, SignIns: &SignIns{db: db}, Sessions: sessions, Codes: &Codes{db: db}, Reauth: &Reauth{db: db}}
 }
 
 // sha256Hasher hashes a high-entropy token: a slow hash buys nothing there.

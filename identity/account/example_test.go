@@ -252,3 +252,74 @@ func ExampleUsers_SubjectNames() {
 	fmt.Println(names)
 	// Output: map[user:1:ana]
 }
+
+func ExampleCodes() {
+	k := kit()
+	ctx := context.Background()
+
+	// Ask for a code for a new address. The test Mailbox holds what the person would be mailed.
+	_, err := k.Codes.Issue(ctx, account.IssueCode{
+		AccountID: 1, Purpose: account.PurposeEmailChange, Target: "ana@new.example", Recipient: "ana@new.example", Name: "Ana", Locale: "en",
+	})
+	fmt.Println(err)
+
+	code := k.Mailbox.Last().Code
+	fmt.Println(len(code), "digits")
+
+	// A wrong code costs an attempt; the right one confirms the target, once.
+	wrong := "000000"
+	if code == wrong {
+		wrong = "000001"
+	}
+
+	_, err = k.Codes.Verify(ctx, 1, account.PurposeEmailChange, wrong)
+	fmt.Println(apperr.HasReason(err, account.ReasonCodeMismatch))
+
+	target, err := k.Codes.Verify(ctx, 1, account.PurposeEmailChange, code)
+	fmt.Println(target, err)
+
+	_, err = k.Codes.Verify(ctx, 1, account.PurposeEmailChange, code)
+	fmt.Println(apperr.HasReason(err, account.ReasonCodeExpired))
+	// Output:
+	// <nil>
+	// 6 digits
+	// true
+	// ana@new.example <nil>
+	// true
+}
+
+func ExampleNewCodes() {
+	_, err := account.NewCodes(account.CodesDeps{
+		Store: identitytest.NewCodes(), Sender: &identitytest.Mailbox{}, Clock: identitytest.NewClock(identitytest.Epoch), Secret: "too short",
+	}, account.CodeRules{})
+	fmt.Println(err)
+	// Output: identity: CodesDeps.Secret needs at least 32 characters: set a long random secret, for example from an environment variable
+}
+
+func ExampleReauth_Confirm() {
+	k := kit()
+	ctx := context.Background()
+
+	ana, _ := k.Users.Get(ctx, 1)
+
+	fmt.Println(k.Reauth.Confirm(ctx, 1, ana.PasswordHash, "secret"))
+	fmt.Println(k.Reauth.Confirm(ctx, 1, ana.PasswordHash, "nope") == account.ErrWrongPassword)
+
+	// Five wrong passwords lock re-confirmation: from then on even the right one is not checked.
+	for range 4 {
+		_ = k.Reauth.Confirm(ctx, 1, ana.PasswordHash, "nope")
+	}
+
+	err := k.Reauth.Confirm(ctx, 1, ana.PasswordHash, "secret")
+	fmt.Println(apperr.HasReason(err, account.ReasonReauthLocked))
+	// Output:
+	// <nil>
+	// true
+	// true
+}
+
+func ExampleNewReauth() {
+	_, err := account.NewReauth(account.ReauthDeps{}, account.Lock{})
+	fmt.Println(err)
+	// Output: identity: ReauthDeps.Store is missing: pass a ReauthStore, for example gormstore.New(db).Reauth
+}
