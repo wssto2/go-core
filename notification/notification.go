@@ -36,6 +36,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"slices"
 	"strings"
@@ -174,6 +175,7 @@ type Notices struct {
 	db         *gorm.DB
 	store      *store
 	clock      gocore.Clock
+	log        *slog.Logger
 }
 
 // Install puts the in-app inbox into app: the notifications table (its
@@ -205,9 +207,9 @@ func Install(app *gocore.App, users People, categories ...Category) *Notices {
 	app.Schema(gocore.Schema{Files: migrations.Files, Models: Migrate})
 
 	n := &Notices{
-		people: users, categories: append(slices.Clone(categories), systemTest), db: db, store: st, clock: app.Clock(),
+		people: users, categories: append(slices.Clone(categories), systemTest), db: db, store: st, clock: app.Clock(), log: app.Logger(),
 	}
-	n.Inbox = &Inbox{store: st, clock: app.Clock()}
+	n.Inbox = &Inbox{store: st, clock: app.Clock(), hub: NewHub()}
 
 	return n
 }
@@ -326,9 +328,14 @@ func (n *Notices) Send(ctx context.Context, category Category, to Recipients, re
 		return nil
 	}
 
-	_, err = n.store.insertNew(ctx, rows)
+	created, err := n.store.insertNew(ctx, rows)
+	if err != nil {
+		return err
+	}
 
-	return err
+	n.announce(ctx, created)
+
+	return nil
 }
 
 // finish applies the content rules to a rendered message: the title is

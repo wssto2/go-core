@@ -69,6 +69,7 @@ type Page struct {
 type Inbox struct {
 	store *store
 	clock gocore.Clock
+	hub   *Hub
 }
 
 // List returns one page of the person's notifications, newest first.
@@ -92,10 +93,10 @@ func (i *Inbox) Unread(ctx context.Context, userID int) (int, error) {
 }
 
 // MarkRead marks one of the person's notifications read, on every device
-// (NOTIF-READ-001), and returns how many are still unread. A notification that
-// is not theirs is not found; one already read stays as it is.
+// (NOTIF-READ-001), tells the person's open apps, and returns how many are still
+// unread. A notification that is not theirs is not found; one already read stays as it is.
 func (i *Inbox) MarkRead(ctx context.Context, userID, notificationID int) (int, error) {
-	_, err := i.store.markRead(ctx, userID, notificationID, whole(i.clock.Now()))
+	changed, err := i.store.markRead(ctx, userID, notificationID, whole(i.clock.Now()))
 	if errors.Is(err, errNotFound) {
 		return 0, apperr.NotFound("notification not found")
 	}
@@ -107,6 +108,10 @@ func (i *Inbox) MarkRead(ctx context.Context, userID, notificationID int) (int, 
 	count, err := i.Unread(ctx, userID)
 	if err != nil {
 		return 0, err
+	}
+
+	if changed {
+		i.hub.Publish(ctx, userID, StreamEvent{Kind: StreamRead, ReadIDs: []int{notificationID}, UnreadCount: count})
 	}
 
 	return count, nil
@@ -121,11 +126,21 @@ func (i *Inbox) MarkAllRead(ctx context.Context, userID, upToID int) (int, error
 		return i.Unread(ctx, userID)
 	}
 
-	if _, err := i.store.markAllRead(ctx, userID, upToID, whole(i.clock.Now())); err != nil {
+	changed, err := i.store.markAllRead(ctx, userID, upToID, whole(i.clock.Now()))
+	if err != nil {
 		return 0, apperr.Internal(err)
 	}
 
-	return i.Unread(ctx, userID)
+	count, err := i.Unread(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+
+	if changed > 0 {
+		i.hub.Publish(ctx, userID, StreamEvent{Kind: StreamRead, AllRead: true, ReadUpToID: upToID, UnreadCount: count})
+	}
+
+	return count, nil
 }
 
 // whole is a time as the DATETIME columns keep it: to the second.

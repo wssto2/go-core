@@ -228,3 +228,47 @@ func ExampleMigrate() {
 	fmt.Println(notification.Migrate(app.Database()))
 	// Output: <nil>
 }
+
+// Every app a person has open hears of a new notification once it is committed, and of what they read
+// on another device.
+func ExampleInbox_Subscribe() {
+	t := &exampleT{}
+	defer t.done()
+
+	notices, app := people(t)
+	notify := notifier(t, notices, app)
+
+	ctx := context.Background()
+	events, cancel := notices.Inbox.Subscribe(ctx, 1)
+
+	defer cancel()
+
+	notify(1, "Hello")
+
+	created := <-events
+	fmt.Println(created.Kind, created.Notification.Title, created.UnreadCount)
+
+	_, _ = notices.Inbox.MarkRead(ctx, 1, created.Notification.ID)
+
+	read := <-events
+	fmt.Println(read.Kind, read.ReadIDs, read.UnreadCount)
+	// Output:
+	// created Hello 1
+	// read [1] 0
+}
+
+// The hub is process-local: one instance only. It is what Inbox.Subscribe uses; a feature with its own
+// kind of change publishes to it directly.
+func ExampleHub() {
+	hub := notification.NewHub()
+	ctx := context.Background()
+
+	events, cancel := hub.Subscribe(ctx, 7)
+	defer cancel()
+
+	hub.Publish(ctx, 7, notification.StreamEvent{Kind: notification.StreamUnread, UnreadCount: 3})
+	hub.Publish(ctx, 8, notification.StreamEvent{Kind: notification.StreamUnread, UnreadCount: 9}) // nobody has 8 open
+
+	fmt.Println((<-events).UnreadCount, hub.Subscribers(7), hub.Subscribers(8))
+	// Output: 3 1 0
+}
