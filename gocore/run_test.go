@@ -415,3 +415,46 @@ func TestMigrateStatusListsPendingThenApplied(t *testing.T) {
 		t.Fatalf("status = %q, %v", out.String(), err)
 	}
 }
+
+type pathedInput struct {
+	ID int `path:"id"`
+}
+
+// A path parameter and the input's path tags must name the same things: every
+// disagreement is a start-up problem naming the route, the parameter and the fix.
+func TestCheckReportsPathParametersTheInputDoesNotHave(t *testing.T) {
+	app := testApp(t, "local")
+	app.authenticate = []gin.HandlerFunc{passthrough}
+
+	good := route.Get[pathedInput, string]("/things/:id")
+	typo := route.Get[pathedInput, string]("/things/:uid/parts")
+	none := route.Get[route.None, string]("/others/:id")
+
+	app.Routes(
+		good.To(func(context.Context, pathedInput) (string, error) { return "", nil }),
+		typo.To(func(context.Context, pathedInput) (string, error) { return "", nil }),
+		none.To(pong),
+	)
+
+	err := app.Check()
+
+	var se *StartupError
+	if !errors.As(err, &se) {
+		t.Fatalf("want *StartupError, got %v", err)
+	}
+
+	got := err.Error()
+	for _, want := range []string{
+		`route GET /things/:uid/parts: the path has :uid but pathedInput has no field tagged path:"uid"`,
+		`route GET /things/:uid/parts: pathedInput has a field tagged path:"id" but the path has no :id`,
+		`route GET /others/:id: the path has :id but the route has no input (route.None)`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in\n%s", want, got)
+		}
+	}
+
+	if strings.Contains(got, "GET /things/:id:") {
+		t.Errorf("the matching route is reported:\n%s", got)
+	}
+}

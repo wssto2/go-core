@@ -137,6 +137,10 @@ func planOf(g *route.Contract) (*plan, error) {
 			continue
 		}
 
+		if problems := spec.PathProblems(); len(problems) > 0 {
+			return nil, errors.New(strings.Join(problems, "\n  "))
+		}
+
 		if spec.In == reflect.TypeFor[route.None]() {
 			line.in = "void"
 		} else {

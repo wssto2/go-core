@@ -177,9 +177,10 @@ func TestGenerateRefusesWhatItCannotDo(t *testing.T) {
 	generic := route.Group("generic", route.Get[route.None, Page[Row]]("/rows"))
 	enum := route.Group("enum", route.Get[route.None, string]("/x")).Types(Level(0))
 	badInput := route.Group("badinput", route.Get[int, string]("/x"))
-	clash := route.Group("clash", route.Get[ShowInput, string]("/a"), route.Get[route.None, ShowInput]("/b"))
+	clash := route.Group("clash", route.Get[ShowInput, string]("/a/:id"), route.Get[route.None, ShowInput]("/b"))
 	sameKey := route.Group("samekey", route.Get[route.None, string]("/a"), route.Get[route.None, string]("/a"))
 	loose := route.Group("Bad_Name")
+	mismatch := route.Group("mismatch", route.Get[ShowInput, string]("/tickets/:ticket"))
 
 	for _, c := range []struct {
 		group *route.Contract
@@ -191,6 +192,7 @@ func TestGenerateRefusesWhatItCannotDo(t *testing.T) {
 		{clash, "both the input of a route and an output"},
 		{sameKey, "both become"},
 		{loose, "lowercase words"},
+		{mismatch, `route GET /tickets/:ticket: the path has :ticket but ShowInput has no field tagged path:"ticket"`},
 	} {
 		err := Generate(t.TempDir(), c.group)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
