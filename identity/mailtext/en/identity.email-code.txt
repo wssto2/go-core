@@ -1,0 +1,5 @@
+Hello {{.Name}},
+
+Your code to confirm this e-mail address is {{.Code}}. It is valid for {{.Minutes}} minutes.
+
+If you did not ask for it, you can ignore this message.

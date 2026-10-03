@@ -50,6 +50,22 @@ func (f RendererFunc) Render(ctx context.Context, locale string, name Name, data
 // any language; test with errors.Is.
 var ErrNoTemplate = errors.New("mail: no template")
 
+// Fallback is a Renderer that asks primary first and, for a mail it has no
+// template for (ErrNoTemplate), asks fallback. An application's renderer that
+// writes only the mails it wants to change is made whole this way:
+//
+//	identity.WithMailContent(myRenderer) // identity falls back to its English defaults for the rest
+func Fallback(primary, fallback Renderer) Renderer {
+	return RendererFunc(func(ctx context.Context, locale string, name Name, data any) (Content, error) {
+		c, err := primary.Render(ctx, locale, name, data)
+		if errors.Is(err, ErrNoTemplate) {
+			return fallback.Render(ctx, locale, name, data)
+		}
+
+		return c, err
+	})
+}
+
 // Templates is a Renderer over a directory of templates, one folder per
 // language:
 //

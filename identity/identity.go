@@ -1,10 +1,12 @@
-// Package identity is go-core's sign-in module: accounts, password sign-in,
-// sessions, the lock after wrong passwords, signing in as somebody else, and
-// the /auth/me payload the client starts from. Install it once:
+// Package identity is go-core's people module: accounts, password sign-in,
+// sessions, the lock after wrong passwords, signing in as somebody else, the
+// /auth/me payload the client starts from, user administration, and each
+// person's own profile (password, e-mail address confirmed by a code).
+// Install it once:
 //
 //	app := gocore.New(cfg)
 //
-//	users := identity.Install(app)                 // routes, tables, authentication
+//	users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecret(secret)) // routes, tables, authentication
 //	access.Install(app, permissions.All, users)    // roles and bindings, and the engine /auth/me reads
 //	tickets.Install(app, users)
 //
@@ -15,6 +17,22 @@
 // person's access (authz.MyAccess) as soon as access.Install, or any
 // authorizer that has MyAccess, is part of the application, in either order.
 // *Users satisfies access.SubjectDirectory, so it is what access.Install takes.
+//
+// The users module is installed with it: /v1/iam/users for administrators and
+// /v1/iam/profile for every signed-in person, with their permissions iam.user:view
+// and iam.user:manage (the catalogue access.Install defines, or your own). E-mail
+// is the one collaborator identity cannot default: a person's e-mail address
+// changes only after a code mailed to the new address, so say where mail goes:
+//
+//	users := identity.Install(app,
+//		identity.WithMail(mail.SMTP(smtp)),          // or mail.NewSink() while developing
+//		identity.WithCodeSecret(os.Getenv("CODE_SECRET")), // 32 characters or more
+//	)
+//
+// or run without e-mail with identity.WithoutMail(): the address then cannot
+// change by code and no notices are mailed. Without either, start-up stops and
+// names the fix. users.Admin() is the administration service for code, such as a
+// command that creates the first administrator.
 //
 // Install gives the application its authentication: every route that is not
 // Public is behind it, and the person's authz principal is in the request
@@ -39,6 +57,8 @@ import (
 	"context"
 
 	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/audit"
+	auditmigrations "github.com/wssto2/go-core/audit/migrations"
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/database"
@@ -46,7 +66,9 @@ import (
 	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/identity/gormstore"
 	identityhttp "github.com/wssto2/go-core/identity/http"
+	"github.com/wssto2/go-core/identity/mailtext"
 	"github.com/wssto2/go-core/identity/migrations"
+	"github.com/wssto2/go-core/mail"
 	"github.com/wssto2/go-core/navigation"
 )
 
@@ -54,8 +76,21 @@ import (
 type (
 	// Account is a person who signs in.
 	Account = account.Account
-	// Users is what other features ask of identity: Get, ChangeLocale and the sessions of an account.
+	// Users is what other features ask of identity: Get, ChangeLocale and the sessions of an
+	// account. Users.Admin() and Users.Profile() are the services behind the users and profile routes.
 	Users = account.Users
+	// Admin is the users module: create, update, deactivate, list, unlock, history.
+	Admin = account.Admin
+	// Profile is what a person does with their own account.
+	Profile = account.Profile
+	// DeactivationHook lets the application take part in a deactivation, or refuse it; WithDeactivationHook adds one.
+	DeactivationHook = account.DeactivationHook
+	// DeactivationHookFunc is a DeactivationHook made of a function.
+	DeactivationHookFunc = account.DeactivationHookFunc
+	// PasswordPolicy names the rules a new password breaks; WithPasswordPolicy replaces the default.
+	PasswordPolicy = account.PasswordPolicy
+	// ChangeLog keeps the history of changes to accounts; the default is go-core's audit trail.
+	ChangeLog = account.ChangeLog
 	// Session is one sign-in of an account on one device.
 	Session = account.Session
 	// AccountStore keeps accounts; WithAccounts replaces the default.
@@ -104,6 +139,12 @@ type settings struct {
 	principal               PrincipalOf
 	navigation              NavigationProvider
 	cookies                 Cookies
+	mail                    mail.Sender
+	noMail                  bool
+	renderer                mail.Renderer
+	codeSecret              string
+	policy                  account.PasswordPolicy
+	hooks                   []account.DeactivationHook
 }
 
 // Option adjusts Install.
@@ -178,6 +219,74 @@ func WithNavigationProvider(p NavigationProvider) Option {
 // WithCookies renames and places the token cookies.
 func WithCookies(c Cookies) Option { return func(s *settings) { s.cookies = c } }
 
+// WithMail sends identity's mail through the sender: the code that confirms a new
+// e-mail address, and the notices of a changed password and a changed address.
+// mail.SMTP(...) is the real one; mail.NewSink() records messages for tests and a
+// first run. It needs WithCodeSecret.
+func WithMail(sender mail.Sender) Option { return func(s *settings) { s.mail = sender } }
+
+// WithoutMail runs identity without e-mail: a person's address cannot be changed
+// by code (the routes answer identity.email.disabled), no notices are mailed, and
+// the rest works. It is the explicit way to say that, since mail is not optional by accident.
+func WithoutMail() Option { return func(s *settings) { s.noMail = true } }
+
+// WithMailContent writes the text of identity's mails yourself, in your languages.
+// The renderer need only know the mails it changes (names in identity/mailtext,
+// returning mail.ErrNoTemplate for the others): identity falls back to its English
+// defaults for the rest.
+func WithMailContent(r mail.Renderer) Option { return func(s *settings) { s.renderer = r } }
+
+// WithCodeSecret keys the HMAC of the stored one-time codes: at least 32
+// characters, kept server-side, for example from an environment variable. A leaked
+// table of codes cannot be searched offline without it.
+func WithCodeSecret(secret string) Option { return func(s *settings) { s.codeSecret = secret } }
+
+// WithPasswordPolicy replaces the rules for new passwords (the default is at least 8
+// characters, at most 72 bytes) for an application that keeps older ones.
+func WithPasswordPolicy(p account.PasswordPolicy) Option { return func(s *settings) { s.policy = p } }
+
+// WithDeactivationHook asks the hook before an account is deactivated, in the
+// transaction of the deactivation: it may hand records over, or refuse by returning
+// an error with a reason the client can explain. Hooks are asked in the order given.
+func WithDeactivationHook(hooks ...account.DeactivationHook) Option {
+	return func(s *settings) { s.hooks = append(s.hooks, hooks...) }
+}
+
+// The permissions of the users routes, the same ids access/admin uses for the
+// same two ideas.
+const (
+	// ViewUsers is seeing people and what is on their record.
+	ViewUsers = identityhttp.ViewUsers
+	// ManageUsers is creating, editing, unlocking and deactivating people, giving them a
+	// new password and ending their sessions.
+	ManageUsers = identityhttp.ManageUsers
+)
+
+// DefinePermissions adds ViewUsers and ManageUsers to the catalogue when it lacks
+// them, as access.Install does for the catalogue it is given: an application that
+// installs both needs not call it. An application without access calls it on
+// its catalogue, since start-up checks that every route's permission is defined.
+// Managing needs viewing, so a role that grants one grants the other.
+func DefinePermissions(c *authz.Catalogue) error {
+	for _, def := range []struct {
+		id   string
+		opts []authz.DefineOption
+	}{
+		{ViewUsers, nil},
+		{ManageUsers, []authz.DefineOption{authz.Sensitive(), authz.Requires(ViewUsers)}},
+	} {
+		if _, ok := c.Lookup(def.id); ok {
+			continue
+		}
+
+		if err := c.Define(def.id, def.opts...); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // Install puts identity into the application: its tables (migrations, which
 // the application runs with "./app migrate"), its routes and the authentication
 // every other route is behind. It returns what other features need.
@@ -187,26 +296,55 @@ func Install(app *gocore.App, opts ...Option) *Users {
 		opt(&s)
 	}
 
+	if !s.mailConfigured(app) {
+		return &account.Users{}
+	}
+
+	db := app.Database(s.conn...)
+
 	var storeOpts []gormstore.Option
 	if s.refresh != nil {
 		storeOpts = append(storeOpts, gormstore.WithRefreshHasher(s.refresh))
 	}
 
-	stores := gormstore.New(app.Database(s.conn...), storeOpts...)
+	stores := gormstore.New(db, storeOpts...)
 
 	app.Schema(gocore.Schema{Files: migrations.Files, Models: gormstore.Migrate}, s.conn...)
+	app.Schema(gocore.Schema{Files: auditmigrations.Files, Models: audit.Migrate}, s.conn...) // the change history
 
 	if s.accounts == nil {
 		s.accounts = stores.Accounts
+	}
+
+	search, ok := s.accounts.(account.Searcher)
+	if !ok {
+		app.Fail("the store given to identity.WithAccounts cannot list accounts: it does not implement account.Searcher",
+			"add Search(ctx, account.Query) (account.Page, error) to your store (identity/storetest checks it), or use the default store")
+
+		return &account.Users{}
 	}
 
 	if s.impersonationPermission != "" && s.impersonation == nil {
 		s.impersonation = permitted{app: app, permission: s.impersonationPermission}
 	}
 
+	var (
+		sender account.CodeSender
+		notice = s.notices
+	)
+
+	if notice == nil {
+		notice = account.NoNotices
+	}
+
+	if s.mail != nil {
+		m := mailer{sender: s.mail, render: s.mailRenderer(), accounts: s.accounts, clock: app.Clock(), log: app.Logger()}
+		sender, notice = m, notices{Notices: notice, m: m}
+	}
+
 	svc, err := account.New(account.Deps{
 		Accounts: s.accounts, SignIns: stores.SignIns, Sessions: stores.Sessions, Clock: app.Clock(),
-		Hasher: s.hasher, Impersonation: s.impersonation, Notices: s.notices,
+		Hasher: s.hasher, Impersonation: s.impersonation, Notices: notice,
 	}, s.cfg)
 	if err != nil {
 		app.Fail("identity could not be installed: "+err.Error(), "check the options given to identity.Install")
@@ -214,8 +352,51 @@ func Install(app *gocore.App, opts ...Option) *Users {
 		return &account.Users{}
 	}
 
+	hasher := s.hasher
+	if hasher == nil {
+		hasher = account.Bcrypt{}
+	}
+
+	tx, changes := database.NewTransactor(db), gormstore.NewChangeLog(db)
+
+	reauth, err := account.NewReauth(account.ReauthDeps{Store: stores.Reauth, Hasher: hasher, Clock: app.Clock()}, s.cfg.ReauthLock)
+	if err != nil {
+		app.Fail("identity could not be installed: "+err.Error(), "check the options given to identity.Install")
+
+		return svc.Users
+	}
+
+	var codes *account.Codes
+
+	if sender != nil {
+		codes, err = account.NewCodes(account.CodesDeps{Store: stores.Codes, Sender: sender, Clock: app.Clock(), Secret: s.codeSecret}, s.cfg.Codes)
+		if err != nil {
+			app.Fail("identity could not be installed: "+err.Error(), "check identity.WithCodeSecret and the options given to identity.Install")
+
+			return svc.Users
+		}
+	}
+
+	admin, err := account.NewAdmin(account.AdminDeps{
+		Users: svc.Users, Search: search, History: stores.SignIns, Changes: changes, Transact: tx, Policy: s.policy, Hooks: s.hooks,
+	})
+	if err != nil {
+		app.Fail("identity could not be installed: "+err.Error(), "check the options given to identity.Install")
+
+		return svc.Users
+	}
+
+	profile, err := account.NewProfile(account.ProfileDeps{
+		Users: svc.Users, Reauth: reauth, History: stores.SignIns, Changes: changes, Transact: tx, Policy: s.policy, Codes: codes,
+	})
+	if err != nil {
+		app.Fail("identity could not be installed: "+err.Error(), "check the options given to identity.Install")
+
+		return svc.Users
+	}
+
 	cfg := identityhttp.Config{
-		Services: svc, Clock: app.Clock(), Cookies: s.cookies,
+		Services: svc, Admin: admin, Profile: profile, Clock: app.Clock(), Cookies: s.cookies,
 		Project: s.project, Principal: s.principal, Navigation: s.navigation,
 	}
 
@@ -225,6 +406,38 @@ func Install(app *gocore.App, opts ...Option) *Users {
 	app.Routes(identityhttp.NewHandler(cfg).Routes()...)
 
 	return svc.Users
+}
+
+// mailConfigured says, to Run, what to do when identity has no say on e-mail, or
+// two; it reports whether Install can go on.
+func (s settings) mailConfigured(app *gocore.App) bool {
+	switch {
+	case s.mail != nil && s.noMail:
+		app.Fail("identity was given both WithMail and WithoutMail", "keep the one that is true")
+
+		return false
+	case s.mail == nil && !s.noMail:
+		app.Fail("identity needs a mail.Sender: a person's e-mail address changes only after a code mailed to the new address",
+			"pass identity.WithMail(mail.SMTP(...)) (mail.NewSink() while developing), or identity.WithoutMail() to run without e-mail")
+
+		return false
+	case s.mail != nil && len(s.codeSecret) < account.MinCodeSecret:
+		app.Fail("identity needs a secret for its e-mail codes, of at least 32 characters",
+			"pass identity.WithCodeSecret(secret), for example from an environment variable")
+
+		return false
+	}
+
+	return true
+}
+
+// mailRenderer is the application's text with identity's English defaults behind it.
+func (s settings) mailRenderer() mail.Renderer {
+	if s.renderer == nil {
+		return mailtext.Defaults
+	}
+
+	return mail.Fallback(s.renderer, mailtext.Defaults)
 }
 
 // accessOf is where the payload's access block comes from: the override, else

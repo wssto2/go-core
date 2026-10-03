@@ -3,7 +3,7 @@
 // API for all of it. It builds the authz engine of the application and the
 // services and routes over it.
 //
-//	users := identity.Install(app)
+//	users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecret(secret))
 //	access.Install(app, permissions.All, users) // roles and bindings
 //
 // Install defines the module's own permissions in the catalogue when the

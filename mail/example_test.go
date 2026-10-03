@@ -79,3 +79,25 @@ func ExampleRendererFunc() {
 	fmt.Println(c.Subject)
 	// Output: welcome in hr
 }
+
+func ExampleFallback() {
+	mine := mail.RendererFunc(func(_ context.Context, _ string, name mail.Name, _ any) (mail.Content, error) {
+		if name == "welcome" {
+			return mail.Content{Subject: "Welcome to us", Text: "…"}, nil
+		}
+
+		return mail.Content{}, mail.ErrNoTemplate
+	})
+	defaults := mail.Templates(fstest.MapFS{
+		"en/goodbye.subject.txt": {Data: []byte("Goodbye")}, "en/goodbye.txt": {Data: []byte("…")},
+	})
+	render := mail.Fallback(mine, defaults)
+
+	for _, name := range []mail.Name{"welcome", "goodbye"} {
+		c, _ := render.Render(context.Background(), "en", name, nil)
+		fmt.Println(c.Subject)
+	}
+	// Output:
+	// Welcome to us
+	// Goodbye
+}

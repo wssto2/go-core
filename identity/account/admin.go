@@ -68,7 +68,10 @@ func NewAdmin(d AdminDeps) (*Admin, error) {
 		d.Policy = Passwords{}
 	}
 
-	return &Admin{d: d}, nil
+	a := &Admin{d: d}
+	d.Users.admin = a
+
+	return a, nil
 }
 
 func (a *Admin) deps() Deps { return a.d.Users.deps }

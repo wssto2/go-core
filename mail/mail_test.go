@@ -303,3 +303,30 @@ func headerValue(head, name string) string {
 
 	return ""
 }
+
+func TestFallbackAsksTheSecondOnlyForWhatTheFirstLacks(t *testing.T) {
+	mine := mail.Templates(fstest.MapFS{
+		"en/hello.subject.txt": {Data: []byte("Mine {{.}}")}, "en/hello.txt": {Data: []byte("mine")},
+	})
+	theirs := mail.Templates(fstest.MapFS{
+		"en/hello.subject.txt": {Data: []byte("Theirs")}, "en/hello.txt": {Data: []byte("theirs")},
+		"en/bye.subject.txt": {Data: []byte("Bye")}, "en/bye.txt": {Data: []byte("bye")},
+	})
+	both := mail.Fallback(mine, theirs)
+
+	hello, err := both.Render(t.Context(), "en", "hello", "x")
+	require.NoError(t, err)
+	require.Equal(t, "Mine x", hello.Subject)
+
+	bye, err := both.Render(t.Context(), "en", "bye", nil)
+	require.NoError(t, err)
+	require.Equal(t, "Bye", bye.Subject)
+
+	_, err = both.Render(t.Context(), "en", "nothing", nil)
+	require.ErrorIs(t, err, mail.ErrNoTemplate)
+
+	broken := mail.Templates(fstest.MapFS{"en/hello.subject.txt": {Data: []byte("{{.Missing}}")}, "en/hello.txt": {Data: []byte("x")}})
+	_, err = mail.Fallback(broken, theirs).Render(t.Context(), "en", "hello", map[string]string{})
+	require.Error(t, err, "a template that fails is not a template that is missing")
+	require.NotErrorIs(t, err, mail.ErrNoTemplate)
+}

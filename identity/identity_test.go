@@ -111,8 +111,8 @@ func seed(t *testing.T, db *gorm.DB, a account.Account) {
 
 // The whole thing, as a test of a feature uses it: install, sign in, call a route.
 func TestInstallGivesTheApplicationItsAuthentication(t *testing.T) {
-	app := gocoretest.New(t)
-	users := identity.Install(app)
+	app := newApp(t)
+	users := identity.Install(app, identity.WithoutMail())
 
 	app.Routes(Whoami.To(whoami))
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
@@ -139,13 +139,14 @@ func TestInstallGivesTheApplicationItsAuthentication(t *testing.T) {
 }
 
 func TestTheOptionsShapeThePayload(t *testing.T) {
-	app := gocoretest.New(t)
+	app := newApp(t)
 	engine := fakeAccess{authz.MyAccess{
 		Subject:     authz.Subject{Kind: authz.KindUser, ID: 7},
 		Permissions: map[string]authz.PermissionAccess{"tickets.ticket:view": {Scope: authz.Scope{Level: "organization"}, Qualifier: authz.QualifierAll}},
 	}}
 
 	identity.Install(app,
+		identity.WithoutMail(),
 		identity.WithAccess(engine),
 		identity.WithNavigation(
 			navigation.Node{I18n: "nav.tickets", Route: "tickets", Permissions: []string{"tickets.ticket:view"}},
@@ -182,9 +183,9 @@ func (f fakeAccess) MyAccess(context.Context) (authz.MyAccess, error) { return f
 
 func TestImpersonationIsOffUnlessAllowed(t *testing.T) {
 	for _, allow := range []bool{false, true} {
-		app := gocoretest.New(t, gocoretest.Authorizer(authztest.AllowAll())) // read at request time
+		app := newApp(t) // read at request time
 
-		opts := []identity.Option{}
+		opts := []identity.Option{identity.WithoutMail()}
 		if allow {
 			opts = append(opts, identity.AllowImpersonation("identity.account:impersonate"))
 		}
@@ -206,8 +207,8 @@ func TestImpersonationIsOffUnlessAllowed(t *testing.T) {
 }
 
 func TestOnPutsTheTablesOnThatConnection(t *testing.T) {
-	app := gocoretest.New(t, gocoretest.Databases("local", "shared"))
-	identity.Install(app, identity.On(Shared))
+	app := newApp(t, gocoretest.Databases("local", "shared"))
+	identity.Install(app, identity.WithoutMail(), identity.On(Shared))
 
 	assert.True(t, app.Database(Shared).Migrator().HasTable("accounts"))
 	assert.True(t, app.Database(Shared).Migrator().HasTable("user_signins"))
@@ -218,10 +219,10 @@ func TestOnPutsTheTablesOnThatConnection(t *testing.T) {
 }
 
 func TestWithAccountsReplacesTheStore(t *testing.T) {
-	app := gocoretest.New(t)
+	app := newApp(t)
 	accounts := identitytest.NewAccounts()
 
-	identity.Install(app, identity.WithAccounts(accounts), identity.WithHasher(identitytest.Hasher))
+	identity.Install(app, identity.WithoutMail(), identity.WithAccounts(accounts), identity.WithHasher(identitytest.Hasher))
 
 	_, err := accounts.Create(t.Context(), identitytest.Account(1, "ana", "secret"))
 	require.NoError(t, err)
@@ -231,9 +232,9 @@ func TestWithAccountsReplacesTheStore(t *testing.T) {
 }
 
 func TestTwoAuthenticatingFeaturesAreAStartUpProblem(t *testing.T) {
-	app := gocoretest.New(t)
-	identity.Install(app)
-	identity.Install(app)
+	app := newApp(t)
+	identity.Install(app, identity.WithoutMail())
+	identity.Install(app, identity.WithoutMail())
 
 	err := app.Check()
 	require.Error(t, err)
@@ -247,13 +248,18 @@ func TestInstallEndToEndOnEveryDatabase(t *testing.T) {
 		reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
 		reg.AddConnection("local", db)
 
-		opts := []gocore.Option{gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler))}
+		opts := []gocore.Option{gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthorizer(authztest.AllowAll())}
 		if db.Name() == "sqlite" {
 			opts = append(opts, gocore.WithAutoMigrate(t.Context()))
 		}
 
 		app := gocore.New(bootstrap.DefaultConfig(), opts...)
-		identity.Install(app, identity.On("local")) // AddConnection does not make a primary one
+
+		cat := authz.NewCatalogue()
+		require.NoError(t, identity.DefinePermissions(cat))
+		app.Permissions(cat)
+
+		identity.Install(app, identity.WithoutMail(), identity.On("local")) // AddConnection does not make a primary one
 
 		if db.Name() != "sqlite" {
 			require.NoError(t, app.Migrate(t.Context()), "the module's migration files")
@@ -284,10 +290,10 @@ func TestInstallEndToEndOnEveryDatabase(t *testing.T) {
 
 // An application whose sessions are hashed with another hasher keeps them.
 func TestWithRefreshHasherReadsSessionsStoredThatWay(t *testing.T) {
-	app := gocoretest.New(t)
+	app := newApp(t)
 	hmac := auth.NewHMACHasher([]byte("secret"))
 
-	identity.Install(app, identity.WithRefreshHasher(hmac))
+	identity.Install(app, identity.WithoutMail(), identity.WithRefreshHasher(hmac))
 	seed(t, app.Database(), identitytest.Account(1, "ana", "secret"))
 
 	c := newClient(t, app)

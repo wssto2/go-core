@@ -58,7 +58,10 @@ func NewProfile(d ProfileDeps) (*Profile, error) {
 		d.Policy = Passwords{}
 	}
 
-	return &Profile{d: d}, nil
+	p := &Profile{d: d}
+	d.Users.profile = p
+
+	return p, nil
 }
 
 func (p *Profile) deps() Deps { return p.d.Users.deps }
