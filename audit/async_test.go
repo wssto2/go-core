@@ -156,8 +156,17 @@ func TestAsyncRepositoryQueueFull(t *testing.T) {
 	if err := ar.Write(context.Background(), e); err != nil {
 		t.Fatalf("first write unexpected error: %v", err)
 	}
-	if err := ar.Write(context.Background(), e); err == nil {
-		t.Fatalf("expected second write to return error due to full queue")
+	// The worker may or may not have taken the first entry off the queue yet,
+	// so the queue (one slot) is full by the second or the third write.
+	full := false
+	for range 2 {
+		if err := ar.Write(context.Background(), e); err != nil {
+			full = true
+			break
+		}
+	}
+	if !full {
+		t.Fatalf("expected a write to return an error once the queue is full")
 	}
 	// Wait for the first write to finish
 	select {
