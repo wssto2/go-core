@@ -33,11 +33,12 @@ type Hierarchy struct {
 	tenant string
 }
 
-// NewHierarchy declares the levels, root first. It needs at least two levels
-// (a root and something below it), each a single lowercase word, all distinct.
+// NewHierarchy declares the levels, root first. It needs at least the root
+// (an application without tenancy has only "organization"), each level a single
+// lowercase word, all distinct.
 func NewHierarchy(levels ...string) (*Hierarchy, error) {
-	if len(levels) < 2 {
-		return nil, errors.New("authz: a hierarchy needs a root level and at least one below it")
+	if len(levels) < 1 {
+		return nil, errors.New("authz: a hierarchy needs at least a root level, for example NewHierarchy(\"organization\")")
 	}
 	h := &Hierarchy{levels: append([]string(nil), levels...), depth: make(map[string]int, len(levels))}
 	for i, l := range levels {

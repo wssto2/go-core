@@ -404,3 +404,99 @@ func concurrentRoleUpdates(c check, s authz.Store) {
 	c.noErr(err, "list")
 	c.equal(1, len(roles), "no duplicate role")
 }
+
+// HolderStore is a Store that also answers who holds a role.
+type HolderStore interface {
+	authz.Store
+	authz.HolderStore
+}
+
+// HolderFactory returns a new empty holder store for one subtest.
+type HolderFactory func(t *testing.T) HolderStore
+
+// RunHolders executes the suite for the optional authz.HolderStore queries.
+func RunHolders(t *testing.T, newStore HolderFactory) {
+	t.Helper()
+	cases := map[string]func(check, HolderStore){
+		"HolderCountsCountSubjectsOnce": holderCounts,
+		"HoldersOfCustomAndPredefined":  holdersOf,
+		"HoldersOfAnInvalidReference":   holdersOfInvalid,
+	}
+	for _, name := range slices.Sorted(maps.Keys(cases)) {
+		t.Run(name, func(t *testing.T) { cases[name](check{t}, newStore(t)) })
+	}
+}
+
+func bindAll(c check, s authz.Store, bindings ...authz.Binding) {
+	c.t.Helper()
+	for _, b := range bindings {
+		_, err := s.Bind(context.Background(), actor(), b)
+		c.noErr(err, "bind")
+	}
+}
+
+func holderCounts(c check, s HolderStore) {
+	ctx := context.Background()
+	got, err := s.HolderCounts(ctx)
+	c.noErr(err, "count an empty store")
+	c.equal(0, len(got.ByID)+len(got.ByKey), "no holders")
+
+	role, err := s.SaveRole(ctx, actor(), sampleRole())
+	c.noErr(err, "role")
+	custom := authz.RoleRef{ID: role.ID}
+	seller := authz.RoleRef{Key: "seller"}
+	bindAll(c, s,
+		authz.Binding{Subject: alice(), Role: custom, Scope: dealer3()},
+		authz.Binding{Subject: alice(), Role: custom, Scope: location7()}, // the same subject again: counts once
+		authz.Binding{Subject: bob(), Role: custom, Scope: dealer3()},
+		authz.Binding{Subject: robot(), Role: custom, Scope: organization()}, // same ID as alice, another kind
+		authz.Binding{Subject: alice(), Role: seller, Scope: dealer3()},
+		authz.Binding{Subject: alice(), Role: seller, Scope: organization()},
+	)
+	got, err = s.HolderCounts(ctx)
+	c.noErr(err, "count")
+	c.equal(3, got.ByID[role.ID], "custom role holders: alice, bob and the service account")
+	c.equal(1, got.ByKey["seller"], "predefined role holders")
+	c.equal(3, got.Of(custom), "Of a custom role")
+	c.equal(1, got.Of(seller), "Of a predefined role")
+	c.equal(0, got.Of(authz.RoleRef{Key: "nobody"}), "Of a role nobody holds")
+}
+
+func holdersOf(c check, s HolderStore) {
+	ctx := context.Background()
+	role, err := s.SaveRole(ctx, actor(), sampleRole())
+	c.noErr(err, "role")
+	custom := authz.RoleRef{ID: role.ID}
+	seller := authz.RoleRef{Key: "seller"}
+	bindAll(c, s,
+		authz.Binding{Subject: alice(), Role: seller, Scope: dealer3()},
+		authz.Binding{Subject: bob(), Role: custom, Scope: dealer3()},
+		authz.Binding{Subject: bob(), Role: seller, Scope: location7()},
+		authz.Binding{Subject: alice(), Role: authz.RoleRef{Key: "manager"}, Scope: dealer3()},
+	)
+
+	got, err := s.HoldersOf(ctx, seller)
+	c.noErr(err, "holders of a predefined role")
+	c.equal(2, len(got), "two bindings of seller")
+	if len(got) == 2 {
+		c.equal([]authz.Subject{alice(), bob()}, []authz.Subject{got[0].Subject, got[1].Subject}, "in binding order")
+		c.equal(location7(), got[1].Scope, "with their scope")
+	}
+
+	got, err = s.HoldersOf(ctx, custom)
+	c.noErr(err, "holders of a custom role")
+	c.equal(1, len(got), "one binding of the custom role")
+
+	got, err = s.HoldersOf(ctx, authz.RoleRef{Key: "unknown"})
+	c.noErr(err, "holders of an unknown role")
+	c.equal(0, len(got), "none")
+}
+
+func holdersOfInvalid(c check, s HolderStore) {
+	got, err := s.HoldersOf(context.Background(), authz.RoleRef{})
+	c.noErr(err, "an empty reference")
+	c.equal(0, len(got), "no holders")
+	got, err = s.HoldersOf(context.Background(), authz.RoleRef{ID: 1, Key: "seller"})
+	c.noErr(err, "both set")
+	c.equal(0, len(got), "no holders")
+}

@@ -12,7 +12,6 @@ import (
 
 func TestNewHierarchyValidation(t *testing.T) {
 	for name, levels := range map[string][]string{
-		"one level":    {"organization"},
 		"none":         {},
 		"duplicate":    {"organization", "dealer", "dealer"},
 		"not a word":   {"organization", "Dealer"},
@@ -23,6 +22,14 @@ func TestNewHierarchyValidation(t *testing.T) {
 			assert.Error(t, err)
 		})
 	}
+	flat, err := authz.NewHierarchy("organization")
+	require.NoError(t, err, "an application without tenancy has the root only")
+	assert.Equal(t, flat.RootLevel(), flat.LeafLevel())
+	require.NoError(t, flat.Check(flat.Root()))
+	assert.Error(t, flat.Check(authz.Scope{Level: "organization", ID: 1}))
+	_, err = flat.WithTenantLevel("organization")
+	assert.Error(t, err)
+
 	h, err := authz.NewHierarchy("organization", "dealer", "location")
 	require.NoError(t, err)
 	assert.Equal(t, "organization", h.RootLevel())

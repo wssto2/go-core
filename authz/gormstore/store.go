@@ -37,7 +37,10 @@ type Store struct {
 	now   func() time.Time
 }
 
-var _ authz.Store = (*Store)(nil)
+var (
+	_ authz.Store       = (*Store)(nil)
+	_ authz.HolderStore = (*Store)(nil)
+)
 
 // Option configures a Store.
 type Option func(*Store)
@@ -218,6 +221,44 @@ func (s *Store) BindingsForRole(ctx context.Context, roleID int) ([]authz.Bindin
 	var rows []roleBindingModel
 	if err := s.db.WithContext(ctx).Where("role_id = ?", roleID).Order("id").Find(&rows).Error; err != nil {
 		return nil, apperr.Wrap(err, "load role bindings", apperr.CodeInternal)
+	}
+	return bindingsFrom(rows), nil
+}
+
+// HolderCounts implements authz.HolderStore. The distinct holders are counted
+// here rather than in SQL: COUNT(DISTINCT a, b) is not portable to SQLite.
+func (s *Store) HolderCounts(ctx context.Context) (authz.HolderCounts, error) {
+	var rows []roleBindingModel
+	err := s.db.WithContext(ctx).Model(&roleBindingModel{}).
+		Select("DISTINCT role_id, role_key, subject_kind, subject_id").Find(&rows).Error
+	if err != nil {
+		return authz.HolderCounts{}, apperr.Wrap(err, "count role holders", apperr.CodeInternal)
+	}
+	out := authz.HolderCounts{ByID: map[int]int{}, ByKey: map[string]int{}}
+	for _, r := range rows {
+		if r.RoleID > 0 {
+			out.ByID[r.RoleID]++
+		} else {
+			out.ByKey[r.RoleKey]++
+		}
+	}
+	return out, nil
+}
+
+// HoldersOf implements authz.HolderStore.
+func (s *Store) HoldersOf(ctx context.Context, ref authz.RoleRef) ([]authz.Binding, error) {
+	if !ref.Valid() {
+		return nil, nil
+	}
+	q := s.db.WithContext(ctx).Order("id")
+	if ref.ID > 0 {
+		q = q.Where("role_id = ?", ref.ID)
+	} else {
+		q = q.Where("role_id = 0 AND role_key = ?", ref.Key)
+	}
+	var rows []roleBindingModel
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, apperr.Wrap(err, "load role holders", apperr.CodeInternal)
 	}
 	return bindingsFrom(rows), nil
 }
