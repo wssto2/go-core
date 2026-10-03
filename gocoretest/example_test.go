@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/wssto2/go-core/authz"
+	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/gocoretest"
 	"github.com/wssto2/go-core/route"
@@ -64,4 +65,31 @@ func (t *exampleT) cleanup() {
 	for _, f := range t.cleanups {
 		f()
 	}
+}
+
+type Assignment struct {
+	TicketID int `json:"ticket_id"`
+	UserID   int `json:"user_id"`
+}
+
+var Assigned = event.Define[Assignment]("tickets.assigned")
+
+// Publish runs the consumers right away: the effect is asserted in one line.
+func ExamplePublish() {
+	t := &exampleT{}
+	defer t.cleanup()
+
+	app := gocoretest.New(t)
+
+	var notified []int
+
+	app.Events(Assigned.To("notifications.assignee", func(_ context.Context, a Assignment) error {
+		notified = append(notified, a.UserID)
+
+		return nil
+	}))
+
+	gocoretest.Publish(t, app, Assigned, Assignment{TicketID: 7, UserID: 3})
+	fmt.Println(notified)
+	// Output: [3]
 }

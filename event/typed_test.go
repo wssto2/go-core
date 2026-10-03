@@ -90,7 +90,7 @@ func TestProblems(t *testing.T) {
 	}
 
 	for want, consumers := range cases {
-		require.Contains(t, fmt.Sprint(event.Problems(consumers)), want)
+		require.Contains(t, fmt.Sprintf("%+v", event.Problems(consumers)), want)
 	}
 
 	require.Empty(t, event.Problems([]event.Consumer{Assigned.To("notifications.assignee", ok), Assigned.To("audit-trail", ok)}))

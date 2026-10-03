@@ -11,6 +11,7 @@ import (
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
+	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/logger"
 	"github.com/wssto2/go-core/route"
 	"github.com/wssto2/go-core/worker"
@@ -72,6 +73,7 @@ type App struct {
 	workers    []worker.Worker
 	catalogues []*authz.Catalogue
 	modules    []bootstrap.Module
+	consumers  []event.Consumer
 	migrations []migrationSource
 	// autoMigrate, when set, applies migrations as they are collected.
 	autoMigrate context.Context //nolint:containedctx // test option: the context of the test

@@ -205,24 +205,33 @@ func (p retryPolicy) delay(failures int) time.Duration {
 	return min(d, p.maxDelay)
 }
 
-// problems lists what is wrong with the consumer, each with the fix.
-func (c Consumer) problems() []string {
-	var out []string
+// Problem is something wrong with the consumers: what, and what to do about it.
+type Problem struct {
+	What string
+	Fix  string
+}
+
+// problems lists what is wrong with the consumer.
+func (c Consumer) problems() []Problem {
+	var out []Problem
 
 	if !namePattern.MatchString(c.event) {
-		out = append(out, fmt.Sprintf("event name %q is not lower-case words joined by dots or dashes (tickets.assigned): rename it in event.Define", c.event))
+		out = append(out, Problem{fmt.Sprintf("event name %q is not lower-case words joined by dots or dashes", c.event),
+			"rename it in event.Define, for example \"tickets.assigned\""})
 	}
 
 	if !namePattern.MatchString(c.name) || len(c.name) > 100 {
-		out = append(out, fmt.Sprintf("consumer name %q is not lower-case words joined by dots or dashes, at most 100 characters (notifications.assignee): fix the first argument of To", c.name))
+		out = append(out, Problem{fmt.Sprintf("consumer name %q is not lower-case words joined by dots or dashes, at most 100 characters", c.name),
+			"fix the first argument of To, for example \"notifications.assignee\""})
 	}
 
 	if c.version < 1 {
-		out = append(out, fmt.Sprintf("event %q has version %d: versions start at 1", c.event, c.version))
+		out = append(out, Problem{fmt.Sprintf("event %q has version %d", c.event, c.version), "versions start at 1: drop the Version call or pass 2 or more"})
 	}
 
 	if c.retry.attempts < 1 || c.retry.firstDelay <= 0 || c.retry.maxDelay < c.retry.firstDelay {
-		out = append(out, fmt.Sprintf("consumer %q has a retry policy that cannot work: Attempts needs at least 1 and Backoff a positive first delay not above the longest", c.name))
+		out = append(out, Problem{fmt.Sprintf("consumer %q has a retry policy that cannot work", c.name),
+			"Attempts needs at least 1, and Backoff a positive first delay not above the longest"})
 	}
 
 	return out
@@ -231,10 +240,10 @@ func (c Consumer) problems() []string {
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9]*([.-][a-z0-9]+)*$`)
 
 // Problems reports what is wrong with a set of consumers: bad names, two
-// consumers with one name, and a version that two consumers of one event
-// disagree on. Each problem names the fix. gocore's Check calls it.
-func Problems(consumers []Consumer) []string {
-	var out []string
+// consumers with one name, and two Define calls that share a name but not a
+// payload type or version. gocore's Check calls it.
+func Problems(consumers []Consumer) []Problem {
+	var out []Problem
 
 	byName := map[string]bool{}
 	first := map[string]Consumer{}
@@ -243,13 +252,15 @@ func Problems(consumers []Consumer) []string {
 		out = append(out, c.problems()...)
 
 		if byName[c.name] {
-			out = append(out, fmt.Sprintf("two consumers are named %q: the queue keeps attempts per consumer name, so each needs its own", c.name))
+			out = append(out, Problem{fmt.Sprintf("two consumers are named %q", c.name),
+				"the queue keeps attempts per consumer name, so give each its own"})
 		}
 
 		byName[c.name] = true
 
 		if f, ok := first[c.event]; ok && (f.version != c.version || f.payload != c.payload) {
-			out = append(out, fmt.Sprintf("event %q is defined twice, as %v v%d and as %v v%d: declare it once and share the value", c.event, f.payload, f.version, c.payload, c.version))
+			out = append(out, Problem{fmt.Sprintf("event %q is defined twice, as %v v%d and as %v v%d", c.event, f.payload, f.version, c.payload, c.version),
+				"declare it once and share the value, or give the second its own name"})
 		} else if !ok {
 			first[c.event] = c
 		}

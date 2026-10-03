@@ -24,8 +24,9 @@ import (
 // It reports: a Later that was never set, a declared route without a handler,
 // two routes on the same method and path, a route that Requires a permission
 // missing from the catalogue, a route that is neither Public nor has
-// authentication configured (or needs an authorizer and has none), and
-// a database or connection that could not be resolved.
+// authentication configured (or needs an authorizer and has none),
+// a database or connection that could not be resolved, and event consumers
+// with a bad or repeated name, or two declarations of one event name.
 func (a *App) Check() error {
 	return a.checked(nil)
 }
@@ -52,6 +53,7 @@ func (a *App) checked(extra []Problem) error {
 	}
 
 	problems = append(problems, a.routeProblems()...)
+	problems = append(problems, eventProblems(a.consumers)...)
 
 	if len(problems) == 0 {
 		return nil
@@ -235,14 +237,16 @@ func (m *featuresModule) Register(c *bootstrap.Container) error {
 		}
 	}
 
-	if len(m.app.workers) > 0 {
+	workers := append(append([]worker.Worker(nil), m.app.workers...), m.app.eventWorkers()...)
+
+	if len(workers) > 0 {
 		var opts []worker.ManagerOption
 		if tel, err := bootstrap.Resolve[*observability.Telemetry](c); err == nil {
 			opts = append(opts, worker.WithManagerMetrics(tel.Worker))
 		}
 
 		m.mgr = worker.NewManager(m.app.log, opts...)
-		m.mgr.Add(m.app.workers...)
+		m.mgr.Add(workers...)
 	}
 
 	return nil

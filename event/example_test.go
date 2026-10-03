@@ -44,9 +44,9 @@ func ExampleProblems() {
 		Assigned.To("notices", handler),
 		Assigned.To("notices", handler),
 	}) {
-		fmt.Println(problem)
+		fmt.Printf("%s. Fix: %s\n", problem.What, problem.Fix)
 	}
-	// Output: two consumers are named "notices": the queue keeps attempts per consumer name, so each needs its own
+	// Output: two consumers are named "notices". Fix: the queue keeps attempts per consumer name, so give each its own
 }
 
 // Publish joins the transaction of the write it reports: the event is queued if

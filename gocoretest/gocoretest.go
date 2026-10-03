@@ -18,6 +18,7 @@ package gocoretest
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -31,6 +32,7 @@ import (
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
+	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/gocore"
 )
 
@@ -165,4 +167,29 @@ func Decode[T any](t testing.TB, rec *httptest.ResponseRecorder) T {
 	}
 
 	return envelope.Data
+}
+
+// Publish publishes an event as a feature would, in a transaction of its own,
+// and runs the installed consumers right away, so a test asserts the effect in
+// the next line. The test fails if a consumer's handler returns an error.
+//
+//	gocoretest.Publish(t, app, Assigned, TicketAssigned{TicketID: 7, UserID: 3})
+//	// the notification the consumer made is there now
+//
+// A feature installed with app.Events(...) has its tables and its consumers; one
+// that publishes inside its own transaction is tested by calling it, then
+// app.DrainEvents(ctx).
+func Publish[T any](t testing.TB, app *gocore.App, ev event.Event[T], payload T) {
+	t.Helper()
+
+	err := database.NewTransactor(app.Database()).WithinTransaction(t.Context(), func(ctx context.Context) error {
+		return ev.Publish(ctx, payload)
+	})
+	if err != nil {
+		t.Fatalf("publishing %q (did a feature call app.Events?): %v", ev.Name(), err)
+	}
+
+	if err := app.DrainEvents(t.Context()); err != nil {
+		t.Fatalf("after publishing %q: %v", ev.Name(), err)
+	}
 }
