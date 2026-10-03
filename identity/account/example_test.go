@@ -253,6 +253,16 @@ func ExampleUsers_SubjectNames() {
 	// Output: map[user:1:ana]
 }
 
+// Names reads the names of the people a page of rows mentions in one query; an id that is no
+// account is absent, and a person without a name shows their login.
+func ExampleUsers_Names() {
+	users := identitytest.Users(exampleT{}, identitytest.Account(1, "ana", "secret"))
+
+	names, _ := users.Names(context.Background(), []int{1, 2})
+	fmt.Println(names)
+	// Output: map[1:ana]
+}
+
 func ExampleCodes() {
 	k := kit()
 	ctx := context.Background()

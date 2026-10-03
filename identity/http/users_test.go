@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/authz/authztest"
+	"github.com/wssto2/go-core/identity/account"
 	identityhttp "github.com/wssto2/go-core/identity/http"
 	"github.com/wssto2/go-core/identity/identitytest"
 )
@@ -166,7 +167,7 @@ func TestCreateShowUpdateAndDeactivateOverHTTP(t *testing.T) {
 	require.Len(t, rows, 2)
 	assert.Equal(t, "updated", rows[0]["action"])
 	assert.Equal(t, "created", rows[1]["action"])
-	assert.EqualValues(t, 1, rows[0]["actor_id"], "ana did it")
+	assert.Equal(t, map[string]any{"id": 1.0, "name": "Ana Anić"}, rows[0]["actor"], "ana did it")
 
 	assert.Equal(t, nethttp.StatusNoContent, h.do(nethttp.MethodPost, "/v1/iam/users/"+itoa(id)+"/deactivate", nil, ana).Code)
 
@@ -434,5 +435,27 @@ func TestActivityMarksWhoWasSignedInAsOverHTTP(t *testing.T) {
 
 	rows := changesRows(t, h.do(nethttp.MethodGet, "/v1/iam/users/2/activity", nil, ana))
 	require.Len(t, rows, 1)
-	assert.EqualValues(t, 1, rows[0]["signed_in_as"], "ana was signed in as boris")
+	assert.Equal(t, map[string]any{"id": 1.0, "name": "Ana Anić"}, rows[0]["signed_in_as"], "ana was signed in as boris")
+
+	sessions := h.do(nethttp.MethodGet, "/v1/iam/users/2/sessions", nil, ana)
+	require.Equal(t, nethttp.StatusOK, sessions.Code, sessions.Body.String())
+
+	opened, _ := data(t, sessions)["sessions"].([]any)
+	require.Len(t, opened, 1)
+	assert.Equal(t, map[string]any{"id": 1.0, "name": "Ana Anić"}, opened[0].(map[string]any)["opened_by"], "ana opened boris's session")
+}
+
+// A person a row names who is no longer an account keeps their id with an empty name, and a row nobody
+// else touched names nobody.
+func TestRowsNameWhoActedEvenWhenTheyAreGoneOverHTTP(t *testing.T) {
+	h := newHarness(t, nil)
+	ana := h.as("ana", "secret")
+
+	require.NoError(t, h.kit.Changes.Record(t.Context(), account.Change{AccountID: 2, ActorID: 77, Action: account.ChangeUpdated, Fields: []string{"name"}}))
+	require.NoError(t, h.kit.Changes.Record(t.Context(), account.Change{AccountID: 2, Action: account.ChangeProfile, Fields: []string{"name"}}))
+
+	rows := changesRows(t, h.do(nethttp.MethodGet, "/v1/iam/users/2/changes", nil, ana))
+	require.Len(t, rows, 2)
+	assert.Equal(t, map[string]any{"id": 77.0, "name": ""}, rows[1]["actor"], "gone, not hidden")
+	assert.Nil(t, rows[0]["actor"], "the person's own change names nobody")
 }

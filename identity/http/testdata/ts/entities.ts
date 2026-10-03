@@ -6,7 +6,7 @@ export type ActivityRow = {
   record_type: string;
   record_id: number;
   action: ActivityAction;
-  signed_in_as: number | null;
+  signed_in_as: PersonRef | null;
   created_at: string;
 };
 
@@ -23,7 +23,7 @@ export type ChangeRow = {
   fields: string[];
   before: Record<string, string>;
   after: Record<string, string>;
-  actor_id: number | null;
+  actor: PersonRef | null;
   created_at: string;
 };
 
@@ -68,6 +68,11 @@ export type PermissionAccess = {
   clauses: ClauseInfo[];
 };
 
+export type PersonRef = {
+  id: number;
+  name: string;
+};
+
 export type ProfileResponse = {
   id: number;
   login: string;
@@ -88,7 +93,7 @@ export type SessionItem = {
   id: number;
   device: string;
   ip: string;
-  opened_by: number | null;
+  opened_by: PersonRef | null;
   current: boolean;
   last_used_at: string;
   expires_at: string;
@@ -114,7 +119,7 @@ export type SignInRow = {
   event: SignInEvent;
   ip: string;
   device: string;
-  actor_id: number | null;
+  actor: PersonRef | null;
   created_at: string;
 };
 

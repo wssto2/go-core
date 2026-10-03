@@ -185,3 +185,10 @@ func ExampleActivityActions() {
 	fmt.Println(identityhttp.ActivityActions.Values())
 	// Output: [created changed deleted]
 }
+
+// A row names a person with their id and name; nobody is null.
+func ExamplePersonRef() {
+	out, _ := json.Marshal(identityhttp.ChangeRow{Actor: &identityhttp.PersonRef{ID: 1, Name: "Ana Anić"}})
+	fmt.Println(strings.Contains(string(out), `"actor":{"id":1,"name":"Ana Anić"}`))
+	// Output: true
+}

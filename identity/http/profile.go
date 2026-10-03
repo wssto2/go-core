@@ -197,7 +197,12 @@ func (h *Handler) ownSignIns(ctx context.Context, in PageInput) (datatable.Datat
 		return datatable.DatatableResult[SignInRow]{}, err
 	}
 
-	return pageOf(signInRows(rows), total, max(in.Page, 1), resolvedPerPage(in.PerPage)), nil
+	names, err := h.people(ctx, signInActors(rows))
+	if err != nil {
+		return datatable.DatatableResult[SignInRow]{}, err
+	}
+
+	return pageOf(signInRows(rows, names), total, max(in.Page, 1), resolvedPerPage(in.PerPage)), nil
 }
 
 func (h *Handler) ownSessions(ctx context.Context, _ route.None) (SessionList, error) {
@@ -211,7 +216,17 @@ func (h *Handler) ownSessions(ctx context.Context, _ route.None) (SessionList, e
 		return SessionList{}, err
 	}
 
-	return sessionItems(sessions, who.Session.ID), nil
+	ids := make([]int, len(sessions))
+	for i, s := range sessions {
+		ids[i] = s.ActorID
+	}
+
+	names, err := h.people(ctx, ids)
+	if err != nil {
+		return SessionList{}, err
+	}
+
+	return sessionItems(sessions, who.Session.ID, names), nil
 }
 
 func (h *Handler) revokeOwnSession(ctx context.Context, in OwnSessionInput) (route.Empty, error) {

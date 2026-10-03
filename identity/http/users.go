@@ -116,7 +116,7 @@ type ActivityRow struct {
 	RecordType string                 `json:"record_type"`
 	RecordID   int                    `json:"record_id"`
 	Action     account.ActivityAction `json:"action"`
-	SignedInAs *int                   `json:"signed_in_as"`
+	SignedInAs *PersonRef             `json:"signed_in_as"`
 	CreatedAt  time.Time              `json:"created_at"`
 }
 
@@ -194,40 +194,41 @@ type UserDetail struct {
 
 // SignInRow is one row of a sign-in history. Event is signed_in, wrong_password,
 // locked_out, refused_inactive, signed_in_as, unlocked, signed_out_everywhere or
-// session_revoked; ActorID is who did it when that was somebody else.
+// session_revoked; Actor is who did it when that was somebody else, null otherwise.
 type SignInRow struct {
 	ID        int                 `json:"id"`
 	Event     account.SignInEvent `json:"event"`
 	IP        string              `json:"ip"`
 	Device    string              `json:"device"`
-	ActorID   *int                `json:"actor_id"`
+	Actor     *PersonRef          `json:"actor"`
 	CreatedAt time.Time           `json:"created_at"`
 }
 
 // ChangeRow is one change made to a person. Action is created, updated,
 // deactivated, activated, password, email or profile; Fields names what changed,
-// Before and After hold the values of the fields that are not secret.
+// Before and After hold the values of the fields that are not secret. Actor is who made the
+// change, null when the person did it themselves.
 type ChangeRow struct {
 	ID        int                  `json:"id"`
 	Action    account.ChangeAction `json:"action"`
 	Fields    []string             `json:"fields"`
 	Before    map[string]string    `json:"before"`
 	After     map[string]string    `json:"after"`
-	ActorID   *int                 `json:"actor_id"`
+	Actor     *PersonRef           `json:"actor"`
 	CreatedAt time.Time            `json:"created_at"`
 }
 
 // SessionItem is one live session. OpenedBy is who opened it by signing in as the
-// person; Current is the session the request came with (only the profile knows).
+// person, null for the person's own; Current is the session the request came with (only the profile knows).
 type SessionItem struct {
-	ID         int       `json:"id"`
-	Device     string    `json:"device"`
-	IP         string    `json:"ip"`
-	OpenedBy   *int      `json:"opened_by"`
-	Current    bool      `json:"current"`
-	LastUsedAt time.Time `json:"last_used_at"`
-	ExpiresAt  time.Time `json:"expires_at"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID         int        `json:"id"`
+	Device     string     `json:"device"`
+	IP         string     `json:"ip"`
+	OpenedBy   *PersonRef `json:"opened_by"`
+	Current    bool       `json:"current"`
+	LastUsedAt time.Time  `json:"last_used_at"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 // SessionList is a person's live sessions, the latest used first.
@@ -254,12 +255,48 @@ func timeOrNil(t time.Time) *time.Time {
 	return &t
 }
 
-func idOrNil(id int) *int {
+// PersonRef is a person a row names: who did it, who was signed in as them. Name is the
+// account's name (its login when it has no name), and empty when the account no longer
+// exists, so a row never loses the id it was written with.
+type PersonRef struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// people are the names of the accounts a page's rows mention, read in one query.
+type people map[int]string
+
+// people reads the names of the ids that are somebody (above zero), once each.
+func (h *Handler) people(ctx context.Context, ids []int) (people, error) {
+	seen := map[int]bool{}
+	unique := make([]int, 0, len(ids))
+
+	for _, id := range ids {
+		if id > 0 && !seen[id] {
+			seen[id] = true
+			unique = append(unique, id)
+		}
+	}
+
+	return h.users.Names(ctx, unique)
+}
+
+// ref is the person with the id: nil when nobody (id zero), an empty name when unknown.
+func (p people) ref(id int) *PersonRef {
 	if id <= 0 {
 		return nil
 	}
 
-	return &id
+	return &PersonRef{ID: id, Name: p[id]}
+}
+
+func signInActors(rows []account.SignInEntry) []int {
+	ids := make([]int, len(rows))
+	for i, r := range rows {
+		ids[i] = r.ActorID
+	}
+
+	return ids
 }
 
 func statusOf(active bool, lockedUntil time.Time) Status {
@@ -400,10 +437,10 @@ func (h *Handler) unlockUser(ctx context.Context, in UserInput) (UnlockResult, e
 	return UnlockResult{Unlocked: unlocked}, err
 }
 
-func signInRows(rows []account.SignInEntry) []SignInRow {
+func signInRows(rows []account.SignInEntry, who people) []SignInRow {
 	out := make([]SignInRow, len(rows))
 	for i, r := range rows {
-		out[i] = SignInRow{ID: r.ID, Event: r.Event, IP: r.IP, Device: r.Device, ActorID: idOrNil(r.ActorID), CreatedAt: r.CreatedAt.UTC()}
+		out[i] = SignInRow{ID: r.ID, Event: r.Event, IP: r.IP, Device: r.Device, Actor: who.ref(r.ActorID), CreatedAt: r.CreatedAt.UTC()}
 	}
 
 	return out
@@ -417,7 +454,12 @@ func (h *Handler) userSignIns(ctx context.Context, in HistoryInput) (datatable.D
 		return datatable.DatatableResult[SignInRow]{}, err
 	}
 
-	return pageOf(signInRows(rows), total, max(in.Page, 1), resolvedPerPage(in.PerPage)), nil
+	who, err := h.people(ctx, signInActors(rows))
+	if err != nil {
+		return datatable.DatatableResult[SignInRow]{}, err
+	}
+
+	return pageOf(signInRows(rows, who), total, max(in.Page, 1), resolvedPerPage(in.PerPage)), nil
 }
 
 func (h *Handler) userChanges(ctx context.Context, in HistoryInput) (datatable.DatatableResult[ChangeRow], error) {
@@ -426,11 +468,21 @@ func (h *Handler) userChanges(ctx context.Context, in HistoryInput) (datatable.D
 		return datatable.DatatableResult[ChangeRow]{}, err
 	}
 
+	ids := make([]int, len(rows))
+	for i, r := range rows {
+		ids[i] = r.ActorID
+	}
+
+	who, err := h.people(ctx, ids)
+	if err != nil {
+		return datatable.DatatableResult[ChangeRow]{}, err
+	}
+
 	out := make([]ChangeRow, len(rows))
 	for i, r := range rows {
 		out[i] = ChangeRow{
 			ID: r.ID, Action: r.Action, Fields: nonNil(r.Fields), Before: nonNilMap(r.Before), After: nonNilMap(r.After),
-			ActorID: idOrNil(r.ActorID), CreatedAt: r.At.UTC(),
+			Actor: who.ref(r.ActorID), CreatedAt: r.At.UTC(),
 		}
 	}
 
@@ -462,11 +514,11 @@ func nonNilMap(m map[string]string) map[string]string {
 	return m
 }
 
-func sessionItems(sessions []account.Session, current int) SessionList {
+func sessionItems(sessions []account.Session, current int, who people) SessionList {
 	out := SessionList{Sessions: make([]SessionItem, len(sessions))}
 	for i, s := range sessions {
 		out.Sessions[i] = SessionItem{
-			ID: s.ID, Device: s.Label(), IP: s.IP, OpenedBy: idOrNil(s.ActorID), Current: s.ID == current,
+			ID: s.ID, Device: s.Label(), IP: s.IP, OpenedBy: who.ref(s.ActorID), Current: s.ID == current,
 			LastUsedAt: s.LastUsedAt.UTC(), ExpiresAt: s.ExpiresAt.UTC(), CreatedAt: s.CreatedAt.UTC(),
 		}
 	}
@@ -480,7 +532,17 @@ func (h *Handler) userSessions(ctx context.Context, in UserInput) (SessionList, 
 		return SessionList{}, err
 	}
 
-	return sessionItems(sessions, 0), nil
+	ids := make([]int, len(sessions))
+	for i, s := range sessions {
+		ids[i] = s.ActorID
+	}
+
+	who, err := h.people(ctx, ids)
+	if err != nil {
+		return SessionList{}, err
+	}
+
+	return sessionItems(sessions, 0, who), nil
 }
 
 func (h *Handler) revokeUserSession(ctx context.Context, in UserSessionInput) (route.Empty, error) {
@@ -542,11 +604,21 @@ func (h *Handler) userActivity(ctx context.Context, in ActivityInput) (datatable
 		return datatable.DatatableResult[ActivityRow]{}, err
 	}
 
+	ids := make([]int, len(rows))
+	for i, r := range rows {
+		ids[i] = r.SignedInAs
+	}
+
+	who, err := h.people(ctx, ids)
+	if err != nil {
+		return datatable.DatatableResult[ActivityRow]{}, err
+	}
+
 	out := make([]ActivityRow, len(rows))
 	for i, r := range rows {
 		out[i] = ActivityRow{
 			ID: r.ID, Area: r.Area, RecordType: r.RecordType, RecordID: r.RecordID, Action: r.Action,
-			SignedInAs: idOrNil(r.SignedInAs), CreatedAt: r.At.UTC(),
+			SignedInAs: who.ref(r.SignedInAs), CreatedAt: r.At.UTC(),
 		}
 	}
 
