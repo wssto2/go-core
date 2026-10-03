@@ -168,7 +168,7 @@ func ExampleRoutes() {
 	// POST /v1/iam/users iam.user:manage
 	// GET /v1/iam/profile
 	// PUT /v1/iam/profile
-	// 30 routes in all
+	// 31 routes in all
 }
 
 func ExampleWithConfig() {
@@ -317,4 +317,27 @@ func ExampleDefinePermissions() {
 	// Output:
 	// <nil>
 	// true true
+}
+
+func ExampleWithActivityAreas() {
+	t := &exampleT{}
+	defer t.done()
+
+	app := newApp(t)
+	identity.Install(app, identity.WithoutMail(), identity.WithActivityAreas(
+		identity.Area("crm").Types("customers", "offers").Prefix("contracts."),
+		identity.Area("vehicles").Types("vehicles"),
+	))
+	fmt.Println(app.Check())
+	// Output: <nil>
+}
+
+func ExampleArea() {
+	t := &exampleT{}
+	defer t.done()
+
+	app := newApp(t)
+	identity.Install(app, identity.WithoutMail(), identity.WithActivityAreas(identity.Area("other").Types("x")))
+	fmt.Println(strings.Contains(fmt.Sprint(app.Check()), `activity area "other" is reserved`))
+	// Output: true
 }

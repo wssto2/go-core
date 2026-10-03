@@ -231,6 +231,12 @@ func (s settings) storeOptions() []gormstore.Option {
 	return []gormstore.Option{gormstore.WithAudit(s.audit)}
 }
 
+// viewActivity is identity's permission to read what a person did (identity.ViewActivity),
+// defined here as well so that the computed administrator role, which holds every permission
+// of the catalogue this module is given, holds it. The two modules do not import each other:
+// the id is fixed.
+const viewActivity = "iam.user.activity:view"
+
 // define adds the module's permissions the catalogue lacks. Managing needs
 // viewing, so a role that grants one grants the other.
 func (s settings) define(c *authz.Catalogue) error {
@@ -243,6 +249,7 @@ func (s settings) define(c *authz.Catalogue) error {
 		{admin.DeleteRoles, []authz.DefineOption{authz.Sensitive(), authz.Requires(admin.ViewRoles)}},
 		{admin.ViewAccess, nil},
 		{admin.ManageBindings, []authz.DefineOption{authz.Sensitive(), authz.Requires(admin.ViewAccess)}},
+		{viewActivity, []authz.DefineOption{authz.System()}},
 	} {
 		if _, ok := c.Lookup(def.id); ok {
 			continue

@@ -332,7 +332,7 @@ When the session was opened by signing in as somebody (`login-as`), the payload 
 
 #### Users and profile
 
-The same `Install` serves user administration under `/v1/iam/users` and every signed-in person's own profile under `/v1/iam/profile`; both are in `identity.Routes`. Administrators need `iam.user:view` (read) and `iam.user:manage` (write), the ids `access` uses for the same two ideas (`access.Install` defines them in your catalogue; an application without access calls `identity.DefinePermissions(catalogue)`). A profile needs a signed-in person and nothing else.
+The same `Install` serves user administration under `/v1/iam/users` and every signed-in person's own profile under `/v1/iam/profile`; both are in `identity.Routes`. Administrators need `iam.user:view` (read) and `iam.user:manage` (write), the ids `access` uses for the same two ideas, and `iam.user.activity:view` (a `System` permission) for a person's activity (`access.Install` defines them in your catalogue; an application without access calls `identity.DefinePermissions(catalogue)`). A profile needs a signed-in person and nothing else.
 
 ```go
 // sender is a mail.Sender: mail.SMTP(...) in production, mail.NewSink() in a test or a first run.
@@ -348,7 +348,7 @@ _, err := users.Admin().Create(ctx, account.CreateAccount{
 })
 ```
 
-Administrators create, update, deactivate and activate people, give them a new password (which lifts their lock and ends their sessions), unlock them, read their sign-in history and the changes made to them (go-core's `audit` trail, whose table `identity.Install` registers), and list or end their sessions. `GET /v1/iam/users` answers go-core's datatable page, which the generated TypeScript types as `ListResult<UserRow>` from `@wssto2/vue-core/client`: views `active` (the default), `locked`, `inactive`, `all`; `search`, `order_col`, `order_dir`, `page`, `per_page`.
+Administrators create, update, deactivate and activate people, give them a new password (which lifts their lock and ends their sessions), unlock them, read their sign-in history and the changes made to them (go-core's `audit` trail, whose table `identity.Install` registers), and list or end their sessions. What a person *did* is `GET /v1/iam/users/:id/activity?area=&from=&to=` (the audit rows whose actor they are, newest first, each marked with who was signed in as them, with a count per area in `meta.views`): name the areas your records fall in with `identity.WithActivityAreas(identity.Area("crm").Types("customers").Prefix("contracts."))`: the keys are your i18n keys, a record type no area covers is `other`, the changes to accounts are `identity`. `GET /v1/iam/users` answers go-core's datatable page, which the generated TypeScript types as `ListResult<UserRow>` from `@wssto2/vue-core/client`: views `active` (the default), `locked`, `inactive`, `all`; `search`, `order_col`, `order_dir`, `page`, `per_page`.
 
 A person changes their name and phone, their password (the current one is asked again; five wrong ones lock for fifteen minutes; every other session ends) and their e-mail address: a six-digit code is mailed to the *new* address and the change happens when it is typed in. One account per address (`identity.email.taken`). The code, its limits (60 seconds between sends, five an hour, five attempts, fifteen minutes) and the lock are in `docs/rules/identity/` (IAM-OTP-001 to 004, IAM-REAUTH-001, IAM-PROFILE-001 to 004, IAM-USER-005 to 007).
 
@@ -367,7 +367,7 @@ handOver := identity.DeactivationHookFunc(func(ctx context.Context, a account.Ac
 
 #### Development server
 
-`go run github.com/wssto2/go-core/cmd/devserver` serves identity and access for developing a front end (the vue-core playground signs in against it): `/api/v1/auth/…` and `/api/v1/iam/…` on `127.0.0.1:8090`, an in-memory SQLite database that starts empty on every run, e-mail codes printed to the log (`mail.NewSink`), and CORS with cookies for `http://localhost:5173`. Two people are seeded:
+`go run github.com/wssto2/go-core/cmd/devserver` serves identity and access for developing a front end (the vue-core playground signs in against it): `/api/v1/auth/…` and `/api/v1/iam/…` on `127.0.0.1:8090`, an in-memory SQLite database that starts empty on every run, e-mail codes printed to the log (`mail.NewSink`), and CORS with cookies for `http://localhost:5173`. Two people are seeded, the second with two records in her activity (`crm`, one done while the administrator was signed in as her):
 
 | login | password | role |
 |-------|----------|------|

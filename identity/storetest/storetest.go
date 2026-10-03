@@ -35,6 +35,9 @@ type Stores struct {
 	Codes    account.CodeStore
 	Reauth   account.ReauthStore
 	Changes  account.ChangeLog
+	// Activity reads what people did; it must read the changes Changes records and the
+	// sessions Sessions opens (record type "account"). Left nil, its checks are skipped.
+	Activity account.ActivityLog
 }
 
 // Factory returns new empty stores for one subtest.
@@ -120,6 +123,9 @@ func Run(t *testing.T, newStores Factory) {
 		"signins/last sign-ins":          signInsLast,
 		"signins/wrong passwords since":  signInsWrongSince,
 		"changes/record and list":        changesRecordAndList,
+		"activity/page and filters":      activityPageAndFilters,
+		"activity/an ended session":      activityEndedSession,
+		"activity/counts per type":       activityByType,
 		"codes/issue and latest":         codesIssueAndLatest,
 		"codes/issue ends the live one":  codesIssueEndsLive,
 		"codes/issued since":             codesIssuedSince,
@@ -1228,4 +1234,112 @@ func accountsEmailUnique(t *testing.T, s Stores) {
 	c.noErr(err, "find")
 	c.equal("", none.Email, "no address reads empty")
 	c.noErr(s.Accounts.Update(ctx(), none.ID, account.Changes{Email: str("")}), "clearing an address")
+}
+
+func activityPageAndFilters(t *testing.T, s Stores) {
+	if s.Activity == nil {
+		t.Skip("no ActivityLog")
+	}
+
+	c := check{t}
+
+	for _, ch := range []account.Change{
+		{AccountID: 1, ActorID: 7, Action: account.ChangeCreated},
+		{AccountID: 2, ActorID: 8, Action: account.ChangeUpdated},
+		{AccountID: 3, ActorID: 7, Action: account.ChangeUpdated, Fields: []string{"name"}},
+		{AccountID: 4, ActorID: 7, Action: account.ChangePassword, Fields: []string{"password"}},
+	} {
+		c.noErr(s.Changes.Record(ctx(), ch), "record")
+	}
+
+	got, total, err := s.Activity.Activity(ctx(), account.ActivityQuery{ActorID: 7, Limit: 2})
+	c.noErr(err, "activity")
+	c.equal(3, total, "what actor 7 did, not actor 8")
+	c.equal(2, len(got), "a page")
+	c.equal(4, got[0].RecordID, "newest first")
+	c.equal("account", got[0].RecordType, "record type")
+	c.equal(account.ActivityChanged, got[0].Action, "a password change is a change")
+	c.equal(3, got[1].RecordID, "newest first")
+	c.equal(0, got[0].SignedInAs, "nobody was signed in as them")
+	c.true(!got[0].At.IsZero(), "stamped")
+
+	got, total, err = s.Activity.Activity(ctx(), account.ActivityQuery{ActorID: 7, Offset: 2, Limit: 2})
+	c.noErr(err, "activity")
+	c.equal(3, total, "the total is not the page")
+	c.equal(1, len(got), "the last page")
+	c.equal(account.ActivityCreated, got[0].Action, "created")
+
+	for name, q := range map[string]account.ActivityQuery{
+		"within the type":        {Within: account.RecordSet{Types: []string{"account"}}},
+		"within a prefix":        {Within: account.RecordSet{Prefixes: []string{"acc"}}},
+		"outside another type":   {Outside: account.RecordSet{Types: []string{"order"}}},
+		"outside another prefix": {Outside: account.RecordSet{Prefixes: []string{"ord"}}},
+	} {
+		q.ActorID, q.Limit = 7, 10
+		_, n, err := s.Activity.Activity(ctx(), q)
+		c.noErr(err, name)
+		c.equal(3, n, name)
+	}
+
+	for name, q := range map[string]account.ActivityQuery{
+		"within another type":   {Within: account.RecordSet{Types: []string{"order"}}},
+		"within another prefix": {Within: account.RecordSet{Prefixes: []string{"ord"}}},
+		"outside the type":      {Outside: account.RecordSet{Types: []string{"account"}}},
+		"outside the prefix":    {Outside: account.RecordSet{Prefixes: []string{"acc"}}},
+		"a person who did none": {ActorID: 99},
+	} {
+		if q.ActorID == 0 {
+			q.ActorID = 7
+		}
+
+		q.Limit = 10
+		_, n, err := s.Activity.Activity(ctx(), q)
+		c.noErr(err, name)
+		c.equal(0, n, name)
+	}
+}
+
+func activityEndedSession(t *testing.T, s Stores) {
+	if s.Activity == nil {
+		t.Skip("no ActivityLog")
+	}
+
+	c := check{t}
+
+	// Somebody (3) signs in as person 7 and 7's own session is a second one: only the first marks.
+	open(c, s, 7, 3, "as 7", time.Now().UTC().Add(-time.Hour).Truncate(time.Second))
+	c.noErr(s.Changes.Record(ctx(), account.Change{AccountID: 1, ActorID: 7, Action: account.ChangeUpdated}), "record")
+
+	got, _, err := s.Activity.Activity(ctx(), account.ActivityQuery{ActorID: 7, Limit: 10})
+	c.noErr(err, "activity")
+	c.equal(1, len(got), "rows")
+	c.equal(0, got[0].SignedInAs, "the session opened an hour ago was last used then: it ended")
+}
+
+func activityByType(t *testing.T, s Stores) {
+	if s.Activity == nil {
+		t.Skip("no ActivityLog")
+	}
+
+	c := check{t}
+
+	for _, ch := range []account.Change{
+		{AccountID: 1, ActorID: 7, Action: account.ChangeCreated},
+		{AccountID: 2, ActorID: 7, Action: account.ChangeUpdated},
+		{AccountID: 3, ActorID: 8, Action: account.ChangeUpdated},
+	} {
+		c.noErr(s.Changes.Record(ctx(), ch), "record")
+	}
+
+	got, err := s.Activity.ActivityByType(ctx(), account.ActivityQuery{ActorID: 7})
+	c.noErr(err, "counts")
+	c.equal(map[string]int{"account": 2}, got, "what actor 7 did, per type")
+
+	got, err = s.Activity.ActivityByType(ctx(), account.ActivityQuery{ActorID: 7, To: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)})
+	c.noErr(err, "counts")
+	c.equal(0, len(got), "nothing before the year 2000")
+
+	got, err = s.Activity.ActivityByType(ctx(), account.ActivityQuery{ActorID: 99})
+	c.noErr(err, "counts")
+	c.equal(0, len(got), "a person who did none")
 }

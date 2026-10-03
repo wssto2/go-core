@@ -1,8 +1,8 @@
-# Logic IDs: IAM-USER-005, IAM-USER-006, IAM-USER-007, IDENTITY-ADMIN-001
+# Logic IDs: IAM-USER-005, IAM-USER-006, IAM-USER-007, IDENTITY-ADMIN-001, IDENTITY-ADMIN-002
 
-Title: Administering accounts: create, update, deactivate, list, history
+Title: Administering accounts: create, update, deactivate, list, history, activity
 
-Status: Approved (IAM-USER-005 to 007 moved from arv-next, `documentation/business-rules/iam/users.md`, their generic parts; IDENTITY-ADMIN-001 is the module's)
+Status: Approved (IAM-USER-005 to 007 moved from arv-next, `documentation/business-rules/iam/users.md`, their generic parts; IDENTITY-ADMIN-001 is the module's; IDENTITY-ADMIN-002 is arv-next's "Radnje" made generic, owner decision 2026-10-03)
 Last updated: 2026-10-03
 Module: `identity` (`identity/account` `Admin`, `identity/http` routes under `/v1/iam/users`, `identity/gormstore`, go-core `audit`)
 
@@ -12,7 +12,7 @@ An administrator creates, edits, deactivates and finds people, unlocks them, rea
 changes made to them, and ends their sessions. Who may is the routes' permission (`iam.user:view` reads,
 `iam.user:manage` writes); the services trust their caller. What stays an application's: the records a person owns
 (handed over before a deactivation: `DeactivationHook`), dealers and locations, "copy access from a colleague",
-the actions a person has taken (arv-next's "Radnje").
+the names of the areas a person's activity is grouped in.
 
 ## IDENTITY-ADMIN-001 — Create, update and a new password
 
@@ -82,8 +82,55 @@ Code: `identity/account/admin.go` (`Admin.List`), `identity/gormstore/store.go` 
 3. **Only names and non-secret values are recorded**: a password change lists `password` as a changed field and no
    value; the audit package also masks keys that look secret.
 4. A person's **sign-in history** (`GET /v1/iam/users/:id/signins`, IAM-USER-003) and **sessions** (`GET
-   /v1/iam/users/:id/sessions`, `DELETE` one or all; IAM-USER-004) are read and ended by the same permissions. arv-next's
-   "Radnje" (the actions a person took across modules) is not here: it needs every module to write audit rows.
+   /v1/iam/users/:id/sessions`, `DELETE` one or all; IAM-USER-004) are read and ended by the same permissions. What
+   the person *did* (arv-next's "Radnje") is IDENTITY-ADMIN-002.
 
 Code: `identity/account/admin.go` (`Admin.Changes`, `SignIns`, `Sessions`), `identity/gormstore/changelog.go`,
 `audit/migrations`.
+
+## IDENTITY-ADMIN-002 — A person's activity
+
+arv-next's "Radnje" (IAM-USER-007 item 2 there), generic: what a person did, read from the audit trail.
+
+1. `GET /v1/iam/users/:id/activity?area=&from=&to=&page=&per_page=` lists the audit rows **whose actor is the
+   person**, newest first (then by id), as go-core's datatable page (`ListResult<ActivityRow>`; `per_page` at most
+   100, default 20). A row says what (`record_type`, the audit trail's name for it, and `record_id`), what was
+   done (`action`), in which `area`, and when (`created_at`, UTC). Nothing of a row's stored states is returned,
+   so no secret can leak through it.
+2. **The permission is `iam.user.activity:view`**, defined `System` (as in arv-next: only the people running the
+   system hold it; the computed administrator role does). It is not part of `iam.user:view`.
+   `identity.DefinePermissions` and `access.Install` define it in the catalogue when it lacks it; an application
+   with its own catalogue defines it itself, since start-up checks every route's permission.
+3. **`action` is one of `created`, `changed`, `deleted`**: the audit trail's verbs differ by writer (`create`,
+   `created`, `delete`, `password`, `deactivated`), and `create`/`created` are `created`, `delete`/`deleted`
+   `deleted`, everything else `changed`.
+4. **Areas are the application's.** `identity.WithActivityAreas(identity.Area("crm").Types("customers").Prefix("contracts."))`
+   maps record types, exactly or by prefix, to an area key; go-core ships none of an application's own. The keys are
+   i18n keys of the application (lower case words, digits, `_`, `.`, at most 32, unique). The first area covering a
+   type is its area (a filter by area shows exactly the rows that carry it); a type no area covers is in
+   **`other`** (the key is reserved); the changes to accounts (`account`) are in **`identity`** unless the
+   application names an area `identity` itself. A declaration that breaks these stops start-up and names the fix.
+5. **Filters.** `area` is an area key, `other` or `identity`, empty for every one; an unknown key is
+   `422 identity.activity.area_unknown` (`fields.area`). `from` and `to` are days, `YYYY-MM-DD`, **inclusive and
+   UTC**; a day that is not one, or a range that ends before it starts, is `422 identity.activity.range_invalid`.
+6. **Somebody signed in as the person (`signed_in_as`).** When the row was made while another person was signed in
+   as them (IAM-USER-008: a session opened by `login-as`), `signed_in_as` is that person's id, else `null`: the row
+   may be theirs, not the person's. It is derived, with no column of its own: a session opened by signing in as
+   somebody is named `login-as:<actor>|<device>` in `tokens`, and it covers the time **from its opening to its last use
+   (plus the minute a use is recorded at most once in)**, or to its expiry if that is sooner; where windows overlap
+   the session opened last decides. A session ends on record only by being last used, so what the person did in a
+   session of their own while one opened as them was still in use is marked too: the mark says "somebody was signed
+   in as them", not "it was them".
+7. **Counts per area** (ARV's tabs): the page's `meta.views` is `[{key, count}]`: `all` first, then each area the
+   application named in order, `identity` (unless named) and `other`, counting the person's entries **within the
+   same days** and **whatever `area` is shown**, so the tabs keep their numbers. They come from one `GROUP BY` of the
+   record type over the actor and time index, folded into areas in the application's order. The datatable's `meta` is
+   untyped, so the shape is documented here and the TypeScript only declares `AreaCount` for the client to read it
+   with; `all` and `other` are reserved keys.
+8. **For arv-next's adoption:** the days are UTC (arv-next's Radnje read them in the server's local time), and
+   `authz.binding` / `authz.role` rows are in `other` unless the application maps them to an area.
+9. Not every module writes audit rows yet; what writes none is not in anybody's activity.
+
+Code: `identity/account/activity.go` (`Admin.Activity`, `ActivityAreas`), `identity/gormstore/activity.go`
+(`ActivityLog`, served by the index `idx_audit_logs_actor_created`), `identity/http/users.go` (`UserActivity`),
+`identity/identity.go` (`WithActivityAreas`).

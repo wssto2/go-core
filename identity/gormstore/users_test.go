@@ -55,7 +55,7 @@ func services(t *testing.T, db *gorm.DB, failing bool, hooks ...account.Deactiva
 	require.NoError(t, err)
 
 	admin, err := account.NewAdmin(account.AdminDeps{
-		Users: svc.Users, Search: stores.Accounts, History: stores.SignIns, Changes: changes, Transact: tx, Hooks: hooks,
+		Users: svc.Users, Search: stores.Accounts, History: stores.SignIns, Changes: changes, Activity: gormstore.NewActivityLog(db), Transact: tx, Hooks: hooks,
 	})
 	require.NoError(t, err)
 

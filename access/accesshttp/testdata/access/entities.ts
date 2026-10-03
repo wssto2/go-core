@@ -112,6 +112,7 @@ export type ScopeOption = {
 };
 
 export type ScopeOptions = {
+  root_level: string;
   root: boolean;
   places: ScopeOption[];
 };

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -115,4 +116,44 @@ func TestItRefusesWhatIsNotDevelopment(t *testing.T) {
 	require.ErrorContains(t, refuse(options{addr: "8090"}, none), "host:port")
 
 	require.NoError(t, refuse(options{addr: ":8090", allowRemote: true}, env))
+}
+
+func TestTheUsersSeededActivityIsReadByTheAdministrator(t *testing.T) {
+	srv := serve(t)
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+
+	client := &http.Client{Jar: jar}
+
+	resp, err := client.Post(srv.URL+"/api/v1/auth/login", "application/json", //nolint:noctx // a test of a local server
+		strings.NewReader(`{"login":"admin","password":"admin-password"}`))
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+
+	resp, err = client.Get(srv.URL + "/api/v1/iam/users/2/activity") //nolint:noctx // a test of a local server
+	require.NoError(t, err)
+
+	raw, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(raw))
+
+	var envelope struct {
+		Data struct {
+			Rows []struct {
+				Area       string `json:"area"`
+				Action     string `json:"action"`
+				SignedInAs *int   `json:"signed_in_as"`
+			} `json:"data"`
+		} `json:"data"`
+	}
+
+	require.NoError(t, json.Unmarshal(raw, &envelope), string(raw))
+	page := envelope.Data.Rows
+	require.Len(t, page, 2)
+	assert.Equal(t, "crm", page[0].Area)
+	assert.Equal(t, "changed", page[0].Action)
+	require.NotNil(t, page[0].SignedInAs, "the later one was done as the administrator")
+	assert.Equal(t, 1, *page[0].SignedInAs)
+	assert.Nil(t, page[1].SignedInAs)
 }

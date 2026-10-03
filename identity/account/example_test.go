@@ -474,3 +474,106 @@ func ExampleNewProfile() {
 	fmt.Println(err)
 	// Output: identity: ProfileDeps.Users is missing: pass the Users service account.New built
 }
+
+func ExampleActivityActionOf() {
+	for _, audit := range []string{"create", "updated", "password", "delete"} {
+		fmt.Println(audit, "->", account.ActivityActionOf(audit))
+	}
+	// Output:
+	// create -> created
+	// updated -> changed
+	// password -> changed
+	// delete -> deleted
+}
+
+func ExampleRecordSet_Has() {
+	contracts := account.RecordSet{Types: []string{"offers"}, Prefixes: []string{"contracts."}}
+
+	fmt.Println(contracts.Has("offers"), contracts.Has("contracts.line"), contracts.Has("customers"))
+	// Output: true true false
+}
+
+func ExampleAdmin_Activity() {
+	k := kit()
+	ctx := context.Background()
+
+	_, _ = k.Admin.Create(ctx, account.CreateAccount{Login: "dora", Name: "Dora", Email: "dora@example.com", Locale: "en", Password: "a long password", ActorID: 1})
+
+	rows, total, _ := k.Admin.Activity(ctx, 1, account.ActivityFilter{Area: account.IdentityArea}, account.Paging{})
+	for _, r := range rows {
+		fmt.Println(r.Area, r.RecordType, r.Action, r.SignedInAs)
+	}
+
+	fmt.Println(total)
+	// Output:
+	// identity account created 0
+	// 1
+}
+
+func ExampleActivityAreas_AreaOf() {
+	areas, _ := account.NewActivityAreas(
+		account.Area("crm").Types("customers", "offers").Prefix("contracts."),
+		account.Area("vehicles").Types("vehicles"),
+	)
+
+	fmt.Println(areas.AreaOf("contracts.line"), areas.AreaOf("vehicles"), areas.AreaOf("account"), areas.AreaOf("settings"))
+	// Output: crm vehicles identity other
+}
+
+func ExampleNewActivityAreas() {
+	_, err := account.NewActivityAreas(account.Area("crm"))
+	fmt.Println(err)
+	// Output: identity: activity area "crm" covers no record type: give it .Types(...) or .Prefix(...), none of them empty
+}
+
+func ExampleActivityAreas_Keys() {
+	areas, _ := account.NewActivityAreas(account.Area("crm").Types("customers"))
+
+	fmt.Println(areas.Keys())
+	// Output: [crm identity other]
+}
+
+func ExampleArea() {
+	fmt.Println(account.Area("crm").Key())
+	// Output: crm
+}
+
+func ExampleActivityArea_Types() {
+	area := account.Area("crm").Types("customers", "offers")
+
+	fmt.Println(area.Key())
+	// Output: crm
+}
+
+func ExampleActivityArea_Prefix() {
+	areas, _ := account.NewActivityAreas(account.Area("crm").Prefix("contracts."))
+
+	fmt.Println(areas.AreaOf("contracts.line"), areas.AreaOf("contract"))
+	// Output: crm other
+}
+
+func ExampleActivityArea_Key() {
+	fmt.Println(account.Area("vehicles").Key())
+	// Output: vehicles
+}
+
+func ExampleRecordSet_Empty() {
+	fmt.Println(account.RecordSet{}.Empty(), account.RecordSet{Prefixes: []string{"a."}}.Empty())
+	// Output: true false
+}
+
+func ExampleAdmin_ActivityCounts() {
+	k := kit()
+	ctx := context.Background()
+
+	_, _ = k.Admin.Create(ctx, account.CreateAccount{Login: "dora", Name: "Dora", Email: "dora@example.com", Locale: "en", Password: "a long password", ActorID: 1})
+
+	counts, _ := k.Admin.ActivityCounts(ctx, 1, account.ActivityFilter{})
+	for _, c := range counts {
+		fmt.Println(c.Area, c.Count)
+	}
+	// Output:
+	// all 1
+	// identity 1
+	// other 0
+}

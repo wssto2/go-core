@@ -39,10 +39,10 @@ var (
 	// no route names it (the payload's user is whatever the application projects).
 	Routes = route.Group("identity", Login, Refresh, Logout, Me, ChangeLocale, LoginAs, ReturnToOwn,
 		ListUsers, ShowUser, CreateUser, UpdateUser, SetUserPassword, DeactivateUser, ActivateUser, UnlockUser,
-		UserSignIns, UserChanges, UserSessions, RevokeUserSession, RevokeUserSessions,
+		UserSignIns, UserChanges, UserActivity, UserSessions, RevokeUserSession, RevokeUserSessions,
 		ShowProfile, UpdateProfile, ChangeOwnPassword, RequestEmailChange, ResendEmailCode, ConfirmEmailChange,
 		CancelEmailChange, OwnSignIns, OwnSessions, RevokeOwnSession,
-	).Types(User{}, Statuses, SignInEvents, ChangeActions)
+	).Types(User{}, AreaCount{}, Statuses, SignInEvents, ChangeActions, ActivityActions)
 )
 
 // Status is where an account stands: usable, locked after wrong passwords, or deactivated.
@@ -58,9 +58,10 @@ const (
 // The fixed sets of values the responses carry, listed in the contract so the
 // generated TypeScript has them as unions.
 var (
-	Statuses      = route.Enum(StatusActive, StatusLocked, StatusInactive)
-	SignInEvents  = route.Enum(account.SignedIn, account.WrongPassword, account.LockedOut, account.RefusedInactive, account.SignedInAs, account.Unlocked, account.SignedOutEverywhere, account.SessionRevoked)
-	ChangeActions = route.Enum(account.ChangeCreated, account.ChangeUpdated, account.ChangeDeactivated, account.ChangeActivated, account.ChangePassword, account.ChangeEmail, account.ChangeProfile)
+	Statuses        = route.Enum(StatusActive, StatusLocked, StatusInactive)
+	SignInEvents    = route.Enum(account.SignedIn, account.WrongPassword, account.LockedOut, account.RefusedInactive, account.SignedInAs, account.Unlocked, account.SignedOutEverywhere, account.SessionRevoked)
+	ActivityActions = route.Enum(account.ActivityCreated, account.ActivityChanged, account.ActivityDeleted)
+	ChangeActions   = route.Enum(account.ChangeCreated, account.ChangeUpdated, account.ChangeDeactivated, account.ChangeActivated, account.ChangePassword, account.ChangeEmail, account.ChangeProfile)
 )
 
 // LoginInput is a sign-in attempt.

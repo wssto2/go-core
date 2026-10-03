@@ -29,6 +29,10 @@ const (
 	// ReasonListViewInvalid and ReasonListOrderInvalid refuse a list's view or sort column that does not exist.
 	ReasonListViewInvalid  apperr.Reason = "identity.list.view_invalid"
 	ReasonListOrderInvalid apperr.Reason = "identity.list.order_invalid"
+	// ReasonActivityAreaUnknown refuses an area the application did not name; ReasonActivityRangeInvalid
+	// a range that ends before it starts or a date that is not YYYY-MM-DD.
+	ReasonActivityAreaUnknown  apperr.Reason = "identity.activity.area_unknown"
+	ReasonActivityRangeInvalid apperr.Reason = "identity.activity.range_invalid"
 )
 
 // invalid is a refused field: a validation error with the reason, naming the field.

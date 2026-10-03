@@ -172,3 +172,16 @@ type exampleT struct{ testing.TB }
 func (exampleT) Helper()                      {}
 func (exampleT) Context() context.Context     { return context.Background() }
 func (exampleT) Fatalf(f string, args ...any) { log.Fatalf(f, args...) }
+
+// A person's activity is behind its own System permission, not the users' view.
+func ExampleUserActivity() {
+	spec := identityhttp.UserActivity.Spec()
+	fmt.Println(spec.Method, spec.Path, spec.Permission)
+	// Output: GET /v1/iam/users/:id/activity iam.user.activity:view
+}
+
+// What a person did to a record is one of three, whatever verbs the audit trail uses.
+func ExampleActivityActions() {
+	fmt.Println(identityhttp.ActivityActions.Values())
+	// Output: [created changed deleted]
+}

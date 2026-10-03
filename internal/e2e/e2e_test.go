@@ -18,6 +18,7 @@ import (
 	"github.com/wssto2/go-core/access"
 	"github.com/wssto2/go-core/access/accesshttp"
 	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/audit"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
@@ -283,5 +284,127 @@ func TestIdentityAndAccessWorkTogether(t *testing.T) {
 		status, _ = (&browser{t: t, handler: handler, cookies: map[string]*nethttp.Cookie{}}).do(nethttp.MethodPost, "/api/v1/auth/login",
 			map[string]string{"login": "dora", "password": "a long password"})
 		assert.Equal(t, nethttp.StatusBadRequest, status, "and she cannot sign in again")
+	})
+}
+
+// A person's activity, as an administrator reads it: what they did, by the areas the
+// application named, and what was done while somebody else was signed in as them. On SQLite,
+// MySQL and MariaDB.
+func TestAPersonsActivity(t *testing.T) {
+	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+		reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
+		reg.AddConnection("local", db)
+
+		opts := []gocore.Option{gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithPrefix("/api")}
+		if db.Name() == "sqlite" {
+			opts = append(opts, gocore.WithAutoMigrate(t.Context()))
+		}
+
+		app := gocore.New(bootstrap.DefaultConfig(), opts...)
+
+		permissions := authz.NewCatalogue()
+		permissions.MustDefine("iam.user:impersonate", authz.Sensitive())
+
+		users := identity.Install(app, identity.WithoutMail(),
+			identity.AllowImpersonation("iam.user:impersonate"),
+			identity.WithActivityAreas(identity.Area("people").Types("account"), identity.Area("crm").Types("customers").Prefix("contracts.")),
+		)
+		acc := access.Install(app, permissions, users, access.WithRoles(authz.ComputedRole("webmaster", "Webmaster", authz.All())))
+
+		if db.Name() != "sqlite" {
+			require.NoError(t, app.Migrate(t.Context()))
+		}
+
+		for id, login := range []string{1: "admin", 2: "boris", 3: "ines"} {
+			if login == "" {
+				continue
+			}
+
+			_, err := gormstore.New(db).Accounts.Create(t.Context(), identitytest.Account(id, login, "secret"))
+			require.NoError(t, err)
+
+			if login != "ines" { // ines is a plain person
+				require.NoError(t, acc.Seed(t.Context(), authz.Subject{Kind: authz.KindUser, ID: id}, "webmaster"))
+			}
+		}
+
+		handler, err := app.Handler()
+		require.NoError(t, err)
+
+		admin := &browser{t: t, handler: handler, cookies: map[string]*nethttp.Cookie{}}
+		admin.signIn("admin", "secret")
+
+		// The admin's own work: a person made, and a record of the application's, written to the audit trail.
+		newUser := identityhttp.CreateUserInput{Login: "dora", Name: "Dora", Email: "dora@example.test", Locale: "en", Password: "a long password"}
+
+		status, data := admin.do(nethttp.MethodPost, "/api/v1/iam/users", newUser)
+		require.Equal(t, nethttp.StatusOK, status, string(data))
+
+		trail := audit.NewRepository(database.NewTransactor(db))
+		require.NoError(t, trail.Write(t.Context(), audit.NewEntry("contracts.line", 5, 1, "update")))
+		require.NoError(t, trail.Write(t.Context(), audit.NewEntry("settings", 9, 1, "delete")))
+
+		rows := func(b *browser, path string) []map[string]any {
+			t.Helper()
+
+			status, data := b.do(nethttp.MethodGet, path, nil)
+			require.Equal(t, nethttp.StatusOK, status, string(data))
+
+			var page struct {
+				Data []map[string]any `json:"data"`
+			}
+
+			require.NoError(t, json.Unmarshal(data, &page))
+
+			return page.Data
+		}
+
+		all := rows(admin, "/api/v1/iam/users/1/activity")
+		require.Len(t, all, 3, "newest first")
+		assert.Equal(t, []any{"other", "crm", "people"}, []any{all[0]["area"], all[1]["area"], all[2]["area"]})
+		assert.Equal(t, "deleted", all[0]["action"])
+		assert.Equal(t, "contracts.line", all[1]["record_type"])
+		assert.Equal(t, "created", all[2]["action"])
+
+		_, data = admin.do(nethttp.MethodGet, "/api/v1/iam/users/1/activity?area=crm", nil)
+		assert.Contains(t, string(data), `"views":[{"key":"all","count":3},{"key":"people","count":1},{"key":"crm","count":1},{"key":"identity","count":0},{"key":"other","count":1}]`,
+			"the counts of every area, whichever is shown")
+
+		assert.Len(t, rows(admin, "/api/v1/iam/users/1/activity?area=crm"), 1)
+		assert.Len(t, rows(admin, "/api/v1/iam/users/1/activity?area=other"), 1)
+		assert.Len(t, rows(admin, "/api/v1/iam/users/1/activity?from=2000-01-01&to=2000-01-02"), 0)
+
+		// The person who has done nothing has nothing; an area the application did not name is refused.
+		assert.Empty(t, rows(admin, "/api/v1/iam/users/2/activity"))
+
+		status, _ = admin.do(nethttp.MethodGet, "/api/v1/iam/users/1/activity?area=vehicles", nil)
+		assert.Equal(t, nethttp.StatusUnprocessableEntity, status)
+
+		// Somebody signed in as boris: what is done then is marked with who.
+		status, data = admin.do(nethttp.MethodPost, "/api/v1/auth/login-as", map[string]int{"user_id": 2})
+		require.Equal(t, nethttp.StatusOK, status, string(data))
+
+		status, data = admin.do(nethttp.MethodPost, "/api/v1/iam/users", identityhttp.CreateUserInput{
+			Login: "eva", Name: "Eva", Email: "eva@example.test", Locale: "en", Password: "a long password",
+		})
+		require.Equal(t, nethttp.StatusOK, status, string(data))
+
+		status, data = admin.do(nethttp.MethodPost, "/api/v1/auth/login-as/return", nil)
+		require.Equal(t, nethttp.StatusOK, status, string(data))
+
+		boris := rows(admin, "/api/v1/iam/users/2/activity")
+		require.Len(t, boris, 1)
+		assert.EqualValues(t, 1, boris[0]["signed_in_as"], "the administrator was signed in as boris")
+
+		for _, row := range rows(admin, "/api/v1/iam/users/1/activity") {
+			assert.Nil(t, row["signed_in_as"], "the administrator's own work is not marked")
+		}
+
+		// Reading it is for who holds the System permission: a webmaster does, a plain person does not.
+		plain := &browser{t: t, handler: handler, cookies: map[string]*nethttp.Cookie{}}
+		plain.signIn("ines", "secret")
+
+		status, _ = plain.do(nethttp.MethodGet, "/api/v1/iam/users/1/activity", nil)
+		assert.Equal(t, nethttp.StatusForbidden, status)
 	})
 }

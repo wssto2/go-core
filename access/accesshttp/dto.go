@@ -166,8 +166,9 @@ type ScopeOption struct {
 // ScopeOptions is GET /iam/users/:id/scopes: whether roles may be given at the
 // root, and at which places below it, parents first.
 type ScopeOptions struct {
-	Root   bool          `json:"root"`
-	Places []ScopeOption `json:"places"`
+	RootLevel string        `json:"root_level"`
+	Root      bool          `json:"root"`
+	Places    []ScopeOption `json:"places"`
 }
 
 func scopeOf(p admin.Place) Scope {
@@ -295,7 +296,7 @@ func comparisonOf(c admin.Comparison) RoleComparison {
 }
 
 func scopesOf(o admin.ScopeOptions) ScopeOptions {
-	out := ScopeOptions{Root: o.Root, Places: make([]ScopeOption, len(o.Places))}
+	out := ScopeOptions{RootLevel: o.RootLevel, Root: o.Root, Places: make([]ScopeOption, len(o.Places))}
 	for i, p := range o.Places {
 		out.Places[i] = ScopeOption{
 			Level: p.Scope.Level, ID: p.Scope.ID, Name: p.Name,

@@ -11,7 +11,7 @@ import (
 )
 
 // entityType is how an account's rows are named in go-core's audit trail.
-const entityType = "account"
+const entityType = account.AccountRecord
 
 // ChangeLog implements account.ChangeLog over go-core's audit trail: a change
 // is a row of audit_logs (entity "account"), written in the transaction the

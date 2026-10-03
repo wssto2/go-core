@@ -27,7 +27,7 @@ func (f DeactivationHookFunc) Deactivating(ctx context.Context, a Account, actor
 	return f(ctx, a, actorID)
 }
 
-// AdminDeps are what Admin is built on. Users, Search, History, Changes and
+// AdminDeps are what Admin is built on. Users, Search, History, Changes, Activity and
 // Transact are required; Policy defaults to Passwords{}. Users carries the
 // accounts, the hasher, the clock and the Notices.
 type AdminDeps struct {
@@ -35,6 +35,9 @@ type AdminDeps struct {
 	Search   Searcher
 	History  SignInHistory
 	Changes  ChangeLog
+	Activity ActivityLog
+	// Areas name the kinds of record in a person's activity; the zero value has only IdentityArea.
+	Areas    ActivityAreas
 	Transact Transactor
 	Policy   PasswordPolicy
 	// Hooks are asked, in order, before an account is deactivated.
@@ -60,6 +63,8 @@ func NewAdmin(d AdminDeps) (*Admin, error) {
 		return nil, errors.New("identity: AdminDeps.History is missing: pass a SignInHistory, for example gormstore.New(db).SignIns")
 	case d.Changes == nil:
 		return nil, errors.New("identity: AdminDeps.Changes is missing: pass a ChangeLog, for example gormstore.NewChangeLog(db)")
+	case d.Activity == nil:
+		return nil, errors.New("identity: AdminDeps.Activity is missing: pass an ActivityLog, for example gormstore.NewActivityLog(db)")
 	case d.Transact == nil:
 		return nil, errors.New("identity: AdminDeps.Transact is missing: pass a Transactor, for example database.NewTransactor(db)")
 	}

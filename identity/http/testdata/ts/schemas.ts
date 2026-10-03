@@ -1,5 +1,16 @@
 import { z } from 'zod';
 
+export const ActivityInputSchema = z.object({
+  id: z.number().int(),
+  area: z.string().max(32).optional(),
+  from: z.string().max(10).optional(),
+  to: z.string().max(10).optional(),
+  page: z.number().int().optional(),
+  per_page: z.number().int().optional(),
+});
+
+export type ActivityInput = z.infer<typeof ActivityInputSchema>;
+
 export const ChangeLocaleInputSchema = z.object({
   locale: z.string().min(1).max(16),
 });

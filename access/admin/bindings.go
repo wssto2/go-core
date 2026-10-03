@@ -272,7 +272,7 @@ func (b *Bindings) Scopes(ctx context.Context, subject authz.Subject) (ScopeOpti
 	h := b.cfg.Engine.Hierarchy()
 	clauses := eff.Clauses(ManageBindings)
 
-	out := ScopeOptions{Places: []ScopeOption{}}
+	out := ScopeOptions{RootLevel: h.RootLevel(), Places: []ScopeOption{}}
 
 	for _, c := range clauses {
 		out.Root = out.Root || h.IsRoot(c.Scope)
