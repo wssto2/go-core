@@ -110,3 +110,29 @@ func TestRunHandlesPublishedEventsAndStopsTheWorkers(t *testing.T) {
 		t.Fatal("Run did not stop the consumer workers")
 	}
 }
+
+// Events adds the housekeeper of the queue's tables once, with or without consumers; an application that
+// never calls it has no queue and no housekeeper.
+func TestEventsAddsTheHousekeeper(t *testing.T) {
+	app := testApp(t, "local")
+	if got := len(app.eventWorkers()); got != 0 {
+		t.Fatalf("%d event workers before Events", got)
+	}
+
+	app.Events()
+
+	names := []string{}
+	for _, w := range app.eventWorkers() {
+		names = append(names, w.Name())
+	}
+
+	if len(names) != 1 || names[0] != "event.housekeeping" {
+		t.Fatalf("workers after Events with no consumers: %v", names)
+	}
+
+	app.Events(assigned.To("notices", ok))
+
+	if got := len(app.eventWorkers()); got != 2 {
+		t.Fatalf("want the consumer's worker and the housekeeper, got %d", got)
+	}
+}

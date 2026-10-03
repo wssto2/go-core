@@ -126,3 +126,17 @@ func ExampleBackoff() {
 	fmt.Println(consumer.Name())
 	// Output: notifications.assignee
 }
+
+// The housekeeper deletes events every consumer finished more than Retention (30 days) ago, with their
+// attempts, and keeps dead letters. gocore's App.Events runs one; Sweep is what it does each hour.
+func ExampleHousekeeper_Sweep() {
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	_ = event.Migrate(db)
+
+	old := time.Now().Add(-event.Retention - time.Hour)
+	_ = db.Create(&event.OutboxEvent{EventType: "tickets.assigned", Envelope: []byte(`{}`), CreatedAt: old, ProcessedAt: &old}).Error
+
+	n, err := event.NewHousekeeper(db, nil, nil).Sweep(context.Background())
+	fmt.Println(n, err)
+	// Output: 1 <nil>
+}

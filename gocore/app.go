@@ -74,6 +74,8 @@ type App struct {
 	catalogues []*authz.Catalogue
 	modules    []bootstrap.Module
 	consumers  []event.Consumer
+	// eventsUsed is set once a feature called Events, with or without consumers.
+	eventsUsed bool
 	migrations []migrationSource
 	// autoMigrate, when set, applies migrations as they are collected.
 	autoMigrate context.Context //nolint:containedctx // test option: the context of the test

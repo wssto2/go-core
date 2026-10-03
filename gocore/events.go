@@ -13,7 +13,8 @@ import (
 // on the primary connection. Run starts one worker per consumer, each claiming
 // the events of its name, retrying a failing one with a backoff and setting it
 // aside as a dead letter after its attempts; shutdown stops them with the other
-// background work.
+// background work. A housekeeper runs beside them and deletes the events every
+// consumer finished more than 30 days ago, dead letters excepted.
 //
 //	app.Events(Assigned.To("notifications.assignee", notices.Assigned))
 //
@@ -29,6 +30,7 @@ func (a *App) Events(consumers ...event.Consumer) {
 
 	a.Schema(Schema{Files: migrations.Files, Models: event.Migrate})
 
+	a.eventsUsed = true
 	a.consumers = append(a.consumers, consumers...)
 }
 
@@ -41,14 +43,21 @@ func (a *App) queue() *event.Queue {
 	return event.NewQueue(a.Database(), a.clock, a.log, a.consumers...)
 }
 
-// eventWorkers are the background workers of the collected consumers.
+// eventWorkers are the background workers of the collected consumers, and the
+// housekeeper that deletes events processed more than event.Retention ago (30
+// days; dead letters are kept) once any feature uses the queue.
 func (a *App) eventWorkers() []worker.Worker {
-	q := a.queue()
-	if q == nil {
-		return nil
+	var out []worker.Worker
+
+	if q := a.queue(); q != nil {
+		out = q.Workers()
 	}
 
-	return q.Workers()
+	if a.eventsUsed {
+		out = append(out, event.NewHousekeeper(a.Database(), a.clock, a.log))
+	}
+
+	return out
 }
 
 // DrainEvents hands every due event to its consumers now and returns what their
