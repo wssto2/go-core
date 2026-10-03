@@ -4,41 +4,36 @@ import (
 	"os"
 	"testing"
 
-	"gorm.io/driver/mysql"
+	"github.com/wssto2/go-core/database/dbtest"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
-// MariaDBEnv names the environment variable holding a DSN for a real MariaDB
-// (10.3 is what the production targets run), for the integration tests that
-// check SQL a SQLite run cannot: for example
+// MariaDBEnv names the variable holding a DSN for a real MariaDB (10.3 is what
+// the production targets run), for the integration tests that check SQL a
+// SQLite run cannot: for example
 //
-//	AUTHZ_MARIADB_DSN='root:authzpw@tcp(127.0.0.1:33063)/authz?parseTime=true&charset=utf8mb4&loc=UTC'
+//	AUTHZ_MARIADB_DSN='root:authzpw@tcp(127.0.0.1:33063)/'
+//
+// It still works; dbtest.MariaDB.Env (GOCORE_MARIADB_DSN) is the name every
+// go-core test uses now and is read when this one is unset.
 const MariaDBEnv = "AUTHZ_MARIADB_DSN"
 
-// MariaDB opens the database named by MariaDBEnv. It reports false when the
-// variable is unset, so the caller can skip; a set but unusable DSN fails the
-// test. The connection is closed when the test ends.
-//
-// The caller owns the schema: drop and create the tables it needs, because tests
-// share the one database and run one after another.
+// MariaDB opens an empty throw-away schema on the server named by MariaDBEnv
+// (or GOCORE_MARIADB_DSN), see dbtest.Scratch. It reports false when neither
+// variable is set, so the caller can skip; a set but unusable DSN fails the
+// test. The schema is dropped when the test ends, so tests may create and drop
+// whatever tables they need.
 func MariaDB(tb testing.TB) (*gorm.DB, bool) {
 	tb.Helper()
+
 	dsn := os.Getenv(MariaDBEnv)
+	if dsn == "" {
+		dsn = os.Getenv(dbtest.MariaDB.Env)
+	}
+
 	if dsn == "" {
 		return nil, false
 	}
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
-	if err != nil {
-		tb.Fatalf("authztest: open %s: %v", MariaDBEnv, err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		tb.Fatalf("authztest: %v", err)
-	}
-	tb.Cleanup(func() { _ = sqlDB.Close() })
-	if err := sqlDB.Ping(); err != nil {
-		tb.Fatalf("authztest: ping %s: %v", MariaDBEnv, err)
-	}
-	return db, true
+
+	return dbtest.Scratch(tb, dsn), true
 }

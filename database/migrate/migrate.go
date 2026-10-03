@@ -1,11 +1,18 @@
 // Package migrate runs SQL migrations for every connection of a database.Registry.
 //
-// Migrations live in one directory per connection name, each file a goose SQL
-// migration (https://github.com/pressly/goose) named <version>_<name>.sql:
+// An application keeps its migrations in one directory per connection name,
+// each file a goose SQL migration (https://github.com/pressly/goose) named
+// <version>_<name>.sql:
 //
 //	migrations/
 //	  local/20260930121914_user_signins.sql
 //	  shared/20261002080000_configurator_index.sql
+//
+// A module ships one flat directory of such files (an embed.FS) for the
+// connection it lives on, and hands it over with Add. All sources of a
+// connection run as one set, in version order; two files with the same version
+// stop the run and are both named. A module's files use its release date as the
+// version (20261015000000_authz_roles.sql) and never change once released.
 //
 // Each database records what ran on it in its own goose_db_version table, so a
 // market's databases each know their own state. Migrations may run out of order:
@@ -14,6 +21,7 @@
 // MarkApplied and lacks an old migration.
 //
 //	m := migrate.New(registry, migrationsFS, logger)
+//	m.Add("", authzmigrations.Files) // a module's files, on the primary connection
 //	err := m.Up(ctx)
 package migrate
 
@@ -25,6 +33,8 @@ import (
 	"io/fs"
 	"log/slog"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -36,11 +46,19 @@ import (
 	"gorm.io/gorm"
 )
 
-// Migrator runs the migrations of fsys against the registry's connections.
+// Migrator runs the migrations of its sources against the registry's connections.
 type Migrator struct {
-	reg  *coredb.Registry
+	reg     *coredb.Registry
+	sources []source
+	log     *slog.Logger
+}
+
+// source is the migration files of one place: a directory per connection
+// (conn is empty and flat false) or one flat directory for one connection.
+type source struct {
+	conn string // "" is the primary connection when flat
 	fsys fs.FS
-	log  *slog.Logger
+	flat bool
 }
 
 // Status is one migration on one connection.
@@ -53,9 +71,49 @@ type Status struct {
 }
 
 // New returns a Migrator. fsys holds one directory per connection name, e.g. an
-// embed.FS narrowed with fs.Sub to its "migrations" directory.
+// embed.FS narrowed with fs.Sub to its "migrations" directory. It may be nil
+// when every source is added with Add.
 func New(reg *coredb.Registry, fsys fs.FS, log *slog.Logger) *Migrator {
-	return &Migrator{reg: reg, fsys: fsys, log: log}
+	m := &Migrator{reg: reg, log: log}
+	if fsys != nil {
+		m.AddDirs(fsys)
+	}
+
+	return m
+}
+
+// Add adds a flat directory of migration files for one connection, as a
+// module ships them (an embed.FS of *.sql at its root). An empty conn is the
+// registry's primary connection. It returns m so calls chain.
+func (m *Migrator) Add(conn string, files fs.FS) *Migrator {
+	m.sources = append(m.sources, source{conn: conn, fsys: files, flat: true})
+	return m
+}
+
+// AddDirs adds more migrations in the layout New takes: one directory per
+// connection name. It returns m so calls chain.
+func (m *Migrator) AddDirs(fsys fs.FS) *Migrator {
+	m.sources = append(m.sources, source{fsys: fsys})
+	return m
+}
+
+// Pending lists the migrations no database has applied yet, oldest first
+// within each connection. An empty result means every database is up to date.
+func (m *Migrator) Pending(ctx context.Context) ([]Status, error) {
+	all, err := m.Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var pending []Status
+
+	for _, s := range all {
+		if !s.Applied {
+			pending = append(pending, s)
+		}
+	}
+
+	return pending, nil
 }
 
 // Up applies every pending migration, connection by connection. It stops at the
@@ -195,10 +253,53 @@ func (m *Migrator) each(ctx context.Context, fn func(conn string, p *goose.Provi
 	return nil
 }
 
-// connections are fsys's top-level directories. Each must be a registered
-// connection: a directory without one is a typo, not a database to skip.
+// connections are the connections that have migrations: the top-level
+// directories of the per-connection sources and the connections modules named.
+// Each must be registered: a name without a connection is a typo, not a
+// database to skip.
 func (m *Migrator) connections() ([]string, error) {
-	entries, err := fs.ReadDir(m.fsys, ".")
+	seen := map[string]bool{}
+
+	for _, src := range m.sources {
+		names, err := src.connections(m.reg)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, n := range names {
+			seen[n] = true
+		}
+	}
+
+	conns := make([]string, 0, len(seen))
+	for n := range seen {
+		conns = append(conns, n)
+	}
+
+	sort.Strings(conns)
+
+	return conns, nil
+}
+
+func (s source) connections(reg *coredb.Registry) ([]string, error) {
+	if s.flat {
+		conn := s.conn
+		if conn == "" {
+			conn = reg.PrimaryName()
+		}
+
+		if conn == "" {
+			return nil, errors.New("migrations: a module added migrations for the primary connection but no connection is registered")
+		}
+
+		if !reg.Has(conn) {
+			return nil, fmt.Errorf("migrations for connection %q: no database connection with that name", conn)
+		}
+
+		return []string{conn}, nil
+	}
+
+	entries, err := fs.ReadDir(s.fsys, ".")
 	if err != nil {
 		return nil, fmt.Errorf("read migrations: %w", err)
 	}
@@ -210,16 +311,132 @@ func (m *Migrator) connections() ([]string, error) {
 			continue
 		}
 
-		if !m.reg.Has(e.Name()) {
+		if !reg.Has(e.Name()) {
 			return nil, fmt.Errorf("migrations/%s: no database connection named %q", e.Name(), e.Name())
 		}
 
 		conns = append(conns, e.Name())
 	}
 
-	sort.Strings(conns)
-
 	return conns, nil
+}
+
+// files merges every source's files for conn into one directory.
+func (m *Migrator) files(conn string) (fs.FS, error) {
+	merged := &mergedFS{files: map[string]fs.FS{}}
+	versions := map[int64]string{}
+
+	for n, src := range m.sources {
+		dir, label, err := src.dirFor(m.reg, conn, n+1)
+		if err != nil {
+			return nil, err
+		}
+
+		if dir == nil {
+			continue
+		}
+
+		entries, err := fs.ReadDir(dir, ".")
+		if err != nil {
+			return nil, fmt.Errorf("migrate %s: reading %s: %w", conn, label, err)
+		}
+
+		for _, e := range entries {
+			name := e.Name()
+			if e.IsDir() || !strings.HasSuffix(name, ".sql") {
+				continue
+			}
+
+			version, err := goose.NumericComponent(name)
+			if err != nil {
+				return nil, fmt.Errorf("migrate %s: %s in %s: %w", conn, name, label, err)
+			}
+
+			desc := name + " (" + label + ")"
+			if other, dup := versions[version]; dup {
+				return nil, fmt.Errorf("migrate %s: version %d is used by two migration files: %s and %s; "+
+					"rename the one you own to a different version", conn, version, other, desc)
+			}
+
+			versions[version] = desc
+			merged.files[name] = dir
+		}
+	}
+
+	if len(merged.files) == 0 {
+		return nil, fmt.Errorf("migrations for %s: no migration files", conn)
+	}
+
+	return merged, nil
+}
+
+// dirFor is the directory of this source's files for conn, nil when the source
+// has none for it, and a label for messages.
+func (s source) dirFor(reg *coredb.Registry, conn string, n int) (fs.FS, string, error) {
+	if s.flat {
+		c := s.conn
+		if c == "" {
+			c = reg.PrimaryName()
+		}
+
+		if c != conn {
+			return nil, "", nil
+		}
+
+		return s.fsys, "module migrations, source " + strconv.Itoa(n), nil
+	}
+
+	info, err := fs.Stat(s.fsys, conn)
+	if err != nil || !info.IsDir() {
+		return nil, "", nil //nolint:nilerr // no directory for this connection in this source
+	}
+
+	dir, err := fs.Sub(s.fsys, conn)
+	if err != nil {
+		return nil, "", fmt.Errorf("migrate %s: %w", conn, err)
+	}
+
+	return dir, "migrations/" + conn, nil
+}
+
+// mergedFS presents files from several directories as one flat directory.
+type mergedFS struct {
+	files map[string]fs.FS // file name -> the directory that holds it
+}
+
+func (m *mergedFS) Open(name string) (fs.File, error) {
+	dir, ok := m.files[name]
+	if !ok {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
+	}
+
+	return dir.Open(name)
+}
+
+func (m *mergedFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	if name != "." {
+		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrNotExist}
+	}
+
+	names := make([]string, 0, len(m.files))
+	for n := range m.files {
+		names = append(names, n)
+	}
+
+	sort.Strings(names)
+
+	entries := make([]fs.DirEntry, 0, len(names))
+
+	for _, n := range names {
+		info, err := fs.Stat(m.files[n], n)
+		if err != nil {
+			return nil, err
+		}
+
+		entries = append(entries, fs.FileInfoToDirEntry(info))
+	}
+
+	return entries, nil
 }
 
 func (m *Migrator) provider(conn string) (*goose.Provider, *gorm.DB, error) {
@@ -238,9 +455,9 @@ func (m *Migrator) provider(conn string) (*goose.Provider, *gorm.DB, error) {
 		return nil, nil, fmt.Errorf("migrate %s: %w", conn, err)
 	}
 
-	dir, err := fs.Sub(m.fsys, conn)
+	dir, err := m.files(conn)
 	if err != nil {
-		return nil, nil, fmt.Errorf("migrate %s: %w", conn, err)
+		return nil, nil, err
 	}
 
 	opts := []goose.ProviderOption{
@@ -265,10 +482,6 @@ func (m *Migrator) provider(conn string) (*goose.Provider, *gorm.DB, error) {
 	}
 
 	p, err := goose.NewProvider(dialect, sqlDB, dir, opts...)
-	if errors.Is(err, goose.ErrNoMigrations) {
-		return nil, nil, fmt.Errorf("migrations/%s: no migration files", conn)
-	}
-
 	if err != nil {
 		return nil, nil, fmt.Errorf("migrate %s: %w", conn, err)
 	}

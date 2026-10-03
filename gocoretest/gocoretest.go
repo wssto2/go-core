@@ -1,4 +1,5 @@
-// Package gocoretest builds a gocore.App for tests: in-memory SQLite, a fixed
+// Package gocoretest builds a gocore.App for tests: in-memory SQLite that
+// migrates as features are installed, a fixed
 // clock and a logger that writes to the test log. Features are installed with
 // plain function calls, and routes are called without opening a port.
 //
@@ -75,6 +76,7 @@ func New(t testing.TB, opts ...Option) *gocore.App {
 
 	appOpts := []gocore.Option{
 		gocore.WithRegistry(reg),
+		gocore.WithAutoMigrate(t.Context()),
 		gocore.WithClock(fixedClock(s.now)),
 		gocore.WithLogger(slog.New(slog.NewTextHandler(testLog{t}, nil))),
 	}

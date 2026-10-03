@@ -1,6 +1,7 @@
 package gocore
 
 import (
+	"context"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"log/slog"
@@ -71,6 +72,9 @@ type App struct {
 	workers    []worker.Worker
 	catalogues []*authz.Catalogue
 	modules    []bootstrap.Module
+	migrations []migrationSource
+	// autoMigrate, when set, applies migrations as they are collected.
+	autoMigrate context.Context //nolint:containedctx // test option: the context of the test
 
 	problems []Problem
 	laters   []unsetter
@@ -107,6 +111,13 @@ func WithClock(c Clock) Option {
 // WithLogger replaces the logger built from the log config.
 func WithLogger(log *slog.Logger) Option {
 	return func(app *App) { app.log = log }
+}
+
+// WithAutoMigrate applies migrations the moment they are collected, on ctx,
+// instead of leaving it to Migrate. It is for tests, where installing a
+// feature should leave its tables ready; gocoretest.New sets it.
+func WithAutoMigrate(ctx context.Context) Option {
+	return func(app *App) { app.autoMigrate = ctx }
 }
 
 // WithRegistry uses reg instead of opening the connections listed in the

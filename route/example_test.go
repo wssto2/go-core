@@ -26,7 +26,7 @@ type Ticket struct {
 var (
 	Show   = route.Get[ShowInput, Ticket]("/tickets/:id").Name("tickets.show").Requires(PermView)
 	Close  = route.Delete[ShowInput, route.Empty]("/tickets/:id")
-	Routes = route.Group(Show, Close)
+	Routes = route.Group("tickets", Show, Close)
 )
 
 func showTicket(_ context.Context, in ShowInput) (Ticket, error) {
@@ -126,7 +126,7 @@ func ExampleRaw() {
 func ExampleContract_Types() {
 	type Priority int
 
-	contract := route.Group(Show).Types(Priority(0))
+	contract := route.Group("tickets", Show).Types(Priority(0))
 	fmt.Println(contract.ExtraTypes()[0].Name())
 	// Output: Priority
 }
@@ -146,4 +146,11 @@ func ExampleRoute_Public() {
 	// Output:
 	// true false
 	// 200
+}
+
+// A group's name is its folder in the generated TypeScript and the name of its
+// route table.
+func ExampleContract_Name() {
+	fmt.Println(Routes.Name())
+	// Output: tickets
 }

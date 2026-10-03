@@ -3,6 +3,7 @@ package gocoretest_test
 import (
 	"net/http"
 	"testing"
+	"testing/fstest"
 
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
@@ -61,6 +62,15 @@ func TestNamedDatabasesAreRegistered(t *testing.T) {
 	}
 
 	if err := app.Check(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNewMigratesAsFeaturesInstall(t *testing.T) {
+	app := gocoretest.New(t)
+	app.Migrations(fstest.MapFS{"20261015000000_things.sql": {Data: []byte("-- +goose Up\nCREATE TABLE things (id INTEGER);")}})
+
+	if err := app.Database().Exec("INSERT INTO things (id) VALUES (1)").Error; err != nil {
 		t.Fatal(err)
 	}
 }

@@ -246,3 +246,24 @@ func TestGenerateTypes_AliasAppliesBeforeParentIsProcessed(t *testing.T) {
 	_, err = os.Stat(filepath.Join(dir, "Phase.ts"))
 	assert.True(t, os.IsNotExist(err), "Phase.ts must not be generated when aliased")
 }
+
+type routeInput struct {
+	ID     int    `path:"id"`
+	Status string `query:"status" validation:"max:20"`
+	Title  string `json:"title"`
+	Plain  string
+}
+
+// A route input binds fields from the URL: they travel under their path and
+// query names, not their Go names.
+func TestSchemaNamesFieldsByPathAndQueryTags(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, go2ts.GenerateSchemas([]interface{}{routeInput{}}, dir))
+
+	content, err := os.ReadFile(filepath.Join(dir, "routeInput.ts")) //nolint:gosec // test temp dir
+	require.NoError(t, err)
+
+	for _, want := range []string{"  id: z.number()", "  status: z.string().max(20)", "  title: z.string()", "  Plain: z.string()"} {
+		assert.Contains(t, string(content), want)
+	}
+}
