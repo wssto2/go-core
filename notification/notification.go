@@ -40,6 +40,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/wssto2/go-core/database"
@@ -176,6 +177,7 @@ type Notices struct {
 	store      *store
 	clock      gocore.Clock
 	log        *slog.Logger
+	heartbeat  time.Duration
 }
 
 // Install puts the in-app inbox into app: the notifications table (its
@@ -208,7 +210,7 @@ func Install(app *gocore.App, users People, categories ...Category) *Notices {
 	app.Schema(gocore.Schema{Files: migrations.Files, Models: Migrate})
 
 	n := &Notices{
-		people: users, categories: append(slices.Clone(categories), systemTest), db: db, store: st, clock: app.Clock(), log: app.Logger(),
+		people: users, categories: append(slices.Clone(categories), systemTest), db: db, store: st, clock: app.Clock(), log: app.Logger(), heartbeat: heartbeatInterval,
 	}
 	n.Inbox = &Inbox{store: st, clock: app.Clock(), hub: NewHub()}
 

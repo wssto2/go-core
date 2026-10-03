@@ -84,7 +84,7 @@ func (d *Declared) To(n *Notices) []route.Handled {
 		d.Unread.To(n.unread),
 		d.MarkRead.To(n.markRead),
 		d.MarkAllRead.To(n.markAll),
-		d.Stream.To(n.stream(heartbeatInterval)),
+		d.Stream.To(n.stream()),
 		d.Test.To(n.sendTest),
 	}
 }

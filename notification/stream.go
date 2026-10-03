@@ -68,7 +68,7 @@ func person(ctx context.Context) (int, error) {
 // the server's write deadline for this response only, sends a heartbeat comment
 // every interval and, with each, re-checks the session it was opened with, so
 // signing out, a password change or a revoked session ends it.
-func (n *Notices) stream(interval time.Duration) gin.HandlerFunc {
+func (n *Notices) stream() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, err := person(c.Request.Context())
 		if err != nil {
@@ -107,7 +107,7 @@ func (n *Notices) stream(interval time.Duration) gin.HandlerFunc {
 			return
 		}
 
-		heartbeat := time.NewTicker(interval)
+		heartbeat := time.NewTicker(n.heartbeat)
 		defer heartbeat.Stop()
 
 		for {
