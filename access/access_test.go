@@ -81,12 +81,22 @@ const local database.Connection = "local"
 
 // newApp is an application on the given database with the module installed on
 // the "local" connection. migrate says how the tables come to be.
+// opts makes the app create SQLite tables from the models (what gocoretest.New
+// does); MySQL and MariaDB run the module's files with app.Migrate.
+func opts(db *gorm.DB) []gocore.Option {
+	if db.Name() == "sqlite" {
+		return []gocore.Option{gocore.WithAutoMigrate(context.Background())}
+	}
+
+	return nil
+}
+
 func newApp(db *gorm.DB, install func(*gocore.App) *access.Access) (*gocore.App, *access.Access) {
 	reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
 	reg.AddConnection(string(local), db)
 
 	app := gocore.New(bootstrap.DefaultConfig(),
-		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signedIn), gocore.WithPrefix("/api"))
+		append(opts(db), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signedIn), gocore.WithPrefix("/api"))...)
 
 	return app, install(app)
 }
@@ -126,9 +136,7 @@ func TestAnApplicationWithoutTenancyAdministersRolesAndBindings(t *testing.T) {
 			return access.Install(app, permissions(), team{}, access.WithRoles(roles()...), access.On(local))
 		})
 
-		if db.Name() == "sqlite" {
-			require.NoError(t, gormstore.Migrate(db))
-		} else {
+		if db.Name() != "sqlite" {
 			require.NoError(t, app.Migrate(t.Context()), "the module's own migrations create the tables")
 		}
 

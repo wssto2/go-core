@@ -19,11 +19,10 @@ import (
 // module owns; a real one runs the module's migrations (./app migrate).
 func exampleApp() (*gocore.App, func()) {
 	reg, cleanup := database.NewTestRegistry("local")
-	if err := gormstore.Migrate(reg.MustGet("local")); err != nil {
-		panic(err)
-	}
 
-	return gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signedIn)),
+	// WithAutoMigrate is what gocoretest.New sets: Install's app.Schema creates the tables from the models.
+	return gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+			gocore.WithAuthentication(signedIn), gocore.WithAutoMigrate(context.Background())),
 		func() { _ = cleanup() }
 }
 

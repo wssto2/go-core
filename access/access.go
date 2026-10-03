@@ -131,7 +131,7 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory
 	}
 
 	app.Authorize(engine)
-	app.Migrations(migrations.Files, conn...)
+	app.Schema(gocore.Schema{Files: migrations.Files, Models: gormstore.Migrate}, conn...)
 	app.Routes(accesshttp.Declare().To(roles, bindings, engine)...)
 
 	return &Access{Engine: engine, Roles: roles, Bindings: bindings, store: store}
