@@ -74,19 +74,19 @@ type UserSessionInput struct {
 // locked, inactive, all; OrderCol one of login (the default), name, email,
 // created_at; OrderDir asc (the default) or desc; PerPage at most 100.
 type ListUsersInput struct {
-	View     string `query:"view" validation:"max:16"`
-	Search   string `query:"search" validation:"max:100"`
-	OrderCol string `query:"order_col" validation:"max:16"`
-	OrderDir string `query:"order_dir" validation:"max:4"`
-	Page     int    `query:"page"`
-	PerPage  int    `query:"per_page"`
+	View     string `query:"view" json:"view,omitempty" validation:"max:16"`
+	Search   string `query:"search" json:"search,omitempty" validation:"max:100"`
+	OrderCol string `query:"order_col" json:"order_col,omitempty" validation:"max:16"`
+	OrderDir string `query:"order_dir" json:"order_dir,omitempty" validation:"max:4"`
+	Page     int    `query:"page" json:"page,omitempty"`
+	PerPage  int    `query:"per_page" json:"per_page,omitempty"`
 }
 
 // HistoryInput is a page of a person's sign-in history or changes.
 type HistoryInput struct {
 	ID      int `path:"id"`
-	Page    int `query:"page"`
-	PerPage int `query:"per_page"`
+	Page    int `query:"page" json:"page,omitempty"`
+	PerPage int `query:"per_page" json:"per_page,omitempty"`
 }
 
 // CreateUserInput is a new person. Locale is a BCP-47 tag such as "hr".
@@ -94,7 +94,7 @@ type CreateUserInput struct {
 	Login    string `json:"login" validation:"required|max:100"`
 	Name     string `json:"name" validation:"required|max:150"`
 	Email    string `json:"email" validation:"required|max:255"`
-	Phone    string `json:"phone" validation:"max:30"`
+	Phone    string `json:"phone,omitempty" validation:"max:30"`
 	Locale   string `json:"locale" validation:"required|max:16"`
 	Password string `json:"password" validation:"required|max:200"`
 }
@@ -105,7 +105,7 @@ type UpdateUserInput struct {
 	Login  string `json:"login" validation:"required|max:100"`
 	Name   string `json:"name" validation:"required|max:150"`
 	Email  string `json:"email" validation:"required|max:255"`
-	Phone  string `json:"phone" validation:"max:30"`
+	Phone  string `json:"phone,omitempty" validation:"max:30"`
 	Locale string `json:"locale" validation:"required|max:16"`
 }
 

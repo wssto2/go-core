@@ -43,6 +43,7 @@ type ListInput struct {
 
 type Draft struct {
 	Title string `json:"title" validation:"required|max:100"`
+	Note  string `json:"note,omitempty" validation:"max:500"`
 	Owner Person `json:"owner"`
 }
 

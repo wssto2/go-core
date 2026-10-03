@@ -366,6 +366,12 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 		validationTag := field.Tag.Get("validation")
 		zodExpr, hasCrossField := fieldToZodExprScoped(field.Type, validationTag, typeName, ctx, children)
 
+		// A field Go leaves out of the JSON when it is empty may be left out of the
+		// request: optional in the schema, unless validation requires it.
+		if jsonOmitsEmpty(jsonTag) && !hasValRule(parseValidationTag(validationTag), "required") && !strings.HasSuffix(zodExpr, ".optional()") {
+			zodExpr += ".optional()"
+		}
+
 		fieldsBuilder.WriteString(fmt.Sprintf("  %s: %s,\n", jsonName, zodExpr))
 
 		if hasCrossField {
@@ -424,7 +430,9 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 //   - A z.object() schema constant named FooSchema
 //   - An inferred TypeScript type: export type Foo = z.infer<typeof FooSchema>
 //
-// Use this for request/input structs that have `validation` struct tags.
+// Use this for request/input structs that have `validation` struct tags. A
+// field whose json tag has omitempty is optional in the schema (a client may
+// leave it out), unless it is required; a pointer is optional and nullable.
 // For entity types (responses), use GenerateTypes instead.
 func GenerateSchemas(structs []interface{}, dir string) error {
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
@@ -471,4 +479,17 @@ func sortedKeys(m map[string]interface{}) []string {
 	sort.Strings(keys)
 
 	return keys
+}
+
+// jsonOmitsEmpty reports whether a json tag carries the omitempty option.
+func jsonOmitsEmpty(tag string) bool {
+	_, opts, _ := strings.Cut(tag, ",")
+
+	for _, opt := range strings.Split(opts, ",") {
+		if opt == "omitempty" {
+			return true
+		}
+	}
+
+	return false
 }

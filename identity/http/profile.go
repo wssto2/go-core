@@ -36,8 +36,8 @@ var (
 
 // PageInput is a page of a list.
 type PageInput struct {
-	Page    int `query:"page"`
-	PerPage int `query:"per_page"`
+	Page    int `query:"page" json:"page,omitempty"`
+	PerPage int `query:"per_page" json:"per_page,omitempty"`
 }
 
 // OwnSessionInput addresses one of the person's own sessions.
@@ -48,7 +48,7 @@ type OwnSessionInput struct {
 // UpdateProfileInput is the person's own details.
 type UpdateProfileInput struct {
 	Name  string `json:"name" validation:"required|max:150"`
-	Phone string `json:"phone" validation:"max:30"`
+	Phone string `json:"phone,omitempty" validation:"max:30"`
 }
 
 // ChangePasswordInput is the current password and the new one, twice.
