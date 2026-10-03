@@ -131,6 +131,8 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory
 	return &Access{Engine: engine, Roles: roles, Bindings: bindings, store: store}
 }
 
+// ACCESS-ADMIN-001: the first administrator is made outside delegation, by code, never over HTTP.
+
 // Seed gives the subject a predefined role at the root, without any delegation
 // check: how the first administrator is made, from a seed or a command, when
 // nobody yet holds the permission to give roles. It does nothing when the

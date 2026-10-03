@@ -22,6 +22,9 @@ func (d RoleDraft) role(id int) authz.Role {
 	return authz.Role{ID: id, Name: d.Name, Description: d.Description, Grants: d.Grants, Attrs: d.Attrs}
 }
 
+// IAM-AUTHZ-005 items 1 to 4 and 8: predefined roles are read-only, custom roles are built through
+// the delegation rules, deleting is its own permission, compare, replace, holders.
+
 // Roles reads roles and their holders and builds custom ones. Predefined roles
 // live in code and are read-only.
 type Roles struct {

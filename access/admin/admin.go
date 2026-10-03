@@ -102,6 +102,8 @@ func (b base) subjectNames(ctx context.Context, subjects []authz.Subject) (map[a
 	return names, nil
 }
 
+// ACCESS-ADMIN-001: the directory names who can hold a role.
+
 // requireSubject answers a not-found for a subject the directory does not know,
 // so an id that does not exist is never told apart from one that may not be seen.
 func (b base) requireSubject(ctx context.Context, s authz.Subject) error {

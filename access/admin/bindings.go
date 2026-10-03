@@ -18,6 +18,9 @@ type BindingDraft struct {
 	Scope authz.Scope
 }
 
+// IAM-AUTHZ-005 items 5 to 7: bindings through the delegation rules, effective access with the why,
+// scope options and bindable roles that offer only what the delegation accepts.
+
 // Bindings reads what subjects may do and why, and gives and takes away roles.
 type Bindings struct {
 	base
