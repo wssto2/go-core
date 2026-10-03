@@ -85,25 +85,6 @@ func ExampleWithRoles() {
 	// Output: Viewer
 }
 
-// WithPermissions chooses the ids administration is guarded by when the
-// application already has names for them.
-func ExampleWithPermissions() {
-	app, cleanup := exampleApp()
-	defer cleanup()
-
-	cat := catalogue()
-
-	ids := access.DefaultPermissions
-	ids.ManageBindings, ids.ViewAccess = "team.member:manage", "team.member:view"
-
-	access.Install(app, cat, team{}, access.WithPermissions(ids))
-
-	_, ok := cat.Lookup("team.member:manage")
-	_, other := cat.Lookup("iam.user:manage")
-	fmt.Println(ok, other)
-	// Output: true false
-}
-
 // WithScopes gives the application places below the root, with the catalogue
 // that resolves and names them.
 func ExampleWithScopes() {
@@ -116,16 +97,6 @@ func ExampleWithScopes() {
 	acc := access.Install(app, catalogue(), team{}, access.WithScopes(levels, places))
 	fmt.Println(acc.Engine.Hierarchy().Levels())
 	// Output: [organization dealer]
-}
-
-// WithPrefix mounts the routes under a path prefix.
-func ExampleWithPrefix() {
-	app, cleanup := exampleApp()
-	defer cleanup()
-
-	access.Install(app, catalogue(), team{}, access.WithPrefix("/api/v1"))
-	fmt.Println(app.Check())
-	// Output: <nil>
 }
 
 // WithFeatures answers whether a place has a feature on, for permissions
@@ -195,13 +166,13 @@ func ExampleRoutes() {
 		fmt.Println(spec.Method, spec.Path)
 	}
 	// Output:
-	// GET /iam/roles
-	// GET /iam/roles/:ref
+	// GET /v1/iam/roles
+	// GET /v1/iam/roles/:ref
 }
 
-// DefaultPermissions are the ids used when the application does not choose.
-func ExampleDefaultPermissions() {
-	fmt.Println(access.DefaultPermissions.ManageBindings)
+// The permission ids are fixed: iam.role:{view,manage,delete}, iam.user:{view,manage}.
+func ExampleManageBindings() {
+	fmt.Println(access.ManageBindings)
 	// Output: iam.user:manage
 }
 

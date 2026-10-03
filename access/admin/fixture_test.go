@@ -18,9 +18,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// The permissions the administration is guarded by, the fixture's own ids.
-var perms = admin.DefaultPermissions
-
 func catalogue() *authz.Catalogue {
 	c := authz.NewCatalogue()
 	must := func(id string, opts ...authz.DefineOption) { c.MustDefine(id, opts...) }
@@ -172,7 +169,7 @@ func fixtureOn(db *gorm.DB) (*fixture, error) {
 	}
 
 	roles, bindings, err := admin.New(admin.Config{
-		Engine: engine, Store: store, Scopes: dir, Subjects: dir, Permissions: perms,
+		Engine: engine, Store: store, Scopes: dir, Subjects: dir,
 		Transactor: database.NewTransactor(db),
 	})
 	if err != nil {

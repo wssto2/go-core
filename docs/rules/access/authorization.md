@@ -14,8 +14,7 @@ they hold, nobody gives to themselves, nobody removes their own last access to t
 module adds what an editor needs on top: who holds a role, how two roles differ, what a person may do and
 why, where the actor may give roles and which roles.
 
-The permission ids the module is guarded by are parameters (`access.Permissions`; defaults
-`iam.role:{view,manage,delete}`, `iam.user:{view,manage}`).
+The permission ids the module is guarded by are fixed: `iam.role:{view,manage,delete}`, `iam.user:{view,manage}`.
 
 ## IAM-AUTHZ-005 — Roles and bindings are edited through the delegation rules
 

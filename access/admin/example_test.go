@@ -35,7 +35,7 @@ func ExampleNew() {
 
 	roles, bindings, err := admin.New(admin.Config{
 		Engine: f.Engine, Store: f.Store, Scopes: admin.NoScopes(), Subjects: newDirectory(),
-		Permissions: admin.DefaultPermissions, Transactor: noTx{},
+		Transactor: noTx{},
 	})
 	fmt.Println(roles != nil, bindings != nil, err)
 	// Output: true true <nil>
@@ -262,10 +262,7 @@ func ExampleNoScopes() {
 	// Output: 0 places below the organization
 }
 
-func ExamplePermissions() {
-	custom := admin.DefaultPermissions
-	custom.ManageBindings = "team.member:manage" // the application's own id
-
-	fmt.Println(admin.DefaultPermissions.ViewRoles, custom.ManageBindings)
-	// Output: iam.role:view team.member:manage
+func ExamplePermissionIDs() {
+	fmt.Println(admin.PermissionIDs())
+	// Output: [iam.role:view iam.role:manage iam.role:delete iam.user:view iam.user:manage]
 }

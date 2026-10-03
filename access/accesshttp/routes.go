@@ -106,27 +106,30 @@ type Routes struct {
 	group *route.Contract
 }
 
-// Declare declares the routes under prefix (for example "/api/v1", or "" for
-// none), guarded by the given permissions.
-func Declare(prefix string, p admin.Permissions) *Routes {
-	prefix = strings.TrimRight(prefix, "/")
-	roles, users := prefix+"/iam/roles", prefix+"/iam/users/:id"
+// base is the version the routes are declared under. A v2 is new declarations
+// next to these, in a group of their own.
+const base = "/v1"
+
+// Declare declares the routes, guarded by the module's fixed permissions. The
+// application's prefix (gocore.WithPrefix) goes in front of the declared paths.
+func Declare() *Routes {
+	roles, users := base+"/iam/roles", base+"/iam/users/:id"
 
 	r := &Routes{
-		ListRoles:     route.Get[route.None, RoleList](roles).Name("access.roles.list").Requires(p.ViewRoles),
-		ShowRole:      route.Get[RoleInput, Role](roles + "/:ref").Name("access.roles.show").Requires(p.ViewRoles),
-		RoleHolders:   route.Get[RoleInput, RoleHolders](roles + "/:ref/holders").Name("access.roles.holders").Requires(p.ViewRoles),
-		CompareRole:   route.Get[CompareInput, RoleComparison](roles + "/:ref/compare").Name("access.roles.compare").Requires(p.ViewRoles),
-		CreateRole:    route.Post[CreateRoleInput, Role](roles).Name("access.roles.create").Requires(p.ManageRoles),
-		UpdateRole:    route.Put[UpdateRoleInput, Role](roles + "/:ref").Name("access.roles.update").Requires(p.ManageRoles),
-		DeleteRole:    route.Delete[RoleInput, route.Empty](roles + "/:ref").Name("access.roles.delete").Requires(p.DeleteRoles),
-		ReplaceRole:   route.Post[ReplaceRoleInput, Replaced](roles + "/:ref/replace").Name("access.roles.replace").Requires(p.ManageRoles),
-		BindableRoles: route.Get[BindableInput, BindableRoles](prefix + "/iam/bindable-roles").Name("access.bindable"),
-		SubjectAccess: route.Get[SubjectInput, SubjectAccess](users + "/access").Name("access.subjects.access").Requires(p.ViewAccess),
-		SubjectScopes: route.Get[SubjectInput, ScopeOptions](users + "/scopes").Name("access.subjects.scopes").Requires(p.ManageBindings),
-		Bind:          route.Post[BindInput, Binding](users + "/bindings").Name("access.subjects.bind").Requires(p.ManageBindings),
-		Unbind:        route.Delete[UnbindInput, route.Empty](users + "/bindings/:binding_id").Name("access.subjects.unbind").Requires(p.ManageBindings),
-		MyAccess:      route.Raw("GET", prefix+"/me/access").Name("access.me"),
+		ListRoles:     route.Get[route.None, RoleList](roles).Name("access.roles.list").Requires(admin.ViewRoles),
+		ShowRole:      route.Get[RoleInput, Role](roles + "/:ref").Name("access.roles.show").Requires(admin.ViewRoles),
+		RoleHolders:   route.Get[RoleInput, RoleHolders](roles + "/:ref/holders").Name("access.roles.holders").Requires(admin.ViewRoles),
+		CompareRole:   route.Get[CompareInput, RoleComparison](roles + "/:ref/compare").Name("access.roles.compare").Requires(admin.ViewRoles),
+		CreateRole:    route.Post[CreateRoleInput, Role](roles).Name("access.roles.create").Requires(admin.ManageRoles),
+		UpdateRole:    route.Put[UpdateRoleInput, Role](roles + "/:ref").Name("access.roles.update").Requires(admin.ManageRoles),
+		DeleteRole:    route.Delete[RoleInput, route.Empty](roles + "/:ref").Name("access.roles.delete").Requires(admin.DeleteRoles),
+		ReplaceRole:   route.Post[ReplaceRoleInput, Replaced](roles + "/:ref/replace").Name("access.roles.replace").Requires(admin.ManageRoles),
+		BindableRoles: route.Get[BindableInput, BindableRoles](base + "/iam/bindable-roles").Name("access.bindable"),
+		SubjectAccess: route.Get[SubjectInput, SubjectAccess](users + "/access").Name("access.subjects.access").Requires(admin.ViewAccess),
+		SubjectScopes: route.Get[SubjectInput, ScopeOptions](users + "/scopes").Name("access.subjects.scopes").Requires(admin.ManageBindings),
+		Bind:          route.Post[BindInput, Binding](users + "/bindings").Name("access.subjects.bind").Requires(admin.ManageBindings),
+		Unbind:        route.Delete[UnbindInput, route.Empty](users + "/bindings/:binding_id").Name("access.subjects.unbind").Requires(admin.ManageBindings),
+		MyAccess:      route.Raw("GET", base+"/me/access").Name("access.me"),
 	}
 
 	r.group = route.Group("access",

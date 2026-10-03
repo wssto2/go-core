@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/access"
 	"github.com/wssto2/go-core/access/accesshttp"
+	"github.com/wssto2/go-core/access/admin"
 	"github.com/wssto2/go-core/audit"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authzts"
@@ -85,7 +86,7 @@ func newApp(db *gorm.DB, install func(*gocore.App) *access.Access) (*gocore.App,
 	reg.AddConnection(string(local), db)
 
 	app := gocore.New(bootstrap.DefaultConfig(),
-		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signedIn))
+		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signedIn), gocore.WithPrefix("/api"))
 
 	return app, install(app)
 }
@@ -134,7 +135,7 @@ func TestAnApplicationWithoutTenancyAdministersRolesAndBindings(t *testing.T) {
 		require.NoError(t, acc.Seed(t.Context(), authz.Subject{Kind: authz.KindUser, ID: 1}, "webmaster"))
 		require.NoError(t, acc.Seed(t.Context(), authz.Subject{Kind: authz.KindUser, ID: 1}, "webmaster"), "seeding twice is harmless")
 
-		status, data := call(t, app, 1, "POST", "/iam/roles", accesshttp.CreateRoleInput{
+		status, data := call(t, app, 1, "POST", "/api/v1/iam/roles", accesshttp.CreateRoleInput{
 			Name: "Clerk", Grants: []accesshttp.GrantInput{{Permission: "crm.customer:view", Qualifier: "all"}},
 		})
 		require.Equal(t, http.StatusOK, status, string(data))
@@ -143,10 +144,10 @@ func TestAnApplicationWithoutTenancyAdministersRolesAndBindings(t *testing.T) {
 
 		require.NoError(t, json.Unmarshal(data, &clerk))
 
-		status, data = call(t, app, 1, "POST", "/iam/users/5/bindings", accesshttp.BindInput{RoleRef: clerk.Ref, Level: "organization"})
+		status, data = call(t, app, 1, "POST", "/api/v1/iam/users/5/bindings", accesshttp.BindInput{RoleRef: clerk.Ref, Level: "organization"})
 		require.Equal(t, http.StatusOK, status, string(data))
 
-		status, data = call(t, app, 1, "GET", "/iam/users/5/access", nil)
+		status, data = call(t, app, 1, "GET", "/api/v1/iam/users/5/access", nil)
 		require.Equal(t, http.StatusOK, status)
 
 		var access accesshttp.SubjectAccess
@@ -156,18 +157,18 @@ func TestAnApplicationWithoutTenancyAdministersRolesAndBindings(t *testing.T) {
 		assert.Equal(t, "crm.customer:view", access.Effective[0].Permission)
 		assert.Equal(t, accesshttp.Scope{Level: "organization"}, access.Effective[0].Grants[0].Scope)
 
-		status, data = call(t, app, 1, "GET", "/iam/users/5/scopes", nil)
+		status, data = call(t, app, 1, "GET", "/api/v1/iam/users/5/scopes", nil)
 		require.Equal(t, http.StatusOK, status)
 		assert.JSONEq(t, `{"root":true,"places":[]}`, string(data), "no tenancy: the organization is the only place")
 
-		status, _ = call(t, app, 5, "GET", "/iam/roles", nil)
+		status, _ = call(t, app, 5, "GET", "/api/v1/iam/roles", nil)
 		assert.Equal(t, http.StatusForbidden, status, "the clerk may not read roles")
 
-		status, data = call(t, app, 5, "GET", "/me/access", nil)
+		status, data = call(t, app, 5, "GET", "/api/v1/me/access", nil)
 		require.Equal(t, http.StatusOK, status)
 		assert.Contains(t, string(data), "crm.customer:view")
 
-		status, _ = call(t, app, 1, "POST", "/iam/users/5/bindings", accesshttp.BindInput{RoleRef: "seller", Level: "dealer", ScopeID: new(3)})
+		status, _ = call(t, app, 1, "POST", "/api/v1/iam/users/5/bindings", accesshttp.BindInput{RoleRef: "seller", Level: "dealer", ScopeID: new(3)})
 		assert.Equal(t, http.StatusBadRequest, status, "there is no dealer level")
 	})
 }
@@ -183,7 +184,7 @@ func TestInstallDefinesTheModulesPermissionsAndTheUnionStaysGenerated(t *testing
 	require.NotNil(t, acc.Engine)
 
 	ts := authzts.Render(cat, authzts.Options{})
-	for _, id := range access.DefaultPermissions.All() {
+	for _, id := range admin.PermissionIDs() {
 		assert.Contains(t, ts, `| '`+id+`'`, "the generated permission union has it")
 	}
 
@@ -191,35 +192,6 @@ func TestInstallDefinesTheModulesPermissionsAndTheUnionStaysGenerated(t *testing
 	require.True(t, ok)
 	assert.True(t, manage.Sensitive)
 	assert.Equal(t, []string{"iam.user:view"}, manage.Requires)
-}
-
-func TestTheApplicationsOwnPermissionIdsAreKept(t *testing.T) {
-	cat := permissions()
-	cat.MustDefine("team.member:view")
-	cat.MustDefine("team.member:manage", authz.Requires("team.member:view"))
-
-	db, cleanup := database.MustPrepareTestDB()
-	t.Cleanup(cleanup)
-
-	custom := access.DefaultPermissions
-	custom.ViewAccess, custom.ManageBindings = "team.member:view", "team.member:manage"
-
-	app, acc := newApp(db, func(app *gocore.App) *access.Access {
-		return access.Install(app, cat, team{}, access.WithPermissions(custom), access.WithPrefix("/api/v1"), access.On(local))
-	})
-	require.NoError(t, gormstore.Migrate(db))
-	require.NotNil(t, acc.Engine)
-
-	_, defined := cat.Lookup("iam.user:manage")
-	assert.False(t, defined, "the default id is not added when the application chose its own")
-	assert.NoError(t, app.Check())
-
-	var specs []string
-	for _, spec := range access.Routes.Specs() {
-		specs = append(specs, spec.Path)
-	}
-
-	assert.Contains(t, specs[0], "/iam/roles", "the declared contract is under the default prefix")
 }
 
 func TestInstallReportsWhatIsMissingAndHowToFixIt(t *testing.T) {
@@ -270,7 +242,7 @@ func TestInstallReportsWhatIsMissingAndHowToFixIt(t *testing.T) {
 
 		msg := problems(func(app *gocore.App) { access.Install(app, cat, team{}, access.On(local)) })
 		assert.Contains(t, msg, "frozen")
-		assert.Contains(t, msg, "define them yourself before Install")
+		assert.Contains(t, msg, "define the five permissions yourself before Install")
 	})
 
 	t.Run("an unregistered connection", func(t *testing.T) {
@@ -316,7 +288,7 @@ func TestChangesAreAuditedWhenAskedFor(t *testing.T) {
 	})
 	require.NoError(t, acc.Seed(t.Context(), authz.Subject{Kind: authz.KindUser, ID: 1}, "webmaster"))
 
-	status, data := call(t, app, 1, "POST", "/iam/users/5/bindings", accesshttp.BindInput{RoleRef: "seller", Level: "organization"})
+	status, data := call(t, app, 1, "POST", "/api/v1/iam/users/5/bindings", accesshttp.BindInput{RoleRef: "seller", Level: "organization"})
 	require.Equal(t, http.StatusOK, status, string(data))
 
 	var logs []audit.AuditLog

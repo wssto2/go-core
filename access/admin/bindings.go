@@ -29,7 +29,7 @@ type Bindings struct {
 // Access describes the subject's bindings and, for each permission they hold,
 // how they hold it.
 func (b *Bindings) Access(ctx context.Context, subject authz.Subject) (SubjectAccess, error) {
-	if err := b.cfg.Engine.Require(ctx, b.cfg.Permissions.ViewAccess); err != nil {
+	if err := b.cfg.Engine.Require(ctx, ViewAccess); err != nil {
 		return SubjectAccess{}, err
 	}
 
@@ -94,7 +94,7 @@ func (b *Bindings) Access(ctx context.Context, subject authz.Subject) (SubjectAc
 	}
 
 	actor, _ := authz.PrincipalFrom(ctx)
-	canManage := actor.Subject != subject && b.cfg.Engine.Require(ctx, b.cfg.Permissions.ManageBindings) == nil
+	canManage := actor.Subject != subject && b.cfg.Engine.Require(ctx, ManageBindings) == nil
 
 	return SubjectAccess{Subject: subject, Bindings: bindings, Effective: effective, CanManage: canManage}, nil
 }
@@ -185,7 +185,7 @@ func (b *Bindings) describe(ctx context.Context, stored []authz.Binding, placeOf
 // actor may: ManageBindings at a scope containing the target, no escalation,
 // never to themselves.
 func (b *Bindings) Bind(ctx context.Context, subject authz.Subject, draft BindingDraft) (Binding, error) {
-	if err := b.cfg.Engine.Require(ctx, b.cfg.Permissions.ManageBindings); err != nil {
+	if err := b.cfg.Engine.Require(ctx, ManageBindings); err != nil {
 		return Binding{}, err
 	}
 
@@ -219,7 +219,7 @@ func (b *Bindings) Bind(ctx context.Context, subject authz.Subject, draft Bindin
 // Unbind removes one of the subject's bindings; a binding of somebody else is a
 // not-found.
 func (b *Bindings) Unbind(ctx context.Context, subject authz.Subject, bindingID int) error {
-	if err := b.cfg.Engine.Require(ctx, b.cfg.Permissions.ManageBindings); err != nil {
+	if err := b.cfg.Engine.Require(ctx, ManageBindings); err != nil {
 		return err
 	}
 
@@ -251,7 +251,7 @@ func (b *Bindings) Scopes(ctx context.Context, subject authz.Subject) (ScopeOpti
 		return ScopeOptions{}, err
 	}
 
-	if err := b.cfg.Engine.Require(ctx, b.cfg.Permissions.ManageBindings); err != nil {
+	if err := b.cfg.Engine.Require(ctx, ManageBindings); err != nil {
 		return ScopeOptions{}, err
 	}
 
@@ -270,7 +270,7 @@ func (b *Bindings) Scopes(ctx context.Context, subject authz.Subject) (ScopeOpti
 	}
 
 	h := b.cfg.Engine.Hierarchy()
-	clauses := eff.Clauses(b.cfg.Permissions.ManageBindings)
+	clauses := eff.Clauses(ManageBindings)
 
 	out := ScopeOptions{Places: []ScopeOption{}}
 
@@ -335,7 +335,7 @@ func (b *Bindings) BindableRoles(ctx context.Context, scope authz.Scope) ([]Role
 	out := []RoleView{}
 
 	for _, role := range append(b.cfg.Engine.PredefinedRoles(), custom...) {
-		if b.cfg.Engine.CanBind(ctx, actor, role, scope, b.cfg.Permissions.ManageBindings) == nil {
+		if b.cfg.Engine.CanBind(ctx, actor, role, scope, ManageBindings) == nil {
 			out = append(out, viewOf(role, cat, counts.Of(role.Ref()), true))
 		}
 	}

@@ -20,7 +20,7 @@ var update = flag.Bool("update", false, "rewrite the golden TypeScript files")
 // response shows up here as a diff to review (go test ./access/accesshttp -update).
 func TestContractMatchesGolden(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, contract.Generate(dir, accesshttp.Declare("", admin.DefaultPermissions).Contract()))
+	require.NoError(t, contract.Generate(dir, accesshttp.Declare().Contract()))
 
 	for _, name := range []string{"entities.ts", "schemas.ts", "routes.ts"} {
 		raw, err := os.ReadFile(filepath.Join(dir, "access", name)) //nolint:gosec // temp dir
@@ -40,23 +40,18 @@ func TestContractMatchesGolden(t *testing.T) {
 	}
 }
 
-// The permissions the routes require are the ones the application's
-// permission union must contain: the contract names them.
-func TestRoutesRequireTheConfiguredPermissions(t *testing.T) {
-	custom := admin.Permissions{
-		ViewRoles: "team.role:view", ManageRoles: "team.role:manage", DeleteRoles: "team.role:delete",
-		ViewAccess: "team.member:view", ManageBindings: "team.member:manage",
-	}
-
+// The routes require the module's fixed permission ids, so the generated
+// TypeScript always matches.
+func TestRoutesRequireTheFixedPermissions(t *testing.T) {
 	got := map[string]bool{}
 
-	for _, spec := range accesshttp.Declare("", custom).Contract().Specs() {
+	for _, spec := range accesshttp.Declare().Contract().Specs() {
 		if spec.Permission != "" {
 			got[spec.Permission] = true
 		}
 	}
 
-	for _, id := range custom.All() {
+	for _, id := range admin.PermissionIDs() {
 		require.True(t, got[id], id)
 	}
 }

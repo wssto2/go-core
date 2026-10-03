@@ -37,7 +37,7 @@ var errPredefined = errors.New("access: a predefined role is defined in code and
 // List returns every role: the predefined ones (computed first, then by key),
 // then the custom ones by name.
 func (r *Roles) List(ctx context.Context) ([]RoleView, error) {
-	if err := r.cfg.Engine.Require(ctx, r.cfg.Permissions.ViewRoles); err != nil {
+	if err := r.cfg.Engine.Require(ctx, ViewRoles); err != nil {
 		return nil, err
 	}
 
@@ -70,7 +70,7 @@ func (r *Roles) List(ctx context.Context) ([]RoleView, error) {
 // Show returns one role with its grants; a computed role's are the ones the
 // catalogue gives it.
 func (r *Roles) Show(ctx context.Context, ref string) (RoleView, error) {
-	if err := r.cfg.Engine.Require(ctx, r.cfg.Permissions.ViewRoles); err != nil {
+	if err := r.cfg.Engine.Require(ctx, ViewRoles); err != nil {
 		return RoleView{}, err
 	}
 
@@ -84,7 +84,7 @@ func (r *Roles) Show(ctx context.Context, ref string) (RoleView, error) {
 
 // Holders lists who holds the role and where, by name.
 func (r *Roles) Holders(ctx context.Context, ref string) ([]Holder, error) {
-	if err := r.cfg.Engine.Require(ctx, r.cfg.Permissions.ViewRoles); err != nil {
+	if err := r.cfg.Engine.Require(ctx, ViewRoles); err != nil {
 		return nil, err
 	}
 
@@ -166,7 +166,7 @@ func (r *Roles) Delete(ctx context.Context, ref string) error {
 		return err
 	}
 
-	if err := r.cfg.Engine.Require(ctx, r.cfg.Permissions.DeleteRoles); err != nil {
+	if err := r.cfg.Engine.Require(ctx, DeleteRoles); err != nil {
 		return err
 	}
 
@@ -204,7 +204,7 @@ func (r *Roles) Delete(ctx context.Context, ref string) error {
 // Compare says how a custom role differs from a predefined one, by permission
 // and qualifier.
 func (r *Roles) Compare(ctx context.Context, ref, with string) (Comparison, error) {
-	if err := r.cfg.Engine.Require(ctx, r.cfg.Permissions.ViewRoles); err != nil {
+	if err := r.cfg.Engine.Require(ctx, ViewRoles); err != nil {
 		return Comparison{}, err
 	}
 
@@ -280,7 +280,7 @@ func (r *Roles) Replace(ctx context.Context, ref, with string) (int, error) {
 		return 0, err
 	}
 
-	if err := r.cfg.Engine.Require(ctx, r.cfg.Permissions.ManageRoles); err != nil {
+	if err := r.cfg.Engine.Require(ctx, ManageRoles); err != nil {
 		return 0, err
 	}
 

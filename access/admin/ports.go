@@ -65,34 +65,26 @@ func (noScopes) Names(context.Context, []authz.Scope) (map[authz.Scope]string, e
 
 func (noScopes) Options(context.Context) ([]ScopeOption, error) { return nil, nil }
 
-// Permissions names the permissions administration is guarded by. The
-// application owns its catalogue, so it says which ids these are.
-type Permissions struct {
+// The permissions administration is guarded by. The ids are fixed, so the
+// generated TypeScript always matches; Install defines them in the catalogue
+// when the application has not.
+const (
 	// ViewRoles reads roles, their holders and comparisons.
-	ViewRoles string
+	ViewRoles = "iam.role:view"
 	// ManageRoles creates and edits custom roles and replaces one by another.
-	ManageRoles string
+	ManageRoles = "iam.role:manage"
 	// DeleteRoles deletes a custom role nobody holds. It is its own permission:
 	// managing roles does not include it.
-	DeleteRoles string
+	DeleteRoles = "iam.role:delete"
 	// ViewAccess reads what a subject may do and why.
-	ViewAccess string
+	ViewAccess = "iam.user:view"
 	// ManageBindings gives and takes away roles, at the scope it is held at. It
 	// is the permission delegation is keyed on and the one nobody may lose their
 	// own last access to.
-	ManageBindings string
-}
+	ManageBindings = "iam.user:manage"
+)
 
-// DefaultPermissions are the ids go-core uses when an application does not say.
-var DefaultPermissions = Permissions{
-	ViewRoles:      "iam.role:view",
-	ManageRoles:    "iam.role:manage",
-	DeleteRoles:    "iam.role:delete",
-	ViewAccess:     "iam.user:view",
-	ManageBindings: "iam.user:manage",
-}
-
-// All returns the five ids.
-func (p Permissions) All() []string {
-	return []string{p.ViewRoles, p.ManageRoles, p.DeleteRoles, p.ViewAccess, p.ManageBindings}
+// PermissionIDs returns the five ids.
+func PermissionIDs() []string {
+	return []string{ViewRoles, ManageRoles, DeleteRoles, ViewAccess, ManageBindings}
 }

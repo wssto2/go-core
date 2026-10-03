@@ -35,8 +35,6 @@ import (
 
 // The types an application names when it configures the module.
 type (
-	// Permissions are the ids administration is guarded by.
-	Permissions = admin.Permissions
 	// ScopeCatalog names the places below the root a role can be given at.
 	ScopeCatalog = admin.ScopeCatalog
 	// ScopeOption is one such place.
@@ -45,12 +43,20 @@ type (
 	SubjectDirectory = admin.SubjectDirectory
 )
 
-// DefaultPermissions are iam.role:{view,manage,delete} and iam.user:{view,manage}.
-var DefaultPermissions = admin.DefaultPermissions
+// The permissions administration is guarded by: iam.role:{view,manage,delete}
+// and iam.user:{view,manage}. The ids are fixed.
+const (
+	ViewRoles      = admin.ViewRoles
+	ManageRoles    = admin.ManageRoles
+	DeleteRoles    = admin.DeleteRoles
+	ViewAccess     = admin.ViewAccess
+	ManageBindings = admin.ManageBindings
+)
 
-// Routes is the declared HTTP contract under the default prefix and permissions:
-// what the TypeScript generator reads, without installing anything.
-var Routes = accesshttp.Declare("", DefaultPermissions).Contract()
+// Routes is the declared HTTP contract (paths under /v1, before the
+// application's gocore.WithPrefix): what the TypeScript generator reads, without
+// installing anything.
+var Routes = accesshttp.Declare().Contract()
 
 // NoScopes is the ScopeCatalog of an application without tenancy.
 func NoScopes() ScopeCatalog { return admin.NoScopes() }
@@ -76,7 +82,7 @@ type Access struct {
 // Define the application's permissions before Install: building the engine
 // freezes the catalogue.
 func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory, opts ...Option) *Access {
-	s := settings{permissions: DefaultPermissions, scopes: NoScopes()}
+	s := settings{scopes: NoScopes()}
 	for _, opt := range opts {
 		opt(&s)
 	}
@@ -88,7 +94,7 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory
 	}
 
 	if err := s.define(catalogue); err != nil {
-		app.Fail("access cannot define its permissions: "+err.Error(), "define them yourself before Install, or choose other ids with access.WithPermissions")
+		app.Fail("access cannot define its permissions: "+err.Error(), "define the five permissions yourself before Install, or leave them to it")
 
 		return &Access{}
 	}
@@ -115,7 +121,7 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory
 	}
 
 	roles, bindings, err := admin.New(admin.Config{
-		Engine: engine, Store: store, Scopes: s.scopes, Subjects: users, Permissions: s.permissions,
+		Engine: engine, Store: store, Scopes: s.scopes, Subjects: users,
 		Transactor: database.NewTransactor(db),
 	})
 	if err != nil {
@@ -126,7 +132,7 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory
 
 	app.Authorize(engine)
 	app.Migrations(migrations.Files, conn...)
-	app.Routes(accesshttp.Declare(s.prefix, s.permissions).To(roles, bindings, engine)...)
+	app.Routes(accesshttp.Declare().To(roles, bindings, engine)...)
 
 	return &Access{Engine: engine, Roles: roles, Bindings: bindings, store: store}
 }
@@ -162,14 +168,12 @@ func (a *Access) Seed(ctx context.Context, subject authz.Subject, role string) e
 type Option func(*settings)
 
 type settings struct {
-	permissions Permissions
-	roles       []authz.Role
-	scopes      ScopeCatalog
-	levels      *authz.Hierarchy
-	features    authz.FeatureResolver
-	audit       audit.Repository
-	prefix      string
-	connection  database.Connection
+	roles      []authz.Role
+	scopes     ScopeCatalog
+	levels     *authz.Hierarchy
+	features   authz.FeatureResolver
+	audit      audit.Repository
+	connection database.Connection
 }
 
 // WithRoles declares the application's predefined roles: defined in code,
@@ -177,10 +181,6 @@ type settings struct {
 func WithRoles(roles ...authz.Role) Option {
 	return func(s *settings) { s.roles = append(s.roles, roles...) }
 }
-
-// WithPermissions chooses the ids administration is guarded by, when the
-// application's catalogue already has its own names for them.
-func WithPermissions(p Permissions) Option { return func(s *settings) { s.permissions = p } }
 
 // WithScopes gives the application places below the root: a hierarchy such as
 // authz.NewHierarchy("organization", "dealer", "location") and the catalogue that
@@ -198,9 +198,6 @@ func WithFeatures(f authz.FeatureResolver) Option { return func(s *settings) { s
 // audit.NewRepository(database.NewTransactor(db)); the audit_logs table is the
 // application's (audit.Migrate).
 func WithAudit(repo audit.Repository) Option { return func(s *settings) { s.audit = repo } }
-
-// WithPrefix mounts the routes under a path prefix, for example "/api/v1".
-func WithPrefix(prefix string) Option { return func(s *settings) { s.prefix = prefix } }
 
 // On puts the module's tables, and so its migrations, on another connection
 // than the application's primary one.
@@ -237,17 +234,15 @@ func (s settings) storeOptions() []gormstore.Option {
 // define adds the module's permissions the catalogue lacks. Managing needs
 // viewing, so a role that grants one grants the other.
 func (s settings) define(c *authz.Catalogue) error {
-	p := s.permissions
-
 	for _, def := range []struct {
 		id   string
 		opts []authz.DefineOption
 	}{
-		{p.ViewRoles, nil},
-		{p.ManageRoles, []authz.DefineOption{authz.Sensitive(), authz.Requires(p.ViewRoles)}},
-		{p.DeleteRoles, []authz.DefineOption{authz.Sensitive(), authz.Requires(p.ViewRoles)}},
-		{p.ViewAccess, nil},
-		{p.ManageBindings, []authz.DefineOption{authz.Sensitive(), authz.Requires(p.ViewAccess)}},
+		{admin.ViewRoles, nil},
+		{admin.ManageRoles, []authz.DefineOption{authz.Sensitive(), authz.Requires(admin.ViewRoles)}},
+		{admin.DeleteRoles, []authz.DefineOption{authz.Sensitive(), authz.Requires(admin.ViewRoles)}},
+		{admin.ViewAccess, nil},
+		{admin.ManageBindings, []authz.DefineOption{authz.Sensitive(), authz.Requires(admin.ViewAccess)}},
 	} {
 		if _, ok := c.Lookup(def.id); ok {
 			continue

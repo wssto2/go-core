@@ -21,12 +21,11 @@ import (
 
 // Config wires the services. Every field is required.
 type Config struct {
-	Engine      *authz.Engine
-	Store       Store
-	Scopes      ScopeCatalog
-	Subjects    SubjectDirectory
-	Permissions Permissions
-	Transactor  Transactor
+	Engine     *authz.Engine
+	Store      Store
+	Scopes     ScopeCatalog
+	Subjects   SubjectDirectory
+	Transactor Transactor
 }
 
 // New builds the role and binding services around one authz.Admin.
@@ -44,17 +43,16 @@ func New(cfg Config) (*Roles, *Bindings, error) {
 		return nil, nil, errors.New("access: a Transactor is required: database.NewTransactor(db)")
 	}
 
-	p := cfg.Permissions
-	for _, id := range p.All() {
+	for _, id := range PermissionIDs() {
 		if _, ok := cfg.Engine.Catalogue().Lookup(id); !ok {
-			return nil, nil, fmt.Errorf("access: permission %q is not in the catalogue: define it, or choose another id in Permissions", id)
+			return nil, nil, fmt.Errorf("access: permission %q is not in the catalogue: define it in the catalogue, or let access.Install define it", id)
 		}
 	}
 
 	delegation, err := authz.NewAdmin(authz.AdminConfig{
 		Engine: cfg.Engine, Store: cfg.Store,
-		ManageRoles: p.ManageRoles, ManageBindings: p.ManageBindings,
-		Protected: []string{p.ManageBindings},
+		ManageRoles: ManageRoles, ManageBindings: ManageBindings,
+		Protected: []string{ManageBindings},
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("access: %w", err)

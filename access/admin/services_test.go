@@ -428,6 +428,7 @@ func TestMineListsTheSignedInSubjectsOwnBindings(t *testing.T) {
 
 func TestAServiceNeedsEveryPieceAndTheFix(t *testing.T) {
 	f := newFixture(t)
+	bare := bareEngine(t, f)
 
 	for _, tt := range []struct {
 		missing string
@@ -438,8 +439,7 @@ func TestAServiceNeedsEveryPieceAndTheFix(t *testing.T) {
 		{"ScopeCatalog", admin.Config{Engine: f.Engine, Store: f.Store}},
 		{"SubjectDirectory", admin.Config{Engine: f.Engine, Store: f.Store, Scopes: admin.NoScopes()}},
 		{"Transactor", admin.Config{Engine: f.Engine, Store: f.Store, Scopes: admin.NoScopes(), Subjects: newDirectory()}},
-		{"iam.role:viewer", admin.Config{Engine: f.Engine, Store: f.Store, Scopes: admin.NoScopes(), Subjects: newDirectory(), Transactor: noTx{},
-			Permissions: admin.Permissions{ViewRoles: "iam.role:viewer"}}},
+		{"iam.role:view", admin.Config{Engine: bare.Engine, Store: f.Store, Scopes: admin.NoScopes(), Subjects: newDirectory(), Transactor: noTx{}}},
 	} {
 		_, _, err := admin.New(tt.cfg)
 		require.Error(t, err, tt.missing)
@@ -451,4 +451,17 @@ type noTx struct{}
 
 func (noTx) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
 	return fn(ctx)
+}
+
+// bareEngine is an engine over a catalogue that knows nothing of the module.
+type bare struct{ Engine *authz.Engine }
+
+func bareEngine(t *testing.T, f *fixture) bare {
+	c := authz.NewCatalogue()
+	c.MustDefine("crm.customer:view")
+
+	e, err := authz.NewEngine(authz.Config{Catalogue: c, Hierarchy: authztest.Hierarchy(), Store: f.Store, Resolver: newDirectory()})
+	require.NoError(t, err)
+
+	return bare{e}
 }
