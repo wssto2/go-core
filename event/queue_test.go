@@ -389,3 +389,65 @@ func TestEventsOfOtherNamesAndAlreadyProcessedRowsAreLeftAlone(t *testing.T) {
 		require.Zero(t, calls)
 	})
 }
+
+// Delivery is at least once: an event can reach a handler a second time (a
+// lease that ran out while the first call was still working). A handler that
+// keys its effect on event.ID is unaffected.
+func TestAHandlerCanDedupeOnTheEventID(t *testing.T) {
+	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+		publish := setup(t, db)
+		calls, effects := 0, map[uint64]int{}
+
+		c := Assigned.To("notifications.assignee", func(ctx context.Context, _ TicketAssigned) error {
+			calls++
+
+			id, _ := event.ID(ctx)
+			effects[id]++ // a real handler writes a row keyed on id, ignoring a duplicate key
+
+			return nil
+		})
+		q := event.NewQueue(db, newClock(), quiet(), c)
+
+		publish(TicketAssigned{TicketID: 1})
+		require.NoError(t, q.Drain(context.Background()))
+
+		// A second delivery, as an expired lease would cause.
+		require.NoError(t, db.Exec("DELETE FROM event_consumer_attempts").Error)
+		require.NoError(t, db.Exec("UPDATE outbox_events SET processed_at = NULL").Error)
+		require.NoError(t, q.Drain(context.Background()))
+
+		require.Equal(t, 2, calls)
+		require.Len(t, effects, 1, "both deliveries carry the same id")
+	})
+}
+
+type LegacyAssigned struct {
+	LeadID int `json:"lead_id"`
+}
+
+// Rows an application wrote with InsertOutboxEvent before it moved to Define
+// are named by the Go type ("event_test.LegacyAssigned") and carry version 1:
+// declaring the event under that name keeps them readable.
+func TestRowsFromInsertOutboxEventAreConsumedUnderTheirOldName(t *testing.T) {
+	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+		require.NoError(t, event.Migrate(db))
+		require.NoError(t, database.NewTransactor(db).WithinTransaction(context.Background(), func(ctx context.Context) error {
+			tx, _ := database.TxFromContext(ctx)
+
+			return event.InsertOutboxEvent(ctx, tx, LegacyAssigned{LeadID: 9})
+		}))
+
+		var got []int
+
+		legacy := event.Define[LegacyAssigned]("event_test.LegacyAssigned")
+		q := event.NewQueue(db, newClock(), quiet(), legacy.To("notifications.lead", func(_ context.Context, a LegacyAssigned) error {
+			got = append(got, a.LeadID)
+
+			return nil
+		}))
+
+		require.NoError(t, q.Drain(context.Background()))
+		require.Equal(t, []int{9}, got)
+		require.True(t, processed(t, db, 1))
+	})
+}
