@@ -1,11 +1,13 @@
 package gocore
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
 
+	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 )
@@ -53,4 +55,26 @@ func TestLaterMustGetPanicsWithTheNamedError(t *testing.T) {
 	}()
 
 	d.MustGet()
+}
+
+func TestAuthorizeSetsTheAuthorizerOnceAndFailReportsAtCheck(t *testing.T) {
+	app := New(bootstrap.DefaultConfig(), WithLogger(slog.New(slog.DiscardHandler)))
+
+	app.Authorize(authztest.AllowAll())
+
+	if err := app.Check(); err != nil {
+		t.Fatalf("one authorizer is fine: %v", err)
+	}
+
+	app.Authorize(authztest.DenyAll())
+	app.Fail("access needs a SubjectDirectory", "pass the users")
+
+	var startup *StartupError
+	if err := app.Check(); !errors.As(err, &startup) || len(startup.Problems) != 2 {
+		t.Fatalf("want two problems, got %v", err)
+	}
+
+	if !strings.Contains(startup.Problems[0].What, "set twice") || startup.Problems[1].Fix != "pass the users" {
+		t.Fatalf("problems: %v", startup.Problems)
+	}
 }
