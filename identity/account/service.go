@@ -9,7 +9,7 @@ import (
 // Deps are what the services are built on. Accounts, SignIns, Sessions and
 // Clock are required; the rest have defaults.
 type Deps struct {
-	Accounts AccountStore
+	Accounts Store
 	SignIns  SignInLog
 	Sessions SessionStore
 	Clock    Clock
@@ -42,7 +42,7 @@ type Services struct {
 func New(d Deps, cfg Config) (Services, error) {
 	switch {
 	case d.Accounts == nil:
-		return Services{}, errors.New("identity: Deps.Accounts is missing: pass an AccountStore, for example gormstore.New(db).Accounts")
+		return Services{}, errors.New("identity: Deps.Accounts is missing: pass a Store, for example gormstore.New(db).Accounts")
 	case d.SignIns == nil:
 		return Services{}, errors.New("identity: Deps.SignIns is missing: pass a SignInLog, for example gormstore.New(db).SignIns")
 	case d.Sessions == nil:

@@ -36,6 +36,11 @@ type harness struct {
 }
 
 func newHarness(t *testing.T, mutate func(*identityhttp.Config), opts ...identitytest.Option) *harness {
+	return newHarnessAt(t, "", mutate, opts...)
+}
+
+// newHarnessAt mounts the routes below an application prefix, as gocore.WithPrefix does.
+func newHarnessAt(t *testing.T, prefix string, mutate func(*identityhttp.Config), opts ...identitytest.Option) *harness {
 	t.Helper()
 
 	inactive := identitytest.Account(3, "ines", "secret")
@@ -58,8 +63,13 @@ func newHarness(t *testing.T, mutate func(*identityhttp.Config), opts ...identit
 	engine.Use(middlewares.ErrorHandler(slog.New(slog.DiscardHandler), nil, true))
 
 	security := route.Security{Authenticate: []gin.HandlerFunc{identityhttp.Authentication(kit.SignIn, cfg.Cookies, cfg.Principal)}}
+	var routes gin.IRoutes = engine
+	if prefix != "" {
+		routes = engine.Group(prefix)
+	}
+
 	for _, r := range handler.Routes() {
-		require.NoError(t, r.Mount(engine, security))
+		require.NoError(t, r.Mount(routes, security))
 	}
 
 	return &harness{t: t, kit: kit, engine: engine}
@@ -113,13 +123,15 @@ func (r reply) json() map[string]any {
 }
 
 func withCookie(name, value string) func(*nethttp.Request) {
-	return func(r *nethttp.Request) { r.AddCookie(&nethttp.Cookie{Name: name, Value: value}) }
+	return func(r *nethttp.Request) {
+		r.AddCookie(&nethttp.Cookie{Name: name, Value: value}) //nolint:gosec // a request cookie in a test
+	}
 }
 
 func (h *harness) login() reply {
 	h.t.Helper()
 
-	r := h.do(nethttp.MethodPost, "/auth/login", map[string]string{"login": "ana", "password": "secret"})
+	r := h.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "ana", "password": "secret"})
 	require.Equal(h.t, nethttp.StatusOK, r.Code, r.Body.String())
 
 	return r
@@ -144,7 +156,7 @@ func TestLoginAnswersThePayloadAndSetsTheCookies(t *testing.T) {
 	assert.Equal(t, "/", access.Path)
 	assert.Equal(t, 24*3600, access.MaxAge)
 	assert.Equal(t, nethttp.SameSiteLaxMode, access.SameSite)
-	assert.Equal(t, "/auth/refresh", refresh.Path, "the refresh cookie goes to the refresh route only")
+	assert.Equal(t, "/v1/auth/refresh", refresh.Path, "the refresh cookie goes to the refresh route only")
 	assert.Equal(t, 48*3600, refresh.MaxAge)
 	assert.NotContains(t, r.Body.String(), access.Value, "the tokens are cookies, not payload")
 	assert.NotContains(t, r.Body.String(), "password")
@@ -153,7 +165,7 @@ func TestLoginAnswersThePayloadAndSetsTheCookies(t *testing.T) {
 func TestSecureCookiesFollowTheRequest(t *testing.T) {
 	h := newHarness(t, nil)
 
-	r := h.do(nethttp.MethodPost, "/auth/login", map[string]string{"login": "ana", "password": "secret"},
+	r := h.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "ana", "password": "secret"},
 		func(r *nethttp.Request) { r.Header.Set("X-Forwarded-Proto", "https") })
 
 	assert.True(t, r.cookie("access_token").Secure)
@@ -163,8 +175,8 @@ func TestSecureCookiesFollowTheRequest(t *testing.T) {
 func TestFailedSignInsAnswerAlike(t *testing.T) {
 	h := newHarness(t, nil)
 
-	unknown := h.do(nethttp.MethodPost, "/auth/login", map[string]string{"login": "nobody", "password": "x"})
-	wrong := h.do(nethttp.MethodPost, "/auth/login", map[string]string{"login": "ana", "password": "x"})
+	unknown := h.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "nobody", "password": "x"})
+	wrong := h.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "ana", "password": "x"})
 
 	for _, r := range []reply{unknown, wrong} {
 		assert.Equal(t, nethttp.StatusUnprocessableEntity, r.Code)
@@ -174,7 +186,7 @@ func TestFailedSignInsAnswerAlike(t *testing.T) {
 
 	assert.Equal(t, unknown.Body.String(), wrong.Body.String())
 
-	inactive := h.do(nethttp.MethodPost, "/auth/login", map[string]string{"login": "ines", "password": "secret"})
+	inactive := h.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "ines", "password": "secret"})
 	assert.Equal(t, nethttp.StatusBadRequest, inactive.Code)
 	assert.Equal(t, "identity.signin.inactive", inactive.json()["code"])
 }
@@ -183,10 +195,10 @@ func TestTheLockAnswersWhenItEnds(t *testing.T) {
 	h := newHarness(t, nil)
 
 	for range 5 {
-		h.do(nethttp.MethodPost, "/auth/login", map[string]string{"login": "ana", "password": "x"})
+		h.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "ana", "password": "x"})
 	}
 
-	r := h.do(nethttp.MethodPost, "/auth/login", map[string]string{"login": "ana", "password": "secret"})
+	r := h.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "ana", "password": "secret"})
 	assert.Equal(t, nethttp.StatusUnprocessableEntity, r.Code)
 	assert.Equal(t, "identity.signin.locked", r.json()["code"])
 	assert.Equal(t, map[string]any{"locked_until": "2026-01-02T03:19:05Z"}, r.json()["params"])
@@ -195,9 +207,9 @@ func TestTheLockAnswersWhenItEnds(t *testing.T) {
 func TestInputIsValidated(t *testing.T) {
 	h := newHarness(t, nil)
 
-	assert.Equal(t, nethttp.StatusUnprocessableEntity, h.do(nethttp.MethodPost, "/auth/login", map[string]string{"login": "", "password": "x"}).Code)
+	assert.Equal(t, nethttp.StatusUnprocessableEntity, h.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "", "password": "x"}).Code)
 	assert.Equal(t, nethttp.StatusUnprocessableEntity,
-		h.do(nethttp.MethodPost, "/auth/login", map[string]string{"login": strings.Repeat("a", 101), "password": "x"}).Code)
+		h.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": strings.Repeat("a", 101), "password": "x"}).Code)
 }
 
 func TestMeReadsTheCookieOrTheBearerToken(t *testing.T) {
@@ -205,10 +217,10 @@ func TestMeReadsTheCookieOrTheBearerToken(t *testing.T) {
 	login := h.login()
 	token := login.cookie("access_token").Value
 
-	byCookie := h.do(nethttp.MethodGet, "/auth/me", nil, withCookie("access_token", token))
+	byCookie := h.do(nethttp.MethodGet, "/v1/auth/me", nil, withCookie("access_token", token))
 	assert.Equal(t, nethttp.StatusOK, byCookie.Code)
 
-	byBearer := h.do(nethttp.MethodGet, "/auth/me", nil, func(r *nethttp.Request) { r.Header.Set("Authorization", "Bearer "+token) })
+	byBearer := h.do(nethttp.MethodGet, "/v1/auth/me", nil, func(r *nethttp.Request) { r.Header.Set("Authorization", "Bearer "+token) })
 	assert.Equal(t, nethttp.StatusOK, byBearer.Code)
 	assert.JSONEq(t, byCookie.Body.String(), byBearer.Body.String())
 
@@ -221,17 +233,17 @@ func TestEveryRouteButLoginAndRefreshNeedsASession(t *testing.T) {
 	h := newHarness(t, nil)
 
 	for _, c := range []struct{ method, path string }{
-		{nethttp.MethodGet, "/auth/me"},
-		{nethttp.MethodPost, "/auth/logout"},
-		{nethttp.MethodPost, "/auth/change-locale"},
-		{nethttp.MethodPost, "/auth/login-as"},
+		{nethttp.MethodGet, "/v1/auth/me"},
+		{nethttp.MethodPost, "/v1/auth/logout"},
+		{nethttp.MethodPost, "/v1/auth/change-locale"},
+		{nethttp.MethodPost, "/v1/auth/login-as"},
 	} {
 		r := h.do(c.method, c.path, map[string]any{"locale": "en", "user_id": 2})
 		assert.Equal(t, nethttp.StatusUnauthorized, r.Code, c.path)
 		assert.Equal(t, "identity.session.invalid", r.json()["code"], c.path)
 	}
 
-	bad := h.do(nethttp.MethodGet, "/auth/me", nil, withCookie("access_token", "nope"))
+	bad := h.do(nethttp.MethodGet, "/v1/auth/me", nil, withCookie("access_token", "nope"))
 	assert.Equal(t, nethttp.StatusUnauthorized, bad.Code)
 }
 
@@ -240,18 +252,18 @@ func TestRefreshRotatesTheTokens(t *testing.T) {
 	first := h.login()
 	oldAccess, oldRefresh := first.cookie("access_token").Value, first.cookie("refresh_token").Value
 
-	r := h.do(nethttp.MethodPost, "/auth/refresh", nil, withCookie("refresh_token", oldRefresh))
+	r := h.do(nethttp.MethodPost, "/v1/auth/refresh", nil, withCookie("refresh_token", oldRefresh))
 	require.Equal(t, nethttp.StatusOK, r.Code, r.Body.String())
 	assert.NotEqual(t, oldAccess, r.cookie("access_token").Value)
 	assert.NotEqual(t, oldRefresh, r.cookie("refresh_token").Value)
 
-	again := h.do(nethttp.MethodPost, "/auth/refresh", nil, withCookie("refresh_token", oldRefresh))
+	again := h.do(nethttp.MethodPost, "/v1/auth/refresh", nil, withCookie("refresh_token", oldRefresh))
 	assert.Equal(t, nethttp.StatusUnauthorized, again.Code, "a refresh token works once")
 
-	fromBody := h.do(nethttp.MethodPost, "/auth/refresh", map[string]string{"refresh_token": r.cookie("refresh_token").Value})
+	fromBody := h.do(nethttp.MethodPost, "/v1/auth/refresh", map[string]string{"refresh_token": r.cookie("refresh_token").Value})
 	assert.Equal(t, nethttp.StatusOK, fromBody.Code, "the token may come in the body")
 
-	none := h.do(nethttp.MethodPost, "/auth/refresh", nil)
+	none := h.do(nethttp.MethodPost, "/v1/auth/refresh", nil)
 	assert.Equal(t, nethttp.StatusUnauthorized, none.Code)
 }
 
@@ -259,25 +271,25 @@ func TestLogoutEndsTheSessionAndClearsTheCookies(t *testing.T) {
 	h := newHarness(t, nil)
 	token := h.login().cookie("access_token").Value
 
-	r := h.do(nethttp.MethodPost, "/auth/logout", nil, withCookie("access_token", token))
+	r := h.do(nethttp.MethodPost, "/v1/auth/logout", nil, withCookie("access_token", token))
 	assert.Equal(t, nethttp.StatusNoContent, r.Code)
 	assert.Equal(t, -1, r.cookie("access_token").MaxAge)
 	assert.Equal(t, -1, r.cookie("refresh_token").MaxAge)
 
-	assert.Equal(t, nethttp.StatusUnauthorized, h.do(nethttp.MethodGet, "/auth/me", nil, withCookie("access_token", token)).Code)
+	assert.Equal(t, nethttp.StatusUnauthorized, h.do(nethttp.MethodGet, "/v1/auth/me", nil, withCookie("access_token", token)).Code)
 }
 
 func TestChangeLocale(t *testing.T) {
 	h := newHarness(t, nil)
 	token := h.login().cookie("access_token").Value
 
-	r := h.do(nethttp.MethodPost, "/auth/change-locale", map[string]string{"locale": "en"}, withCookie("access_token", token))
+	r := h.do(nethttp.MethodPost, "/v1/auth/change-locale", map[string]string{"locale": "en"}, withCookie("access_token", token))
 	assert.Equal(t, nethttp.StatusNoContent, r.Code)
 
-	me := h.do(nethttp.MethodGet, "/auth/me", nil, withCookie("access_token", token))
+	me := h.do(nethttp.MethodGet, "/v1/auth/me", nil, withCookie("access_token", token))
 	assert.Equal(t, "en", me.json()["data"].(map[string]any)["user"].(map[string]any)["locale"])
 
-	bad := h.do(nethttp.MethodPost, "/auth/change-locale", map[string]string{"locale": "Croatian"}, withCookie("access_token", token))
+	bad := h.do(nethttp.MethodPost, "/v1/auth/change-locale", map[string]string{"locale": "Croatian"}, withCookie("access_token", token))
 	assert.Equal(t, nethttp.StatusBadRequest, bad.Code)
 	assert.Equal(t, "identity.locale.invalid", bad.json()["code"])
 }
@@ -286,7 +298,7 @@ func TestLoginAsIsRefusedUnlessTheApplicationAllowsIt(t *testing.T) {
 	h := newHarness(t, nil)
 	token := h.login().cookie("access_token").Value
 
-	r := h.do(nethttp.MethodPost, "/auth/login-as", map[string]int{"user_id": 2}, withCookie("access_token", token))
+	r := h.do(nethttp.MethodPost, "/v1/auth/login-as", map[string]int{"user_id": 2}, withCookie("access_token", token))
 	assert.Equal(t, nethttp.StatusForbidden, r.Code)
 	assert.Equal(t, "identity.impersonation.disabled", r.json()["code"])
 }
@@ -295,12 +307,12 @@ func TestLoginAsSignsInAsTheTarget(t *testing.T) {
 	h := newHarness(t, nil, identitytest.WithImpersonation(permitAll{}))
 	token := h.login().cookie("access_token").Value
 
-	r := h.do(nethttp.MethodPost, "/auth/login-as", map[string]int{"user_id": 2}, withCookie("access_token", token))
+	r := h.do(nethttp.MethodPost, "/v1/auth/login-as", map[string]int{"user_id": 2}, withCookie("access_token", token))
 	require.Equal(t, nethttp.StatusOK, r.Code, r.Body.String())
 	assert.Equal(t, "boris", r.json()["data"].(map[string]any)["user"].(map[string]any)["login"])
 
 	asBoris := r.cookie("access_token").Value
-	me := h.do(nethttp.MethodGet, "/auth/me", nil, withCookie("access_token", asBoris))
+	me := h.do(nethttp.MethodGet, "/v1/auth/me", nil, withCookie("access_token", asBoris))
 	assert.Equal(t, "boris", me.json()["data"].(map[string]any)["user"].(map[string]any)["login"])
 }
 
@@ -344,13 +356,27 @@ func TestTheUserProjectionIsTheApplications(t *testing.T) {
 	assert.Equal(t, map[string]any{"id": float64(1), "shout": "ANA"}, h.login().json()["data"].(map[string]any)["user"])
 }
 
-func TestThePrefixMovesTheRoutesAndTheRefreshCookie(t *testing.T) {
-	h := newHarness(t, func(c *identityhttp.Config) { c.Prefix = "/api/v1" })
+func TestTheRefreshCookieFollowsWhereTheRoutesAreServed(t *testing.T) {
+	h := newHarnessAt(t, "/api", nil)
 
 	r := h.do(nethttp.MethodPost, "/api/v1/auth/login", map[string]string{"login": "ana", "password": "secret"})
 	require.Equal(t, nethttp.StatusOK, r.Code)
 	assert.Equal(t, "/api/v1/auth/refresh", r.cookie("refresh_token").Path)
-	assert.Equal(t, nethttp.StatusNotFound, h.do(nethttp.MethodPost, "/auth/login", nil).Code)
+	assert.Equal(t, "/", r.cookie("access_token").Path)
+
+	refreshed := h.do(nethttp.MethodPost, "/api/v1/auth/refresh", nil, withCookie("refresh_token", r.cookie("refresh_token").Value))
+	require.Equal(t, nethttp.StatusOK, refreshed.Code)
+	assert.Equal(t, "/api/v1/auth/refresh", refreshed.cookie("refresh_token").Path)
+
+	out := h.do(nethttp.MethodPost, "/api/v1/auth/logout", nil, withCookie("access_token", refreshed.cookie("access_token").Value))
+	assert.Equal(t, "/api/v1/auth/refresh", out.cookie("refresh_token").Path, "cleared where it was set")
+	assert.Equal(t, nethttp.StatusNotFound, h.do(nethttp.MethodPost, "/v1/auth/login", nil).Code)
+}
+
+func TestRefreshPathCanBeSetForAProxy(t *testing.T) {
+	h := newHarness(t, func(c *identityhttp.Config) { c.Cookies = identityhttp.Cookies{RefreshPath: "/public/refresh"} })
+
+	assert.Equal(t, "/public/refresh", h.login().cookie("refresh_token").Path)
 }
 
 func TestCookieNamesAreConfigurable(t *testing.T) {
@@ -361,7 +387,7 @@ func TestCookieNamesAreConfigurable(t *testing.T) {
 	r := h.login()
 	require.NotNil(t, r.cookie("sid"))
 	assert.Equal(t, "example.test", r.cookie("sid").Domain)
-	assert.Equal(t, nethttp.StatusOK, h.do(nethttp.MethodGet, "/auth/me", nil, withCookie("sid", r.cookie("sid").Value)).Code)
+	assert.Equal(t, nethttp.StatusOK, h.do(nethttp.MethodGet, "/v1/auth/me", nil, withCookie("sid", r.cookie("sid").Value)).Code)
 }
 
 func TestAuthenticationLeavesTheIdentityForOtherRoutes(t *testing.T) {
@@ -392,7 +418,7 @@ func TestTheSessionIsTouchedAsTimePasses(t *testing.T) {
 
 	h.kit.Clock.Advance(2 * time.Hour)
 
-	assert.Equal(t, nethttp.StatusOK, h.do(nethttp.MethodGet, "/auth/me", nil, withCookie("access_token", token)).Code)
+	assert.Equal(t, nethttp.StatusOK, h.do(nethttp.MethodGet, "/v1/auth/me", nil, withCookie("access_token", token)).Code)
 
 	sessions, err := h.kit.Users.Sessions(t.Context(), 1)
 	require.NoError(t, err)

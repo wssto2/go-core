@@ -293,13 +293,13 @@ func appendEntry(ctx context.Context, d Deps, row SignInEntry) error {
 	return nil
 }
 
-// cut keeps the first max characters of s.
-func cut(s string, max int) string {
-	if utf8.RuneCountInString(s) <= max {
+// cut keeps the first width characters of s.
+func cut(s string, width int) string {
+	if utf8.RuneCountInString(s) <= width {
 		return s
 	}
 
-	return string([]rune(s)[:max])
+	return string([]rune(s)[:width])
 }
 
 type noImpersonation struct{}

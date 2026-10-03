@@ -47,9 +47,9 @@ type Account struct {
 func (a Account) GetID() int { return a.ID }
 
 var (
-	// ErrNotFound is what an AccountStore returns for an account that does not exist.
+	// ErrNotFound is what a Store returns for an account that does not exist.
 	ErrNotFound = errors.New("identity: account not found")
-	// ErrLoginTaken is what AccountStore.Create returns when the login is in use.
+	// ErrLoginTaken is what Store.Create returns when the login is in use.
 	ErrLoginTaken = errors.New("identity: login already in use")
 )
 

@@ -18,7 +18,6 @@ type Handler struct {
 	users      *account.Users
 	clock      account.Clock
 	cookies    Cookies
-	prefix     string
 	project    UserProjector
 	principal  PrincipalOf
 	access     AccessProvider
@@ -30,10 +29,7 @@ type Handler struct {
 type Config struct {
 	Services account.Services
 	Clock    account.Clock
-	// Prefix is the path the routes are mounted under, "/api/v1" for example. The
-	// refresh cookie's path follows it.
-	Prefix  string
-	Cookies Cookies
+	Cookies  Cookies
 	// Project defaults to DefaultUser.
 	Project UserProjector
 	// Principal defaults to DefaultPrincipal.
@@ -47,8 +43,8 @@ type Config struct {
 // NewHandler returns the handler for the configuration.
 func NewHandler(cfg Config) *Handler {
 	h := &Handler{
-		signIn: cfg.Services.SignIn, users: cfg.Services.Users, clock: cfg.Clock, prefix: cfg.Prefix,
-		cookies: cfg.Cookies.withDefaults(cfg.Prefix), project: cfg.Project, principal: cfg.Principal,
+		signIn: cfg.Services.SignIn, users: cfg.Services.Users, clock: cfg.Clock,
+		cookies: cfg.Cookies.withDefaults(), project: cfg.Project, principal: cfg.Principal,
 		access: cfg.Access, navigation: cfg.Navigation,
 	}
 
@@ -63,16 +59,16 @@ func NewHandler(cfg Config) *Handler {
 	return h
 }
 
-// Routes binds every declared route to its handler, mounted below the prefix.
+// Routes binds every declared route to its handler.
 func (h *Handler) Routes() []route.Handled {
-	return route.Under(h.prefix,
+	return []route.Handled{
 		Login.To(h.login),
 		Refresh.To(h.refresh),
 		Logout.To(h.logout),
 		Me.To(h.me),
 		ChangeLocale.To(h.changeLocale),
 		LoginAs.To(h.loginAs),
-	)
+	}
 }
 
 func (h *Handler) login(ctx context.Context, in LoginInput) (SessionResponse, error) {
@@ -85,7 +81,7 @@ func (h *Handler) login(ctx context.Context, in LoginInput) (SessionResponse, er
 		return SessionResponse{}, err
 	}
 
-	return h.session(ctx, signed)
+	return h.session(ctx, Login.Spec().Path, signed)
 }
 
 func (h *Handler) refresh(ctx context.Context, in RefreshInput) (SessionResponse, error) {
@@ -105,14 +101,14 @@ func (h *Handler) refresh(ctx context.Context, in RefreshInput) (SessionResponse
 		return SessionResponse{}, err
 	}
 
-	return h.session(ctx, signed)
+	return h.session(ctx, Refresh.Spec().Path, signed)
 }
 
 func (h *Handler) logout(ctx context.Context, _ route.None) (route.Empty, error) {
 	x := route.ExchangeOf(ctx)
 
 	// The cookies go whether or not the token was still good.
-	h.cookies.clear(x)
+	h.cookies.clear(x, Logout.Spec().Path)
 
 	return route.Empty{}, h.signIn.Logout(ctx, tokenOf(x.Header("Authorization"), x.Cookie(h.cookies.Access)))
 }
@@ -150,12 +146,13 @@ func (h *Handler) loginAs(ctx context.Context, in LoginAsInput) (SessionResponse
 		return SessionResponse{}, err
 	}
 
-	return h.session(ctx, signed)
+	return h.session(ctx, LoginAs.Spec().Path, signed)
 }
 
-// session sets the cookies for a fresh session and answers its payload.
-func (h *Handler) session(ctx context.Context, signed account.Signed) (SessionResponse, error) {
-	h.cookies.set(route.ExchangeOf(ctx), signed.Credentials.Access, signed.Credentials.Refresh, h.clock.Now(), signed.Credentials.ExpiresAt)
+// session sets the cookies for a fresh session, served at the declared path,
+// and answers its payload.
+func (h *Handler) session(ctx context.Context, declared string, signed account.Signed) (SessionResponse, error) {
+	h.cookies.set(route.ExchangeOf(ctx), declared, signed.Credentials.Access, signed.Credentials.Refresh, h.clock.Now(), signed.Credentials.ExpiresAt)
 
 	return h.payload(ctx, signed.Account, signed.Credentials.ExpiresAt)
 }

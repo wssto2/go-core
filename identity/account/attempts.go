@@ -15,16 +15,16 @@ const (
 // attempts counts the sign-in attempts of each login in fixed windows
 // (IAM-USER-001 item 5). The lock (five wrong passwords) is recorded after each
 // attempt, so attempts made at the same moment can all pass the check before
-// the lock is written; at most max attempts per login per window are let
+// the lock is written; at most limit attempts per login per window are let
 // through, whatever the answers.
 //
 // ponytail: in memory, so per process: with several instances a person gets
-// max attempts per instance per minute, and the lock, read off the history, is
+// limit attempts per instance per minute, and the lock, read off the history, is
 // the shared limit. A shared counter if the instances ever matter.
 type attempts struct {
 	mu      sync.Mutex
 	clock   Clock
-	max     int
+	limit   int
 	windows map[string]window
 }
 
@@ -33,8 +33,8 @@ type window struct {
 	count int
 }
 
-func newAttempts(clock Clock, max int) *attempts {
-	return &attempts{clock: clock, max: max, windows: map[string]window{}}
+func newAttempts(clock Clock, limit int) *attempts {
+	return &attempts{clock: clock, limit: limit, windows: map[string]window{}}
 }
 
 // allow counts an attempt of login and reports whether it may go on; when it
@@ -61,5 +61,5 @@ func (a *attempts) allow(login string) (until time.Time, ok bool) {
 	w.count++
 	a.windows[login] = w
 
-	return w.end, w.count <= a.max
+	return w.end, w.count <= a.limit
 }

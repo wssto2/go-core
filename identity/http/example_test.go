@@ -20,7 +20,7 @@ import (
 
 // serve mounts the identity routes over memory stores holding one account, ana
 // (password "secret"), and returns the engine.
-func serve(cfg identityhttp.Config) (*gin.Engine, identitytest.Kit) {
+func serve(cfg identityhttp.Config, prefix ...string) (*gin.Engine, identitytest.Kit) {
 	kit := identitytest.New(exampleT{}, []account.Account{identitytest.Account(1, "ana", "secret")})
 	cfg.Services, cfg.Clock = account.Services{SignIn: kit.SignIn, Users: kit.Users}, kit.Clock
 
@@ -31,16 +31,22 @@ func serve(cfg identityhttp.Config) (*gin.Engine, identitytest.Kit) {
 
 	security := route.Security{Authenticate: []gin.HandlerFunc{identityhttp.Authentication(kit.SignIn, cfg.Cookies, cfg.Principal)}}
 
+	var routes gin.IRoutes = engine
+	if len(prefix) > 0 {
+		routes = engine.Group(prefix[0]) // what gocore.WithPrefix does
+	}
+
 	for _, r := range identityhttp.NewHandler(cfg).Routes() {
-		_ = r.Mount(engine, security)
+		_ = r.Mount(routes, security)
 	}
 
 	return engine, kit
 }
 
-// NewHandler serves the sign-in routes; Routes are mounted under the prefix.
+// NewHandler serves the sign-in routes. Behind an application prefix, the refresh
+// cookie goes to the refresh route where it is served.
 func ExampleNewHandler() {
-	engine, _ := serve(identityhttp.Config{Prefix: "/api/v1"})
+	engine, _ := serve(identityhttp.Config{}, "/api")
 
 	req := httptest.NewRequestWithContext(context.Background(), nethttp.MethodPost, "/api/v1/auth/login",
 		strings.NewReader(`{"login":"ana","password":"secret"}`))
@@ -61,7 +67,7 @@ func ExampleAuthentication() {
 	signed, _ := kit.SignIn.Login(context.Background(), account.LoginInput{Login: "ana", Password: "secret"})
 
 	for _, token := range []string{"", signed.Credentials.Access} {
-		req := httptest.NewRequestWithContext(context.Background(), nethttp.MethodGet, "/auth/me", nil)
+		req := httptest.NewRequestWithContext(context.Background(), nethttp.MethodGet, "/v1/auth/me", nil)
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
@@ -118,16 +124,16 @@ func ExampleLogin() {
 		fmt.Println(r.Method, r.Path, "public:", r.Public)
 	}
 	// Output:
-	// POST /auth/login public: true
-	// GET /auth/me public: false
-	// POST /auth/login-as public: false
+	// POST /v1/auth/login public: true
+	// GET /v1/auth/me public: false
+	// POST /v1/auth/login-as public: false
 }
 
 // Cookies renames the cookies and places them.
 func ExampleCookies() {
 	engine, _ := serve(identityhttp.Config{Cookies: identityhttp.Cookies{Access: "sid", Refresh: "rid"}})
 
-	req := httptest.NewRequestWithContext(context.Background(), nethttp.MethodPost, "/auth/login",
+	req := httptest.NewRequestWithContext(context.Background(), nethttp.MethodPost, "/v1/auth/login",
 		strings.NewReader(`{"login":"ana","password":"secret"}`))
 	req.Header.Set("Content-Type", "application/json")
 

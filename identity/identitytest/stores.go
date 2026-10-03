@@ -9,7 +9,7 @@ import (
 	"github.com/wssto2/go-core/identity/account"
 )
 
-// Accounts is a memory account.AccountStore.
+// Accounts is a memory account.Store.
 type Accounts struct {
 	mu   sync.Mutex
 	next int
@@ -19,7 +19,7 @@ type Accounts struct {
 // NewAccounts returns an empty store.
 func NewAccounts() *Accounts { return &Accounts{next: 1, rows: map[int]account.Account{}} }
 
-// Find implements account.AccountStore.
+// Find implements account.Store.
 func (s *Accounts) Find(_ context.Context, id int) (account.Account, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -32,7 +32,7 @@ func (s *Accounts) Find(_ context.Context, id int) (account.Account, error) {
 	return a, nil
 }
 
-// FindByLogin implements account.AccountStore.
+// FindByLogin implements account.Store.
 func (s *Accounts) FindByLogin(_ context.Context, login string) (account.Account, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -46,7 +46,7 @@ func (s *Accounts) FindByLogin(_ context.Context, login string) (account.Account
 	return account.Account{}, account.ErrNotFound
 }
 
-// Create implements account.AccountStore. An account that comes with an ID
+// Create implements account.Store. An account that comes with an ID
 // keeps it, which lets a test name its people.
 func (s *Accounts) Create(_ context.Context, a account.Account) (account.Account, error) {
 	s.mu.Lock()
@@ -85,17 +85,17 @@ func (s *Accounts) update(id int, fn func(*account.Account)) error {
 	return nil
 }
 
-// SetLocale implements account.AccountStore.
+// SetLocale implements account.Store.
 func (s *Accounts) SetLocale(_ context.Context, id int, locale string) error {
 	return s.update(id, func(a *account.Account) { a.Locale = locale })
 }
 
-// SetPasswordHash implements account.AccountStore.
+// SetPasswordHash implements account.Store.
 func (s *Accounts) SetPasswordHash(_ context.Context, id int, hash string) error {
 	return s.update(id, func(a *account.Account) { a.PasswordHash = hash })
 }
 
-// SetActive implements account.AccountStore.
+// SetActive implements account.Store.
 func (s *Accounts) SetActive(_ context.Context, id int, active bool) error {
 	return s.update(id, func(a *account.Account) { a.Active = active })
 }

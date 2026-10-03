@@ -46,7 +46,7 @@ func TestTheDeclaredContractMatchesGolden(t *testing.T) {
 
 		if *update {
 			require.NoError(t, os.MkdirAll(filepath.Dir(golden), 0o750))
-			require.NoError(t, os.WriteFile(golden, []byte(withoutVersion(string(got))), 0o600))
+			require.NoError(t, os.WriteFile(golden, []byte(withoutVersion(string(got))), 0o600)) //nolint:gosec // a golden file of this package
 
 			continue
 		}
@@ -90,7 +90,7 @@ func TestThePayloadMatchesGolden(t *testing.T) {
 	got := pretty.String() + "\n"
 
 	if *update {
-		require.NoError(t, os.WriteFile(golden, []byte(got), 0o600))
+		require.NoError(t, os.WriteFile(golden, []byte(got), 0o600)) //nolint:gosec // a golden file of this package
 
 		return
 	}

@@ -8,22 +8,26 @@ import (
 	"github.com/wssto2/go-core/route"
 )
 
-// The routes identity serves, declared once. Paths are relative to the prefix
-// the application mounts them under (identity.WithPrefix), which the contract
-// does not carry: the client adds its base URL.
+// base is the path every route of this version lives under. The application's
+// own prefix (gocore.WithPrefix("/api")) goes in front of it, so these are
+// served at /api/v1/auth/login. A v2 is new declarations in another group, not
+// an edit of these.
+const base = "/v1/auth"
+
+// The routes identity serves, declared once.
 var (
 	// Login signs a person in with a login and a password.
-	Login = route.Post[LoginInput, SessionResponse]("/auth/login").Name("identity.login").Public()
+	Login = route.Post[LoginInput, SessionResponse](base + "/login").Name("identity.login").Public()
 	// Refresh swaps the refresh token, from the body or the cookie, for new tokens.
-	Refresh = route.Post[RefreshInput, SessionResponse]("/auth/refresh").Name("identity.refresh").Public()
+	Refresh = route.Post[RefreshInput, SessionResponse](base + "/refresh").Name("identity.refresh").Public()
 	// Logout ends the session the request came with.
-	Logout = route.Post[route.None, route.Empty]("/auth/logout").Name("identity.logout")
+	Logout = route.Post[route.None, route.Empty](base + "/logout").Name("identity.logout")
 	// Me answers the session payload of whoever is signed in.
-	Me = route.Get[route.None, SessionResponse]("/auth/me").Name("identity.me")
+	Me = route.Get[route.None, SessionResponse](base + "/me").Name("identity.me")
 	// ChangeLocale sets the signed-in person's language.
-	ChangeLocale = route.Post[ChangeLocaleInput, route.Empty]("/auth/change-locale").Name("identity.change-locale")
+	ChangeLocale = route.Post[ChangeLocaleInput, route.Empty](base + "/change-locale").Name("identity.change-locale")
 	// LoginAs signs in as somebody else, when the application has said who may.
-	LoginAs = route.Post[LoginAsInput, SessionResponse]("/auth/login-as").Name("identity.login-as")
+	LoginAs = route.Post[LoginAsInput, SessionResponse](base + "/login-as").Name("identity.login-as")
 
 	// Routes is identity's contract: contract.Generate(dir, identity.Routes) writes
 	// its TypeScript. User is the default projection of an account, listed because

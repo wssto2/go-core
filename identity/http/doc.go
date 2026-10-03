@@ -4,12 +4,16 @@
 // every other route. identity.Install mounts it; the declared contract is
 // Routes.
 //
-//	POST /auth/login          public   {login, password}   the session payload, tokens set as cookies
-//	POST /auth/refresh        public   {refresh_token}      the same, with rotated tokens
-//	POST /auth/logout                                       ends the session, clears the cookies
-//	GET  /auth/me                                           the session payload
-//	POST /auth/change-locale           {locale}             sets the person's language
-//	POST /auth/login-as                {user_id}            signs in as somebody, when the application allows it
+//	POST /v1/auth/login          public   {login, password}   the session payload, tokens set as cookies
+//	POST /v1/auth/refresh        public   {refresh_token}      the same, with rotated tokens
+//	POST /v1/auth/logout                                       ends the session, clears the cookies
+//	GET  /v1/auth/me                                           the session payload
+//	POST /v1/auth/change-locale           {locale}             sets the person's language
+//	POST /v1/auth/login-as                {user_id}            signs in as somebody, when the application allows it
+//
+// The paths carry their version; the application's own prefix goes in front
+// (gocore.WithPrefix("/api") serves /api/v1/auth/login). A v2 is new
+// declarations in another group beside these.
 //
 // The session payload is {user, expires_at, access, navigation}: user is what
 // the UserProjector makes of the account (it must hold the id), access is the
@@ -18,6 +22,6 @@
 // parseSessionPayload.
 //
 // Tokens travel in HttpOnly cookies (access_token for the whole site,
-// refresh_token for the refresh path only) and an access token is also
+// refresh_token for the refresh route only, wherever the application serves it) and an access token is also
 // accepted as "Authorization: Bearer".
 package http

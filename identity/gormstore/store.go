@@ -24,19 +24,20 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// Accounts implements account.AccountStore, SignIns account.SignInLog and
-// Sessions account.SessionStore.
-type (
-	Accounts struct{ db *gorm.DB }
-	SignIns  struct{ db *gorm.DB }
-	Sessions struct {
-		db      *gorm.DB
-		refresh auth.Hasher
-	}
-)
+// Accounts implements account.Store.
+type Accounts struct{ db *gorm.DB }
+
+// SignIns implements account.SignInLog.
+type SignIns struct{ db *gorm.DB }
+
+// Sessions implements account.SessionStore.
+type Sessions struct {
+	db      *gorm.DB
+	refresh auth.Hasher
+}
 
 var (
-	_ account.AccountStore = (*Accounts)(nil)
+	_ account.Store        = (*Accounts)(nil)
 	_ account.SignInLog    = (*SignIns)(nil)
 	_ account.SessionStore = (*Sessions)(nil)
 )
@@ -96,12 +97,12 @@ func (m accountModel) account() account.Account {
 	}
 }
 
-// Find implements account.AccountStore.
+// Find implements account.Store.
 func (s *Accounts) Find(ctx context.Context, id int) (account.Account, error) {
 	return s.one(ctx, "id = ?", id)
 }
 
-// FindByLogin implements account.AccountStore.
+// FindByLogin implements account.Store.
 func (s *Accounts) FindByLogin(ctx context.Context, login string) (account.Account, error) {
 	return s.one(ctx, "login = ?", account.NormalizeLogin(login))
 }
@@ -121,7 +122,7 @@ func (s *Accounts) one(ctx context.Context, where string, arg any) (account.Acco
 	return m.account(), nil
 }
 
-// Create implements account.AccountStore.
+// Create implements account.Store.
 func (s *Accounts) Create(ctx context.Context, a account.Account) (account.Account, error) {
 	m := accountModel{
 		Login: account.NormalizeLogin(a.Login), Email: a.Email, Name: a.Name, PasswordHash: a.PasswordHash,
@@ -161,17 +162,17 @@ func (s *Accounts) set(ctx context.Context, id int, column string, value any) er
 	return nil
 }
 
-// SetLocale implements account.AccountStore.
+// SetLocale implements account.Store.
 func (s *Accounts) SetLocale(ctx context.Context, id int, locale string) error {
 	return s.set(ctx, id, "locale", locale)
 }
 
-// SetPasswordHash implements account.AccountStore.
+// SetPasswordHash implements account.Store.
 func (s *Accounts) SetPasswordHash(ctx context.Context, id int, hash string) error {
 	return s.set(ctx, id, "password_hash", hash)
 }
 
-// SetActive implements account.AccountStore.
+// SetActive implements account.Store.
 func (s *Accounts) SetActive(ctx context.Context, id int, active bool) error {
 	return s.set(ctx, id, "active", active)
 }

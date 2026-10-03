@@ -38,6 +38,15 @@ func (x Exchange) ClientIP() string {
 	return x.c.ClientIP()
 }
 
+// Path is the path of the request URL, as the client sent it.
+func (x Exchange) Path() string {
+	if x.c == nil {
+		return ""
+	}
+
+	return x.c.Request.URL.Path
+}
+
 // UserAgent is the User-Agent header.
 func (x Exchange) UserAgent() string { return x.Header("User-Agent") }
 

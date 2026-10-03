@@ -5,9 +5,9 @@ import (
 	"time"
 )
 
-// AccountStore keeps accounts. Logins are passed normalised (NormalizeLogin).
+// Store keeps accounts. Logins are passed normalised (NormalizeLogin).
 // A missing account is ErrNotFound.
-type AccountStore interface {
+type Store interface {
 	Find(ctx context.Context, id int) (Account, error)
 	FindByLogin(ctx context.Context, login string) (Account, error)
 	// Create stores a new account, assigns its ID and returns it. A login in

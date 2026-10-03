@@ -30,7 +30,7 @@ func AuthenticatedFrom(ctx context.Context) (account.Authenticated, bool) {
 // A request without a good token is rejected with 401, reason
 // identity.session.invalid.
 func Authentication(signIn *account.SignIn, cookies Cookies, principal PrincipalOf) gin.HandlerFunc {
-	cookies = cookies.withDefaults("")
+	cookies = cookies.withDefaults()
 
 	if principal == nil {
 		principal = DefaultPrincipal

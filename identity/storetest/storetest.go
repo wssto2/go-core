@@ -24,7 +24,7 @@ import (
 
 // Stores are the three stores under test, over one database.
 type Stores struct {
-	Accounts account.AccountStore
+	Accounts account.Store
 	SignIns  account.SignInLog
 	Sessions account.SessionStore
 }
