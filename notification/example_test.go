@@ -369,6 +369,9 @@ func ExampleRoutes() {
 	// POST /v1/notifications/read
 	// GET /v1/notifications/stream
 	// POST /v1/notifications/test
+	// GET /v1/notifications/preferences
+	// PUT /v1/notifications/preferences/:category
+	// PUT /v1/notifications/quiet-hours
 }
 
 // A signed-in person sends themselves a test notification through the event queue and reads it over
@@ -408,6 +411,7 @@ func ExampleDeadLetterRoutes() {
 	// GET /v1/events/dead-letters events.deadletter:view
 	// POST /v1/events/dead-letters/:event/:consumer/retry events.deadletter:retry
 	// POST /v1/events/dead-letters/retry events.deadletter:retry
+	// GET /v1/events/consumers events.deadletter:view
 }
 
 // A consumer that gave up on an event leaves a dead letter, listed and retried over HTTP by whoever holds

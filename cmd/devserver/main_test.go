@@ -9,6 +9,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -247,4 +248,41 @@ func TestTheWebmasterListsDeadLettersAndTheUserMayNot(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, listFor("admin", "admin-password"))
 	assert.Equal(t, http.StatusForbidden, listFor("user", "user-password"))
+}
+
+// logBuffer is a log writer a test can read while the server writes to it.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *logBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.Write(p)
+}
+
+func (b *logBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.String()
+}
+
+// The sample notification is e-mailed by default: the e-mail goes to the sink and is printed, with a link to the playground
+// (the first -origin). It is made at noon, outside quiet hours, so the worker sends it at once.
+func TestTheSampleNotificationIsEmailedToTheUserThroughTheSink(t *testing.T) {
+	logs := &logBuffer{}
+	noon := time.Date(2026, 6, 10, 12, 0, 0, 0, time.Local)
+
+	_, err := build(t.Context(), []string{"http://localhost:5173"}, slog.New(slog.NewTextHandler(logs, nil)), func() time.Time { return noon })
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return strings.Contains(logs.String(), "to=user@dev.test") }, 5*time.Second, 50*time.Millisecond, logs.String())
+
+	out := logs.String()
+	assert.Contains(t, out, "A ticket was assigned to you")
+	assert.Contains(t, out, "http://localhost:5173/tickets/7", "the link opens the playground")
+	assert.NotContains(t, out, "Welcome to the playground", "the older notification was read before it was sent: no e-mail for it")
 }

@@ -2,6 +2,7 @@ package gocore
 
 import (
 	"context"
+	"slices"
 
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/event/migrations"
@@ -32,6 +33,20 @@ func (a *App) Events(consumers ...event.Consumer) {
 
 	a.eventsUsed = true
 	a.consumers = append(a.consumers, consumers...)
+}
+
+// Consumers returns the durable names of the event consumers collected so far, sorted and each once: what a
+// screen of failed events filters by. Features add theirs while they are installed, so ask after Install, or
+// when a request comes (notification's GET /v1/events/consumers does).
+func (a *App) Consumers() []string {
+	names := make([]string, 0, len(a.consumers))
+	for _, c := range a.consumers {
+		names = append(names, c.Name())
+	}
+
+	slices.Sort(names)
+
+	return slices.Compact(names)
 }
 
 // queue is the event queue of the collected consumers, nil when there are none.

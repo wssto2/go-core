@@ -218,7 +218,7 @@ func Install(app *gocore.App, users People, opts ...Option) *Notices {
 	}
 
 	app.Routes(Declare().To(n)...)
-	app.Routes(DeclareDeadLetters().To(event.NewDeadLetters(db, app.Clock()))...)
+	app.Routes(DeclareDeadLetters().To(event.NewDeadLetters(db, app.Clock()), app.Consumers)...)
 
 	return n
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
+	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/route"
 	"gorm.io/gorm"
@@ -286,4 +287,25 @@ func ExampleApp_Fail() {
 	// Output:
 	// gocore: cannot start, 1 problem(s):
 	//   1. tickets needs a mail sender. Fix: pass mail.Install(app) to tickets.Install
+}
+
+type ticketAssigned struct {
+	TicketID int `json:"ticket_id"`
+}
+
+// The durable names of the event consumers, for a screen that filters failed events by consumer.
+func ExampleApp_Consumers() {
+	reg, cleanup := database.NewTestRegistry("local")
+	defer func() { _ = cleanup() }()
+
+	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+	assigned := event.Define[ticketAssigned]("tickets.assigned")
+
+	app.Events(
+		assigned.To("notifications.ticket-assigned", func(context.Context, ticketAssigned) error { return nil }),
+		assigned.To("audit.ticket-assigned", func(context.Context, ticketAssigned) error { return nil }),
+	)
+
+	fmt.Println(app.Consumers())
+	// Output: [audit.ticket-assigned notifications.ticket-assigned]
 }

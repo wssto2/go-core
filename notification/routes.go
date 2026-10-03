@@ -3,6 +3,7 @@ package notification
 import (
 	"context"
 
+	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/route"
@@ -37,6 +38,16 @@ var Routes = Declare().Contract()
 // StreamKinds is the fixed set of changes the live stream carries.
 var StreamKinds = route.Enum(StreamCreated, StreamRead, StreamUnread).As("StreamKind")
 
+// SourceKinds is the fixed set of sources a setting can come from.
+var SourceKinds = route.Enum(SourceEnforced, SourcePerson, SourceDefault).As("Source")
+
+// SetEmailInput is "turn the e-mail of one category on or off". Email is required: leaving it out is refused, not
+// read as "off".
+type SetEmailInput struct {
+	Category string `path:"category" validation:"required|max:64"`
+	Email    *bool  `json:"email" validation:"required"`
+}
+
 // Declared is the routes of the module as values.
 type Declared struct {
 	// List is a page of the inbox, newest first; before_id loads the next.
@@ -51,6 +62,12 @@ type Declared struct {
 	Stream route.RawRoute
 	// Test sends the signed-in person a test notification through the event queue.
 	Test route.Route[route.None, route.Empty]
+	// Preferences is the person's settings: e-mail per category with its source, whether e-mail is available at all, and quiet hours.
+	Preferences route.Route[route.None, Preferences]
+	// SetEmail turns the e-mail of one category on or off for the person; an enforced setting answers 422.
+	SetEmail route.Route[SetEmailInput, CategorySettings]
+	// SetQuietHours sets the person's quiet hours, in minutes after midnight.
+	SetQuietHours route.Route[QuietHoursInput, QuietHours]
 
 	group *route.Contract
 }
@@ -66,10 +83,14 @@ func Declare() *Declared {
 		MarkAllRead: route.Post[MarkAllInput, UnreadCount](inbox + "/read").Name("notification.read-all"),
 		Stream:      route.Raw("GET", inbox+"/stream").Name("notification.stream"),
 		Test:        route.Post[route.None, route.Empty](inbox + "/test").Name("notification.test"),
+
+		Preferences:   route.Get[route.None, Preferences](inbox + "/preferences").Name("notification.preferences"),
+		SetEmail:      route.Put[SetEmailInput, CategorySettings](inbox + "/preferences/:category").Name("notification.preferences.set-email"),
+		SetQuietHours: route.Put[QuietHoursInput, QuietHours](inbox + "/quiet-hours").Name("notification.quiet-hours"),
 	}
 
-	d.group = route.Group("notification", d.List, d.Unread, d.MarkRead, d.MarkAllRead, d.Stream, d.Test).
-		Types(StreamEvent{}, StreamKinds) // what the stream sends: no route names it
+	d.group = route.Group("notification", d.List, d.Unread, d.MarkRead, d.MarkAllRead, d.Stream, d.Test, d.Preferences, d.SetEmail, d.SetQuietHours).
+		Types(StreamEvent{}, StreamKinds, SourceKinds) // what the stream sends, and what a setting says: no route names them
 
 	return d
 }
@@ -86,7 +107,41 @@ func (d *Declared) To(n *Notices) []route.Handled {
 		d.MarkAllRead.To(n.markAll),
 		d.Stream.To(n.stream()),
 		d.Test.To(n.sendTest),
+		d.Preferences.To(n.preferences),
+		d.SetEmail.To(n.setEmail),
+		d.SetQuietHours.To(n.setQuietHours),
 	}
+}
+
+func (n *Notices) preferences(ctx context.Context, _ route.None) (Preferences, error) {
+	id, err := person(ctx)
+	if err != nil {
+		return Preferences{}, err
+	}
+
+	return n.Settings.Get(ctx, id)
+}
+
+func (n *Notices) setEmail(ctx context.Context, in SetEmailInput) (CategorySettings, error) {
+	id, err := person(ctx)
+	if err != nil {
+		return CategorySettings{}, err
+	}
+
+	if in.Email == nil {
+		return CategorySettings{}, apperr.BadRequest("email is required")
+	}
+
+	return n.Settings.SetEmail(ctx, id, in.Category, *in.Email)
+}
+
+func (n *Notices) setQuietHours(ctx context.Context, in QuietHoursInput) (QuietHours, error) {
+	id, err := person(ctx)
+	if err != nil {
+		return QuietHours{}, err
+	}
+
+	return n.Settings.SetQuietHours(ctx, id, QuietHours(in))
 }
 
 func (n *Notices) list(ctx context.Context, q ListQuery) (Page, error) {

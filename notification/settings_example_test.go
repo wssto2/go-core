@@ -1,9 +1,12 @@
 package notification_test
 
 import (
+	"context"
 	"fmt"
 	"time"
 
+	"github.com/wssto2/go-core/authz"
+	"github.com/wssto2/go-core/gocoretest"
 	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/identity/identitytest"
 	"github.com/wssto2/go-core/identity/mailtext"
@@ -103,4 +106,45 @@ func ExampleQuietHours_ReleaseAt() {
 func ExampleSetting_Enforced() {
 	fmt.Println(notification.Setting{Enabled: true, Source: notification.SourceEnforced}.Enforced())
 	// Output: true
+}
+
+// A person reads and changes their own settings over HTTP: no permission, only a signed-in session. Unavailable
+// e-mail, an enforced setting and invalid quiet hours answer 422 with a reason the client translates.
+func ExampleSetEmailInput() {
+	t := &exampleT{}
+	defer t.done()
+
+	users := identitytest.Users(t, identitytest.Account(1, "ana", "x"))
+	users.SetMail(account.Mail{Sender: mail.NewSink(), Renderer: mailtext.Defaults})
+
+	app := newApp(t, gocoretest.SignedIn(authz.User(1, 0)))
+	notification.Install(app, users, TicketAssigned, TicketCommented, notification.AppURL("https://tickets.example.com"))
+
+	off := false
+	set := gocoretest.Decode[notification.CategorySettings](t, gocoretest.Do(t, app, "PUT", "/v1/notifications/preferences/tickets.assigned", notification.SetEmailInput{Email: &off}))
+	fmt.Println(set.Category, set.Email.Enabled, set.Email.Source)
+
+	prefs := gocoretest.Decode[notification.Preferences](t, gocoretest.Do(t, app, "GET", "/v1/notifications/preferences", nil))
+	fmt.Println(prefs.EmailAvailable, len(prefs.Categories), prefs.Categories[0].Email.Source)
+
+	bad := gocoretest.Do(t, app, "PUT", "/v1/notifications/quiet-hours", notification.QuietHoursInput{Enabled: true, Start: 60, End: 60})
+	fmt.Println(bad.Code)
+	// Output:
+	// tickets.assigned false person
+	// true 2 person
+	// 422
+}
+
+func ExampleConsumerNames() {
+	t := &exampleT{}
+	defer t.done()
+
+	app := newApp(t, gocoretest.SignedIn(authz.User(1, 0)))
+	notification.Install(app, identitytest.Users(t, identitytest.Account(1, "ana", "x")))
+
+	app.Events(Assigned.To("tickets.audit", func(context.Context, TicketAssignedEvent) error { return nil }))
+
+	names := gocoretest.Decode[notification.ConsumerNames](t, gocoretest.Do(t, app, "GET", "/v1/events/consumers", nil))
+	fmt.Println(names.Consumers)
+	// Output: [notification.test tickets.audit]
 }

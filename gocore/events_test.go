@@ -136,3 +136,18 @@ func TestEventsAddsTheHousekeeper(t *testing.T) {
 		t.Fatalf("want the consumer's worker and the housekeeper, got %d", got)
 	}
 }
+
+func TestConsumersAreTheCollectedNamesSortedAndEachOnce(t *testing.T) {
+	app := testApp(t, "local")
+	if got := app.Consumers(); len(got) != 0 {
+		t.Fatalf("no consumers yet, got %v", got)
+	}
+
+	app.Events(assigned.To("notices", ok), assigned.To("audit", ok))
+	app.Events(assigned.To("notices", ok)) // a duplicate is a start-up problem Check reports; the list does not repeat it
+
+	got := app.Consumers()
+	if len(got) != 2 || got[0] != "audit" || got[1] != "notices" {
+		t.Fatalf("want [audit notices], got %v", got)
+	}
+}

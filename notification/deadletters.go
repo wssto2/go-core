@@ -45,6 +45,11 @@ func DefinePermissions(c *authz.Catalogue) error {
 	return nil
 }
 
+// ConsumerNames is the durable names of the application's event consumers, sorted: what the dead letters are filtered by.
+type ConsumerNames struct {
+	Consumers []string `json:"consumers"`
+}
+
 // DeadLettersInput is a page of the dead letters, optionally of one consumer.
 type DeadLettersInput struct {
 	// Consumer limits the list to one consumer's dead letters; empty lists all.
@@ -96,6 +101,8 @@ type DeadLetterDeclared struct {
 	Retry route.Route[RetryInput, Retried]
 	// RetryAll puts every dead letter of one consumer back in the queue.
 	RetryAll route.Route[RetryAllInput, Retried]
+	// Consumers lists the names of the application's event consumers, for the filter of the list.
+	Consumers route.Route[route.None, ConsumerNames]
 
 	group *route.Contract
 }
@@ -109,9 +116,10 @@ func DeclareDeadLetters() *DeadLetterDeclared {
 			Name("events.dead-letters.retry").Requires(RetryDeadLetters),
 		RetryAll: route.Post[RetryAllInput, Retried](deadLetters + "/retry").
 			Name("events.dead-letters.retry-all").Requires(RetryDeadLetters),
+		Consumers: route.Get[route.None, ConsumerNames](base + "/events/consumers").Name("events.consumers").Requires(ViewDeadLetters),
 	}
 
-	d.group = route.Group("events", d.List, d.Retry, d.RetryAll)
+	d.group = route.Group("events", d.List, d.Retry, d.RetryAll, d.Consumers)
 
 	return d
 }
@@ -119,14 +127,27 @@ func DeclareDeadLetters() *DeadLetterDeclared {
 // Contract is the routes as a group: what contract.Generate reads.
 func (d *DeadLetterDeclared) Contract() *route.Contract { return d.group }
 
-// To binds a handler to every route; hand the result to app.Routes.
-func (d *DeadLetterDeclared) To(letters *event.DeadLetters) []route.Handled {
-	h := deadLetterHandlers{letters: letters}
+// To binds a handler to every route; hand the result to app.Routes. consumers says the names of the consumers
+// when a request comes, since features add theirs after the module is installed: gocore's App.Consumers.
+func (d *DeadLetterDeclared) To(letters *event.DeadLetters, consumers func() []string) []route.Handled {
+	h := deadLetterHandlers{letters: letters, consumers: consumers}
 
-	return []route.Handled{d.List.To(h.list), d.Retry.To(h.retry), d.RetryAll.To(h.retryAll)}
+	return []route.Handled{d.List.To(h.list), d.Retry.To(h.retry), d.RetryAll.To(h.retryAll), d.Consumers.To(h.names)}
 }
 
-type deadLetterHandlers struct{ letters *event.DeadLetters }
+type deadLetterHandlers struct {
+	letters   *event.DeadLetters
+	consumers func() []string
+}
+
+func (h deadLetterHandlers) names(context.Context, route.None) (ConsumerNames, error) {
+	names := h.consumers()
+	if names == nil {
+		names = []string{}
+	}
+
+	return ConsumerNames{Consumers: names}, nil
+}
 
 func (h deadLetterHandlers) list(ctx context.Context, in DeadLettersInput) (datatable.DatatableResult[DeadLetterRow], error) {
 	perPage := in.PerPage

@@ -8,9 +8,11 @@
 // and a plain user (their logins and passwords are printed at start), who has two
 // things in her activity, the second done while the administrator was signed in as
 // her, and two notifications in her inbox (one read, one unread) of the sample category
-// "devserver.sample". The event queue is drained every second here, so the test notification
-// (POST /api/v1/notifications/test) arrives. E-mail
-// codes are not sent: they are printed to the log. Browsers at
+// "devserver.sample", which is e-mailed by default. The event queue is drained and the due e-mails are sent every
+// second here, so the test notification (POST /api/v1/notifications/test) arrives. No mail leaves this machine:
+// identity's codes and the notification e-mails go to an in-memory sink and are printed to the log (an e-mail made in the
+// user's quiet hours, 21:00 to 07:00 local, is held until they end, as it would be). Links in the e-mails point at the first
+// -origin. Browsers at
 // http://localhost:5173 (the vue-core playground) may call it with cookies.
 //
 //	-addr          listen address, default 127.0.0.1:8090
@@ -158,13 +160,18 @@ func run(ctx context.Context, o options, out io.Writer) error {
 	return nil
 }
 
+// clock is a gocore.Clock made of a function: the application's time is the one the server was built with.
+type clock func() time.Time
+
+func (c clock) Now() time.Time { return c() }
+
 // build installs identity and access over a fresh in-memory database, seeds the
 // people and answers with CORS for the origins.
 func build(ctx context.Context, origins []string, log *slog.Logger, now func() time.Time) (http.Handler, error) {
 	reg, _ := database.NewTestRegistry("local") // in-memory SQLite, gone with the process
 
 	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(log),
-		gocore.WithPrefix("/api"), gocore.WithAutoMigrate(ctx))
+		gocore.WithPrefix("/api"), gocore.WithAutoMigrate(ctx), gocore.WithClock(clock(now)))
 
 	permissions := authz.NewCatalogue()
 	permissions.MustDefine("crm.customer:view")
@@ -196,7 +203,7 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 	))
 
 	//nolint:contextcheck // installing builds the routes; no request exists yet
-	notices := notification.Install(app, users, sampleCategory)
+	notices := notification.Install(app, users, sampleCategory, notification.AppURL(strings.TrimSpace(origins[0])))
 
 	gin.DebugPrintRouteFunc = func(string, string, string, int) {} // the route table is in the README, not in the log
 
@@ -233,7 +240,7 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 		return nil, fmt.Errorf("seed notifications: %w", err)
 	}
 
-	go drainEvents(ctx, app, log)
+	go drainEvents(ctx, app, notices, log)
 
 	gin.SetMode(gin.ReleaseMode)
 
@@ -296,7 +303,7 @@ func seedActivity(ctx context.Context, db *gorm.DB, now time.Time) error {
 }
 
 // sampleCategory is the one category the playground's inbox has.
-var sampleCategory = notification.Category("devserver.sample")
+var sampleCategory = notification.Category("devserver.sample").EmailByDefault()
 
 // sampled is the event the seed sends notifications through, the way a feature's event would.
 var sampled = event.Define[sample]("devserver.sample")
@@ -344,8 +351,8 @@ func seedNotices(ctx context.Context, app *gocore.App, notices *notification.Not
 }
 
 // drainEvents stands in for the background workers Run starts: this server serves the handler only, so
-// the event queue (the test notification) is handled here, every second, until ctx ends.
-func drainEvents(ctx context.Context, app *gocore.App, log *slog.Logger) {
+// the event queue (the test notification) is handled and the due e-mails are sent here, every second, until ctx ends.
+func drainEvents(ctx context.Context, app *gocore.App, notices *notification.Notices, log *slog.Logger) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
@@ -356,6 +363,10 @@ func drainEvents(ctx context.Context, app *gocore.App, log *slog.Logger) {
 		case <-ticker.C:
 			if err := app.DrainEvents(ctx); err != nil && ctx.Err() == nil {
 				log.Warn("events", "error", err)
+			}
+
+			if _, err := notices.DeliverDue(ctx); err != nil && ctx.Err() == nil {
+				log.Warn("e-mail", "error", err)
 			}
 		}
 	}
