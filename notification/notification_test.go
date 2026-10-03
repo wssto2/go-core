@@ -163,7 +163,7 @@ func TestAnEventThatCanNeverBeHandledIsADeadLetterAtOnce(t *testing.T) {
 func TestACategoryThatWasNotRegisteredIsADeadLetterWithTheFix(t *testing.T) {
 	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
 		w := newWorld(t, db, nil)
-		w.app.Events(assigned.To("notifications.ticket-assigned", func(ctx context.Context, e assignedEvent) error {
+		w.app.Events(assigned.To("notifications.ticket-assigned", func(ctx context.Context, _ assignedEvent) error {
 			return w.notices.Send(ctx, notification.Category("tickets.forgotten"), notification.To(1), func(notification.Recipient) notification.Message {
 				return notification.Message{Title: "x"}
 			})

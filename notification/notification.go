@@ -37,6 +37,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"regexp"
 	"slices"
 	"strings"
@@ -127,12 +128,12 @@ func (r Recipients) Except(ids ...int) Recipients {
 }
 
 // resolve applies the recipient rules that need no user data (NOTIF-RECIPIENT-001):
-// invalid ids, duplicates and the excepted are dropped, the order kept.
+// invalid ids (not between 1 and MaxInt32), duplicates and the excepted are dropped, the order kept.
 func (r Recipients) resolve() []int {
 	out := make([]int, 0, len(r.ids))
 
 	for _, id := range r.ids {
-		if id <= 0 || slices.Contains(out, id) || slices.Contains(r.except, id) {
+		if id <= 0 || id > math.MaxInt32 || slices.Contains(out, id) || slices.Contains(r.except, id) {
 			continue
 		}
 

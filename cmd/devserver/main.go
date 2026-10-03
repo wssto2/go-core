@@ -195,6 +195,7 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 		authz.ComputedRole("webmaster", "Webmaster", authz.All()),
 	))
 
+	//nolint:contextcheck // installing builds the routes; no request exists yet
 	notices := notification.Install(app, users, sampleCategory)
 
 	gin.DebugPrintRouteFunc = func(string, string, string, int) {} // the route table is in the README, not in the log

@@ -45,10 +45,10 @@ func TestAnOpenStreamEndsWhenItsSessionIsRevoked(t *testing.T) {
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+signed.Credentials.Access)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) //nolint:bodyclose // closed by the deferred func below
 	require.NoError(t, err)
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 

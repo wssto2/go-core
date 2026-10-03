@@ -196,7 +196,7 @@ func TestTheStreamRouteOpensWithTheUnreadCountAndThenFollowsTheInbox(t *testing.
 
 		resp := request("1")
 
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 		require.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))

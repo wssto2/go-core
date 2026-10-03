@@ -181,7 +181,8 @@ func newRow(eventID uint64, userID int, category Category, m Message, now time.T
 	}
 
 	return row{
-		UserID: uint32(userID), Category: string(category), Title: m.Title, Body: m.Body, Link: m.Link, Data: data,
+		UserID:   uint32(userID), //nolint:gosec // resolve keeps ids between 1 and MaxInt32
+		Category: string(category), Title: m.Title, Body: m.Body, Link: m.Link, Data: data,
 		DedupeKey: DedupeKey(eventID, userID, category), CreatedAt: whole(now),
 	}, nil
 }
@@ -193,7 +194,8 @@ func (r row) item() Item {
 	}
 
 	return Item{
-		ID: int(r.ID), Category: Category(r.Category), Title: r.Title, Body: r.Body, Link: r.Link, Data: data,
+		ID:       int(r.ID), //nolint:gosec // an auto-increment id of this table fits an int
+		Category: Category(r.Category), Title: r.Title, Body: r.Body, Link: r.Link, Data: data,
 		ReadAt: r.ReadAt, CreatedAt: r.CreatedAt,
 	}
 }
