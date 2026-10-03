@@ -193,7 +193,7 @@ func ExampleEnum() {
 	// export type Status = "open" | "closed";
 	//
 	// export type Summary = {
-	//   id: number | null;
+	//   id: number;
 	//   status: Status;
 	// };
 }

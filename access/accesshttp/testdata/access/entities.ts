@@ -3,7 +3,7 @@ export type BindableRoles = {
 };
 
 export type Binding = {
-  id: number | null;
+  id: number;
   role: RoleSummary;
   scope: Scope;
   created_by: PersonRef | null;
@@ -44,7 +44,7 @@ export type GrantDifference = {
 export type Kind = "user" | "service";
 
 export type PersonRef = {
-  id: number | null;
+  id: number;
   name: string;
 };
 
@@ -54,7 +54,7 @@ export type Replaced = {
 
 export type Role = {
   ref: string;
-  id: number | null | null;
+  id: number | null;
   key: string | null;
   name: string;
   description: string;
@@ -88,7 +88,7 @@ export type RoleList = {
 
 export type RoleSummary = {
   ref: string;
-  id: number | null | null;
+  id: number | null;
   key: string | null;
   name: string;
   description: string;
@@ -101,13 +101,13 @@ export type RoleSummary = {
 
 export type Scope = {
   level: string;
-  id: number | null | null;
+  id: number | null;
   name: string | null;
 };
 
 export type ScopeOption = {
   level: string;
-  id: number | null;
+  id: number;
   name: string;
   parent_level: string;
   parent_id: number | null;
@@ -127,5 +127,5 @@ export type SubjectAccess = {
 
 export type SubjectRef = {
   kind: Kind;
-  id: number | null;
+  id: number;
 };

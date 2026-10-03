@@ -162,10 +162,6 @@ func structToTs(s interface{}, ctx *GenContext) (string, string, map[string]inte
 
 		fieldType := mapGoTypeToTs(field.Type, typeName, children, ctx)
 
-		if field.Name == "ID" {
-			fieldType += " | null"
-		}
-
 		if canBeUndefined {
 			typeFields += fmt.Sprintf("  %s?: %s;\n", jsonName, fieldType)
 		} else {

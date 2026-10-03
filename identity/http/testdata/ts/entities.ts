@@ -1,7 +1,7 @@
 export type ChangeAction = "created" | "updated" | "deactivated" | "activated" | "password" | "email" | "profile";
 
 export type ChangeRow = {
-  id: number | null;
+  id: number;
   action: ChangeAction;
   fields: string[];
   before: any;
@@ -35,7 +35,7 @@ export type PendingEmail = {
 };
 
 export type ProfileResponse = {
-  id: number | null;
+  id: number;
   login: string;
   name: string;
   email: string;
@@ -46,7 +46,7 @@ export type ProfileResponse = {
 };
 
 export type SessionItem = {
-  id: number | null;
+  id: number;
   device: string;
   ip: string;
   opened_by: number | null;
@@ -68,7 +68,7 @@ export type SessionResponse = {
 };
 
 export type SignInRow = {
-  id: number | null;
+  id: number;
   event: Event;
   ip: string;
   device: string;
@@ -80,7 +80,7 @@ export type Status = "active" | "locked" | "inactive";
 
 export type Subject = {
   kind: string;
-  id: number | null;
+  id: number;
 };
 
 export type UnlockResult = {
@@ -88,7 +88,7 @@ export type UnlockResult = {
 };
 
 export type User = {
-  id: number | null;
+  id: number;
   login: string;
   name: string;
   email: string;
@@ -96,7 +96,7 @@ export type User = {
 };
 
 export type UserDetail = {
-  id: number | null;
+  id: number;
   login: string;
   name: string;
   email: string;
@@ -110,7 +110,7 @@ export type UserDetail = {
 };
 
 export type UserRow = {
-  id: number | null;
+  id: number;
   login: string;
   name: string;
   email: string;
