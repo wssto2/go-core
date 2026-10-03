@@ -250,7 +250,7 @@ func TestIdentityAndAccessWorkTogether(t *testing.T) {
 		assert.Contains(t, string(data), `"action":"created"`)
 
 		// The application's hook vetoes the deactivation while she owns open records; then it lets it through.
-		status, data = admin.do(nethttp.MethodPost, "/api/v1/iam/users/"+strconv.Itoa(dora.ID)+"/deactivate", nil)
+		status, _ = admin.do(nethttp.MethodPost, "/api/v1/iam/users/"+strconv.Itoa(dora.ID)+"/deactivate", nil)
 		assert.Equal(t, nethttp.StatusBadRequest, status)
 
 		status, _ = person.do(nethttp.MethodGet, "/api/v1/iam/profile", nil)
