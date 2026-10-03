@@ -1,6 +1,7 @@
 package identitytest
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -57,15 +58,97 @@ type Kit struct {
 	Sessions *Sessions
 	SignIn   *account.SignIn
 	Users    *account.Users
+	// Codes and Reauth are the one-time code and password re-confirmation
+	// services; Mailbox holds what Codes "sent", where a test reads the code.
+	Codes   *account.Codes
+	Reauth  *account.Reauth
+	Mailbox *Mailbox
+	// Admin is the users module; Changes is the history it writes.
+	Admin   *account.Admin
+	Changes *ChangeLog
+	// Profile is what a person does with their own account.
+	Profile *account.Profile
+}
+
+// CodeSecret is the secret the Kit's codes are hashed with.
+const CodeSecret = "identitytest-secret-of-32-characters!"
+
+// Mailbox is a CodeSender that keeps what it is given, so a test reads the code
+// a person would have been mailed.
+type Mailbox struct {
+	mu   sync.Mutex
+	sent []account.CodeMessage
+	// Fail, when set, is returned by SendCode instead of recording: a mail
+	// that cannot be delivered.
+	Fail error
+}
+
+// SendCode implements account.CodeSender.
+func (m *Mailbox) SendCode(_ context.Context, msg account.CodeMessage) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.Fail != nil {
+		return m.Fail
+	}
+
+	m.sent = append(m.sent, msg)
+
+	return nil
+}
+
+// Sent returns every message, oldest first.
+func (m *Mailbox) Sent() []account.CodeMessage {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return append([]account.CodeMessage(nil), m.sent...)
+}
+
+// Last returns the latest message; its Code is what the person types. It is the
+// zero value when nothing was sent.
+func (m *Mailbox) Last() account.CodeMessage {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if len(m.sent) == 0 {
+		return account.CodeMessage{}
+	}
+
+	return m.sent[len(m.sent)-1]
 }
 
 // Option adjusts New.
 type Option func(*options)
 
 type options struct {
-	cfg  account.Config
-	deps func(*account.Deps)
+	cfg   account.Config
+	deps  func(*account.Deps)
+	codes account.CodeRules
+	lock  account.Lock
+	// policy and hooks are the users module's.
+	policy account.PasswordPolicy
+	hooks  []account.DeactivationHook
+	noMail bool
 }
+
+// WithoutMail builds the Profile without codes: changing the e-mail address is
+// refused, as in an application that runs without a mail sender.
+func WithoutMail() Option { return func(o *options) { o.noMail = true } }
+
+// WithPasswordPolicy replaces the rules for new passwords.
+func WithPasswordPolicy(p account.PasswordPolicy) Option { return func(o *options) { o.policy = p } }
+
+// WithDeactivationHooks asks the hooks before an account is deactivated.
+func WithDeactivationHooks(h ...account.DeactivationHook) Option {
+	return func(o *options) { o.hooks = append(o.hooks, h...) }
+}
+
+// WithCodeRules sets the limits of one-time codes, such as a shorter cooldown.
+func WithCodeRules(r account.CodeRules) Option { return func(o *options) { o.codes = r } }
+
+// WithReauthLock sets the lock after wrong passwords of re-confirmation.
+func WithReauthLock(l account.Lock) Option { return func(o *options) { o.lock = l } }
 
 // WithConfig sets the rules, such as a shorter lock.
 func WithConfig(cfg account.Config) Option { return func(o *options) { o.cfg = cfg } }
@@ -143,6 +226,42 @@ func New(t testing.TB, seed []account.Account, opts ...Option) Kit {
 	}
 
 	kit.SignIn, kit.Users = svc.SignIn, svc.Users
+	kit.Mailbox = &Mailbox{}
+
+	codes, err := account.NewCodes(account.CodesDeps{Store: NewCodes(), Sender: kit.Mailbox, Clock: kit.Clock, Secret: CodeSecret}, o.codes)
+	if err != nil {
+		t.Fatalf("identitytest: %v", err)
+	}
+
+	reauth, err := account.NewReauth(account.ReauthDeps{Store: NewReauth(), Hasher: deps.Hasher, Clock: kit.Clock}, o.lock)
+	if err != nil {
+		t.Fatalf("identitytest: %v", err)
+	}
+
+	kit.Codes, kit.Reauth = codes, reauth
+
+	kit.Changes = NewChangeLog(kit.Clock)
+
+	kit.Admin, err = account.NewAdmin(account.AdminDeps{
+		Users: svc.Users, Search: kit.Accounts, History: kit.SignIns, Changes: kit.Changes, Transact: Transactor{},
+		Policy: o.policy, Hooks: o.hooks,
+	})
+	if err != nil {
+		t.Fatalf("identitytest: %v", err)
+	}
+
+	profileCodes := kit.Codes
+	if o.noMail {
+		profileCodes = nil
+	}
+
+	kit.Profile, err = account.NewProfile(account.ProfileDeps{
+		Users: svc.Users, Reauth: kit.Reauth, History: kit.SignIns, Changes: kit.Changes, Transact: Transactor{},
+		Policy: o.policy, Codes: profileCodes,
+	})
+	if err != nil {
+		t.Fatalf("identitytest: %v", err)
+	}
 
 	return kit
 }

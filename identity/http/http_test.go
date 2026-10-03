@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/authz"
+	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/identity/account"
 	identityhttp "github.com/wssto2/go-core/identity/http"
 	"github.com/wssto2/go-core/identity/identitytest"
@@ -43,13 +44,20 @@ func newHarness(t *testing.T, mutate func(*identityhttp.Config), opts ...identit
 func newHarnessAt(t *testing.T, prefix string, mutate func(*identityhttp.Config), opts ...identitytest.Option) *harness {
 	t.Helper()
 
+	return newHarnessFull(t, prefix, authztest.AllowAll(), mutate, opts...)
+}
+
+// newHarnessFull is newHarnessAt with the authorizer that decides the permissions.
+func newHarnessFull(t *testing.T, prefix string, authorizer authz.Authorizer, mutate func(*identityhttp.Config), opts ...identitytest.Option) *harness {
+	t.Helper()
+
 	inactive := identitytest.Account(3, "ines", "secret")
 	inactive.Active = false
 	ana := identitytest.Account(1, "ana", "secret")
 	ana.Name, ana.Email, ana.Locale = "Ana Anić", "ana@example.test", "hr"
 
 	kit := identitytest.New(t, []account.Account{ana, identitytest.Account(2, "boris", "hunter2"), inactive}, opts...)
-	cfg := identityhttp.Config{Services: account.Services{SignIn: kit.SignIn, Users: kit.Users}, Clock: kit.Clock}
+	cfg := identityhttp.Config{Services: account.Services{SignIn: kit.SignIn, Users: kit.Users}, Admin: kit.Admin, Profile: kit.Profile, Clock: kit.Clock}
 
 	if mutate != nil {
 		mutate(&cfg)
@@ -62,7 +70,7 @@ func newHarnessAt(t *testing.T, prefix string, mutate func(*identityhttp.Config)
 	engine := gin.New()
 	engine.Use(middlewares.ErrorHandler(slog.New(slog.DiscardHandler), nil, true))
 
-	security := route.Security{Authenticate: []gin.HandlerFunc{identityhttp.Authentication(kit.SignIn, cfg.Cookies, cfg.Principal)}}
+	security := route.Security{Authenticate: []gin.HandlerFunc{identityhttp.Authentication(kit.SignIn, cfg.Cookies, cfg.Principal)}, Authorizer: authorizer}
 	var routes gin.IRoutes = engine
 	if prefix != "" {
 		routes = engine.Group(prefix)

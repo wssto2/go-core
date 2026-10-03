@@ -10,6 +10,8 @@ import (
 // The memory stores pass the same suite as the SQL ones.
 func TestMemoryStoresConform(t *testing.T) {
 	storetest.Run(t, func(*testing.T) storetest.Stores {
-		return storetest.Stores{Accounts: identitytest.NewAccounts(), SignIns: identitytest.NewSignIns(), Sessions: identitytest.NewSessions()}
+		return storetest.Stores{Accounts: identitytest.NewAccounts(), SignIns: identitytest.NewSignIns(), Sessions: identitytest.NewSessions(),
+			Codes: identitytest.NewCodes(), Reauth: identitytest.NewReauth(),
+			Changes: identitytest.NewChangeLog(identitytest.NewClock(identitytest.Epoch))}
 	})
 }

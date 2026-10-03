@@ -15,6 +15,11 @@
 //
 //	app.Routes(Show.To(service.Show)) // a function of another shape does not compile
 //
+// The path and the input must agree: every ":name" of the path needs a field
+// tagged path:"name" in the input, and every path:"name" field its parameter
+// (Spec.PathProblems; the application's Check and contract.Generate report a
+// mismatch with the route, the parameter and the fix).
+//
 // go-core binds the path, the query string and the body into the input,
 // validates it, checks the permission, calls the function and writes the
 // response with the usual envelope and apperr mapping.

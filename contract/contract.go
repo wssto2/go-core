@@ -19,7 +19,7 @@
 //
 // routes.ts is what the client builds typed requests from:
 //
-//	import { route } from "@wssto2/vue-core";
+//	import { route } from "@wssto2/vue-core/client";
 //	export const ticketsRoutes = {
 //	  show: route<ShowInput, Ticket>("GET", "/tickets/:id", { permission: "tickets.ticket:view" }),
 //	  events: route.raw("GET", "/events", { public: true }),
@@ -33,6 +33,12 @@
 //
 // route.None as the input and route.Empty as the output become void. Inputs
 // must be structs; outputs may also be primitives, slices and maps of those or
-// of structs. A generic type (datatable.DatatableResult[Row]) is an error: go2ts
-// names types by their Go name, so declare a named type for it.
+// of structs. datatable.DatatableResult[Row] as an output becomes
+// ListResult<Row>, imported from the same module as route:
+//
+//	import { route, type ListResult } from "@wssto2/vue-core/client";
+//	list: route<ListInput, ListResult<Row>>("GET", "/rows"),
+//
+// Any other generic type is an error: go2ts names types by their Go name, so
+// declare a named type for it.
 package contract

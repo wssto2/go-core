@@ -527,3 +527,58 @@ var (
 	intType       = reflect.TypeOf(0)
 	boolType      = reflect.TypeOf(false)
 )
+
+// ── optional fields ──────────────────────────────────────────────────────────
+
+type optionalInput struct {
+	Name     string  `json:"name" validation:"required|max:50"`
+	Note     string  `json:"note,omitempty" validation:"max:200"`
+	Page     int     `json:"page,omitempty"`
+	Tags     []int   `json:"tags,omitempty"`
+	Pinned   bool    `json:"pinned,omitempty"`
+	Parent   *int    `json:"parent"`
+	Owner    *string `json:"owner,omitempty" validation:"max:20"`
+	Must     string  `json:"must,omitempty" validation:"required"`
+	Plain    string  `json:"plain" validation:"max:10"`
+	Excluded string  `json:"-"`
+}
+
+// A body field Go leaves out of the JSON when empty (omitempty) is optional in
+// the schema; a pointer already was; required wins over omitempty; the rest stay required.
+func TestSchemaFieldsWithOmitemptyAreOptional(t *testing.T) {
+	dir := t.TempDir()
+	if err := GenerateSchemas([]any{optionalInput{}}, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	src, err := os.ReadFile(dir + "/optionalInput.ts") //nolint:gosec // a file of the test's temp dir
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := string(src)
+
+	for _, want := range []string{
+		"  name: z.string().min(1).max(50),\n",
+		"  note: z.string().max(200).optional(),\n",
+		"  page: z.number().int().optional(),\n",
+		"  tags: z.array(z.number().int()).optional(),\n",
+		"  pinned: z.boolean().optional(),\n",
+		"  parent: z.number().int().nullable().optional(),\n",
+		"  owner: z.string().max(20).nullable().optional(),\n",
+		"  must: z.string().min(1),\n",
+		"  plain: z.string().max(10),\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in\n%s", want, got)
+		}
+	}
+
+	if strings.Contains(got, "Excluded") || strings.Contains(got, "excluded") {
+		t.Errorf("a json:\"-\" field is in the schema:\n%s", got)
+	}
+
+	if strings.Contains(got, ".optional().optional()") {
+		t.Errorf("optional twice:\n%s", got)
+	}
+}

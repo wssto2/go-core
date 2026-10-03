@@ -7,6 +7,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -98,4 +99,22 @@ func TestThePayloadMatchesGolden(t *testing.T) {
 	want, err := os.ReadFile(golden) //nolint:gosec // a golden file of this package
 	require.NoError(t, err, "run the test with -update to write %s", golden)
 	require.Equal(t, string(want), got, "the payload differs from its golden: run with -update and review")
+}
+
+// Every string an input takes has a bound (max:), so the Zod schema keeps it.
+func TestEveryStringInputIsBounded(t *testing.T) {
+	for _, spec := range identityhttp.Routes.Specs() {
+		if spec.In == nil || spec.In.Kind() != reflect.Struct {
+			continue
+		}
+
+		for i := range spec.In.NumField() {
+			f := spec.In.Field(i)
+			if f.Type.Kind() != reflect.String {
+				continue
+			}
+
+			require.Containsf(t, f.Tag.Get("validation"), "max:", "%s.%s of %s has no max: bound", spec.In.Name(), f.Name, spec)
+		}
+	}
 }

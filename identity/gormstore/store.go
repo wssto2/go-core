@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/wssto2/go-core/auth"
+	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/identity/account"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -37,16 +38,28 @@ type Sessions struct {
 }
 
 var (
-	_ account.Store        = (*Accounts)(nil)
-	_ account.SignInLog    = (*SignIns)(nil)
-	_ account.SessionStore = (*Sessions)(nil)
+	_ account.Store         = (*Accounts)(nil)
+	_ account.SignInLog     = (*SignIns)(nil)
+	_ account.SessionStore  = (*Sessions)(nil)
+	_ account.CodeStore     = (*Codes)(nil)
+	_ account.Searcher      = (*Accounts)(nil)
+	_ account.SignInHistory = (*SignIns)(nil)
+	_ account.ReauthStore   = (*Reauth)(nil)
 )
 
-// Stores are the three stores over one database.
+// Codes implements account.CodeStore.
+type Codes struct{ db *gorm.DB }
+
+// Reauth implements account.ReauthStore.
+type Reauth struct{ db *gorm.DB }
+
+// Stores are the stores over one database.
 type Stores struct {
 	Accounts *Accounts
 	SignIns  *SignIns
 	Sessions *Sessions
+	Codes    *Codes
+	Reauth   *Reauth
 }
 
 // Option adjusts New.
@@ -64,7 +77,7 @@ func New(db *gorm.DB, opts ...Option) Stores {
 		opt(sessions)
 	}
 
-	return Stores{Accounts: &Accounts{db: db}, SignIns: &SignIns{db: db}, Sessions: sessions}
+	return Stores{Accounts: &Accounts{db: db}, SignIns: &SignIns{db: db}, Sessions: sessions, Codes: &Codes{db: db}, Reauth: &Reauth{db: db}}
 }
 
 // sha256Hasher hashes a high-entropy token: a slow hash buys nothing there.
@@ -82,6 +95,17 @@ func (h sha256Hasher) Compare(token, hash string) bool {
 	return subtle.ConstantTimeCompare([]byte(want), []byte(hash)) == 1
 }
 
+// dbOf is the database a store works on: the transaction the context carries
+// (database.Transactor puts it there), else the store's own connection. This is
+// what lets a hook's writes, an account's change and its history commit together.
+func dbOf(db *gorm.DB, ctx context.Context) *gorm.DB { //nolint:revive // the receiver reads better first
+	if tx, ok := database.TxFromContext(ctx); ok {
+		return tx
+	}
+
+	return db.WithContext(ctx)
+}
+
 // whole is a time as the DATETIME columns keep it: UTC, to the second.
 func whole(t time.Time) time.Time { return t.UTC().Truncate(time.Second) }
 
@@ -92,7 +116,7 @@ func millis(t time.Time) time.Time { return t.UTC().Truncate(time.Millisecond) }
 
 func (m accountModel) account() account.Account {
 	return account.Account{
-		ID: m.ID, Login: m.Login, Email: m.Email, Name: m.Name, Locale: m.Locale, Active: m.Active,
+		ID: m.ID, Login: m.Login, Email: fromNull(m.Email), Phone: m.Phone, Name: m.Name, Locale: m.Locale, Active: m.Active,
 		PasswordHash: m.PasswordHash, CreatedAt: m.CreatedAt.UTC(),
 	}
 }
@@ -114,7 +138,7 @@ func (s *Accounts) FindMany(ctx context.Context, ids []int) ([]account.Account, 
 	}
 
 	var rows []accountModel
-	if err := s.db.WithContext(ctx).Where("id IN ?", ids).Find(&rows).Error; err != nil {
+	if err := dbOf(s.db, ctx).Where("id IN ?", ids).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 
@@ -129,7 +153,7 @@ func (s *Accounts) FindMany(ctx context.Context, ids []int) ([]account.Account, 
 func (s *Accounts) one(ctx context.Context, where string, arg any) (account.Account, error) {
 	var m accountModel
 
-	err := s.db.WithContext(ctx).Where(where, arg).Take(&m).Error
+	err := dbOf(s.db, ctx).Where(where, arg).Take(&m).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return account.Account{}, account.ErrNotFound
 	}
@@ -144,7 +168,7 @@ func (s *Accounts) one(ctx context.Context, where string, arg any) (account.Acco
 // Create implements account.Store.
 func (s *Accounts) Create(ctx context.Context, a account.Account) (account.Account, error) {
 	m := accountModel{
-		Login: account.NormalizeLogin(a.Login), Email: a.Email, Name: a.Name, PasswordHash: a.PasswordHash,
+		Login: account.NormalizeLogin(a.Login), Email: toNull(a.Email), Phone: a.Phone, Name: a.Name, PasswordHash: a.PasswordHash,
 		Locale: a.Locale, Active: a.Active, CreatedAt: whole(a.CreatedAt), UpdatedAt: whole(a.CreatedAt),
 	}
 
@@ -152,12 +176,16 @@ func (s *Accounts) Create(ctx context.Context, a account.Account) (account.Accou
 		m.ID = a.ID
 	}
 
-	if err := s.db.WithContext(ctx).Create(&m).Error; err != nil {
+	if err := dbOf(s.db, ctx).Create(&m).Error; err != nil {
 		// A login in use is the one failure a caller can act on; the driver's error
 		// for it differs, so ask the table.
 		var n int64
-		if s.db.WithContext(ctx).Model(&accountModel{}).Where("login = ?", m.Login).Count(&n).Error == nil && n > 0 {
+		if dbOf(s.db, ctx).Model(&accountModel{}).Where("login = ?", m.Login).Count(&n).Error == nil && n > 0 {
 			return account.Account{}, account.ErrLoginTaken
+		}
+
+		if s.emailTaken(ctx, m.Email, 0) {
+			return account.Account{}, account.ErrEmailTaken
 		}
 
 		return account.Account{}, err
@@ -167,7 +195,7 @@ func (s *Accounts) Create(ctx context.Context, a account.Account) (account.Accou
 }
 
 func (s *Accounts) set(ctx context.Context, id int, column string, value any) error {
-	tx := s.db.WithContext(ctx).Model(&accountModel{}).Where("id = ?", id).Updates(map[string]any{column: value, "updated_at": time.Now().UTC().Truncate(time.Second)})
+	tx := dbOf(s.db, ctx).Model(&accountModel{}).Where("id = ?", id).Updates(map[string]any{column: value, "updated_at": time.Now().UTC().Truncate(time.Second)})
 	if tx.Error != nil {
 		return tx.Error
 	}
@@ -196,6 +224,161 @@ func (s *Accounts) SetActive(ctx context.Context, id int, active bool) error {
 	return s.set(ctx, id, "active", active)
 }
 
+// FindByEmail implements account.Store: the address is compared without case.
+func (s *Accounts) FindByEmail(ctx context.Context, email string) (account.Account, error) {
+	return s.one(ctx, "LOWER(email) = ?", account.NormalizeEmail(email))
+}
+
+// Update implements account.Store: only the fields that are set are written.
+func (s *Accounts) Update(ctx context.Context, id int, c account.Changes) error {
+	set := map[string]any{}
+
+	if c.Login != nil {
+		set["login"] = account.NormalizeLogin(*c.Login)
+	}
+
+	if c.Email != nil {
+		set["email"] = toNull(*c.Email)
+	}
+
+	if c.Name != nil {
+		set["name"] = *c.Name
+	}
+
+	if c.Phone != nil {
+		set["phone"] = *c.Phone
+	}
+
+	if c.Locale != nil {
+		set["locale"] = *c.Locale
+	}
+
+	if len(set) == 0 {
+		_, err := s.Find(ctx, id)
+
+		return err
+	}
+
+	set["updated_at"] = time.Now().UTC().Truncate(time.Second)
+
+	tx := dbOf(s.db, ctx).Model(&accountModel{}).Where("id = ?", id).Updates(set)
+	if tx.Error != nil {
+		// A login in use is the one failure a caller can act on; the driver's error for it differs, so ask the table.
+		if c.Login != nil {
+			var n int64
+			if dbOf(s.db, ctx).Model(&accountModel{}).Where("login = ? AND id <> ?", account.NormalizeLogin(*c.Login), id).Count(&n).Error == nil && n > 0 {
+				return account.ErrLoginTaken
+			}
+		}
+
+		if c.Email != nil && s.emailTaken(ctx, toNull(*c.Email), id) {
+			return account.ErrEmailTaken
+		}
+
+		return tx.Error
+	}
+
+	if tx.RowsAffected == 0 { // MySQL counts changed rows: an unchanged value is not a missing account
+		if _, err := s.Find(ctx, id); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// toNull is an address as the column keeps it: lower-case, and NULL for none, so
+// accounts without one do not collide in the unique index.
+func toNull(email string) *string {
+	email = account.NormalizeEmail(email)
+	if email == "" {
+		return nil
+	}
+
+	return &email
+}
+
+func fromNull(email *string) string {
+	if email == nil {
+		return ""
+	}
+
+	return *email
+}
+
+// emailTaken asks the table whether another account (not except) has the address;
+// the driver's duplicate-key error differs, so a failed write is explained this way.
+func (s *Accounts) emailTaken(ctx context.Context, email *string, except int) bool {
+	if email == nil {
+		return false
+	}
+
+	var n int64
+
+	return dbOf(s.db, ctx).Model(&accountModel{}).Where("email = ? AND id <> ?", *email, except).Count(&n).Error == nil && n > 0
+}
+
+// likePattern is term as a LIKE pattern that matches it anywhere, the wildcards in it escaped with "!".
+func likePattern(term string) string {
+	escaped := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(strings.ToLower(term))
+
+	return "%" + escaped + "%"
+}
+
+// Search implements account.Searcher.
+func (s *Accounts) Search(ctx context.Context, q account.Query) (account.Page, error) {
+	db := dbOf(s.db, ctx).Model(&accountModel{})
+
+	if q.Search != "" {
+		p := likePattern(q.Search)
+		db = db.Where("LOWER(login) LIKE ? ESCAPE '!' OR LOWER(name) LIKE ? ESCAPE '!' OR LOWER(email) LIKE ? ESCAPE '!'", p, p, p)
+	}
+
+	if q.Active != nil {
+		db = db.Where("active = ?", *q.Active)
+	}
+
+	switch {
+	case q.Locked != nil && *q.Locked && len(q.LockedIDs) == 0:
+		db = db.Where("1 = 0")
+	case q.Locked != nil && *q.Locked:
+		db = db.Where("id IN ?", q.LockedIDs)
+	case q.Locked != nil && len(q.LockedIDs) > 0:
+		db = db.Where("id NOT IN ?", q.LockedIDs)
+	}
+
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return account.Page{}, err
+	}
+
+	column := map[account.Order]string{
+		account.OrderLogin: "login", account.OrderName: "name", account.OrderEmail: "email", account.OrderCreated: "created_at",
+	}[q.OrderBy]
+	if column == "" {
+		column = "login"
+	}
+
+	dir := "ASC"
+	if q.Desc {
+		dir = "DESC"
+	}
+
+	perPage := max(q.PerPage, 1)
+
+	var rows []accountModel
+	if err := db.Order(column + " " + dir + ", id " + dir).Offset((max(q.Page, 1) - 1) * perPage).Limit(perPage).Find(&rows).Error; err != nil {
+		return account.Page{}, err
+	}
+
+	page := account.Page{Total: int(total), Accounts: make([]account.Account, len(rows))}
+	for i, m := range rows {
+		page.Accounts[i] = m.account()
+	}
+
+	return page, nil
+}
+
 // --- sign-in history ---
 
 // Record implements account.SignInLog: one row of the history (IAM-USER-003).
@@ -208,14 +391,14 @@ func (s *SignIns) Record(ctx context.Context, row account.SignInEntry) error {
 		m.ActorID = &row.ActorID
 	}
 
-	return s.db.WithContext(ctx).Create(&m).Error
+	return dbOf(s.db, ctx).Create(&m).Error
 }
 
 // LockEvents implements account.SignInLog.
 func (s *SignIns) LockEvents(ctx context.Context, accountID, n int) ([]account.SignInEntry, error) {
 	var rows []signInModel
 
-	err := s.db.WithContext(ctx).
+	err := dbOf(s.db, ctx).
 		Where("user_id = ? AND event IN ?", accountID, []string{string(account.WrongPassword), string(account.SignedIn), string(account.Unlocked)}).
 		Order("id DESC").Limit(n).Find(&rows).Error
 	if err != nil {
@@ -224,15 +407,81 @@ func (s *SignIns) LockEvents(ctx context.Context, accountID, n int) ([]account.S
 
 	out := make([]account.SignInEntry, len(rows))
 	for i, r := range rows {
-		out[i] = account.SignInEntry{
-			ID: r.ID, AccountID: r.UserID, Event: account.Event(r.Event), IP: r.IP, Device: r.UserAgent, CreatedAt: r.CreatedAt.UTC(),
-		}
-		if r.ActorID != nil {
-			out[i].ActorID = *r.ActorID
-		}
+		out[i] = r.entry()
 	}
 
 	return out, nil
+}
+
+// Entries implements account.SignInHistory.
+func (s *SignIns) Entries(ctx context.Context, accountID, offset, limit int) ([]account.SignInEntry, int, error) {
+	var total int64
+	if err := dbOf(s.db, ctx).Model(&signInModel{}).Where("user_id = ?", accountID).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var rows []signInModel
+	if err := dbOf(s.db, ctx).Where("user_id = ?", accountID).Order("id DESC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+
+	out := make([]account.SignInEntry, len(rows))
+	for i, r := range rows {
+		out[i] = r.entry()
+	}
+
+	return out, int(total), nil
+}
+
+func (r signInModel) entry() account.SignInEntry {
+	e := account.SignInEntry{ID: r.ID, AccountID: r.UserID, Event: account.Event(r.Event), IP: r.IP, Device: r.UserAgent, CreatedAt: r.CreatedAt.UTC()}
+	if r.ActorID != nil {
+		e.ActorID = *r.ActorID
+	}
+
+	return e
+}
+
+// LastSignIns implements account.SignInHistory.
+func (s *SignIns) LastSignIns(ctx context.Context, ids []int) (map[int]time.Time, error) {
+	out := map[int]time.Time{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+
+	var latest []struct{ ID int }
+
+	err := dbOf(s.db, ctx).Model(&signInModel{}).Select("MAX(id) AS id").
+		Where("event = ? AND user_id IN ?", string(account.SignedIn), ids).Group("user_id").Scan(&latest).Error
+	if err != nil || len(latest) == 0 {
+		return out, err
+	}
+
+	rowIDs := make([]int, len(latest))
+	for i, l := range latest {
+		rowIDs[i] = l.ID
+	}
+
+	var rows []signInModel
+	if err := dbOf(s.db, ctx).Where("id IN ?", rowIDs).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	for _, r := range rows {
+		out[r.UserID] = r.CreatedAt.UTC()
+	}
+
+	return out, nil
+}
+
+// WrongPasswordsSince implements account.SignInHistory.
+func (s *SignIns) WrongPasswordsSince(ctx context.Context, since time.Time) ([]int, error) {
+	var ids []int
+
+	err := dbOf(s.db, ctx).Model(&signInModel{}).Distinct().
+		Where("event = ? AND created_at > ?", string(account.WrongPassword), whole(since)).Pluck("user_id", &ids).Error
+
+	return ids, err
 }
 
 // --- sessions ---
@@ -304,7 +553,7 @@ func (s *Sessions) Open(ctx context.Context, n account.NewSession) (account.Cred
 		RefreshPrefix: refresh[:8], RefreshToken: hash,
 	}
 
-	if err := s.db.WithContext(ctx).Create(&t).Error; err != nil {
+	if err := dbOf(s.db, ctx).Create(&t).Error; err != nil {
 		return account.Credentials{}, err
 	}
 
@@ -320,7 +569,7 @@ func live(db *gorm.DB, now time.Time) *gorm.DB {
 func (s *Sessions) Get(ctx context.Context, accessToken string, now time.Time) (account.Session, error) {
 	var t auth.Token
 
-	err := live(s.db.WithContext(ctx), now).Where("token_value = ?", accessToken).Take(&t).Error
+	err := live(dbOf(s.db, ctx), now).Where("token_value = ?", accessToken).Take(&t).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return account.Session{}, account.ErrSessionNotFound
 	}
@@ -334,7 +583,7 @@ func (s *Sessions) Get(ctx context.Context, accessToken string, now time.Time) (
 
 // Touch implements account.SessionStore.
 func (s *Sessions) Touch(ctx context.Context, sessionID int, at time.Time, ip string) error {
-	return s.db.WithContext(ctx).Model(&auth.Token{}).Where("id = ?", sessionID).
+	return dbOf(s.db, ctx).Model(&auth.Token{}).Where("id = ?", sessionID).
 		Updates(map[string]any{"last_used_at": millis(at), "last_used_ip": ip}).Error
 }
 
@@ -366,7 +615,7 @@ func (s *Sessions) Rotate(ctx context.Context, r account.Rotation) (account.Sess
 		creds   account.Credentials
 	)
 
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = dbOf(s.db, ctx).Transaction(func(tx *gorm.DB) error {
 		// The candidates are read without a lock: a locking read on the prefix index
 		// takes gap locks that deadlock with the update of that very index.
 		var candidates []auth.Token
@@ -443,7 +692,7 @@ func (s *Sessions) Rotate(ctx context.Context, r account.Rotation) (account.Sess
 func (s *Sessions) Live(ctx context.Context, accountID int, now time.Time) ([]account.Session, error) {
 	var rows []auth.Token
 
-	err := live(s.db.WithContext(ctx), now).Where("user_id = ?", accountID).Order("last_used_at DESC, id DESC").Find(&rows).Error
+	err := live(dbOf(s.db, ctx), now).Where("user_id = ?", accountID).Order("last_used_at DESC, id DESC").Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -458,7 +707,7 @@ func (s *Sessions) Live(ctx context.Context, accountID int, now time.Time) ([]ac
 
 // End implements account.SessionStore.
 func (s *Sessions) End(ctx context.Context, accountID int, ids []int, keep int, now time.Time) (int, error) {
-	q := live(s.db.WithContext(ctx).Model(&auth.Token{}), now).Where("user_id = ?", accountID)
+	q := live(dbOf(s.db, ctx).Model(&auth.Token{}), now).Where("user_id = ?", accountID)
 
 	if len(ids) > 0 {
 		q = q.Where("id IN ?", ids)
@@ -479,7 +728,7 @@ func (s *Sessions) EndOpenedBy(ctx context.Context, actorID int, now time.Time) 
 
 	var out []account.Session
 
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := dbOf(s.db, ctx).Transaction(func(tx *gorm.DB) error {
 		var rows []auth.Token
 
 		err := live(tx, now).Where("name = ? OR name LIKE ?", prefix, prefix+"|%").Find(&rows).Error

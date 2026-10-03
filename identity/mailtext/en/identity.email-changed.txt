@@ -1,0 +1,5 @@
+Hello {{.Name}},
+
+The e-mail address of your account was changed to {{.NewEmail}}. This address no longer receives messages for the account.
+
+If this was not you, ask an administrator for help.

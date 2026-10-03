@@ -252,3 +252,225 @@ func ExampleUsers_SubjectNames() {
 	fmt.Println(names)
 	// Output: map[user:1:ana]
 }
+
+func ExampleCodes() {
+	k := kit()
+	ctx := context.Background()
+
+	// Ask for a code for a new address. The test Mailbox holds what the person would be mailed.
+	_, err := k.Codes.Issue(ctx, account.IssueCode{
+		AccountID: 1, Purpose: account.PurposeEmailChange, Target: "ana@new.example", Recipient: "ana@new.example", Name: "Ana", Locale: "en",
+	})
+	fmt.Println(err)
+
+	code := k.Mailbox.Last().Code
+	fmt.Println(len(code), "digits")
+
+	// A wrong code costs an attempt; the right one confirms the target, once.
+	wrong := "000000"
+	if code == wrong {
+		wrong = "000001"
+	}
+
+	_, err = k.Codes.Verify(ctx, 1, account.PurposeEmailChange, wrong)
+	fmt.Println(apperr.HasReason(err, account.ReasonCodeMismatch))
+
+	target, err := k.Codes.Verify(ctx, 1, account.PurposeEmailChange, code)
+	fmt.Println(target, err)
+
+	_, err = k.Codes.Verify(ctx, 1, account.PurposeEmailChange, code)
+	fmt.Println(apperr.HasReason(err, account.ReasonCodeExpired))
+	// Output:
+	// <nil>
+	// 6 digits
+	// true
+	// ana@new.example <nil>
+	// true
+}
+
+func ExampleNewCodes() {
+	_, err := account.NewCodes(account.CodesDeps{
+		Store: identitytest.NewCodes(), Sender: &identitytest.Mailbox{}, Clock: identitytest.NewClock(identitytest.Epoch), Secret: "too short",
+	}, account.CodeRules{})
+	fmt.Println(err)
+	// Output: identity: CodesDeps.Secret needs at least 32 characters: set a long random secret, for example from an environment variable
+}
+
+func ExampleReauth_Confirm() {
+	k := kit()
+	ctx := context.Background()
+
+	ana, _ := k.Users.Get(ctx, 1)
+
+	fmt.Println(k.Reauth.Confirm(ctx, 1, ana.PasswordHash, "secret"))
+	fmt.Println(k.Reauth.Confirm(ctx, 1, ana.PasswordHash, "nope") == account.ErrWrongPassword)
+
+	// Five wrong passwords lock re-confirmation: from then on even the right one is not checked.
+	for range 4 {
+		_ = k.Reauth.Confirm(ctx, 1, ana.PasswordHash, "nope")
+	}
+
+	err := k.Reauth.Confirm(ctx, 1, ana.PasswordHash, "secret")
+	fmt.Println(apperr.HasReason(err, account.ReasonReauthLocked))
+	// Output:
+	// <nil>
+	// true
+	// true
+}
+
+func ExampleNewReauth() {
+	_, err := account.NewReauth(account.ReauthDeps{}, account.Lock{})
+	fmt.Println(err)
+	// Output: identity: ReauthDeps.Store is missing: pass a ReauthStore, for example gormstore.New(db).Reauth
+}
+
+func ExampleAdmin_Create() {
+	k := kit()
+	ctx := context.Background()
+
+	dora, err := k.Admin.Create(ctx, account.CreateAccount{
+		Login: "Dora", Name: "Dora Horvat", Email: "Dora@Example.com", Locale: "hr", Password: "a long password", ActorID: 1,
+	})
+	fmt.Println(dora.Login, dora.Email, dora.Active, err)
+
+	_, err = k.Admin.Create(ctx, account.CreateAccount{Login: "dora", Name: "Another", Email: "other@example.com", Locale: "hr", Password: "a long password"})
+	fmt.Println(apperr.HasReason(err, account.ReasonLoginTaken))
+
+	_, err = k.Admin.Create(ctx, account.CreateAccount{Login: "eva", Name: "Eva", Email: "eva@example.com", Locale: "hr", Password: "short"})
+	fmt.Println(apperr.HasReason(err, account.ReasonPasswordWeak))
+	// Output:
+	// dora dora@example.com true <nil>
+	// true
+	// true
+}
+
+func ExampleAdmin_Deactivate() {
+	// The application's hook refuses while the person still owns something.
+	owns := account.DeactivationHookFunc(func(_ context.Context, a account.Account, _ int) error {
+		if a.Login == "boris" {
+			return apperr.BadRequest("owns leads").WithReason("crm.owns_leads")
+		}
+
+		return nil
+	})
+
+	k := identitytest.New(exampleT{}, []account.Account{
+		identitytest.Account(1, "ana", "secret"), identitytest.Account(2, "boris", "secret"), identitytest.Account(3, "cvita", "secret"),
+	}, identitytest.WithDeactivationHooks(owns))
+	ctx := context.Background()
+
+	err := k.Admin.Deactivate(ctx, account.DeactivateInput{ID: 2, ActorID: 1})
+	fmt.Println(apperr.HasReason(err, "crm.owns_leads"))
+
+	fmt.Println(k.Admin.Deactivate(ctx, account.DeactivateInput{ID: 3, ActorID: 1}))
+
+	cvita, _ := k.Users.Get(ctx, 3)
+	fmt.Println(cvita.Active)
+	// Output:
+	// true
+	// <nil>
+	// false
+}
+
+func ExampleAdmin_List() {
+	k := kit()
+	ctx := context.Background()
+
+	for _, login := range []string{"dora", "eva"} {
+		_, _ = k.Admin.Create(ctx, account.CreateAccount{Login: login, Name: login, Email: login + "@example.com", Locale: "en", Password: "a long password"})
+	}
+
+	page, _ := k.Admin.List(ctx, account.ListInput{View: account.ViewAll, Search: "d", Paging: account.Paging{PerPage: 10}})
+
+	for _, row := range page.Rows {
+		fmt.Println(row.Login, row.LastSignIn.IsZero())
+	}
+
+	fmt.Println(page.Total, page.LastPage)
+	// Output:
+	// dora true
+	// 1 1
+}
+
+func ExampleNewAdmin() {
+	_, err := account.NewAdmin(account.AdminDeps{})
+	fmt.Println(err)
+	// Output: identity: AdminDeps.Users is missing: pass the Users service account.New built
+}
+
+func ExamplePasswords() {
+	policy := account.Passwords{MinLength: 10}
+
+	fmt.Println(policy.Violations("short"))
+	fmt.Println(policy.Violations("long enough password"))
+	// Output:
+	// [min_length]
+	// []
+}
+
+func ExampleDiscardNotices() {
+	// Embed it to hear only some of the facts.
+	var n account.Notices = deactivations{}
+
+	n.AccountCreated(context.Background(), 1, 2) // not heard
+	n.AccountDeactivated(context.Background(), 1, 2)
+	// Output: account 1 deactivated by 2
+}
+
+type deactivations struct{ account.DiscardNotices }
+
+func (deactivations) AccountDeactivated(_ context.Context, id, actor int) {
+	fmt.Println("account", id, "deactivated by", actor)
+}
+
+func ExampleProfile_RequestEmailChange() {
+	k := kit()
+	ctx := context.Background()
+
+	// Ana asks to move to a new address: a code goes to the new address, nothing changes yet.
+	_, err := k.Profile.RequestEmailChange(ctx, account.RequestEmail{AccountID: 1, Email: "ana@new.example", CurrentPassword: "secret"})
+	fmt.Println(err, k.Mailbox.Last().Recipient)
+
+	view, _ := k.Profile.Get(ctx, 1)
+	fmt.Println(view.Email == "", view.PendingEmail.Target)
+
+	// She types the code that was mailed; now the address is hers.
+	view, err = k.Profile.ConfirmEmailChange(ctx, account.ConfirmEmail{AccountID: 1, Code: k.Mailbox.Last().Code})
+	fmt.Println(view.Email, view.PendingEmail == nil, err)
+	// Output:
+	// <nil> ana@new.example
+	// true ana@new.example
+	// ana@new.example true <nil>
+}
+
+func ExampleProfile_ChangePassword() {
+	k := kit()
+	ctx := context.Background()
+
+	err := k.Profile.ChangePassword(ctx, account.PasswordChange{AccountID: 1, CurrentPassword: "nope", NewPassword: "a better one", Confirmation: "a better one"})
+	fmt.Println(apperr.HasReason(err, account.ReasonPasswordWrong))
+
+	err = k.Profile.ChangePassword(ctx, account.PasswordChange{AccountID: 1, CurrentPassword: "secret", NewPassword: "a better one", Confirmation: "a better one"})
+	fmt.Println(err)
+
+	_, err = k.SignIn.Login(ctx, account.LoginInput{Login: "ana", Password: "a better one"})
+	fmt.Println(err)
+	// Output:
+	// true
+	// <nil>
+	// <nil>
+}
+
+func ExampleProfile_UpdateDetails() {
+	k := kit()
+
+	view, err := k.Profile.UpdateDetails(context.Background(), account.ProfileDetails{AccountID: 1, Name: " Ana Anić ", Phone: "099 123"})
+	fmt.Println(view.Name, view.Phone, err)
+	// Output: Ana Anić 099 123 <nil>
+}
+
+func ExampleNewProfile() {
+	_, err := account.NewProfile(account.ProfileDeps{})
+	fmt.Println(err)
+	// Output: identity: ProfileDeps.Users is missing: pass the Users service account.New built
+}

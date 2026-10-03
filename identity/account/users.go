@@ -13,7 +13,19 @@ import (
 type Users struct {
 	deps Deps
 	cfg  Config
+	// set by NewAdmin and NewProfile, for code that has only the Users.
+	admin   *Admin
+	profile *Profile
 }
+
+// Admin returns the users module's administration service, which NewAdmin built
+// over these Users (identity.Install does): create a person in code, for the
+// first administrator of a new installation. It is nil for Users built without one.
+func (u *Users) Admin() *Admin { return u.admin }
+
+// Profile returns the profile service NewProfile built over these Users, nil
+// for Users built without one.
+func (u *Users) Profile() *Profile { return u.profile }
 
 // Get returns the account, active or not.
 func (u *Users) Get(ctx context.Context, id int) (Account, error) {

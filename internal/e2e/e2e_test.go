@@ -3,10 +3,13 @@
 package e2e_test
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	nethttp "net/http"
 	"net/http/httptest"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -14,14 +17,18 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/access"
 	"github.com/wssto2/go-core/access/accesshttp"
+	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/dbtest"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/identity"
+	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/identity/gormstore"
+	identityhttp "github.com/wssto2/go-core/identity/http"
 	"github.com/wssto2/go-core/identity/identitytest"
+	"github.com/wssto2/go-core/mail"
 	"gorm.io/gorm"
 )
 
@@ -99,12 +106,15 @@ func (b *browser) me() map[string]json.RawMessage {
 // Identity and access installed as an application's main does:
 //
 //	app := gocore.New(cfg, gocore.WithPrefix("/api"))
-//	users := identity.Install(app, identity.AllowImpersonation("iam.user:impersonate"))
+//	users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecret(secret),
+//		identity.AllowImpersonation("iam.user:impersonate"), identity.WithDeactivationHook(hook))
 //	access.Install(app, permissions, users)
 //
 // An administrator signs in and sees their permissions in /auth/me; somebody
 // without a role may not edit roles; after the administrator binds a role to
-// them, their /auth/me shows it. On SQLite, MySQL and MariaDB.
+// them, their /auth/me shows it. The administrator creates a person, who signs
+// in, changes their e-mail address with a code from the mail sink, and is
+// deactivated once the application's hook lets it. On SQLite, MySQL and MariaDB.
 func TestIdentityAndAccessWorkTogether(t *testing.T) {
 	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
 		reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
@@ -121,7 +131,20 @@ func TestIdentityAndAccessWorkTogether(t *testing.T) {
 		permissions.MustDefine("crm.customer:view")
 		permissions.MustDefine("iam.user:impersonate", authz.Sensitive())
 
-		users := identity.Install(app, identity.AllowImpersonation("iam.user:impersonate"))
+		sink := mail.NewSink()
+		owned := map[string]bool{"dora": true} // the application's rule: dora still owns open records
+
+		users := identity.Install(app,
+			identity.WithMail(sink), identity.WithCodeSecret("an-installation-secret-of-32-chars!"),
+			identity.AllowImpersonation("iam.user:impersonate"),
+			identity.WithDeactivationHook(identity.DeactivationHookFunc(func(_ context.Context, a account.Account, _ int) error {
+				if owned[a.Login] {
+					return apperr.BadRequest("owns open records").WithReason("crm.owns_records")
+				}
+
+				return nil
+			})),
+		)
 		acc := access.Install(app, permissions, users, access.WithRoles(
 			authz.Role{Key: "seller", Name: "Seller", Grants: authz.Grants(authz.QualifierAll, "crm.customer:view")},
 			authz.ComputedRole("webmaster", "Webmaster", authz.All()),
@@ -177,5 +200,72 @@ func TestIdentityAndAccessWorkTogether(t *testing.T) {
 
 		status, data = admin.do(nethttp.MethodPost, "/api/v1/auth/login-as", map[string]int{"user_id": 2})
 		assert.Equal(t, nethttp.StatusOK, status, string(data))
+
+		// User administration: ines holds no iam.user:manage, the administrator does (the
+		// administrator's browser was signed in as ines by login-as, so sign in again).
+		admin.signIn("admin", "secret")
+
+		newUser := identityhttp.CreateUserInput{
+			Login: "dora", Name: "Dora Horvat", Email: "dora@old.example", Locale: "hr", Password: "a long password",
+		}
+
+		status, _ = ines.do(nethttp.MethodPost, "/api/v1/iam/users", newUser)
+		assert.Equal(t, nethttp.StatusForbidden, status, "without iam.user:manage she may not create people")
+
+		status, data = admin.do(nethttp.MethodPost, "/api/v1/iam/users", newUser)
+		require.Equal(t, nethttp.StatusOK, status, string(data))
+
+		var dora struct {
+			ID int `json:"id"`
+		}
+
+		require.NoError(t, json.Unmarshal(data, &dora))
+
+		status, data = admin.do(nethttp.MethodGet, "/api/v1/iam/users?view=all&search=dora", nil)
+		require.Equal(t, nethttp.StatusOK, status, string(data))
+		assert.Contains(t, string(data), `"total":1`)
+		assert.Contains(t, string(data), `"login":"dora"`)
+
+		// dora signs in and changes her e-mail address with the code that was mailed to the new one.
+		person := &browser{t: t, handler: handler, cookies: map[string]*nethttp.Cookie{}}
+		person.signIn("dora", "a long password")
+
+		status, data = person.do(nethttp.MethodPost, "/api/v1/iam/profile/email", identityhttp.RequestEmailInput{Email: "dora@new.example", CurrentPassword: "a long password"})
+		require.Equal(t, nethttp.StatusOK, status, string(data))
+
+		mails := sink.To("dora@new.example")
+		require.Len(t, mails, 1, "the code was mailed to the new address, not the old one")
+		assert.Empty(t, sink.To("dora@old.example"))
+
+		code := regexp.MustCompile(`\b\d{6}\b`).FindString(mails[0].Text)
+		require.NotEmpty(t, code)
+
+		status, data = person.do(nethttp.MethodPost, "/api/v1/iam/profile/email/confirm", identityhttp.ConfirmEmailInput{Code: code})
+		require.Equal(t, nethttp.StatusOK, status, string(data))
+		assert.Contains(t, string(data), "dora@new.example")
+
+		status, data = admin.do(nethttp.MethodGet, "/api/v1/iam/users/"+strconv.Itoa(dora.ID)+"/changes", nil)
+		require.Equal(t, nethttp.StatusOK, status, string(data))
+		assert.Contains(t, string(data), `"action":"email"`, "the change is in the audit trail")
+		assert.Contains(t, string(data), `"action":"created"`)
+
+		// The application's hook vetoes the deactivation while she owns open records; then it lets it through.
+		status, _ = admin.do(nethttp.MethodPost, "/api/v1/iam/users/"+strconv.Itoa(dora.ID)+"/deactivate", nil)
+		assert.Equal(t, nethttp.StatusBadRequest, status)
+
+		status, _ = person.do(nethttp.MethodGet, "/api/v1/iam/profile", nil)
+		assert.Equal(t, nethttp.StatusOK, status, "a vetoed deactivation leaves her signed in")
+
+		owned["dora"] = false
+
+		status, data = admin.do(nethttp.MethodPost, "/api/v1/iam/users/"+strconv.Itoa(dora.ID)+"/deactivate", nil)
+		require.Equal(t, nethttp.StatusNoContent, status, string(data))
+
+		status, _ = person.do(nethttp.MethodGet, "/api/v1/iam/profile", nil)
+		assert.Equal(t, nethttp.StatusUnauthorized, status, "deactivating signs her out")
+
+		status, _ = (&browser{t: t, handler: handler, cookies: map[string]*nethttp.Cookie{}}).do(nethttp.MethodPost, "/api/v1/auth/login",
+			map[string]string{"login": "dora", "password": "a long password"})
+		assert.Equal(t, nethttp.StatusBadRequest, status, "and she cannot sign in again")
 	})
 }

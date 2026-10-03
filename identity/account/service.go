@@ -30,6 +30,10 @@ type Config struct {
 	// AttemptsPerMinute is how many sign-in attempts of one login are let
 	// through a minute, whatever the answers. Default 10.
 	AttemptsPerMinute int
+	// Codes are the limits of one-time codes (NewCodes takes them).
+	Codes CodeRules
+	// ReauthLock is the lock after wrong passwords of re-confirmation (NewReauth takes it).
+	ReauthLock Lock
 }
 
 // Services is what New builds.

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/wssto2/go-core/database"
@@ -36,8 +37,7 @@ func (a *App) Migrations(files fs.FS, conn ...database.Connection) {
 		name = conn[0].String()
 	}
 
-	a.migrations = append(a.migrations, migrationSource{conn: name, fsys: files, flat: true})
-	a.migrateNow()
+	a.collect(migrationSource{conn: name, fsys: files, flat: true})
 }
 
 // MigrationsByConnection collects the application's own migrations: one
@@ -84,8 +84,37 @@ func (a *App) Schema(s Schema, conn ...database.Connection) {
 		name = conn[0].String()
 	}
 
-	a.migrations = append(a.migrations, migrationSource{conn: name, fsys: s.Files, flat: true, models: s.Models})
+	a.collect(migrationSource{conn: name, fsys: s.Files, flat: true, models: s.Models})
+}
+
+// collect adds a source unless the same files are already collected for the
+// connection: two features that both need a shared table (audit_logs) each
+// register its migrations, and they run once.
+func (a *App) collect(src migrationSource) {
+	for _, have := range a.migrations {
+		if have.conn == src.conn && have.flat == src.flat && sameFS(have.fsys, src.fsys) {
+			return
+		}
+	}
+
+	a.migrations = append(a.migrations, src)
 	a.migrateNow()
+}
+
+// sameFS reports whether a and b are the one file system: equal values of a
+// comparable type, such as an embed.FS. A map-backed FS is never "the same".
+func sameFS(a, b fs.FS) (same bool) {
+	if a == nil || b == nil || reflect.TypeOf(a) != reflect.TypeOf(b) {
+		return false
+	}
+
+	defer func() {
+		if recover() != nil { // an interface or struct holding something that cannot be compared
+			same = false
+		}
+	}()
+
+	return a == b
 }
 
 type migrationSource struct {

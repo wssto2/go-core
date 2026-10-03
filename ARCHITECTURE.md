@@ -96,7 +96,7 @@ architecture error was introduced.
 
 ```
 Layer 0 — no internal imports:
-  apperr, utils, i18n (types only), navigation
+  apperr, utils, i18n (types only), navigation, mail (standard library only)
 
 Layer 1 — imports Layer 0 only:
   validation, database/types, logger, resilience
@@ -123,8 +123,10 @@ Test support with no go-core imports (SQLite, MySQL, MariaDB harness):
   database/dbtest
 
 Modules — features go-core ships, each a facade that imports gocore (section 4.1):
-  identity (core identity/account imports apperr and bcrypt only; gormstore,
-  identity/http and identitytest import the layers below)
+  identity (core identity/account imports apperr, authz and bcrypt only; gormstore,
+  identity/http, identity/mailtext and identitytest import the layers below;
+  audit/migrations is the audit_logs table's goose file, registered by the
+  modules that write an audit trail)
 
 Layer 7 — example only:
   go-core-example

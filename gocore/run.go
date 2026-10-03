@@ -82,6 +82,10 @@ func (a *App) routeProblems() []Problem {
 
 		seen[key] = true
 
+		for _, msg := range spec.PathProblems() {
+			problems = append(problems, Problem{What: msg, Fix: "make the path parameters and the input's path:\"…\" fields name the same things"})
+		}
+
 		if spec.Permission == "" {
 			continue
 		}

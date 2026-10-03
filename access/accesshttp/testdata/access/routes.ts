@@ -1,4 +1,4 @@
-import { route } from "@wssto2/vue-core";
+import { route } from "@wssto2/vue-core/client";
 import type { BindInput, BindableInput, CompareInput, CreateRoleInput, ReplaceRoleInput, RoleInput, SubjectInput, UnbindInput, UpdateRoleInput } from "./schemas";
 import type { BindableRoles, Binding, Replaced, Role, RoleComparison, RoleHolders, RoleList, ScopeOptions, SubjectAccess } from "./entities";
 

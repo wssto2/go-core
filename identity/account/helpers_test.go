@@ -37,6 +37,7 @@ func (h *countingHasher) Matches(hash, password string) bool {
 
 // notices remembers what was published.
 type notices struct {
+	account.DiscardNotices
 	mu     sync.Mutex
 	events []string
 }
@@ -82,4 +83,24 @@ func seeded(t testing.TB, opts ...identitytest.Option) identitytest.Kit {
 		identitytest.Account(2, "boris", "hunter2"),
 		inactive,
 	}, opts...)
+}
+
+func (n *notices) AccountCreated(_ context.Context, id, actor int) {
+	n.add("created " + strconv.Itoa(id) + " by " + strconv.Itoa(actor))
+}
+
+func (n *notices) AccountDeactivated(_ context.Context, id, actor int) {
+	n.add("deactivated " + strconv.Itoa(id) + " by " + strconv.Itoa(actor))
+}
+
+func (n *notices) AccountActivated(_ context.Context, id, actor int) {
+	n.add("activated " + strconv.Itoa(id) + " by " + strconv.Itoa(actor))
+}
+
+func (n *notices) PasswordChanged(_ context.Context, id, actor int) {
+	n.add("password " + strconv.Itoa(id) + " by " + strconv.Itoa(actor))
+}
+
+func (n *notices) EmailChanged(_ context.Context, id int, from, to string) {
+	n.add("email " + strconv.Itoa(id) + " " + from + ">" + to)
 }

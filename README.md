@@ -55,7 +55,8 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 * `datatable` → filtering, pagination, query helpers
 * `tenancy` → multi-tenant context + DB scoping
 * `event` → event bus abstraction
-* `identity` → accounts, password sign-in, sessions, the lock after wrong passwords and the `/auth/me` payload (see "Sign-in"; core `identity/account`, routes `identity/http`, store `identity/gormstore`, tests `identity/identitytest`)
+* `identity` → accounts, password sign-in, sessions, the lock after wrong passwords, the `/auth/me` payload, user administration and each person's profile with e-mail codes (see "Sign-in" and "Users and profile"; core `identity/account`, routes `identity/http`, store `identity/gormstore`, mail text `identity/mailtext`, tests `identity/identitytest`)
+* `mail` → the `Sender` port, SMTP over the standard library, a recording `Sink` for tests, per-locale `Renderer` (see "mail")
 * `navigation` → the menu tree an application declares and the filter by held permissions
 
 ### Utility Packages
@@ -136,8 +137,9 @@ An unauthenticated request to a non-public route gets the usual 401 envelope. A 
 func main() {
     app := gocore.New(config, gocore.WithPrefix("/api"))
 
-    users := identity.Install(app, identity.AllowImpersonation("iam.user:impersonate")) // sign-in, /auth/me, authentication
-    access.Install(app, permissions.All, users)                                         // roles and bindings; builds the engine
+    users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecret(secret),
+        identity.AllowImpersonation("iam.user:impersonate")) // sign-in, users, profile, authentication
+    access.Install(app, permissions.All, users)               // roles and bindings; builds the engine
     tickets.Install(app, users)
 
     if err := app.Run(); err != nil { log.Fatal(err) }
@@ -217,12 +219,14 @@ contract.Generate("frontend/generated", tickets.Routes, leads.Routes)
 writes `frontend/generated/tickets/{entities,schemas,routes}.ts`: the output types, the input types as Zod schemas (keeping `max:` bounds), and the route table the client builds typed requests from:
 
 ```ts
-import { route } from "@wssto2/vue-core";
+import { route } from "@wssto2/vue-core/client";
 export const ticketsRoutes = {
   show: route<ShowInput, Ticket>("GET", "/tickets/:id", { permission: "tickets.ticket:view" }),
   events: route.raw("GET", "/events", { public: true }),
 } as const;
 ```
+
+A route whose output is `datatable.DatatableResult[Row]` types as `ListResult<Row>` (imported from `@wssto2/vue-core/client` next to `route`, with exactly the datatable wire shape); any other generic type is refused. A body field with `json:",omitempty"` is `.optional()` in the Zod schema, unless it is `required`. A typed route's path and its input must agree: every `:name` of the path needs a field tagged `path:"name"` and the other way round, which start-up (`Check`) and `contract.Generate` report with the route, the parameter and the fix, since TypeScript cannot check it.
 
 The key is the route's `.Name` without the group prefix (`tickets.show` is `show`); without a name it is the method and path (`GET /tickets/:id` is `getTicketsById`). `route.None` and `route.Empty` become `void`. Every file's first line names the go-core version that wrote it.
 
@@ -283,10 +287,10 @@ user := auth.MustGetUser[MyUser](ctx)
 `identity` is the sign-in module: accounts, password sign-in, sessions, the lock after wrong passwords, signing in as somebody else, and the `/auth/me` payload the client starts from. One line puts it into an application (`identity/example_test.go`); it also makes it the application's authentication, so every route that is not `.Public()` is behind it and the signed-in person is the authz principal:
 
 ```go
-users := identity.Install(app) // routes, tables, authentication
+users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecret(secret)) // routes, tables, authentication
 ```
 
-It uses the GORM store, bcrypt and its own migrations unless told otherwise. Options are named for what they change: `identity.On(Shared)` (tables on another connection), `WithAccounts(store)` (your own accounts table), `WithHasher(h)`, `WithRefreshHasher(h)`, `WithConfig(identity.Config{Lock: identity.Lock{After: 3}})`, `WithAccess(a)` (override where the payload's `authz.MyAccess` comes from; by default the application's authorizer, once `access.Install` is part of it), `WithNavigation(menu...)` (and the menu, cut to the permissions held), `WithUserProjector(fn)`, `AllowImpersonation("iam.user:impersonate")` (checked through the application's authorizer), `WithNotices(n)`, `WithCookies(...)`. `users` is what other features take: `users.Get(ctx, id)`, `users.ChangeLocale(...)`, `users.Sessions(ctx, id)`, `users.RevokeSessions(...)`.
+Mail is the one thing identity cannot default (see "Users and profile" below): pass `WithMail(sender)` and `WithCodeSecret(secret)`, or `identity.WithoutMail()`; without either, start-up stops and says which. It uses the GORM store, bcrypt and its own migrations unless told otherwise. Options are named for what they change: `identity.On(Shared)` (tables on another connection), `WithAccounts(store)` (your own accounts table), `WithHasher(h)`, `WithRefreshHasher(h)`, `WithConfig(identity.Config{Lock: identity.Lock{After: 3}})`, `WithAccess(a)` (override where the payload's `authz.MyAccess` comes from; by default the application's authorizer, once `access.Install` is part of it), `WithNavigation(menu...)` (and the menu, cut to the permissions held), `WithUserProjector(fn)`, `AllowImpersonation("iam.user:impersonate")` (checked through the application's authorizer), `WithNotices(n)`, `WithCookies(...)`. `users` is what other features take: `users.Get(ctx, id)`, `users.ChangeLocale(...)`, `users.Sessions(ctx, id)`, `users.RevokeSessions(...)`.
 
 The routes are declared under `/v1/auth` (an app with `gocore.WithPrefix("/api")` serves `/api/v1/auth/login`): `POST login` and `refresh` (public), `POST logout`, `GET me`, `POST change-locale`, `POST login-as`. `identity.Routes` is their declared contract. Tokens travel in HttpOnly cookies (`access_token`, and `refresh_token` for the refresh route only) and an access token is also accepted as `Authorization: Bearer`. Login, refresh and `me` answer the session payload, which vue-core reads with `parseSessionPayload`:
 
@@ -300,6 +304,49 @@ The routes are declared under `/v1/auth` (an app with `gocore.WithPrefix("/api")
 ```
 
 `user` is what the projector makes of the account (the default has `id`, `login`, `name`, `email`, `locale`, never the password hash), `access` is the authz engine's answer and `navigation` your menu filtered by it. Refusals are `apperr` reasons with params, never sentences: `identity.signin.failed` (an unknown login and a wrong password answer alike, 422), `identity.signin.locked` (`params.locked_until`), `identity.signin.inactive`, `identity.session.invalid`. Five wrong passwords lock sign-in for fifteen minutes, ten attempts a minute per login are let through; the rules, with their Logic IDs (IAM-USER-001 to 004), are in `docs/rules/identity/signin.md`.
+
+#### Users and profile
+
+The same `Install` serves user administration under `/v1/iam/users` and every signed-in person's own profile under `/v1/iam/profile`; both are in `identity.Routes`. Administrators need `iam.user:view` (read) and `iam.user:manage` (write), the ids `access` uses for the same two ideas (`access.Install` defines them in your catalogue; an application without access calls `identity.DefinePermissions(catalogue)`). A profile needs a signed-in person and nothing else.
+
+```go
+// sender is a mail.Sender: mail.SMTP(...) in production, mail.NewSink() in a test or a first run.
+users := identity.Install(app,
+    identity.WithMail(sender),
+    identity.WithCodeSecret(os.Getenv("CODE_SECRET")), // 32 characters or more; keys the stored one-time codes
+    identity.WithDeactivationHook(handOver),           // the application takes part in a deactivation, or refuses it
+)
+
+// The first administrator is made in code:
+_, err := users.Admin().Create(ctx, account.CreateAccount{
+    Login: "admin", Name: "Admin", Email: "admin@example.com", Locale: "en", Password: "a long password",
+})
+```
+
+Administrators create, update, deactivate and activate people, give them a new password (which lifts their lock and ends their sessions), unlock them, read their sign-in history and the changes made to them (go-core's `audit` trail, whose table `identity.Install` registers), and list or end their sessions. `GET /v1/iam/users` answers go-core's datatable page, which the generated TypeScript types as `ListResult<UserRow>` from `@wssto2/vue-core/client`: views `active` (the default), `locked`, `inactive`, `all`; `search`, `order_col`, `order_dir`, `page`, `per_page`.
+
+A person changes their name and phone, their password (the current one is asked again; five wrong ones lock for fifteen minutes; every other session ends) and their e-mail address: a six-digit code is mailed to the *new* address and the change happens when it is typed in. One account per address (`identity.email.taken`). The code, its limits (60 seconds between sends, five an hour, five attempts, fifteen minutes) and the lock are in `docs/rules/identity/` (IAM-OTP-001 to 004, IAM-REAUTH-001, IAM-PROFILE-001 to 004, IAM-USER-005 to 007).
+
+The text of identity's mails is English (`identity/mailtext`); give `identity.WithMailContent(renderer)` your own in the person's language, for the mails you want to change. `deactivation hooks` run in the transaction of the deactivation before anything is written, and what they write with the context they get commits or rolls back with it:
+
+```go
+handOver := identity.DeactivationHookFunc(func(ctx context.Context, a account.Account, actor int) error {
+    if open, _ := leads.OpenFor(ctx, a.ID); open > 0 {
+        return apperr.BadRequest("owns open leads").WithReason("crm.owns_leads", map[string]any{"count": open})
+    }
+    return nil
+})
+```
+
+`identitytest.New` builds all of it over memory stores for a test (`kit.Admin`, `kit.Profile`, `kit.Mailbox` holding the code a person would have been mailed). `go run github.com/wssto2/go-core/cmd/modulets <dir>` writes the TypeScript of every go-core module (identity, access) for vue-core to commit.
+
+#### mail
+
+`mail` is the sender port with an SMTP implementation over the standard library (STARTTLS or implicit TLS, `multipart/alternative` text and HTML, one deadline for the whole conversation), a `Sink` that records messages, and a `Renderer` (`mail.Templates(fsys)` over `<locale>/<name>.subject.txt|.txt|.html` files, falling back from `pt-BR` to `pt` to `en`; `mail.Fallback(mine, defaults)` to write only some mails).
+
+```go
+sender := mail.SMTP(mail.SMTPConfig{Addr: "smtp.example.com:587", Username: u, Password: p, From: "App <no-reply@example.com>"})
+```
 
 In a test, `identity.Install` runs on `gocoretest.New(t)`: SQLite tables are created from the models (`app.Schema`), the real SQL files are tested on MySQL and MariaDB. Feature tests that need people use `identitytest.Users(t, identitytest.Account(1, "ana", "secret"))`, which is the same service over memory stores.
 

@@ -16,6 +16,8 @@ import (
 type Handler struct {
 	signIn     *account.SignIn
 	users      *account.Users
+	admin      *account.Admin
+	profile    *account.Profile
 	clock      account.Clock
 	cookies    Cookies
 	project    UserProjector
@@ -24,12 +26,15 @@ type Handler struct {
 	navigation NavigationProvider
 }
 
-// Config is what the handler is built from. Services and Clock are required;
-// everything else has a default.
+// Config is what the handler is built from. Services, Admin, Profile and Clock
+// are required; everything else has a default.
 type Config struct {
 	Services account.Services
-	Clock    account.Clock
-	Cookies  Cookies
+	// Admin serves the users routes, Profile the profile routes.
+	Admin   *account.Admin
+	Profile *account.Profile
+	Clock   account.Clock
+	Cookies Cookies
 	// Project defaults to DefaultUser.
 	Project UserProjector
 	// Principal defaults to DefaultPrincipal.
@@ -43,7 +48,7 @@ type Config struct {
 // NewHandler returns the handler for the configuration.
 func NewHandler(cfg Config) *Handler {
 	h := &Handler{
-		signIn: cfg.Services.SignIn, users: cfg.Services.Users, clock: cfg.Clock,
+		signIn: cfg.Services.SignIn, users: cfg.Services.Users, admin: cfg.Admin, profile: cfg.Profile, clock: cfg.Clock,
 		cookies: cfg.Cookies.withDefaults(), project: cfg.Project, principal: cfg.Principal,
 		access: cfg.Access, navigation: cfg.Navigation,
 	}
@@ -68,6 +73,31 @@ func (h *Handler) Routes() []route.Handled {
 		Me.To(h.me),
 		ChangeLocale.To(h.changeLocale),
 		LoginAs.To(h.loginAs),
+
+		ListUsers.To(h.listUsers),
+		ShowUser.To(h.showUser),
+		CreateUser.To(h.createUser),
+		UpdateUser.To(h.updateUser),
+		SetUserPassword.To(h.setUserPassword),
+		DeactivateUser.To(h.deactivateUser),
+		ActivateUser.To(h.activateUser),
+		UnlockUser.To(h.unlockUser),
+		UserSignIns.To(h.userSignIns),
+		UserChanges.To(h.userChanges),
+		UserSessions.To(h.userSessions),
+		RevokeUserSession.To(h.revokeUserSession),
+		RevokeUserSessions.To(h.revokeUserSessions),
+
+		ShowProfile.To(h.showProfile),
+		UpdateProfile.To(h.updateProfile),
+		ChangeOwnPassword.To(h.changeOwnPassword),
+		RequestEmailChange.To(h.requestEmailChange),
+		ResendEmailCode.To(h.resendEmailCode),
+		ConfirmEmailChange.To(h.confirmEmailChange),
+		CancelEmailChange.To(h.cancelEmailChange),
+		OwnSignIns.To(h.ownSignIns),
+		OwnSessions.To(h.ownSessions),
+		RevokeOwnSession.To(h.revokeOwnSession),
 	}
 }
 

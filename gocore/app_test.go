@@ -8,6 +8,7 @@ import (
 	"github.com/wssto2/go-core/route"
 	"log/slog"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -147,6 +148,28 @@ func TestSchemaWithoutModelsOrOutsideTestsRunsTheFiles(t *testing.T) {
 	pending := app.pendingProblems(t.Context())
 	if len(pending) != 1 || !strings.Contains(pending[0].What, "20261015000000_widgets.sql") {
 		t.Fatalf("outside tests the files are the migrations, got %+v", pending)
+	}
+}
+
+// Two features that need one shared table both register its migrations; the
+// files are collected once, so the same version is not "used by two files".
+func TestTheSameFilesRegisteredTwiceAreCollectedOnce(t *testing.T) {
+	app := testApp(t, "local")
+	shared := os.DirFS(t.TempDir())
+
+	app.Schema(Schema{Files: shared})
+	app.Migrations(shared)
+	app.Migrations(os.DirFS(t.TempDir())) // another directory is another source
+
+	if len(app.migrations) != 2 {
+		t.Fatalf("want 2 sources (the shared files once, and the other), got %d", len(app.migrations))
+	}
+
+	app.Migrations(mysqlOnly)
+	app.Migrations(mysqlOnly) // a map-backed FS cannot be compared: it stays a clash
+
+	if pending := app.pendingProblems(t.Context()); len(pending) != 1 || !strings.Contains(pending[0].What, "used by two migration files") {
+		t.Fatalf("a repeated map-backed FS is still the clash it was, got %+v", pending)
 	}
 }
 

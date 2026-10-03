@@ -53,11 +53,16 @@ func indexesOf(t *testing.T, db *gorm.DB, table string) []index {
 }
 
 // family drops the display width and the integer size: GORM maps a Go int to
-// bigint where the DDL says INT, and time.Time to datetime(3).
+// bigint where the DDL says INT, and time.Time to datetime(3). Unsigned stays
+// unsigned.
 func family(sqlType string) string {
 	base, _, _ := strings.Cut(sqlType, "(")
 	if base == "bigint" {
 		return "int"
+	}
+
+	if strings.HasSuffix(sqlType, " unsigned") {
+		return strings.TrimSuffix(base, " unsigned") + " unsigned"
 	}
 
 	return base
@@ -83,7 +88,7 @@ func TestMigrationsMatchTheModels(t *testing.T) {
 
 		require.NoError(t, migrate.New(reg, nil, slog.New(slog.DiscardHandler)).Add("scratch", migrations.Files).Up(context.Background()))
 
-		tables := []string{"accounts", "user_signins", "tokens"}
+		tables := []string{"accounts", "user_signins", "tokens", "user_verification_codes", "user_reauth_attempts"}
 		for _, table := range tables {
 			require.NoError(t, db.Exec("RENAME TABLE "+table+" TO ddl_"+table).Error)
 		}

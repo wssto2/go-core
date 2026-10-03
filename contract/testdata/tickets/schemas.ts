@@ -10,6 +10,7 @@ export type Person = z.infer<typeof PersonSchema>;
 
 export const DraftSchema = z.object({
   title: z.string().min(1).max(100),
+  note: z.string().max(500).optional(),
   owner: PersonSchema,
 });
 
