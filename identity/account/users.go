@@ -208,7 +208,7 @@ func (u *Users) RevokeSessions(ctx context.Context, in RevokeSessionsInput) erro
 }
 
 // record writes the event; the actor is kept only when it is somebody else than the person.
-func (u *Users) record(ctx context.Context, accountID int, e Event, actorID int) error {
+func (u *Users) record(ctx context.Context, accountID int, e SignInEvent, actorID int) error {
 	if actorID == accountID {
 		actorID = 0
 	}

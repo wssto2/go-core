@@ -10,8 +10,6 @@ export type ChangeRow = {
   created_at: string;
 };
 
-export type Event = "signed_in" | "wrong_password" | "locked_out" | "refused_inactive" | "signed_in_as" | "unlocked" | "signed_out_everywhere" | "session_revoked";
-
 export type MyAccess = {
   subject: Subject;
   root: boolean;
@@ -67,9 +65,11 @@ export type SessionResponse = {
   navigation?: Node[];
 };
 
+export type SignInEvent = "signed_in" | "wrong_password" | "locked_out" | "refused_inactive" | "signed_in_as" | "unlocked" | "signed_out_everywhere" | "session_revoked";
+
 export type SignInRow = {
   id: number;
-  event: Event;
+  event: SignInEvent;
   ip: string;
   device: string;
   actor_id: number | null;

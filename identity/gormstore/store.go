@@ -434,7 +434,7 @@ func (s *SignIns) Entries(ctx context.Context, accountID, offset, limit int) ([]
 }
 
 func (r signInModel) entry() account.SignInEntry {
-	e := account.SignInEntry{ID: r.ID, AccountID: r.UserID, Event: account.Event(r.Event), IP: r.IP, Device: r.UserAgent, CreatedAt: r.CreatedAt.UTC()}
+	e := account.SignInEntry{ID: r.ID, AccountID: r.UserID, Event: account.SignInEvent(r.Event), IP: r.IP, Device: r.UserAgent, CreatedAt: r.CreatedAt.UTC()}
 	if r.ActorID != nil {
 		e.ActorID = *r.ActorID
 	}

@@ -141,7 +141,7 @@ func Declare() *Routes {
 }
 
 // SubjectKinds is the fixed set of who a role can be given to.
-var SubjectKinds = route.Enum(authz.KindUser, authz.KindServiceAccount)
+var SubjectKinds = route.Enum(authz.KindUser, authz.KindServiceAccount).As("SubjectKind")
 
 // Contract is the routes as a group: what contract.Generate reads.
 func (r *Routes) Contract() *route.Contract { return r.group }

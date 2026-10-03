@@ -93,6 +93,10 @@ func unwrapEntry(entry interface{}, ctx *GenContext) interface{} {
 	}
 
 	t := reflect.TypeOf(named.value)
+	if en, ok := named.value.(EnumEntry); ok {
+		t = en.typ
+	}
+
 	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}

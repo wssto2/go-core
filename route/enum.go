@@ -10,6 +10,7 @@ import "reflect"
 type Enumeration struct {
 	typ    reflect.Type
 	values []string
+	name   string
 }
 
 // Enum declares the values of a named string type. The type comes from the
@@ -39,3 +40,22 @@ func (e Enumeration) Type() reflect.Type { return e.typ }
 
 // Values lists the values in declaration order.
 func (e Enumeration) Values() []string { return append([]string(nil), e.values...) }
+
+// As gives the enumeration another TypeScript name than its Go type's, for a
+// type that belongs to another package (authz.Kind) or whose name would be
+// vague or clash in TypeScript:
+//
+//	var SubjectKinds = route.Enum(authz.KindUser, authz.KindServiceAccount).As("SubjectKind")
+func (e Enumeration) As(name string) Enumeration {
+	e.name = name
+	return e
+}
+
+// Name is the TypeScript name: the one given to As, else the Go type's.
+func (e Enumeration) Name() string {
+	if e.name != "" {
+		return e.name
+	}
+
+	return e.typ.Name()
+}

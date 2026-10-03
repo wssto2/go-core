@@ -156,12 +156,12 @@ type UserDetail struct {
 // locked_out, refused_inactive, signed_in_as, unlocked, signed_out_everywhere or
 // session_revoked; ActorID is who did it when that was somebody else.
 type SignInRow struct {
-	ID        int           `json:"id"`
-	Event     account.Event `json:"event"`
-	IP        string        `json:"ip"`
-	Device    string        `json:"device"`
-	ActorID   *int          `json:"actor_id"`
-	CreatedAt time.Time     `json:"created_at"`
+	ID        int                 `json:"id"`
+	Event     account.SignInEvent `json:"event"`
+	IP        string              `json:"ip"`
+	Device    string              `json:"device"`
+	ActorID   *int                `json:"actor_id"`
+	CreatedAt time.Time           `json:"created_at"`
 }
 
 // ChangeRow is one change made to a person. Action is created, updated,

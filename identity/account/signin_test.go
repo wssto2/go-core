@@ -15,8 +15,8 @@ func login(login, password string) account.LoginInput {
 	return account.LoginInput{Login: login, Password: password, Device: "test", IP: "10.0.0.1"}
 }
 
-func events(k identitytest.Kit) []account.Event {
-	var out []account.Event
+func events(k identitytest.Kit) []account.SignInEvent {
+	var out []account.SignInEvent
 	for _, e := range k.SignIns.All() {
 		out = append(out, e.Event)
 	}
@@ -47,7 +47,7 @@ func TestUnknownLoginAndWrongPasswordAreIndistinguishable(t *testing.T) {
 	assert.Equal(t, a.Params, b.Params)
 	assert.Equal(t, 2, counter.matches, "a password is compared for the unknown login too")
 
-	assert.Equal(t, []account.Event{account.WrongPassword}, events(k), "an unknown login is not recorded")
+	assert.Equal(t, []account.SignInEvent{account.WrongPassword}, events(k), "an unknown login is not recorded")
 }
 
 // IAM-USER-001 item 3: inactive is said only to whoever gave the right password.
@@ -60,7 +60,7 @@ func TestInactiveIsSaidOnlyForTheRightPassword(t *testing.T) {
 
 	_, err = k.SignIn.Login(ctx, login("ines", "secret"))
 	assert.True(t, apperr.HasReason(err, account.ReasonSignInInactive))
-	assert.Equal(t, []account.Event{account.WrongPassword, account.RefusedInactive}, events(k))
+	assert.Equal(t, []account.SignInEvent{account.WrongPassword, account.RefusedInactive}, events(k))
 }
 
 func TestLoginSignsInAndRecordsIt(t *testing.T) {
@@ -73,7 +73,7 @@ func TestLoginSignsInAndRecordsIt(t *testing.T) {
 	assert.NotEmpty(t, signed.Credentials.Access)
 	assert.NotEmpty(t, signed.Credentials.Refresh)
 	assert.Equal(t, identitytest.Epoch.Add(24*time.Hour), signed.Credentials.ExpiresAt)
-	assert.Equal(t, []account.Event{account.SignedIn}, events(k))
+	assert.Equal(t, []account.SignInEvent{account.SignedIn}, events(k))
 
 	got, err := k.SignIn.Authenticate(t.Context(), signed.Credentials.Access)
 	require.NoError(t, err)

@@ -34,6 +34,10 @@ func (c *GenContext) register(entries []interface{}) {
 	c.ensureMaps()
 
 	for _, e := range entries {
+		if named, ok := e.(NamedEntry); ok {
+			e = named.value
+		}
+
 		if en, ok := e.(EnumEntry); ok {
 			c.Enums[typeKey(en.typ)] = en
 		}

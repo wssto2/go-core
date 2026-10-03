@@ -452,6 +452,11 @@ func GenerateSchemas(structs []interface{}, dir string) error {
 	}
 
 	ctx := &GenContext{}
+
+	for _, entry := range structs {
+		unwrapEntry(entry, ctx)
+	}
+
 	ctx.register(structs)
 
 	pending := structs

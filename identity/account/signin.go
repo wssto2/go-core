@@ -4,34 +4,34 @@ import (
 	"time"
 )
 
-// Event is what happened in a sign-in history row. The values are stored and
+// SignInEvent is what happened in a sign-in history row. The values are stored and
 // reach the client, which names them.
-type Event string
+type SignInEvent string
 
 const (
 	// SignedIn is a sign-in with the right password.
-	SignedIn Event = "signed_in"
+	SignedIn SignInEvent = "signed_in"
 	// WrongPassword is a sign-in refused for a wrong password.
-	WrongPassword Event = "wrong_password"
+	WrongPassword SignInEvent = "wrong_password"
 	// LockedOut is a sign-in refused while locked; the password was not checked.
-	LockedOut Event = "locked_out"
+	LockedOut SignInEvent = "locked_out"
 	// RefusedInactive is the right password for an account that is not active.
-	RefusedInactive Event = "refused_inactive"
+	RefusedInactive SignInEvent = "refused_inactive"
 	// SignedInAs is somebody (ActorID) signing in as the person.
-	SignedInAs Event = "signed_in_as"
+	SignedInAs SignInEvent = "signed_in_as"
 	// Unlocked is an administrator (ActorID) lifting the lock.
-	Unlocked Event = "unlocked"
+	Unlocked SignInEvent = "unlocked"
 	// SignedOutEverywhere is every session of the person ended by somebody
 	// (ActorID): an administrator, a new password, a deactivation, or the person.
-	SignedOutEverywhere Event = "signed_out_everywhere"
+	SignedOutEverywhere SignInEvent = "signed_out_everywhere"
 	// SessionRevoked is one session ended by somebody (ActorID).
-	SessionRevoked Event = "session_revoked"
+	SessionRevoked SignInEvent = "session_revoked"
 )
 
 // LockEvent reports whether e takes part in the lock: a wrong password counts,
 // a sign-in or an unlock starts the count again. A refusal while locked
 // (LockedOut) is on the record but neither counts nor extends the lock.
-func LockEvent(e Event) bool {
+func LockEvent(e SignInEvent) bool {
 	return e == WrongPassword || e == SignedIn || e == Unlocked
 }
 
@@ -41,7 +41,7 @@ func LockEvent(e Event) bool {
 type SignInEntry struct {
 	ID        int
 	AccountID int
-	Event     Event
+	Event     SignInEvent
 	IP        string
 	Device    string
 	ActorID   int

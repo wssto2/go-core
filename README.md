@@ -253,7 +253,7 @@ export type UserRow = { id: number; status: Status; /* … */ };
 // schemas.ts: export const StatusSchema = z.enum(["active", "locked"]);
 ```
 
-A named string type that is not declared stays `string`: nothing is guessed. A field named `ID` is `number`; only a pointer (`*int`) is `number | null`.
+A named string type that is not declared stays `string`: nothing is guessed. The TypeScript name is the Go type's; `route.Enum(...).As("SubjectKind")` gives another (for a type from another package, or a name that clashes with a DOM global such as `Event`). A field named `ID` is `number`; only a pointer (`*int`) is `number | null`.
 
 ### Roles and access
 

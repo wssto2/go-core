@@ -86,3 +86,16 @@ func TestEnumProblemsNameTheFix(t *testing.T) {
 	err = contract.Generate(t.TempDir(), route.Group("tickets", show).Types(route.Enum("a")))
 	require.ErrorContains(t, err, "named string type")
 }
+
+func TestAnEnumCanHaveAnotherTypeScriptName(t *testing.T) {
+	set := route.Post[PriorityInput, PriorityOut]("/priority").Name("tickets.set")
+	g := route.Group("tickets", set).Types(route.Enum(PriorityLow, PriorityHigh).As("TicketPriority"))
+
+	entities := generated(t, g, "entities.ts")
+	require.Contains(t, entities, `export type TicketPriority = "low" | "high";`)
+	require.Contains(t, entities, "priority: TicketPriority;")
+
+	schemas := generated(t, g, "schemas.ts")
+	require.Contains(t, schemas, `export const TicketPrioritySchema = z.enum(["low", "high"]);`)
+	require.Contains(t, schemas, "priority: TicketPrioritySchema,")
+}

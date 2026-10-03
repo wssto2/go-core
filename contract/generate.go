@@ -111,15 +111,16 @@ func planOf(g *route.Contract) (*plan, error) {
 	keys := map[string]string{}
 	owner := map[string]reflect.Type{} // TypeScript name -> its Go type, to catch two types with one name
 
-	claim := func(t reflect.Type) error {
-		if other, ok := owner[t.Name()]; ok && other != t {
-			return fmt.Errorf("two types are named %s (%s and %s): rename one", t.Name(), other, t)
+	claimAs := func(name string, t reflect.Type) error {
+		if other, ok := owner[name]; ok && other != t {
+			return fmt.Errorf("two types are named %s (%s and %s): rename one", name, other, t)
 		}
 
-		owner[t.Name()] = t
+		owner[name] = t
 
 		return nil
 	}
+	claim := func(t reflect.Type) error { return claimAs(t.Name(), t) }
 
 	for _, spec := range g.Specs() {
 		line := routeLine{spec: spec, permission: spec.Permission}
@@ -211,7 +212,7 @@ func planOf(g *route.Contract) (*plan, error) {
 		}
 	}
 
-	if err := planEnums(p, g, claim); err != nil {
+	if err := planEnums(p, g, claimAs); err != nil {
 		return nil, err
 	}
 
@@ -416,7 +417,7 @@ func sortedKeys(m map[string]string) []string {
 
 // planEnums adds the group's enumerations: written to entities.ts, and to
 // schemas.ts when an input uses them.
-func planEnums(p *plan, g *route.Contract, claim func(reflect.Type) error) error {
+func planEnums(p *plan, g *route.Contract, claimAs func(string, reflect.Type) error) error {
 	seen := map[reflect.Type]bool{}
 
 	var ins, outs []any
@@ -435,7 +436,9 @@ func planEnums(p *plan, g *route.Contract, claim func(reflect.Type) error) error
 
 		seen[t] = true
 
-		if err := claim(t); err != nil {
+		name := e.Name()
+
+		if err := claimAs(name, t); err != nil {
 			return err
 		}
 
@@ -444,8 +447,12 @@ func planEnums(p *plan, g *route.Contract, claim func(reflect.Type) error) error
 			return fmt.Errorf("enum of %s lists %q twice", t, dup)
 		}
 
-		outs = append(outs, go2ts.Enum(t, values))
-		ins = append(ins, go2ts.EnumIfUsed(t, values))
+		out, in := any(go2ts.Enum(t, values)), any(go2ts.EnumIfUsed(t, values))
+		if name != t.Name() {
+			out, in = go2ts.As(out, name), go2ts.As(in, name)
+		}
+
+		outs, ins = append(outs, out), append(ins, in)
 	}
 
 	p.outs = append(p.outs, outs...)
