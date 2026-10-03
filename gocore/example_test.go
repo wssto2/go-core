@@ -14,6 +14,7 @@ import (
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/route"
+	"gorm.io/gorm"
 )
 
 const Shared database.Connection = "shared"
@@ -217,4 +218,72 @@ func ExampleWithAutoMigrate() {
 
 	fmt.Println(app.Database().Exec("INSERT INTO things (id) VALUES (1)").Error)
 	// Output: <nil>
+}
+
+// WithPrefix is where the API lives. Routes declare their own version, so a
+// route declared "/v1/ping" is served at "/api/v1/ping".
+func ExampleWithPrefix() {
+	app := gocore.New(bootstrap.DefaultConfig(),
+		gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithPrefix("/api"),
+	)
+
+	fmt.Println(app.Prefix())
+	// Output: /api
+}
+
+// Schema collects a feature's tables: the goose files every real database
+// runs, and the models tests on SQLite create them from instead.
+func ExampleApp_Schema() {
+	reg, cleanup := database.NewTestRegistry("local")
+	defer func() { _ = cleanup() }()
+
+	app := gocore.New(bootstrap.DefaultConfig(),
+		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithAutoMigrate(context.Background()))
+
+	mysqlOnly := fstest.MapFS{
+		"20261015000000_gadgets.sql": {Data: []byte("-- +goose Up\nCREATE TABLE gadgets (id INT NOT NULL AUTO_INCREMENT, PRIMARY KEY (id)) ENGINE=InnoDB;")},
+	}
+
+	app.Schema(gocore.Schema{
+		Files:  mysqlOnly,
+		Models: func(db *gorm.DB) error { return db.Exec("CREATE TABLE gadgets (id INTEGER PRIMARY KEY)").Error },
+	})
+
+	fmt.Println(app.Database().Exec("INSERT INTO gadgets (id) VALUES (1)").Error)
+	// Output: <nil>
+}
+
+// Authenticate is how a feature that authenticates requests, identity.Install,
+// sets it up; it replaces what the options said.
+func ExampleApp_Authenticate() {
+	reg, cleanup := database.NewTestRegistry("local")
+	defer func() { _ = cleanup() }()
+
+	app := gocore.New(bootstrap.DefaultConfig(),
+		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+
+	app.Authenticate(func(c *gin.Context) { c.Next() })
+	Install(app)
+
+	fmt.Println(app.Check() == nil)
+	// Output: true
+}
+
+// Fail reports what a feature's Install cannot continue with; Run lists it
+// with the other start-up problems.
+func ExampleApp_Fail() {
+	reg, cleanup := database.NewTestRegistry("local")
+	defer func() { _ = cleanup() }()
+
+	app := gocore.New(bootstrap.DefaultConfig(),
+		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+
+	app.Fail("tickets needs a mail sender", "pass mail.Install(app) to tickets.Install")
+
+	fmt.Println(app.Check())
+	// Output:
+	// gocore: cannot start, 1 problem(s):
+	//   1. tickets needs a mail sender. Fix: pass mail.Install(app) to tickets.Install
 }

@@ -96,7 +96,7 @@ architecture error was introduced.
 
 ```
 Layer 0 — no internal imports:
-  apperr, utils, i18n (types only)
+  apperr, utils, i18n (types only), navigation
 
 Layer 1 — imports Layer 0 only:
   validation, database/types, logger, resilience
@@ -122,6 +122,10 @@ Layer 6 — test support for Layer 5:
 Test support with no go-core imports (SQLite, MySQL, MariaDB harness):
   database/dbtest
 
+Modules — features go-core ships, each a facade that imports gocore (section 4.1):
+  identity (core identity/account imports apperr and bcrypt only; gormstore,
+  identity/http and identitytest import the layers below)
+
 Layer 7 — example only:
   go-core-example
 ```
@@ -142,6 +146,10 @@ Specific prohibitions:
   `bootstrap`, `route`, `database`, `authz` MUST NOT import `gocore` or `gocoretest`.
 - `gocoretest` MUST be imported by `_test.go` files only; non-test code never
   imports it.
+- A module's framework-free core (`identity/account`) MUST NOT import gin, GORM,
+  `database/sql` or any other go-core package but `apperr` (a test holds it).
+  A module's `Install` builds only its own feature's services (a test in
+  `gocore` holds it).
 
 Verify with: `go build ./...` — an import cycle produces "import cycle not allowed".
 

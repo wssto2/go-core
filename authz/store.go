@@ -41,3 +41,30 @@ type Store interface {
 	// Unbind removes a binding.
 	Unbind(ctx context.Context, actor Subject, id int) error
 }
+
+// HolderCounts is how many subjects hold each role: custom roles by ID,
+// predefined ones by key. A subject bound to a role at several scopes counts once.
+type HolderCounts struct {
+	ByID  map[int]int
+	ByKey map[string]int
+}
+
+// Of returns the count for a role reference.
+func (c HolderCounts) Of(ref RoleRef) int {
+	if ref.ID > 0 {
+		return c.ByID[ref.ID]
+	}
+	return c.ByKey[ref.Key]
+}
+
+// HolderStore is the part of a Store that role administration needs to show who
+// holds a role. It is separate from Store so that an existing Store keeps
+// compiling; the gormstore and the in-memory store of authztest implement it and
+// pass storetest.RunHolders.
+type HolderStore interface {
+	// HolderCounts counts the holders of every role that has any.
+	HolderCounts(ctx context.Context) (HolderCounts, error)
+	// HoldersOf returns every binding of the role, custom or predefined, in
+	// binding order. An invalid reference yields none.
+	HoldersOf(ctx context.Context, ref RoleRef) ([]Binding, error)
+}

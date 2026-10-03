@@ -59,7 +59,7 @@ func (r Route[In, Out]) To(handler func(ctx context.Context, in In) (Out, error)
 				}
 			}
 
-			out, err := handler(c.Request.Context(), in)
+			out, err := handler(context.WithValue(c.Request.Context(), exchangeKey{}, Exchange{c: c}), in)
 			if err != nil {
 				web.Fail(c, err)
 				return

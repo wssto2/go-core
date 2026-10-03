@@ -1,7 +1,13 @@
 // Package gocoretest builds a gocore.App for tests: in-memory SQLite that
-// migrates as features are installed, a fixed
-// clock and a logger that writes to the test log. Features are installed with
-// plain function calls, and routes are called without opening a port.
+// migrates as features are installed, a fixed clock and a logger that writes to
+// the test log. Features are installed with plain function calls, and routes are
+// called without opening a port.
+//
+// Tables come ready as a feature is installed. A feature that ships MySQL
+// migrations and registers them with app.Schema (identity does) gets its tables
+// created from its GORM models on SQLite, because SQLite cannot run the DDL; its
+// own tests run the real files on MySQL and MariaDB through dbtest. One that
+// registers app.Migrations runs its files, which must then be SQLite-compatible.
 //
 //	app := gocoretest.New(t)
 //	tickets.Install(app, users)

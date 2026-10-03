@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"regexp"
 	"testing"
 
@@ -13,8 +14,11 @@ import (
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/authz/gormstore"
+	"github.com/wssto2/go-core/authz/migrations"
 	"github.com/wssto2/go-core/authz/storetest"
 	"github.com/wssto2/go-core/database"
+	"github.com/wssto2/go-core/database/dbtest"
+	"github.com/wssto2/go-core/database/migrate"
 	"gorm.io/gorm"
 )
 
@@ -179,4 +183,25 @@ func TestMySQLSchemaMatchesModels(t *testing.T) {
 		}
 		assert.ElementsMatch(t, want, got, m[1])
 	}
+}
+
+// The holder queries run on SQLite, MySQL and MariaDB. The server targets get
+// their tables from the real migration files, SQLite from the models.
+func TestStoreHoldersOnEveryDatabase(t *testing.T) {
+	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+		storetest.RunHolders(t, func(t *testing.T) storetest.HolderStore {
+			for _, table := range []string{"role_bindings", "role_permissions", "roles"} {
+				require.NoError(t, db.Exec("DROP TABLE IF EXISTS "+table).Error)
+			}
+			if db.Name() == "sqlite" {
+				require.NoError(t, gormstore.Migrate(db))
+			} else {
+				reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
+				reg.AddConnection("scratch", db)
+				require.NoError(t, db.Exec("DROP TABLE IF EXISTS goose_db_version").Error)
+				require.NoError(t, migrate.New(reg, nil, slog.New(slog.DiscardHandler)).Add("scratch", migrations.Files).Up(t.Context()))
+			}
+			return gormstore.New(db)
+		})
+	})
 }

@@ -27,7 +27,10 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{roles: map[int]authz.Role{}, bindings: map[int]authz.Binding{}, now: time.Now}
 }
 
-var _ authz.Store = (*MemoryStore)(nil)
+var (
+	_ authz.Store       = (*MemoryStore)(nil)
+	_ authz.HolderStore = (*MemoryStore)(nil)
+)
 
 func copyRole(r authz.Role) authz.Role {
 	r.Grants = slices.Clone(r.Grants)
@@ -116,6 +119,37 @@ func (m *MemoryStore) BindingsForRole(_ context.Context, roleID int) ([]authz.Bi
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.filterBindings(func(b authz.Binding) bool { return b.Role.ID == roleID }), nil
+}
+
+// HolderCounts implements authz.HolderStore.
+func (m *MemoryStore) HolderCounts(_ context.Context) (authz.HolderCounts, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := authz.HolderCounts{ByID: map[int]int{}, ByKey: map[string]int{}}
+	seen := map[[2]any]bool{}
+	for _, b := range m.bindings {
+		who := [2]any{b.Role, b.Subject}
+		if seen[who] {
+			continue
+		}
+		seen[who] = true
+		if b.Role.ID > 0 {
+			out.ByID[b.Role.ID]++
+		} else {
+			out.ByKey[b.Role.Key]++
+		}
+	}
+	return out, nil
+}
+
+// HoldersOf implements authz.HolderStore.
+func (m *MemoryStore) HoldersOf(_ context.Context, ref authz.RoleRef) ([]authz.Binding, error) {
+	if !ref.Valid() {
+		return nil, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.filterBindings(func(b authz.Binding) bool { return b.Role == ref }), nil
 }
 
 // Bind implements authz.Store.

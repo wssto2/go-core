@@ -50,10 +50,13 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 
 ### Feature Packages
 
+* `access` → roles and access administration over `authz`: role editor, bindings with delegation, effective access, routes and TypeScript contract (see "Roles and access"; core `access/admin`, routes `access/accesshttp`)
 * `audit` → audit logging and diff tracking
 * `datatable` → filtering, pagination, query helpers
 * `tenancy` → multi-tenant context + DB scoping
 * `event` → event bus abstraction
+* `identity` → accounts, password sign-in, sessions, the lock after wrong passwords and the `/auth/me` payload (see "Sign-in"; core `identity/account`, routes `identity/http`, store `identity/gormstore`, tests `identity/identitytest`)
+* `navigation` → the menu tree an application declares and the filter by held permissions
 
 ### Utility Packages
 
@@ -131,15 +134,17 @@ An unauthenticated request to a non-public route gets the usual 401 envelope. A 
 
 ```go
 func main() {
-    app := gocore.New(config, gocore.WithAuthorizer(engine))
-    app.Permissions(permissions.All)
+    app := gocore.New(config, gocore.WithPrefix("/api"))
 
-    users := identity.Install(app)
+    users := identity.Install(app, identity.AllowImpersonation("iam.user:impersonate")) // sign-in, /auth/me, authentication
+    access.Install(app, permissions.All, users)                                         // roles and bindings; builds the engine
     tickets.Install(app, users)
 
     if err := app.Run(); err != nil { log.Fatal(err) }
 }
 ```
+
+identity needs no engine: `/auth/me` and `AllowImpersonation` read the application's authorizer (the engine `access.Install` builds) when a request comes, and `*identity.Users` is the `access.SubjectDirectory`. `internal/e2e` installs exactly this and signs in on SQLite, MySQL and MariaDB.
 
 `Install` only collects (`Routes`, `Background`, `Permissions`, `Modules`); nothing runs until `Run`, so the order of those never matters. Old-style `bootstrap.Module`s run in the same app through `app.Modules(...)`, so an application moves to `Install` one feature at a time.
 
@@ -171,6 +176,10 @@ Install(app)
 rec := gocoretest.Do(t, app, http.MethodGet, "/tickets/7", nil)
 ticket := gocoretest.Decode[Ticket](t, rec)
 ```
+
+### API prefix and versions
+
+`gocore.New(cfg, gocore.WithPrefix("/api"))` mounts every route under one app-wide prefix (`app.Prefix()` returns it, for cookie paths and the like). The prefix is only where the API lives; it carries no version. Routes declare their version themselves: a module's route is `route.Get[...]("/v1/iam/roles")`, served at `/api/v1/iam/roles`. Modules never take a prefix. A future v2 is new declarations next to v1 in the same module (`ListRolesV2 = route.Get[...]("/v2/iam/roles")`, `RoutesV2 = route.Group("accessv2", ...)`): both are served, and the TypeScript is generated into separate folders. `gocoretest` apps use the prefix too.
 
 ### Migrations
 
@@ -217,6 +226,30 @@ export const ticketsRoutes = {
 
 The key is the route's `.Name` without the group prefix (`tickets.show` is `show`); without a name it is the method and path (`GET /tickets/:id` is `getTicketsById`). `route.None` and `route.Empty` become `void`. Every file's first line names the go-core version that wrote it.
 
+### Roles and access
+
+`access` is the administration of what `authz` decides: which roles exist, who holds them where, and who may give them. One line puts it into an application (`access/example_test.go`):
+
+```go
+acc := access.Install(app, catalogue, users) // users names the people who can hold roles
+```
+
+`catalogue` is the application's `*authz.Catalogue` (define the application's permissions first: building the engine freezes it); the module adds its own five permissions when the catalogue lacks them (`iam.role:{view,manage,delete}`, `iam.user:{view,manage}`). `users` is an `access.SubjectDirectory`: `SubjectNames(ctx, subjects)` returns the display name of each person or service account that exists. Install builds the engine, mounts the routes, registers the three authz tables' migrations and makes the engine the application's authorizer; a missing piece is reported by `Run` with its fix.
+
+Options, all named: `access.WithRoles(...)` the roles that live in code (computed ones too), `access.WithScopes(hierarchy, catalogue)` places below the root (without it `organization` is the only one), `WithFeatures`, `WithAudit(repo)` (an audit row for every role and binding change, in the same transaction), `On(connection)`. The five permission ids are fixed, so the generated TypeScript always matches.
+
+The first administrator is made outside the delegation rules, from a seed or a command, because nobody holds the permission to give roles yet:
+
+```go
+err := acc.Seed(ctx, authz.Subject{Kind: authz.KindUser, ID: 1}, "webmaster")
+```
+
+Everything after that goes through `authz.Admin`'s delegation: a role may be given only where the giver holds the binding permission, never one that holds a System permission the giver lacks or an organization-only one unless they manage bindings at the root, never to yourself (`authz.self_assignment`), and nobody removes their own last binding permission (`authz.last_admin`). A custom role may not grant more than its author holds (`authz.escalation`). The rules, with their Logic IDs, are in `docs/rules/access/authorization.md`.
+
+The routes are declared under `/v1` (an app with `gocore.WithPrefix("/api")` serves `/api/v1/iam/roles`): `GET|POST /v1/iam/roles`, `GET|PUT|DELETE /v1/iam/roles/:ref`, `/:ref/holders`, `/:ref/compare?with=`, `POST /:ref/replace`, `GET /v1/iam/bindable-roles?level=&scope_id=`, `GET /v1/iam/users/:id/{access,scopes}`, `POST /v1/iam/users/:id/bindings`, `DELETE /v1/iam/users/:id/bindings/:binding_id` and `GET /v1/me/access`. `access.Routes` is their declared contract (`contract.Generate("frontend/generated", access.Routes)`); lists are plain `{roles: [...]}` objects, not pages.
+
+Without the HTTP layer the services are plain methods: `acc.Roles.Create(ctx, admin.RoleDraft{...})`, `acc.Bindings.Bind(ctx, subject, admin.BindingDraft{...})` (package `access/admin`, which imports only `authz` and `apperr`).
+
 ---
 
 ## Error Handling
@@ -244,6 +277,31 @@ return apperr.BadRequest("invalid input")
 ```go
 user := auth.MustGetUser[MyUser](ctx)
 ```
+
+### Sign-in
+
+`identity` is the sign-in module: accounts, password sign-in, sessions, the lock after wrong passwords, signing in as somebody else, and the `/auth/me` payload the client starts from. One line puts it into an application (`identity/example_test.go`); it also makes it the application's authentication, so every route that is not `.Public()` is behind it and the signed-in person is the authz principal:
+
+```go
+users := identity.Install(app) // routes, tables, authentication
+```
+
+It uses the GORM store, bcrypt and its own migrations unless told otherwise. Options are named for what they change: `identity.On(Shared)` (tables on another connection), `WithAccounts(store)` (your own accounts table), `WithHasher(h)`, `WithRefreshHasher(h)`, `WithConfig(identity.Config{Lock: identity.Lock{After: 3}})`, `WithAccess(a)` (override where the payload's `authz.MyAccess` comes from; by default the application's authorizer, once `access.Install` is part of it), `WithNavigation(menu...)` (and the menu, cut to the permissions held), `WithUserProjector(fn)`, `AllowImpersonation("iam.user:impersonate")` (checked through the application's authorizer), `WithNotices(n)`, `WithCookies(...)`. `users` is what other features take: `users.Get(ctx, id)`, `users.ChangeLocale(...)`, `users.Sessions(ctx, id)`, `users.RevokeSessions(...)`.
+
+The routes are declared under `/v1/auth` (an app with `gocore.WithPrefix("/api")` serves `/api/v1/auth/login`): `POST login` and `refresh` (public), `POST logout`, `GET me`, `POST change-locale`, `POST login-as`. `identity.Routes` is their declared contract. Tokens travel in HttpOnly cookies (`access_token`, and `refresh_token` for the refresh route only) and an access token is also accepted as `Authorization: Bearer`. Login, refresh and `me` answer the session payload, which vue-core reads with `parseSessionPayload`:
+
+```json
+{"success": true, "data": {
+  "user": {"id": 1, "login": "ana", "name": "Ana Anić", "email": "ana@example.test", "locale": "hr"},
+  "expires_at": "2026-01-03T03:04:05Z",
+  "access": {"subject": {"kind": "user", "id": 1}, "root": false, "permissions": {}},
+  "navigation": [{"i18n": "nav.tickets", "route": "tickets.index", "permissions": ["tickets.ticket:view"]}]
+}}
+```
+
+`user` is what the projector makes of the account (the default has `id`, `login`, `name`, `email`, `locale`, never the password hash), `access` is the authz engine's answer and `navigation` your menu filtered by it. Refusals are `apperr` reasons with params, never sentences: `identity.signin.failed` (an unknown login and a wrong password answer alike, 422), `identity.signin.locked` (`params.locked_until`), `identity.signin.inactive`, `identity.session.invalid`. Five wrong passwords lock sign-in for fifteen minutes, ten attempts a minute per login are let through; the rules, with their Logic IDs (IAM-USER-001 to 004), are in `docs/rules/identity/signin.md`.
+
+In a test, `identity.Install` runs on `gocoretest.New(t)`: SQLite tables are created from the models (`app.Schema`), the real SQL files are tested on MySQL and MariaDB. Feature tests that need people use `identitytest.Users(t, identitytest.Account(1, "ana", "secret"))`, which is the same service over memory stores.
 
 ---
 

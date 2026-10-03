@@ -12,3 +12,7 @@ import (
 func TestMemoryStoreConforms(t *testing.T) {
 	storetest.Run(t, func(*testing.T) authz.Store { return authztest.NewMemoryStore() })
 }
+
+func TestMemoryStoreHolders(t *testing.T) {
+	storetest.RunHolders(t, func(*testing.T) storetest.HolderStore { return authztest.NewMemoryStore() })
+}

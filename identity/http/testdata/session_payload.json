@@ -1,0 +1,48 @@
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": 1,
+      "login": "ana",
+      "name": "Ana Anić",
+      "email": "ana@example.test",
+      "locale": "hr"
+    },
+    "expires_at": "2026-01-03T03:04:05Z",
+    "access": {
+      "subject": {
+        "kind": "user",
+        "id": 1
+      },
+      "root": false,
+      "permissions": {
+        "tickets.ticket:view": {
+          "scope": {
+            "level": "organization"
+          },
+          "qualifier": "all",
+          "clauses": [
+            {
+              "scope": {
+                "level": "organization"
+              },
+              "qualifier": "all",
+              "role": "Agent",
+              "binding_id": 4
+            }
+          ]
+        }
+      }
+    },
+    "navigation": [
+      {
+        "i18n": "nav.tickets",
+        "icon": "ticket",
+        "route": "tickets.index",
+        "permissions": [
+          "tickets.ticket:view"
+        ]
+      }
+    ]
+  }
+}

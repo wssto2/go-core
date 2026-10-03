@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"sync"
 
 	"github.com/wssto2/go-core/apperr"
 )
@@ -46,6 +48,20 @@ type Admin struct {
 	roles     string
 	bindings  string
 	protected []string
+	// own serialises the last-admin check with the write that follows it, per
+	// acting subject: two removals of the same person's two bindings would each
+	// find the other kept and leave them with nothing. It covers one process;
+	// several instances need the check inside a database lock.
+	own [32]sync.Mutex
+}
+
+// ownLock locks the acting subject's own changes. The caller defers the unlock.
+func (a *Admin) ownLock(s Subject) func() {
+	h := fnv.New32a()
+	_, _ = fmt.Fprint(h, s.String())
+	m := &a.own[h.Sum32()%uint32(len(a.own))]
+	m.Lock()
+	return m.Unlock
 }
 
 // NewAdmin validates the configuration.
@@ -83,6 +99,7 @@ func (a *Admin) SaveRole(ctx context.Context, role Role) (Role, error) {
 		return Role{}, err
 	}
 	if role.ID > 0 {
+		defer a.ownLock(actor.Subject)()
 		if _, err := a.store.Role(ctx, role.ID); err != nil {
 			return Role{}, storeErr(err)
 		}
@@ -181,6 +198,7 @@ func (a *Admin) Unbind(ctx context.Context, id int) error {
 		return apperr.Internal(err)
 	}
 	if b.Subject == actor.Subject {
+		defer a.ownLock(actor.Subject)()
 		if err := a.e.keepsAccess(ctx, actor.Subject, a.protected, b.ID, nil); err != nil {
 			return err
 		}
