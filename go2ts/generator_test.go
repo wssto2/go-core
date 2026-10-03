@@ -305,7 +305,7 @@ func TestGenerateTypes_MapsAreRecordsAndAnyIsUnknown(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, go2ts.GenerateTypes([]interface{}{WithMaps{}}, dir))
 
-	content, err := os.ReadFile(filepath.Join(dir, "WithMaps.ts"))
+	content, err := os.ReadFile(filepath.Join(dir, "WithMaps.ts")) //nolint:gosec // a file of this test's temp directory
 	require.NoError(t, err)
 
 	for _, want := range []string{
