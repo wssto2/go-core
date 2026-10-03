@@ -409,9 +409,9 @@ func TestADeliveryBeingSentIsLeasedAndNotSentTwice(t *testing.T) {
 		var w *world
 
 		inner := 0
-		relay := mail.SenderFunc(func(context.Context, mail.Message) error {
+		relay := mail.SenderFunc(func(ctx context.Context, _ mail.Message) error {
 			// While this worker is sending, a second worker looks for due deliveries.
-			n, err := w.notices.DeliverDue(t.Context())
+			n, err := w.notices.DeliverDue(ctx)
 			require.NoError(t, err)
 
 			inner = n
@@ -465,7 +465,8 @@ func TestWorkersRacingOnTheSameDeliveriesSendEachOnce(t *testing.T) {
 
 		wg.Wait()
 
-		for w.deliverDue() > 0 { // what a deadlocked claim left
+		for left := 1; left > 0; { // what a deadlocked claim left
+			left = w.deliverDue()
 		}
 
 		require.Len(t, w.sink.Sent(), 40, "each delivery once")
