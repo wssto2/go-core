@@ -64,7 +64,7 @@ func TestTheTestNotificationTravelsThroughTheQueueToTheSignedInPerson(t *testing
 
 		page := w.inbox(2)
 		require.Len(t, page.Items, 1)
-		require.Equal(t, notification.Category("system.test"), page.Items[0].Category)
+		require.Equal(t, "system.test", page.Items[0].Category)
 		require.Equal(t, "Test notification", page.Items[0].Title, "the actor is told: the point is to notify yourself")
 		require.Equal(t, 1, next(t, stream).UnreadCount)
 

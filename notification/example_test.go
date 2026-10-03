@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"testing"
+	"time"
 
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
@@ -37,7 +38,7 @@ func (t *exampleT) done() {
 }
 
 // The app declares its categories once, as values.
-var TicketAssigned = notification.Category("tickets.assigned")
+var TicketAssigned = notification.Category("tickets.assigned").EmailByDefault()
 
 // TicketAssignedEvent is the fact a feature publishes: ids and facts, never text.
 type TicketAssignedEvent struct {
@@ -114,11 +115,68 @@ func Example() {
 }
 
 func ExampleCategory() {
-	// Declared once, as a value, and passed to Install.
+	// Declared once, as a value, and passed to Install. In-app always; e-mail only if the person turns it on.
 	var invoicePaid = notification.Category("billing.invoice-paid")
 
 	fmt.Println(invoicePaid, notification.CategoryMax)
 	// Output: billing.invoice-paid 64
+}
+
+func ExampleKind_EmailByDefault() {
+	// E-mail is on until the person turns it off.
+	var assigned = notification.Category("tickets.assigned").EmailByDefault()
+
+	fmt.Println(assigned.Code())
+	// Output: tickets.assigned
+}
+
+func ExampleAppURL() {
+	t := &exampleT{}
+	defer t.done()
+
+	app := newApp(t)
+	users := identitytest.Users(t, identitytest.Account(1, "ana", "x"))
+
+	// The e-mail of a notification links to AppURL plus the message's in-app link.
+	notification.Install(app, users, TicketAssigned, notification.AppURL("https://tickets.example.com"))
+
+	_, err := app.Handler()
+	fmt.Println(err)
+	// Output: <nil>
+}
+
+func ExampleTimeZone() {
+	t := &exampleT{}
+	defer t.done()
+
+	app := newApp(t)
+	users := identitytest.Users(t, identitytest.Account(1, "ana", "x"))
+	zagreb, _ := time.LoadLocation("Europe/Zagreb")
+
+	// Quiet hours are read on the wall clock of this zone.
+	notification.Install(app, users, TicketAssigned, notification.TimeZone(zagreb))
+
+	_, err := app.Handler()
+	fmt.Println(err)
+	// Output: <nil>
+}
+
+func ExampleEnforce() {
+	t := &exampleT{}
+	defer t.done()
+
+	app := newApp(t)
+	users := identitytest.Users(t, identitytest.Account(1, "ana", "x"))
+
+	// An outside authority, such as a dealer's policy: always on, and the person cannot change it.
+	notification.Install(app, users, TicketAssigned,
+		notification.Enforce(func(_ context.Context, _ int, k notification.Kind) (on, enforced bool, err error) {
+			return true, k.Code() == "tickets.assigned", nil
+		}))
+
+	_, err := app.Handler()
+	fmt.Println(err)
+	// Output: <nil>
 }
 
 func ExampleInstall() {

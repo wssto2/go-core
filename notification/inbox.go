@@ -24,10 +24,10 @@ const (
 // notification, so reading it on one device marks it read on every device
 // (NOTIF-READ-001).
 type Item struct {
-	ID       int      `json:"id"`
-	Category Category `json:"category"`
-	Title    string   `json:"title"`
-	Body     string   `json:"body"`
+	ID       int    `json:"id"`
+	Category string `json:"category"`
+	Title    string `json:"title"`
+	Body     string `json:"body"`
 	// Link is an in-app path, empty when the notification opens nothing.
 	Link string            `json:"link"`
 	Data map[string]string `json:"data"`
@@ -168,7 +168,7 @@ func (row) TableName() string { return "notifications" }
 // SQLite and as the reference the migration file is compared with.
 func Migrate(db *gorm.DB) error { return db.AutoMigrate(&row{}) }
 
-func newRow(eventID uint64, userID int, category Category, m Message, now time.Time) (row, error) {
+func newRow(eventID uint64, userID int, category Kind, m Message, now time.Time) (row, error) {
 	data := "{}"
 
 	if len(m.Data) > 0 {
@@ -182,7 +182,7 @@ func newRow(eventID uint64, userID int, category Category, m Message, now time.T
 
 	return row{
 		UserID:   uint32(userID), //nolint:gosec // resolve keeps ids between 1 and MaxInt32
-		Category: string(category), Title: m.Title, Body: m.Body, Link: m.Link, Data: data,
+		Category: category.code, Title: m.Title, Body: m.Body, Link: m.Link, Data: data,
 		DedupeKey: DedupeKey(eventID, userID, category), CreatedAt: whole(now),
 	}, nil
 }
@@ -195,7 +195,7 @@ func (r row) item() Item {
 
 	return Item{
 		ID:       int(r.ID), //nolint:gosec // an auto-increment id of this table fits an int
-		Category: Category(r.Category), Title: r.Title, Body: r.Body, Link: r.Link, Data: data,
+		Category: r.Category, Title: r.Title, Body: r.Body, Link: r.Link, Data: data,
 		ReadAt: r.ReadAt, CreatedAt: r.CreatedAt,
 	}
 }

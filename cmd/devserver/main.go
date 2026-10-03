@@ -296,7 +296,7 @@ func seedActivity(ctx context.Context, db *gorm.DB, now time.Time) error {
 }
 
 // sampleCategory is the one category the playground's inbox has.
-const sampleCategory = notification.Category("devserver.sample")
+var sampleCategory = notification.Category("devserver.sample")
 
 // sampled is the event the seed sends notifications through, the way a feature's event would.
 var sampled = event.Define[sample]("devserver.sample")

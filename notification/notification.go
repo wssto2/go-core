@@ -7,7 +7,7 @@
 //
 //	var TicketAssigned = notification.Category("tickets.assigned") // declared once, as a value
 //
-//	notices := notification.Install(app, users, TicketAssigned)
+//	notices := notification.Install(app, users, TicketAssigned, notification.AppURL("https://tickets.example.com"))
 //
 //	app.Events(tickets.Assigned.To("notifications.ticket-assigned",
 //		func(ctx context.Context, e tickets.Assigned) error {
@@ -38,7 +38,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -51,26 +50,6 @@ import (
 	"github.com/wssto2/go-core/notification/migrations"
 	"gorm.io/gorm"
 )
-
-// Category is the kind of a notification: a code such as "tickets.assigned",
-// lower-case words joined by dots or dashes, at most CategoryMax characters.
-// Declare the application's categories once, as values, and register them with
-// Install (NOTIF-CATEGORY-001):
-//
-//	var TicketAssigned = notification.Category("tickets.assigned")
-type Category string
-
-// CategoryMax is the longest category code, the width of its column.
-const CategoryMax = 64
-
-// systemTest is the module's own category, for the test notification
-// (POST /v1/notifications/test). It is reserved: an application cannot register it.
-const systemTest Category = "system.test"
-
-var categoryPattern = regexp.MustCompile(`^[a-z][a-z0-9]*([.-][a-z0-9]+)*$`)
-
-// String is the category's code.
-func (c Category) String() string { return string(c) }
 
 // The widths of the stored text. A rendered title or body longer than its
 // column is cut to fit and ends in an ellipsis, rather than failing the event
@@ -172,33 +151,36 @@ type Notices struct {
 	// Inbox lists, counts and reads a person's notifications.
 	Inbox *Inbox
 
-	people     People
-	categories []Category
-	db         *gorm.DB
-	store      *store
-	clock      gocore.Clock
-	log        *slog.Logger
-	heartbeat  time.Duration
+	people    People
+	kinds     []Kind
+	db        *gorm.DB
+	store     *store
+	clock     gocore.Clock
+	log       *slog.Logger
+	heartbeat time.Duration
 }
 
 // Install puts the in-app inbox into app: the notifications table (its
 // migration, which the application runs with "./app migrate"), the inbox
 // routes, the live stream and, for every consumer of the application, the dead-letter routes (they
-// need DefinePermissions on the permission catalogue). categories are the application's own; the module's
-// test category is added by it. users names the people to notify.
+// need DefinePermissions on the permission catalogue). users names the people to notify. After them
+// come the application's categories (see Category) and the options AppURL, TimeZone and Enforce, in one
+// list; the module's test category is added by Install.
 //
 //	notices := notification.Install(app, users, TicketAssigned, TicketCommented)
 //
-// A bad or repeated category code is a start-up problem Run lists with the fix.
-func Install(app *gocore.App, users People, categories ...Category) *Notices {
+// A bad or repeated category code or option is a start-up problem Run lists with the fix.
+func Install(app *gocore.App, users People, opts ...Option) *Notices {
 	if users == nil {
 		app.Fail("notification needs the people to notify", "pass the users as the second argument: notification.Install(app, users, categories...)")
 
 		return &Notices{}
 	}
 
-	if problems := categoryProblems(categories); len(problems) > 0 {
-		for _, p := range problems {
+	cfg := collect(opts)
+
+	if len(cfg.problems) > 0 {
+		for _, p := range cfg.problems {
 			app.Fail(p.What, p.Fix)
 		}
 
@@ -211,7 +193,7 @@ func Install(app *gocore.App, users People, categories ...Category) *Notices {
 	app.Schema(gocore.Schema{Files: migrations.Files, Models: Migrate})
 
 	n := &Notices{
-		people: users, categories: append(slices.Clone(categories), systemTest), db: db, store: st, clock: app.Clock(), log: app.Logger(), heartbeat: heartbeatInterval,
+		people: users, kinds: append(slices.Clone(cfg.kinds), systemTest), db: db, store: st, clock: app.Clock(), log: app.Logger(), heartbeat: heartbeatInterval,
 	}
 	n.Inbox = &Inbox{store: st, clock: app.Clock(), hub: NewHub()}
 
@@ -222,29 +204,14 @@ func Install(app *gocore.App, users People, categories ...Category) *Notices {
 	return n
 }
 
-type problem struct{ What, Fix string }
-
-// categoryProblems says what is wrong with the categories given to Install.
-func categoryProblems(categories []Category) []problem {
-	var out []problem
-
-	seen := map[Category]bool{}
-
-	for _, c := range categories {
-		switch {
-		case !categoryPattern.MatchString(string(c)) || len(c) > CategoryMax:
-			out = append(out, problem{fmt.Sprintf("notification category %q is not lower-case words joined by dots or dashes, at most %d characters", c, CategoryMax),
-				"declare it like notification.Category(\"tickets.assigned\")"})
-		case c == systemTest:
-			out = append(out, problem{fmt.Sprintf("notification category %q is the module's own", c), "choose another code for your category"})
-		case seen[c]:
-			out = append(out, problem{fmt.Sprintf("notification category %q is registered twice", c), "declare each category once and pass it to Install once"})
-		}
-
-		seen[c] = true
+// kind is the registered category with the code of k: its defaults are the registered ones.
+func (n *Notices) kind(k Kind) (Kind, bool) {
+	i := slices.IndexFunc(n.kinds, func(r Kind) bool { return r.code == k.code })
+	if i < 0 {
+		return Kind{}, false
 	}
 
-	return out
+	return n.kinds[i], true
 }
 
 // Send makes a notification of the category for each of the recipients and
@@ -267,7 +234,7 @@ func categoryProblems(categories []Category) []problem {
 // People who are not accounts or not active, invalid and repeated ids, and the
 // ones Except named are skipped (NOTIF-RECIPIENT-001). Once the transaction
 // has committed, the open apps of the recipients are told (NOTIF-READ-001).
-func (n *Notices) Send(ctx context.Context, category Category, to Recipients, render func(Recipient) Message) error {
+func (n *Notices) Send(ctx context.Context, category Kind, to Recipients, render func(Recipient) Message) error {
 	if n.store == nil {
 		return errors.New("notification: Send on a Notices that Install did not build: see the problems Run reports")
 	}
@@ -282,8 +249,8 @@ func (n *Notices) Send(ctx context.Context, category Category, to Recipients, re
 		return fmt.Errorf("%w: Send commits its own transaction, so it cannot run inside another", ErrNotInConsumer)
 	}
 
-	if !slices.Contains(n.categories, category) {
-		return fmt.Errorf("%w: %w: %q: pass it to notification.Install", event.ErrMalformed, ErrUnknownCategory, category)
+	if _, ok := n.kind(category); !ok {
+		return fmt.Errorf("%w: %w: %q: pass it to notification.Install", event.ErrMalformed, ErrUnknownCategory, category.code)
 	}
 
 	if render == nil {
@@ -321,12 +288,12 @@ func (n *Notices) Send(ctx context.Context, category Category, to Recipients, re
 
 		msg, err := finish(render(Recipient{ID: id, Name: name, Locale: a.Locale}))
 		if err != nil {
-			return fmt.Errorf("%w: %w (recipient %d, category %q)", event.ErrMalformed, err, id, category)
+			return fmt.Errorf("%w: %w (recipient %d, category %q)", event.ErrMalformed, err, id, category.code)
 		}
 
 		r, err := newRow(eventID, id, category, msg, now)
 		if err != nil {
-			return fmt.Errorf("%w: %w (recipient %d, category %q)", event.ErrMalformed, err, id, category)
+			return fmt.Errorf("%w: %w (recipient %d, category %q)", event.ErrMalformed, err, id, category.code)
 		}
 
 		rows = append(rows, r)
@@ -383,8 +350,8 @@ func IsAppLink(link string) bool {
 // DedupeKey is the idempotency key of a notification: one per event, person and
 // category, so an event delivered twice creates no second notification
 // (NOTIF-EVENT-001).
-func DedupeKey(eventID uint64, userID int, category Category) string {
-	return fmt.Sprintf("%d:%d:%s", eventID, userID, category)
+func DedupeKey(eventID uint64, userID int, category Kind) string {
+	return fmt.Sprintf("%d:%d:%s", eventID, userID, category.code)
 }
 
 // truncate cuts value to maxRunes characters, the last of which is an ellipsis

@@ -46,7 +46,7 @@ func TestAnEventBecomesANotificationInEachRecipientsLanguage(t *testing.T) {
 		require.Equal(t, []string{"Hi eva (en)"}, w.titles(3), "a person without a name shows their login")
 
 		n := w.inbox(1).Items[0]
-		require.Equal(t, TicketAssigned, n.Category)
+		require.Equal(t, TicketAssigned.Code(), n.Category)
 		require.Equal(t, "/tickets/7", n.Link)
 		require.Nil(t, n.ReadAt)
 		require.Equal(t, w.clock.Now(), n.CreatedAt)
@@ -325,14 +325,14 @@ func TestALinkThatLeavesTheAppIsADeadLetterAndNobodyIsNotified(t *testing.T) {
 func TestInstallListsWhatIsWrongWithTheCategoriesAndTheFix(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		cats []notification.Category
+		cats []notification.Option
 		want string
 	}{
-		{"uppercase", []notification.Category{"Tickets.Assigned"}, "lower-case words"},
-		{"empty", []notification.Category{""}, "lower-case words"},
-		{"too long", []notification.Category{notification.Category(strings.Repeat("a", 65))}, "at most 64"},
-		{"twice", []notification.Category{TicketAssigned, TicketAssigned}, "registered twice"},
-		{"the module's own", []notification.Category{"system.test"}, "the module's own"},
+		{"uppercase", []notification.Option{notification.Category("Tickets.Assigned")}, "lower-case words"},
+		{"empty", []notification.Option{notification.Category("")}, "lower-case words"},
+		{"too long", []notification.Option{notification.Category(strings.Repeat("a", 65))}, "at most 64"},
+		{"twice", []notification.Option{TicketAssigned, TicketAssigned}, "registered twice"},
+		{"the module's own", []notification.Option{notification.Category("system.test")}, "the module's own"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := newWorld(t, mustSQLite(t), nil)
@@ -349,6 +349,30 @@ func TestInstallListsWhatIsWrongWithTheCategoriesAndTheFix(t *testing.T) {
 
 	_, err := w.app.Handler()
 	require.ErrorContains(t, err, "notification needs the people to notify")
+}
+
+func TestInstallListsWhatIsWrongWithTheOptionsAndTheFix(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts []notification.Option
+		want string
+	}{
+		{"url without scheme", []notification.Option{notification.AppURL("tickets.example.com")}, "is not the address"},
+		{"url with a query", []notification.Option{notification.AppURL("https://tickets.example.com/?a=b")}, "is not the address"},
+		{"url twice", []notification.Option{notification.AppURL("https://a.example.com"), notification.AppURL("https://b.example.com")}, "AppURL was given twice"},
+		{"nil zone", []notification.Option{notification.TimeZone(nil)}, "TimeZone was given no location"},
+		{"zone twice", []notification.Option{notification.TimeZone(time.UTC), notification.TimeZone(time.UTC)}, "TimeZone was given twice"},
+		{"nil enforcer", []notification.Option{notification.Enforce(nil)}, "Enforce was given no function"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWorld(t, mustSQLite(t), nil)
+			notification.Install(w.app, w.people, tc.opts...)
+
+			_, err := w.app.Handler()
+			require.ErrorContains(t, err, tc.want)
+			require.ErrorContains(t, err, "Fix:")
+		})
+	}
 }
 
 func mustSQLite(t *testing.T) *gorm.DB {
