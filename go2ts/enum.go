@@ -1,3 +1,4 @@
+// Package go2ts generates TypeScript types and Zod schemas from Go structs.
 package go2ts
 
 import (

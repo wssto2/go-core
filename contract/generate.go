@@ -426,11 +426,11 @@ func planEnums(p *plan, g *route.Contract, claim func(reflect.Type) error) error
 
 		switch {
 		case t.Kind() != reflect.String || t.Name() == "" || t.PkgPath() == "":
-			return fmt.Errorf("Enum of %s: an enumeration needs a named string type (type Status string), not %s", t, t)
+			return fmt.Errorf("enum of %s: an enumeration needs a named string type (type Status string), not %s", t, t)
 		case len(e.Values()) == 0:
-			return fmt.Errorf("Enum of %s has no values: pass the constants, route.Enum(%sA, %sB)", t, t.Name(), t.Name())
+			return fmt.Errorf("enum of %s has no values: pass the constants, route.Enum(%sA, %sB)", t, t.Name(), t.Name())
 		case seen[t]:
-			return fmt.Errorf("Enum of %s is declared twice in group %q: list it once in Types", t, g.Name())
+			return fmt.Errorf("enum of %s is declared twice in group %q: list it once in Types", t, g.Name())
 		}
 
 		seen[t] = true
@@ -441,7 +441,7 @@ func planEnums(p *plan, g *route.Contract, claim func(reflect.Type) error) error
 
 		values := e.Values()
 		if dup := firstDuplicate(values); dup != "" {
-			return fmt.Errorf("Enum of %s lists %q twice", t, dup)
+			return fmt.Errorf("enum of %s lists %q twice", t, dup)
 		}
 
 		outs = append(outs, go2ts.Enum(t, values))

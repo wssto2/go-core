@@ -346,7 +346,7 @@ func writeEnum(ctx *GenContext, en EnumEntry, dir string, zod bool) error {
 	ctx.Processed[name] = true
 
 	path := fmt.Sprintf("%s/%s.ts", dir, name)
-	if err := os.WriteFile(path, []byte(enumFile(name, en.values, zod)), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(enumFile(name, en.values, zod)), 0644); err != nil { //nolint:gosec // generated sources are for the whole team to read
 		return fmt.Errorf("error writing %s: %w", path, err)
 	}
 

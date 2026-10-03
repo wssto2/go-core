@@ -126,10 +126,10 @@ func run(ctx context.Context, o options, out io.Writer) error {
 		return err
 	}
 
-	fmt.Fprintf(out, "go-core devserver on http://%s/api (in-memory database, e-mail codes are printed here)\n", listener.Addr())
+	_, _ = fmt.Fprintf(out, "go-core devserver on http://%s/api (in-memory database, e-mail codes are printed here)\n", listener.Addr())
 
 	for _, p := range people {
-		fmt.Fprintf(out, "  sign in as %-6s password %-15s (%s, role %s)\n", p.Login, p.Password, p.Email, p.Role)
+		_, _ = fmt.Fprintf(out, "  sign in as %-6s password %-15s (%s, role %s)\n", p.Login, p.Password, p.Email, p.Role)
 	}
 
 	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second}
@@ -137,7 +137,7 @@ func run(ctx context.Context, o options, out io.Writer) error {
 	go func() {
 		<-ctx.Done()
 
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second) //nolint:contextcheck // ctx is done: the shutdown needs its own
+		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second) // ctx is done: the shutdown needs a live one
 		defer cancel()
 
 		_ = srv.Shutdown(shutdown)
@@ -172,7 +172,9 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 		return nil
 	})
 
+	//nolint:contextcheck // installing builds the routes; no request exists yet
 	users := identity.Install(app, identity.WithMail(printed), identity.WithCodeSecret("devserver-secret-not-for-production!"))
+	//nolint:contextcheck // installing builds the routes; no request exists yet
 	acc := access.Install(app, permissions, users, access.WithRoles(
 		authz.Role{Key: "seller", Name: "Seller", Grants: authz.Grants(authz.QualifierAll, "crm.customer:view")},
 		authz.ComputedRole("webmaster", "Webmaster", authz.All()),
@@ -180,7 +182,7 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 
 	gin.DebugPrintRouteFunc = func(string, string, string, int) {} // the route table is in the README, not in the log
 
-	inner, err := app.Handler()
+	inner, err := app.Handler() //nolint:contextcheck // the handler makes its own request contexts
 	if err != nil {
 		return nil, err
 	}
