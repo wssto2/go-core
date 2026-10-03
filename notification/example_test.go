@@ -1,0 +1,230 @@
+package notification_test
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"testing"
+
+	"github.com/wssto2/go-core/event"
+	"github.com/wssto2/go-core/gocore"
+	"github.com/wssto2/go-core/gocoretest"
+	"github.com/wssto2/go-core/identity/identitytest"
+	"github.com/wssto2/go-core/notification"
+)
+
+// exampleT lets an Example use the helpers that take a testing.TB.
+type exampleT struct {
+	testing.TB
+	cleanups []func()
+}
+
+func (*exampleT) Helper()                      {}
+func (t *exampleT) Cleanup(f func())           { t.cleanups = append(t.cleanups, f) }
+func (*exampleT) Context() context.Context     { return context.Background() }
+func (*exampleT) Log(...any)                   {}
+func (*exampleT) Fatal(args ...any)            { log.Fatal(args...) }
+func (*exampleT) Fatalf(f string, args ...any) { log.Fatalf(f, args...) }
+
+func (t *exampleT) done() {
+	for _, f := range t.cleanups {
+		f()
+	}
+}
+
+// The app declares its categories once, as values.
+var TicketAssigned = notification.Category("tickets.assigned")
+
+// TicketAssignedEvent is the fact a feature publishes: ids and facts, never text.
+type TicketAssignedEvent struct {
+	TicketID   int
+	AssigneeID int
+	ActorID    int
+	Title      string
+}
+
+var Assigned = event.Define[TicketAssignedEvent]("tickets.assigned")
+
+// people are the accounts of the examples: Ana (1) and Ivo (2) speak Croatian, Eva (3) English.
+func people(t *exampleT) (*notification.Notices, *gocore.App) {
+	ana, ivo, eva := identitytest.Account(1, "ana", "x"), identitytest.Account(2, "ivo", "x"), identitytest.Account(3, "eva", "x")
+	ana.Locale, ivo.Locale = "hr", "hr"
+
+	app := gocoretest.New(t)
+	notices := notification.Install(app, identitytest.Users(t, ana, ivo, eva), TicketAssigned)
+
+	return notices, app
+}
+
+// A feature turns its own event into notifications, in a consumer. Send is called
+// once per event and renders once per recipient, in their language; the actor is
+// left out.
+func Example() {
+	t := &exampleT{}
+	defer t.done()
+
+	notices, app := people(t)
+
+	app.Events(Assigned.To("notifications.ticket-assigned",
+		func(ctx context.Context, e TicketAssignedEvent) error {
+			return notices.Send(ctx, TicketAssigned, notification.To(e.AssigneeID).Except(e.ActorID),
+				func(r notification.Recipient) notification.Message {
+					title := "You were assigned " + e.Title
+					if r.Locale == "hr" {
+						title = "Dodijeljen vam je " + e.Title
+					}
+
+					return notification.Message{Title: title, Link: fmt.Sprintf("/tickets/%d", e.TicketID)}
+				})
+		}))
+
+	gocoretest.Publish(t, app, Assigned, TicketAssignedEvent{TicketID: 7, AssigneeID: 1, ActorID: 2, Title: "Login bug"})
+	gocoretest.Publish(t, app, Assigned, TicketAssignedEvent{TicketID: 8, AssigneeID: 2, ActorID: 2, Title: "Own ticket"}) // the actor: nobody is told
+
+	page, _ := notices.Inbox.List(context.Background(), 1, notification.ListQuery{})
+	for _, n := range page.Items {
+		fmt.Println(n.Category, n.Title, n.Link)
+	}
+
+	unread, _ := notices.Inbox.Unread(context.Background(), 2)
+	fmt.Println("Ivo unread:", unread)
+	// Output:
+	// tickets.assigned Dodijeljen vam je Login bug /tickets/7
+	// Ivo unread: 0
+}
+
+func ExampleCategory() {
+	// Declared once, as a value, and passed to Install.
+	var invoicePaid = notification.Category("billing.invoice-paid")
+
+	fmt.Println(invoicePaid, notification.CategoryMax)
+	// Output: billing.invoice-paid 64
+}
+
+func ExampleInstall() {
+	t := &exampleT{}
+	defer t.done()
+
+	app := gocoretest.New(t)
+	users := identitytest.Users(t, identitytest.Account(1, "ana", "x"))
+
+	notices := notification.Install(app, users, TicketAssigned)
+	fmt.Println(notices.Inbox != nil)
+
+	// A bad or repeated code is a start-up problem, listed with its fix by Check or Run.
+	notification.Install(app, users, notification.Category("Bad Code"))
+
+	_, err := app.Handler()
+	fmt.Println(err != nil)
+	// Output:
+	// true
+	// true
+}
+
+// Outside an event consumer Send fails and says what to do instead.
+func ExampleNotices_Send() {
+	t := &exampleT{}
+	defer t.done()
+
+	notices, _ := people(t)
+
+	err := notices.Send(context.Background(), TicketAssigned, notification.To(1), func(notification.Recipient) notification.Message {
+		return notification.Message{Title: "Hello"}
+	})
+	fmt.Println(err != nil)
+	// Output: true
+}
+
+// To names the people; Except takes the actor out. Ids that are not valid and repeats are dropped
+// when the notification is sent.
+func ExampleTo() {
+	recipients := notification.To(1, 2, 2, 0, -3).Except(2)
+
+	_ = recipients
+
+	fmt.Println("everyone but Ivo")
+	// Output: everyone but Ivo
+}
+
+func ExampleRecipients_Except() {
+	e := TicketAssignedEvent{AssigneeID: 3, ActorID: 3}
+
+	// Assigning a ticket to yourself notifies nobody.
+	_ = notification.To(e.AssigneeID).Except(e.ActorID)
+
+	fmt.Println("nobody")
+	// Output: nobody
+}
+
+// A link is a path inside the app: nothing can send a person off-site.
+func ExampleIsAppLink() {
+	for _, link := range []string{"/tickets/7", "", "https://evil.example", "//evil.example", `/\evil`} {
+		fmt.Printf("%q %v\n", link, notification.IsAppLink(link))
+	}
+	// Output:
+	// "/tickets/7" true
+	// "" true
+	// "https://evil.example" false
+	// "//evil.example" false
+	// "/\\evil" false
+}
+
+// The dedupe key is why an event delivered twice makes one notification.
+func ExampleDedupeKey() {
+	fmt.Println(notification.DedupeKey(1234, 56, TicketAssigned))
+	// Output: 1234:56:tickets.assigned
+}
+
+// A person lists, counts and reads their own notifications. Reading one marks it read on
+// every device; "mark all" marks what the person has seen, up to the newest id they show.
+func ExampleInbox() {
+	t := &exampleT{}
+	defer t.done()
+
+	notices, app := people(t)
+	notify := notifier(t, notices, app)
+	notify(1, "First")
+	notify(1, "Second")
+
+	ctx := context.Background()
+	page, _ := notices.Inbox.List(ctx, 1, notification.ListQuery{Limit: 1})
+	fmt.Println(page.Items[0].Title, page.HasMore)
+
+	left, _ := notices.Inbox.MarkRead(ctx, 1, page.Items[0].ID)
+	fmt.Println("unread", left)
+
+	left, _ = notices.Inbox.MarkAllRead(ctx, 1, page.Items[0].ID)
+	fmt.Println("unread", left)
+	// Output:
+	// Second true
+	// unread 1
+	// unread 0
+}
+
+type note struct {
+	To    int
+	Title string
+}
+
+// notifier returns a function that sends one notification to a person through the event queue, as a consumer would.
+func notifier(t *exampleT, notices *notification.Notices, app *gocore.App) func(to int, title string) {
+	ev := event.Define[note]("examples.notify")
+
+	app.Events(ev.To("examples.notify", func(ctx context.Context, n note) error {
+		return notices.Send(ctx, TicketAssigned, notification.To(n.To), func(notification.Recipient) notification.Message {
+			return notification.Message{Title: n.Title}
+		})
+	}))
+
+	return func(to int, title string) { gocoretest.Publish(t, app, ev, note{To: to, Title: title}) }
+}
+
+func ExampleMigrate() {
+	t := &exampleT{}
+	defer t.done()
+
+	app := gocoretest.New(t)
+
+	fmt.Println(notification.Migrate(app.Database()))
+	// Output: <nil>
+}
