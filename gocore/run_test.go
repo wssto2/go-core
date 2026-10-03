@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"runtime"
@@ -128,18 +129,26 @@ func TestCheckRejectsDuplicateRoutes(t *testing.T) {
 func freePort(t *testing.T) int {
 	t.Helper()
 
-	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = l.Close() }()
+	// The server binds the port itself after this returns, so a port from ":0"
+	// sits in the ephemeral range, where the tests' own client connections can
+	// take it first. Below every OS's ephemeral range only another server could.
+	// ponytail: still a check-then-bind race; hand the server a listener if it ever flakes again.
+	for range 50 {
+		port := 20000 + rand.IntN(10000) //nolint:gosec // a test port, not a secret
 
-	addr, ok := l.Addr().(*net.TCPAddr)
-	if !ok {
-		t.Fatal("not a TCP address")
+		l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			continue
+		}
+
+		_ = l.Close()
+
+		return port
 	}
 
-	return addr.Port
+	t.Fatal("no free port in 20000-29999")
+
+	return 0
 }
 
 func runnable(t *testing.T) (*App, int) {
