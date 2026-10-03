@@ -1,3 +1,15 @@
+export type ActivityAction = "created" | "changed" | "deleted";
+
+export type ActivityRow = {
+  id: number;
+  area: string;
+  record_type: string;
+  record_id: number;
+  action: ActivityAction;
+  signed_in_as: number | null;
+  created_at: string;
+};
+
 export type ChangeAction = "created" | "updated" | "deactivated" | "activated" | "password" | "email" | "profile";
 
 export type ChangeRow = {

@@ -281,9 +281,12 @@ const (
 	// ManageUsers is creating, editing, unlocking and deactivating people, giving them a
 	// new password and ending their sessions.
 	ManageUsers = identityhttp.ManageUsers
+	// ViewActivity is reading what a person did, from the audit trail. It is a System permission:
+	// only the people running the system hold it.
+	ViewActivity = identityhttp.ViewActivity
 )
 
-// DefinePermissions adds ViewUsers and ManageUsers to the catalogue when it lacks
+// DefinePermissions adds ViewUsers, ManageUsers and ViewActivity to the catalogue when it lacks
 // them, as access.Install does for the catalogue it is given: an application that
 // installs both needs not call it. An application without access calls it on
 // its catalogue, since start-up checks that every route's permission is defined.
@@ -295,6 +298,7 @@ func DefinePermissions(c *authz.Catalogue) error {
 	}{
 		{ViewUsers, nil},
 		{ManageUsers, []authz.DefineOption{authz.Sensitive(), authz.Requires(ViewUsers)}},
+		{ViewActivity, []authz.DefineOption{authz.System()}},
 	} {
 		if _, ok := c.Lookup(def.id); ok {
 			continue

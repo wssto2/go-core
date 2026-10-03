@@ -20,6 +20,9 @@ const (
 	// ManageUsers is creating, editing, unlocking and deactivating people, giving them a
 	// new password and ending their sessions.
 	ManageUsers = "iam.user:manage"
+	// ViewActivity is reading what a person did (their activity), the audit trail of their own
+	// actions. It is a System permission: only the people running the system hold it.
+	ViewActivity = "iam.user.activity:view"
 )
 
 // usersBase and profileBase are where the users and profile routes live (the
@@ -51,6 +54,9 @@ var (
 	UserSignIns = route.Get[HistoryInput, datatable.DatatableResult[SignInRow]](usersBase + "/:id/signins").Name("identity.users.signins").Requires(ViewUsers)
 	// UserChanges is the history of changes made to a person, newest first.
 	UserChanges = route.Get[HistoryInput, datatable.DatatableResult[ChangeRow]](usersBase + "/:id/changes").Name("identity.users.changes").Requires(ViewUsers)
+	// UserActivity is what a person did, newest first: the records they created, changed or
+	// deleted, by area and days.
+	UserActivity = route.Get[ActivityInput, datatable.DatatableResult[ActivityRow]](usersBase + "/:id/activity").Name("identity.users.activity").Requires(ViewActivity)
 	// UserSessions lists a person's live sessions.
 	UserSessions = route.Get[UserInput, SessionList](usersBase + "/:id/sessions").Name("identity.users.sessions").Requires(ViewUsers)
 	// RevokeUserSession ends one of a person's sessions.
@@ -87,6 +93,31 @@ type HistoryInput struct {
 	ID      int `path:"id"`
 	Page    int `query:"page" json:"page,omitempty"`
 	PerPage int `query:"per_page" json:"per_page,omitempty"`
+}
+
+// ActivityInput is a page of what a person did. Area is one of the keys the application named
+// (identity.WithActivityAreas), "identity" for the changes to accounts or "other"; empty is every
+// area. From and To are days, YYYY-MM-DD and inclusive; empty is open.
+type ActivityInput struct {
+	ID      int    `path:"id"`
+	Area    string `query:"area" json:"area,omitempty" validation:"max:32"`
+	From    string `query:"from" json:"from,omitempty" validation:"max:10"`
+	To      string `query:"to" json:"to,omitempty" validation:"max:10"`
+	Page    int    `query:"page" json:"page,omitempty"`
+	PerPage int    `query:"per_page" json:"per_page,omitempty"`
+}
+
+// ActivityRow is one thing a person did: a record of RecordType (the audit trail's name for it) and
+// RecordID, in Area, that they created, changed or deleted. SignedInAs is who was signed in as the
+// person at the time, null when nobody was: the entry may be theirs.
+type ActivityRow struct {
+	ID         int                    `json:"id"`
+	Area       string                 `json:"area"`
+	RecordType string                 `json:"record_type"`
+	RecordID   int                    `json:"record_id"`
+	Action     account.ActivityAction `json:"action"`
+	SignedInAs *int                   `json:"signed_in_as"`
+	CreatedAt  time.Time              `json:"created_at"`
 }
 
 // CreateUserInput is a new person. Locale is a BCP-47 tag such as "hr".
@@ -459,4 +490,51 @@ func (h *Handler) revokeUserSessions(ctx context.Context, in UserInput) (route.E
 	}
 
 	return route.Empty{}, h.admin.RevokeSessions(ctx, in.ID, who.Account.ID)
+}
+
+// dayLayout is how the activity's days are written.
+const dayLayout = "2006-01-02"
+
+// dayOf reads a YYYY-MM-DD input; empty is the zero time (open).
+func dayOf(field, v string) (time.Time, error) {
+	if v == "" {
+		return time.Time{}, nil
+	}
+
+	t, err := time.Parse(dayLayout, v)
+	if err != nil {
+		reason := account.ReasonActivityRangeInvalid
+
+		return time.Time{}, apperr.New(nil, string(reason), apperr.CodeValidationError).
+			WithReason(reason).WithFields(map[string]string{field: string(reason)})
+	}
+
+	return t, nil
+}
+
+func (h *Handler) userActivity(ctx context.Context, in ActivityInput) (datatable.DatatableResult[ActivityRow], error) {
+	from, err := dayOf("from", in.From)
+	if err != nil {
+		return datatable.DatatableResult[ActivityRow]{}, err
+	}
+
+	to, err := dayOf("to", in.To)
+	if err != nil {
+		return datatable.DatatableResult[ActivityRow]{}, err
+	}
+
+	rows, total, err := h.admin.Activity(ctx, in.ID, account.ActivityFilter{Area: in.Area, From: from, To: to}, pagingOf(in.Page, in.PerPage))
+	if err != nil {
+		return datatable.DatatableResult[ActivityRow]{}, err
+	}
+
+	out := make([]ActivityRow, len(rows))
+	for i, r := range rows {
+		out[i] = ActivityRow{
+			ID: r.ID, Area: r.Area, RecordType: r.RecordType, RecordID: r.RecordID, Action: r.Action,
+			SignedInAs: idOrNil(r.SignedInAs), CreatedAt: r.At.UTC(),
+		}
+	}
+
+	return pageOf(out, total, max(in.Page, 1), resolvedPerPage(in.PerPage)), nil
 }

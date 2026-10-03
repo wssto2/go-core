@@ -200,6 +200,10 @@ func TestInstallDefinesTheModulesPermissionsAndTheUnionStaysGenerated(t *testing
 	require.True(t, ok)
 	assert.True(t, manage.Sensitive)
 	assert.Equal(t, []string{"iam.user:view"}, manage.Requires)
+
+	activity, ok := cat.Lookup("iam.user.activity:view")
+	require.True(t, ok, "identity's activity permission is in the catalogue the administrator role holds")
+	assert.True(t, activity.System)
 }
 
 func TestInstallReportsWhatIsMissingAndHowToFixIt(t *testing.T) {

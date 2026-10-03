@@ -85,6 +85,7 @@ func (h *Handler) Routes() []route.Handled {
 		UnlockUser.To(h.unlockUser),
 		UserSignIns.To(h.userSignIns),
 		UserChanges.To(h.userChanges),
+		UserActivity.To(h.userActivity),
 		UserSessions.To(h.userSessions),
 		RevokeUserSession.To(h.revokeUserSession),
 		RevokeUserSessions.To(h.revokeUserSessions),

@@ -1,6 +1,6 @@
 import { route, type ListResult } from "@wssto2/vue-core/client";
-import type { ChangeLocaleInput, ChangePasswordInput, ConfirmEmailInput, CreateUserInput, HistoryInput, ListUsersInput, LoginAsInput, LoginInput, OwnSessionInput, PageInput, RefreshInput, RequestEmailInput, SetPasswordInput, UpdateProfileInput, UpdateUserInput, UserInput, UserSessionInput } from "./schemas";
-import type { ChangeRow, PendingEmail, ProfileResponse, SessionList, SessionResponse, SignInRow, UnlockResult, UserDetail, UserRow } from "./entities";
+import type { ActivityInput, ChangeLocaleInput, ChangePasswordInput, ConfirmEmailInput, CreateUserInput, HistoryInput, ListUsersInput, LoginAsInput, LoginInput, OwnSessionInput, PageInput, RefreshInput, RequestEmailInput, SetPasswordInput, UpdateProfileInput, UpdateUserInput, UserInput, UserSessionInput } from "./schemas";
+import type { ActivityRow, ChangeRow, PendingEmail, ProfileResponse, SessionList, SessionResponse, SignInRow, UnlockResult, UserDetail, UserRow } from "./entities";
 
 export const identityRoutes = {
   login: route<LoginInput, SessionResponse>("POST", "/v1/auth/login", { public: true }),
@@ -20,6 +20,7 @@ export const identityRoutes = {
   usersUnlock: route<UserInput, UnlockResult>("POST", "/v1/iam/users/:id/unlock", { permission: "iam.user:manage" }),
   usersSignins: route<HistoryInput, ListResult<SignInRow>>("GET", "/v1/iam/users/:id/signins", { permission: "iam.user:view" }),
   usersChanges: route<HistoryInput, ListResult<ChangeRow>>("GET", "/v1/iam/users/:id/changes", { permission: "iam.user:view" }),
+  usersActivity: route<ActivityInput, ListResult<ActivityRow>>("GET", "/v1/iam/users/:id/activity", { permission: "iam.user.activity:view" }),
   usersSessions: route<UserInput, SessionList>("GET", "/v1/iam/users/:id/sessions", { permission: "iam.user:view" }),
   usersRevokeSession: route<UserSessionInput, void>("DELETE", "/v1/iam/users/:id/sessions/:session_id", { permission: "iam.user:manage" }),
   usersRevokeSessions: route<UserInput, void>("DELETE", "/v1/iam/users/:id/sessions", { permission: "iam.user:manage" }),

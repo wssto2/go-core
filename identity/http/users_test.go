@@ -44,6 +44,11 @@ func TestUsersRoutesNeedTheirPermissions(t *testing.T) {
 		assert.Equal(t, nethttp.StatusOK, h.do(method, path, nil, ana).Code, "view reads")
 	}
 
+	assert.Equal(t, nethttp.StatusForbidden, h.do(nethttp.MethodGet, "/v1/iam/users/2/activity", nil, ana).Code, "activity is its own, System permission")
+
+	only := newHarnessFull(t, "", authztest.DenyAll().Allow(identityhttp.ViewActivity), nil)
+	assert.Equal(t, nethttp.StatusOK, only.do(nethttp.MethodGet, "/v1/iam/users/2/activity", nil, only.as("ana", "secret")).Code)
+
 	for _, c := range []struct{ method, path string }{
 		{nethttp.MethodPost, "/v1/iam/users"},
 		{nethttp.MethodPut, "/v1/iam/users/2"},
@@ -359,4 +364,70 @@ func TestWithoutMailTheAddressChangeIsRefusedOverHTTP(t *testing.T) {
 	r := h.do(nethttp.MethodPost, "/v1/iam/profile/email", map[string]string{"email": "new@example.test", "current_password": "secret"}, ana)
 	assert.Equal(t, nethttp.StatusBadRequest, r.Code)
 	assert.Equal(t, "identity.email.disabled", r.json()["code"])
+}
+
+// What a person did, over the wire: a datatable page of rows with their area, filtered by area
+// and days, newest first; a refused area or date names the field.
+func TestActivityOfAPersonOverHTTP(t *testing.T) {
+	h := newHarness(t, nil)
+	ana := h.as("ana", "secret")
+
+	for _, login := range []string{"dora", "eva"} {
+		created := h.do(nethttp.MethodPost, "/v1/iam/users", map[string]any{
+			"login": login, "name": login, "email": login + "@example.test", "locale": "en", "password": "a long password",
+		}, ana)
+		require.Equal(t, nethttp.StatusOK, created.Code, created.Body.String())
+	}
+
+	page := h.do(nethttp.MethodGet, "/v1/iam/users/1/activity?per_page=1", nil, ana)
+	require.Equal(t, nethttp.StatusOK, page.Code, page.Body.String())
+
+	rows := changesRows(t, page)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "identity", rows[0]["area"])
+	assert.Equal(t, "account", rows[0]["record_type"])
+	assert.Equal(t, "created", rows[0]["action"])
+	assert.Nil(t, rows[0]["signed_in_as"])
+	assert.Contains(t, rows[0]["created_at"], "2026-01-02T03:04:05")
+
+	day := identitytest.Epoch.Format("2006-01-02")
+	body, _ := page.json()["data"].(map[string]any)
+	assert.EqualValues(t, 2, body["total"])
+
+	for query, want := range map[string]int{
+		"area=identity": 2, "area=other": 0, "from=" + day + "&to=" + day: 2, "from=2026-01-03": 0, "to=2026-01-01": 0,
+	} {
+		r := h.do(nethttp.MethodGet, "/v1/iam/users/1/activity?"+query, nil, ana)
+		require.Equal(t, nethttp.StatusOK, r.Code, query+" "+r.Body.String())
+		assert.Len(t, changesRows(t, r), want, query)
+	}
+
+	for query, field := range map[string]string{"area=crm": "area", "from=yesterday": "from", "to=2026-13-40": "to", "from=2026-01-03&to=2026-01-02": "to"} {
+		r := h.do(nethttp.MethodGet, "/v1/iam/users/1/activity?"+query, nil, ana)
+		assert.Equal(t, nethttp.StatusUnprocessableEntity, r.Code, query+" "+r.Body.String())
+		assert.Contains(t, r.Body.String(), `"`+field+`"`, query)
+	}
+
+	assert.Equal(t, nethttp.StatusNotFound, h.do(nethttp.MethodGet, "/v1/iam/users/999/activity", nil, ana).Code)
+}
+
+// An entry made while somebody was signed in as the person says who.
+func TestActivityMarksWhoWasSignedInAsOverHTTP(t *testing.T) {
+	h := newHarness(t, nil, identitytest.WithImpersonation(permitAll{}))
+	ana := h.as("ana", "secret")
+
+	as := h.do(nethttp.MethodPost, "/v1/auth/login-as", map[string]int{"user_id": 2}, ana)
+	require.Equal(t, nethttp.StatusOK, as.Code, as.Body.String())
+
+	token := as.cookie("access_token").Value
+	boris := func(req *nethttp.Request) { req.Header.Set("Authorization", "Bearer "+token) }
+
+	created := h.do(nethttp.MethodPost, "/v1/iam/users", map[string]any{
+		"login": "dora", "name": "Dora", "email": "dora@example.test", "locale": "en", "password": "a long password",
+	}, boris)
+	require.Equal(t, nethttp.StatusOK, created.Code, created.Body.String())
+
+	rows := changesRows(t, h.do(nethttp.MethodGet, "/v1/iam/users/2/activity", nil, ana))
+	require.Len(t, rows, 1)
+	assert.EqualValues(t, 1, rows[0]["signed_in_as"], "ana was signed in as boris")
 }
