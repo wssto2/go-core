@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/authz"
 )
 
 // Users is what other features ask of identity: an account by id, a person's
@@ -26,6 +27,41 @@ func (u *Users) Get(ctx context.Context, id int) (Account, error) {
 	}
 
 	return acc, nil
+}
+
+// SubjectNames returns the display name of each person among subjects that
+// exists, which is what access.SubjectDirectory asks: *Users satisfies it as it
+// is. The name is the account's name, or its login when it has none. Service
+// accounts are not identity's, and are left out.
+func (u *Users) SubjectNames(ctx context.Context, subjects []authz.Subject) (map[authz.Subject]string, error) {
+	var ids []int
+
+	for _, s := range subjects {
+		if s.Kind == authz.KindUser {
+			ids = append(ids, s.ID)
+		}
+	}
+
+	out := make(map[authz.Subject]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+
+	found, err := u.deps.Accounts.FindMany(ctx, ids)
+	if err != nil {
+		return nil, apperr.Internal(err)
+	}
+
+	for _, a := range found {
+		name := a.Name
+		if name == "" {
+			name = a.Login
+		}
+
+		out[authz.Subject{Kind: authz.KindUser, ID: a.ID}] = name
+	}
+
+	return out, nil
 }
 
 // ChangeLocaleInput is a person's new language.

@@ -5,10 +5,16 @@
 //	app := gocore.New(cfg)
 //
 //	users := identity.Install(app)                 // routes, tables, authentication
-//	access.Install(app, permissions.All, users)    // roles and bindings
+//	access.Install(app, permissions.All, users)    // roles and bindings, and the engine /auth/me reads
 //	tickets.Install(app, users)
 //
 //	app.Run()
+//
+// identity does not need the authorization engine at Install: it reads the
+// application's authorizer when a request comes, so /auth/me carries the
+// person's access (authz.MyAccess) as soon as access.Install, or any
+// authorizer that has MyAccess, is part of the application, in either order.
+// *Users satisfies access.SubjectDirectory, so it is what access.Install takes.
 //
 // Install gives the application its authentication: every route that is not
 // Public is behind it, and the person's authz principal is in the request
@@ -17,9 +23,8 @@
 //
 //	users := identity.Install(app,
 //		identity.On(Shared),                          // tables on another connection
-//		identity.WithAccess(engine),                  // /auth/me carries authz.MyAccess
 //		identity.WithNavigation(menu...),             // and the menu, cut to what they may reach
-//		identity.AllowImpersonation(engine, "identity.account:impersonate"),
+//		identity.AllowImpersonation("iam.user:impersonate"),
 //	)
 //
 // Its routes live under /v1/auth; the application's own prefix goes in front
@@ -33,6 +38,7 @@ package identity
 import (
 	"context"
 
+	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/database"
@@ -85,18 +91,19 @@ type Access interface {
 }
 
 type settings struct {
-	conn          []database.Connection
-	accounts      account.Store
-	hasher        account.PasswordHasher
-	refresh       auth.Hasher
-	cfg           account.Config
-	impersonation account.Impersonation
-	notices       account.Notices
-	access        Access
-	project       UserProjector
-	principal     PrincipalOf
-	navigation    NavigationProvider
-	cookies       Cookies
+	conn                    []database.Connection
+	accounts                account.Store
+	hasher                  account.PasswordHasher
+	refresh                 auth.Hasher
+	cfg                     account.Config
+	impersonation           account.Impersonation
+	impersonationPermission string
+	notices                 account.Notices
+	access                  Access
+	project                 UserProjector
+	principal               PrincipalOf
+	navigation              NavigationProvider
+	cookies                 Cookies
 }
 
 // Option adjusts Install.
@@ -123,15 +130,18 @@ func WithRefreshHasher(h auth.Hasher) Option { return func(s *settings) { s.refr
 // WithConfig sets the session length, the lock and the attempts per minute.
 func WithConfig(cfg account.Config) Option { return func(s *settings) { s.cfg = cfg } }
 
-// WithAccess makes /auth/me carry how the person holds each permission, from
-// the authorization engine. Without it the access block holds no permissions.
+// WithAccess overrides where /auth/me reads how the person holds each
+// permission. By default it asks the application's authorizer (the engine
+// access.Install builds) when it has MyAccess; without one the access block
+// holds no permissions.
 func WithAccess(a Access) Option { return func(s *settings) { s.access = a } }
 
 // AllowImpersonation lets people who hold the permission sign in as somebody
-// else. authorizer is the application's authz engine. Without this or
-// WithImpersonation, nobody may.
-func AllowImpersonation(authorizer authz.Authorizer, permission string) Option {
-	return func(s *settings) { s.impersonation = permitted{authorizer: authorizer, permission: permission} }
+// else. The check goes through the application's authorizer when the request
+// comes, so the permission must be in the catalogue access.Install gets.
+// Without this or WithImpersonation, nobody may.
+func AllowImpersonation(permission string) Option {
+	return func(s *settings) { s.impersonationPermission = permission }
 }
 
 // WithImpersonation decides who may sign in as whom with your own rules, such
@@ -190,6 +200,10 @@ func Install(app *gocore.App, opts ...Option) *Users {
 		s.accounts = stores.Accounts
 	}
 
+	if s.impersonationPermission != "" && s.impersonation == nil {
+		s.impersonation = permitted{app: app, permission: s.impersonationPermission}
+	}
+
 	svc, err := account.New(account.Deps{
 		Accounts: s.accounts, SignIns: stores.SignIns, Sessions: stores.Sessions, Clock: app.Clock(),
 		Hasher: s.hasher, Impersonation: s.impersonation, Notices: s.notices,
@@ -205,9 +219,7 @@ func Install(app *gocore.App, opts ...Option) *Users {
 		Project: s.project, Principal: s.principal, Navigation: s.navigation,
 	}
 
-	if s.access != nil {
-		cfg.Access = s.access.MyAccess
-	}
+	cfg.Access = s.accessOf(app)
 
 	app.Authenticate(identityhttp.Authentication(svc.SignIn, s.cookies, s.principal))
 	app.Routes(identityhttp.NewHandler(cfg).Routes()...)
@@ -215,15 +227,39 @@ func Install(app *gocore.App, opts ...Option) *Users {
 	return svc.Users
 }
 
+// accessOf is where the payload's access block comes from: the override, else
+// the application's authorizer at request time, else nothing (the payload then
+// holds the subject and no permissions).
+func (s settings) accessOf(app *gocore.App) identityhttp.AccessProvider {
+	if s.access != nil {
+		return s.access.MyAccess
+	}
+
+	return func(ctx context.Context) (authz.MyAccess, error) {
+		if a, ok := app.Authorizer().(Access); ok {
+			return a.MyAccess(ctx)
+		}
+
+		p, _ := authz.PrincipalFrom(ctx)
+
+		return authz.MyAccess{Subject: p.Subject, Permissions: map[string]authz.PermissionAccess{}}, nil
+	}
+}
+
 // permitted is the Impersonation of a permission: whoever holds it may sign in
 // as anybody. Narrower rules are WithImpersonation's.
 type permitted struct {
-	authorizer authz.Authorizer
+	app        *gocore.App
 	permission string
 }
 
 func (p permitted) Permitted(ctx context.Context, _ account.Account) error {
-	return p.authorizer.Require(ctx, p.permission)
+	authorizer := p.app.Authorizer()
+	if authorizer == nil {
+		return apperr.Forbidden(string(account.ReasonImpersonationDisabled)).WithReason(account.ReasonImpersonationDisabled)
+	}
+
+	return authorizer.Require(ctx, p.permission)
 }
 
 func (permitted) Covers(context.Context, account.Account, account.Account) error { return nil }

@@ -10,6 +10,9 @@ import (
 type Store interface {
 	Find(ctx context.Context, id int) (Account, error)
 	FindByLogin(ctx context.Context, login string) (Account, error)
+	// FindMany returns the accounts that exist among ids, in no particular order;
+	// a missing id is simply absent.
+	FindMany(ctx context.Context, ids []int) ([]Account, error)
 	// Create stores a new account, assigns its ID and returns it. A login in
 	// use is ErrLoginTaken.
 	Create(ctx context.Context, a Account) (Account, error)

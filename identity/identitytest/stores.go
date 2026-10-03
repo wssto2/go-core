@@ -46,6 +46,22 @@ func (s *Accounts) FindByLogin(_ context.Context, login string) (account.Account
 	return account.Account{}, account.ErrNotFound
 }
 
+// FindMany implements account.Store.
+func (s *Accounts) FindMany(_ context.Context, ids []int) ([]account.Account, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var out []account.Account
+
+	for _, id := range ids {
+		if a, ok := s.rows[id]; ok {
+			out = append(out, a)
+		}
+	}
+
+	return out, nil
+}
+
 // Create implements account.Store. An account that comes with an ID
 // keeps it, which lets a test name its people.
 func (s *Accounts) Create(_ context.Context, a account.Account) (account.Account, error) {

@@ -11,7 +11,7 @@ import (
 )
 
 // The core is framework-free (ARCHITECTURE.md section 4.1): the standard
-// library, apperr and x/crypto, nothing that knows HTTP or a database.
+// library, apperr, authz (its types) and x/crypto, nothing that knows HTTP or a database.
 func TestCoreIsFrameworkFree(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	require.NoError(t, err)
@@ -19,6 +19,7 @@ func TestCoreIsFrameworkFree(t *testing.T) {
 	allowed := func(path string) bool {
 		return !strings.Contains(path, ".") || // the standard library
 			path == "github.com/wssto2/go-core/apperr" ||
+			path == "github.com/wssto2/go-core/authz" || // types only: it imports apperr and nothing else
 			path == "golang.org/x/crypto/bcrypt"
 	}
 

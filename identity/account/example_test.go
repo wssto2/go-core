@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/identity/identitytest"
 )
@@ -238,4 +239,16 @@ func ExampleNoNotices() {
 	account.NoNotices.SignedInAs(context.Background(), 1, 2)
 	fmt.Println("ok")
 	// Output: ok
+}
+
+// *Users names people for access.SubjectDirectory, which asks for the display
+// name of the subjects it is about to show.
+func ExampleUsers_SubjectNames() {
+	users := identitytest.Users(exampleT{}, identitytest.Account(1, "ana", "secret"))
+
+	names, _ := users.SubjectNames(context.Background(), []authz.Subject{
+		{Kind: authz.KindUser, ID: 1}, {Kind: authz.KindUser, ID: 2}, {Kind: authz.KindServiceAccount, ID: 1},
+	})
+	fmt.Println(names)
+	// Output: map[user:1:ana]
 }

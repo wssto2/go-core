@@ -107,6 +107,25 @@ func (s *Accounts) FindByLogin(ctx context.Context, login string) (account.Accou
 	return s.one(ctx, "login = ?", account.NormalizeLogin(login))
 }
 
+// FindMany implements account.Store.
+func (s *Accounts) FindMany(ctx context.Context, ids []int) ([]account.Account, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	var rows []accountModel
+	if err := s.db.WithContext(ctx).Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make([]account.Account, len(rows))
+	for i, m := range rows {
+		out[i] = m.account()
+	}
+
+	return out, nil
+}
+
 func (s *Accounts) one(ctx context.Context, where string, arg any) (account.Account, error) {
 	var m accountModel
 

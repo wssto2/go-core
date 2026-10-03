@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/wssto2/go-core/auth"
-	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/gocoretest"
 	"github.com/wssto2/go-core/identity"
 	"github.com/wssto2/go-core/identity/account"
@@ -121,7 +120,7 @@ func ExampleAllowImpersonation() {
 	defer t.done()
 
 	app := gocoretest.New(t)
-	identity.Install(app, identity.AllowImpersonation(authztest.AllowAll(), "identity.account:impersonate"))
+	identity.Install(app, identity.AllowImpersonation("identity.account:impersonate"))
 	fmt.Println(app.Check())
 	// Output: <nil>
 }

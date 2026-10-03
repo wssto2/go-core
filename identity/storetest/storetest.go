@@ -86,6 +86,7 @@ func Run(t *testing.T, newStores Factory) {
 		"accounts/create and find":       accountsCreateAndFind,
 		"accounts/login is unique":       accountsLoginUnique,
 		"accounts/missing":               accountsMissing,
+		"accounts/find many":             accountsFindMany,
 		"accounts/setters":               accountsSetters,
 		"accounts/inactive stays so":     accountsInactive,
 		"signins/lock events":            signInsLockEvents,
@@ -164,6 +165,21 @@ func accountsMissing(t *testing.T, s Stores) {
 
 	_, err = s.Accounts.FindByLogin(ctx(), "nobody")
 	c.isErr(err, account.ErrNotFound, "find by login")
+}
+
+func accountsFindMany(t *testing.T, s Stores) {
+	c := check{t}
+
+	a, _ := s.Accounts.Create(ctx(), newAccount("ana"))
+	b, _ := s.Accounts.Create(ctx(), newAccount("boris"))
+
+	got, err := s.Accounts.FindMany(ctx(), []int{a.ID, b.ID, 999})
+	c.noErr(err, "find many")
+	c.equal(2, len(got), "the ones that exist")
+
+	none, err := s.Accounts.FindMany(ctx(), nil)
+	c.noErr(err, "find none")
+	c.equal(0, len(none), "nothing asked, nothing found")
 }
 
 func accountsSetters(t *testing.T, s Stores) {

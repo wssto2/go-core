@@ -182,11 +182,11 @@ func (f fakeAccess) MyAccess(context.Context) (authz.MyAccess, error) { return f
 
 func TestImpersonationIsOffUnlessAllowed(t *testing.T) {
 	for _, allow := range []bool{false, true} {
-		app := gocoretest.New(t)
+		app := gocoretest.New(t, gocoretest.Authorizer(authztest.AllowAll())) // read at request time
 
 		opts := []identity.Option{}
 		if allow {
-			opts = append(opts, identity.AllowImpersonation(authztest.AllowAll(), "identity.account:impersonate"))
+			opts = append(opts, identity.AllowImpersonation("identity.account:impersonate"))
 		}
 
 		identity.Install(app, opts...)
