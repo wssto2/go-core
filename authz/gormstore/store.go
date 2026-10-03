@@ -59,10 +59,20 @@ func New(db *gorm.DB, opts ...Option) *Store {
 	return s
 }
 
+// reader is the connection reads use: the caller's transaction when the context
+// carries one (so a read sees what the transaction wrote, and on a single
+// connection does not wait for it), the database otherwise.
+func (s *Store) reader(ctx context.Context) *gorm.DB {
+	if tx, ok := database.TxFromContext(ctx); ok {
+		return tx.WithContext(ctx)
+	}
+	return s.db.WithContext(ctx)
+}
+
 // BindingsFor implements authz.Reader.
 func (s *Store) BindingsFor(ctx context.Context, sub authz.Subject) ([]authz.Binding, error) {
 	var rows []roleBindingModel
-	err := s.db.WithContext(ctx).Where("subject_kind = ? AND subject_id = ?", string(sub.Kind), sub.ID).
+	err := s.reader(ctx).Where("subject_kind = ? AND subject_id = ?", string(sub.Kind), sub.ID).
 		Order("id").Find(&rows).Error
 	if err != nil {
 		return nil, apperr.Wrap(err, "load bindings", apperr.CodeInternal)
@@ -72,12 +82,12 @@ func (s *Store) BindingsFor(ctx context.Context, sub authz.Subject) ([]authz.Bin
 
 // Role implements authz.Reader.
 func (s *Store) Role(ctx context.Context, id int) (authz.Role, error) {
-	return loadRole(s.db.WithContext(ctx), id)
+	return loadRole(s.reader(ctx), id)
 }
 
 // ListRoles implements authz.Store.
 func (s *Store) ListRoles(ctx context.Context) ([]authz.Role, error) {
-	db := s.db.WithContext(ctx)
+	db := s.reader(ctx)
 	var rows []roleModel
 	if err := db.Order("id").Find(&rows).Error; err != nil {
 		return nil, apperr.Wrap(err, "list roles", apperr.CodeInternal)
@@ -213,13 +223,13 @@ func (s *Store) DeleteRole(ctx context.Context, actor authz.Subject, id int) err
 
 // Binding implements authz.Store.
 func (s *Store) Binding(ctx context.Context, id int) (authz.Binding, error) {
-	return loadBinding(s.db.WithContext(ctx), id)
+	return loadBinding(s.reader(ctx), id)
 }
 
 // BindingsForRole implements authz.Store.
 func (s *Store) BindingsForRole(ctx context.Context, roleID int) ([]authz.Binding, error) {
 	var rows []roleBindingModel
-	if err := s.db.WithContext(ctx).Where("role_id = ?", roleID).Order("id").Find(&rows).Error; err != nil {
+	if err := s.reader(ctx).Where("role_id = ?", roleID).Order("id").Find(&rows).Error; err != nil {
 		return nil, apperr.Wrap(err, "load role bindings", apperr.CodeInternal)
 	}
 	return bindingsFrom(rows), nil
@@ -229,7 +239,7 @@ func (s *Store) BindingsForRole(ctx context.Context, roleID int) ([]authz.Bindin
 // here rather than in SQL: COUNT(DISTINCT a, b) is not portable to SQLite.
 func (s *Store) HolderCounts(ctx context.Context) (authz.HolderCounts, error) {
 	var rows []roleBindingModel
-	err := s.db.WithContext(ctx).Model(&roleBindingModel{}).
+	err := s.reader(ctx).Model(&roleBindingModel{}).
 		Select("DISTINCT role_id, role_key, subject_kind, subject_id").Find(&rows).Error
 	if err != nil {
 		return authz.HolderCounts{}, apperr.Wrap(err, "count role holders", apperr.CodeInternal)
@@ -250,7 +260,7 @@ func (s *Store) HoldersOf(ctx context.Context, ref authz.RoleRef) ([]authz.Bindi
 	if !ref.Valid() {
 		return nil, nil
 	}
-	q := s.db.WithContext(ctx).Order("id")
+	q := s.reader(ctx).Order("id")
 	if ref.ID > 0 {
 		q = q.Where("role_id = ?", ref.ID)
 	} else {
