@@ -50,10 +50,10 @@ var (
 	ActivateUser = route.Post[UserInput, route.Empty](usersBase + "/:id/activate").Name("identity.users.activate").Requires(ManageUsers)
 	// UnlockUser lifts the lock after wrong passwords.
 	UnlockUser = route.Post[UserInput, UnlockResult](usersBase + "/:id/unlock").Name("identity.users.unlock").Requires(ManageUsers)
-	// UserSignIns is a person's sign-in history, newest first.
-	UserSignIns = route.Get[HistoryInput, datatable.DatatableResult[SignInRow]](usersBase + "/:id/signins").Name("identity.users.signins").Requires(ViewUsers)
-	// UserChanges is the history of changes made to a person, newest first.
-	UserChanges = route.Get[HistoryInput, datatable.DatatableResult[ChangeRow]](usersBase + "/:id/changes").Name("identity.users.changes").Requires(ViewUsers)
+	// UserSignIns is a person's sign-in history, newest first, with the count of each view in meta.views.
+	UserSignIns = route.Get[SignInsInput, datatable.DatatableResult[SignInRow]](usersBase + "/:id/signins").Name("identity.users.signins").Requires(ViewUsers)
+	// UserChanges is the history of changes made to a person, newest first, with the count of each view in meta.views.
+	UserChanges = route.Get[ChangesInput, datatable.DatatableResult[ChangeRow]](usersBase + "/:id/changes").Name("identity.users.changes").Requires(ViewUsers)
 	// UserActivity is what a person did, newest first: the records they created, changed or
 	// deleted, by area and days.
 	UserActivity = route.Get[ActivityInput, datatable.DatatableResult[ActivityRow]](usersBase + "/:id/activity").Name("identity.users.activity").Requires(ViewActivity)
@@ -88,11 +88,23 @@ type ListUsersInput struct {
 	PerPage  int    `query:"per_page" json:"per_page,omitempty"`
 }
 
-// HistoryInput is a page of a person's sign-in history or changes.
-type HistoryInput struct {
-	ID      int `path:"id"`
-	Page    int `query:"page" json:"page,omitempty"`
-	PerPage int `query:"per_page" json:"per_page,omitempty"`
+// SignInsInput is a page of a person's sign-in history. View is all (the default) or failed (a wrong
+// password, a refusal while locked, a refusal for an inactive account); meta.views counts both.
+type SignInsInput struct {
+	ID      int                `path:"id"`
+	View    account.SignInView `query:"view" json:"view,omitempty" validation:"max:16"`
+	Page    int                `query:"page" json:"page,omitempty"`
+	PerPage int                `query:"per_page" json:"per_page,omitempty"`
+}
+
+// ChangesInput is a page of the changes made to a person. View is all (the default), access (a new
+// password, a deactivation, an activation) or details (everything else: creation, details, e-mail
+// address); meta.views counts all three.
+type ChangesInput struct {
+	ID      int                `path:"id"`
+	View    account.ChangeView `query:"view" json:"view,omitempty" validation:"max:16"`
+	Page    int                `query:"page" json:"page,omitempty"`
+	PerPage int                `query:"per_page" json:"per_page,omitempty"`
 }
 
 // ActivityInput is a page of what a person did. Area is one of the keys the application named
@@ -442,30 +454,37 @@ func signInRows(rows []account.SignInEntry, who people) []SignInRow {
 	return out
 }
 
-func (h *Handler) userSignIns(ctx context.Context, in HistoryInput) (datatable.DatatableResult[SignInRow], error) {
-	paging := pagingOf(in.Page, in.PerPage)
+func (h *Handler) userSignIns(ctx context.Context, in SignInsInput) (datatable.DatatableResult[SignInRow], error) {
+	page, err := h.admin.SignIns(ctx, in.ID, in.View, pagingOf(in.Page, in.PerPage))
 
-	rows, total, err := h.admin.SignIns(ctx, in.ID, paging)
-	if err != nil {
-		return datatable.DatatableResult[SignInRow]{}, err
-	}
-
-	who, err := h.people(ctx, signInActors(rows))
-	if err != nil {
-		return datatable.DatatableResult[SignInRow]{}, err
-	}
-
-	return pageOf(signInRows(rows, who), total, max(in.Page, 1), resolvedPerPage(in.PerPage)), nil
+	return h.signInPage(ctx, page, err, in.Page, in.PerPage)
 }
 
-func (h *Handler) userChanges(ctx context.Context, in HistoryInput) (datatable.DatatableResult[ChangeRow], error) {
-	rows, total, err := h.admin.Changes(ctx, in.ID, pagingOf(in.Page, in.PerPage))
+// signInPage is a page of sign-in history as the response, the actors named in one lookup.
+func (h *Handler) signInPage(ctx context.Context, page account.SignInPage, err error, pageNo, perPage int) (datatable.DatatableResult[SignInRow], error) {
+	if err != nil {
+		return datatable.DatatableResult[SignInRow]{}, err
+	}
+
+	who, err := h.people(ctx, signInActors(page.Rows))
+	if err != nil {
+		return datatable.DatatableResult[SignInRow]{}, err
+	}
+
+	return pageOf(signInRows(page.Rows, who), page.Total, max(pageNo, 1), resolvedPerPage(perPage)).WithViews(
+		datatable.ViewCount{Key: string(account.SignInsAll), Count: page.Counts.All},
+		datatable.ViewCount{Key: string(account.SignInsFailed), Count: page.Counts.Failed},
+	), nil
+}
+
+func (h *Handler) userChanges(ctx context.Context, in ChangesInput) (datatable.DatatableResult[ChangeRow], error) {
+	page, err := h.admin.Changes(ctx, in.ID, in.View, pagingOf(in.Page, in.PerPage))
 	if err != nil {
 		return datatable.DatatableResult[ChangeRow]{}, err
 	}
 
-	ids := make([]int, len(rows))
-	for i, r := range rows {
+	ids := make([]int, len(page.Rows))
+	for i, r := range page.Rows {
 		ids[i] = r.ActorID
 	}
 
@@ -474,15 +493,19 @@ func (h *Handler) userChanges(ctx context.Context, in HistoryInput) (datatable.D
 		return datatable.DatatableResult[ChangeRow]{}, err
 	}
 
-	out := make([]ChangeRow, len(rows))
-	for i, r := range rows {
+	out := make([]ChangeRow, len(page.Rows))
+	for i, r := range page.Rows {
 		out[i] = ChangeRow{
 			ID: r.ID, Action: r.Action, Fields: nonNil(r.Fields), Before: nonNilMap(r.Before), After: nonNilMap(r.After),
 			Actor: who.ref(r.ActorID), CreatedAt: r.At.UTC(),
 		}
 	}
 
-	return pageOf(out, total, max(in.Page, 1), resolvedPerPage(in.PerPage)), nil
+	return pageOf(out, page.Total, max(in.Page, 1), resolvedPerPage(in.PerPage)).WithViews(
+		datatable.ViewCount{Key: string(account.ChangesAll), Count: page.Counts.All},
+		datatable.ViewCount{Key: string(account.ChangesAccess), Count: page.Counts.Access},
+		datatable.ViewCount{Key: string(account.ChangesDetails), Count: page.Counts.Details},
+	), nil
 }
 
 // resolvedPerPage is the page size the services use for a requested one.

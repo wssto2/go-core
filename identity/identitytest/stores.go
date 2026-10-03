@@ -323,21 +323,37 @@ func (s *SignIns) LockEvents(_ context.Context, accountID, n int) ([]account.Sig
 }
 
 // Entries implements account.SignInHistory.
-func (s *SignIns) Entries(_ context.Context, accountID, offset, limit int) ([]account.SignInEntry, int, error) {
+func (s *SignIns) Entries(_ context.Context, q account.SignInQuery) ([]account.SignInEntry, int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var mine []account.SignInEntry
 
 	for _, r := range slices.Backward(s.rows) {
-		if r.AccountID == accountID {
+		if r.AccountID == q.AccountID && (len(q.Events) == 0 || slices.Contains(q.Events, r.Event)) {
 			mine = append(mine, r)
 		}
 	}
 
-	from := min(offset, len(mine))
+	from := min(q.Offset, len(mine))
 
-	return mine[from:min(from+limit, len(mine))], len(mine), nil
+	return mine[from:min(from+q.Limit, len(mine))], len(mine), nil
+}
+
+// EventCounts implements account.SignInHistory.
+func (s *SignIns) EventCounts(_ context.Context, accountID int) (map[account.SignInEvent]int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	out := map[account.SignInEvent]int{}
+
+	for _, r := range s.rows {
+		if r.AccountID == accountID {
+			out[r.Event]++
+		}
+	}
+
+	return out, nil
 }
 
 // LastSignIns implements account.SignInHistory.
@@ -720,21 +736,37 @@ func (l *ChangeLog) Record(_ context.Context, c account.Change) error {
 }
 
 // Changes implements account.ChangeLog.
-func (l *ChangeLog) Changes(_ context.Context, accountID, offset, limit int) ([]account.ChangeEntry, int, error) {
+func (l *ChangeLog) Changes(_ context.Context, q account.ChangeQuery) ([]account.ChangeEntry, int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	var mine []account.ChangeEntry
 
 	for _, r := range slices.Backward(l.rows) {
-		if r.AccountID == accountID {
+		if r.AccountID == q.AccountID && (len(q.Only) == 0 || slices.Contains(q.Only, r.Action)) && !slices.Contains(q.Except, r.Action) {
 			mine = append(mine, r)
 		}
 	}
 
-	from := min(offset, len(mine))
+	from := min(q.Offset, len(mine))
 
-	return mine[from:min(from+limit, len(mine))], len(mine), nil
+	return mine[from:min(from+q.Limit, len(mine))], len(mine), nil
+}
+
+// ChangeCounts implements account.ChangeLog.
+func (l *ChangeLog) ChangeCounts(_ context.Context, accountID int) (map[account.ChangeAction]int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	out := map[account.ChangeAction]int{}
+
+	for _, r := range l.rows {
+		if r.AccountID == accountID {
+			out[r.Action]++
+		}
+	}
+
+	return out, nil
 }
 
 // Transactor is an account.Transactor over memory: it just runs the function.

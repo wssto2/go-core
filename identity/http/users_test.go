@@ -3,6 +3,7 @@ package http_test
 import (
 	nethttp "net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -464,4 +465,85 @@ func TestRowsNameWhoActedEvenWhenTheyAreGoneOverHTTP(t *testing.T) {
 	require.Len(t, rows, 2)
 	assert.Equal(t, map[string]any{"id": 77.0, "name": ""}, rows[1]["actor"], "gone, not hidden")
 	assert.Nil(t, rows[0]["actor"], "the person's own change names nobody")
+}
+
+// viewsOf reads meta.views of a page as key -> count.
+func viewsOf(t *testing.T, r reply) map[string]float64 {
+	t.Helper()
+
+	page := r.json()
+
+	body, _ := page["data"].(map[string]any)
+	if body == nil {
+		body = page
+	}
+
+	meta, _ := body["meta"].(map[string]any)
+	raw, _ := meta["views"].([]any)
+
+	out := map[string]float64{}
+
+	for _, v := range raw {
+		e := v.(map[string]any) //nolint:forcetypeassert // the shape under test
+		out[e["key"].(string)] = e["count"].(float64)
+	}
+
+	return out
+}
+
+// The sign-in history has an all and a failed view, on the administrator's route and the person's own,
+// each with its count; the changes have all, access and details.
+func TestHistoryViewsOverHTTP(t *testing.T) {
+	h := newHarness(t, nil)
+	ana := h.as("ana", "secret")
+
+	signedIn := h.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "boris", "password": "hunter2"})
+	token := signedIn.cookie("access_token").Value
+	boris := func(req *nethttp.Request) { req.Header.Set("Authorization", "Bearer "+token) }
+
+	for range 2 {
+		h.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "boris", "password": "nope"})
+	}
+
+	for _, path := range []string{"/v1/iam/users/2/signins", "/v1/iam/profile/signins"} {
+		who := ana
+		if strings.Contains(path, "profile") {
+			who = boris
+		}
+
+		failed := h.do(nethttp.MethodGet, path+"?view=failed", nil, who)
+		require.Equal(t, nethttp.StatusOK, failed.Code, failed.Body.String())
+
+		rows := changesRows(t, failed)
+		require.Len(t, rows, 2, path)
+		assert.Equal(t, "wrong_password", rows[0]["event"])
+		assert.Equal(t, map[string]float64{"all": 3, "failed": 2}, subset(viewsOf(t, failed), "all", "failed"), path+": the counts, whichever view is shown")
+
+		assert.Len(t, changesRows(t, h.do(nethttp.MethodGet, path+"?view=all", nil, who)), 3, path)
+		assert.Equal(t, nethttp.StatusUnprocessableEntity, h.do(nethttp.MethodGet, path+"?view=recent", nil, who).Code, path)
+	}
+
+	bad := h.do(nethttp.MethodGet, "/v1/iam/users/2/signins?view=recent", nil, ana)
+	assert.Equal(t, "identity.history.view_invalid", bad.json()["code"])
+
+	h.do(nethttp.MethodPost, "/v1/iam/users/2/deactivate", nil, ana)
+	h.do(nethttp.MethodPut, "/v1/iam/users/2", map[string]string{"login": "boris", "name": "Boris K.", "email": "b@example.test", "locale": "hr"}, ana)
+
+	for view, n := range map[string]int{"all": 2, "access": 1, "details": 1} {
+		r := h.do(nethttp.MethodGet, "/v1/iam/users/2/changes?view="+view, nil, ana)
+		require.Equal(t, nethttp.StatusOK, r.Code, r.Body.String())
+		assert.Len(t, changesRows(t, r), n, view)
+		assert.Equal(t, map[string]float64{"all": 2, "access": 1, "details": 1}, viewsOf(t, r), view)
+	}
+
+	assert.Equal(t, nethttp.StatusUnprocessableEntity, h.do(nethttp.MethodGet, "/v1/iam/users/2/changes?view=roles", nil, ana).Code)
+}
+
+func subset(m map[string]float64, keys ...string) map[string]float64 {
+	out := map[string]float64{}
+	for _, k := range keys {
+		out[k] = m[k]
+	}
+
+	return out
 }

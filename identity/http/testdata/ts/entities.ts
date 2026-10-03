@@ -22,6 +22,8 @@ export type ChangeRow = {
   created_at: string;
 };
 
+export type ChangeView = "all" | "access" | "details";
+
 export type ClauseInfo = {
   scope: Scope;
   qualifier: number;
@@ -117,6 +119,8 @@ export type SignInRow = {
   actor: PersonRef | null;
   created_at: string;
 };
+
+export type SignInView = "all" | "failed";
 
 export type Status = "active" | "locked" | "inactive";
 

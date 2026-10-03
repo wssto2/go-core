@@ -92,13 +92,35 @@ type Searcher interface {
 // from it. A store that keeps the log implements both.
 type SignInHistory interface {
 	SignInLog
-	// Entries lists the account's history, newest first, with how many rows it has.
-	Entries(ctx context.Context, accountID, offset, limit int) ([]SignInEntry, int, error)
+	// Entries lists the account's history, newest first, with how many rows match the query.
+	Entries(ctx context.Context, q SignInQuery) ([]SignInEntry, int, error)
+	// EventCounts counts the account's history rows per event, in one query; an event that
+	// never happened is absent.
+	EventCounts(ctx context.Context, accountID int) (map[SignInEvent]int, error)
 	// LastSignIns returns, for each id that has one, the time of the latest signed_in.
 	LastSignIns(ctx context.Context, ids []int) (map[int]time.Time, error)
 	// WrongPasswordsSince returns the accounts that had a wrong password after since:
 	// the only ones that can be locked at since plus the lock's length.
 	WrongPasswordsSince(ctx context.Context, since time.Time) ([]int, error)
+}
+
+// SignInQuery asks for a page of an account's sign-in history, newest first. Events narrows it
+// to those events (empty: every one); Limit is the page size.
+type SignInQuery struct {
+	AccountID int
+	Events    []SignInEvent
+	Offset    int
+	Limit     int
+}
+
+// ChangeQuery asks for a page of the changes made to an account, newest first. Only narrows it to
+// those actions (empty: every one) and Except leaves some out; Limit is the page size.
+type ChangeQuery struct {
+	AccountID int
+	Only      []ChangeAction
+	Except    []ChangeAction
+	Offset    int
+	Limit     int
 }
 
 // Change is one change to an account, for its history (IAM-USER-007).
@@ -140,8 +162,11 @@ type ChangeEntry struct {
 type ChangeLog interface {
 	// Record writes a change, in the transaction of the context when it has one.
 	Record(ctx context.Context, c Change) error
-	// Changes lists the account's history, newest first, with how many rows it has.
-	Changes(ctx context.Context, accountID, offset, limit int) ([]ChangeEntry, int, error)
+	// Changes lists the account's history, newest first, with how many rows match the query.
+	Changes(ctx context.Context, q ChangeQuery) ([]ChangeEntry, int, error)
+	// ChangeCounts counts the account's changes per action, in one query; an action that never
+	// happened is absent.
+	ChangeCounts(ctx context.Context, accountID int) (map[ChangeAction]int, error)
 }
 
 // Transactor runs a function in one database transaction: what it writes

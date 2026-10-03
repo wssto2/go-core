@@ -51,7 +51,8 @@ func TestCreateMakesAnActiveAccountThatCanSignIn(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, acc.ID, signed.Account.ID)
 
-	changes, total, err := k.Admin.Changes(t.Context(), acc.ID, account.Paging{})
+	pg7, err := k.Admin.Changes(t.Context(), acc.ID, account.ChangesAll, account.Paging{})
+	changes, total := pg7.Rows, pg7.Total
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
 	require.Equal(t, account.ChangeCreated, changes[0].Action)
@@ -167,7 +168,8 @@ func TestUpdateWritesOnlyWhatDiffersAndRecordsIt(t *testing.T) {
 	require.Equal(t, "boris@example.test", acc.Email)
 	require.Equal(t, "boris", acc.Login)
 
-	changes, total, err := k.Admin.Changes(t.Context(), 2, account.Paging{})
+	pg8, err := k.Admin.Changes(t.Context(), 2, account.ChangesAll, account.Paging{})
+	changes, total := pg8.Rows, pg8.Total
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
 	require.Equal(t, account.ChangeUpdated, changes[0].Action)
@@ -178,7 +180,8 @@ func TestUpdateWritesOnlyWhatDiffersAndRecordsIt(t *testing.T) {
 	_, err = k.Admin.Update(t.Context(), account.UpdateAccount{ID: 2, Login: "boris", Name: "Boris Babić", Email: "boris@example.test", Locale: "en"})
 	require.NoError(t, err)
 
-	_, total, _ = k.Admin.Changes(t.Context(), 2, account.Paging{})
+	pg9, _ := k.Admin.Changes(t.Context(), 2, account.ChangesAll, account.Paging{})
+	total = pg9.Total
 	require.Equal(t, 1, total, "an update that changes nothing is not on the history")
 }
 
@@ -225,13 +228,14 @@ func TestSetPasswordLiftsTheLockAndEndsTheSessions(t *testing.T) {
 	_, err = k.SignIn.Login(t.Context(), account.LoginInput{Login: "boris", Password: "a brand new one"})
 	require.NoError(t, err, "the lock is lifted, the new password works at once")
 
-	changes, _, _ := k.Admin.Changes(t.Context(), 2, account.Paging{})
+	pg10, _ := k.Admin.Changes(t.Context(), 2, account.ChangesAll, account.Paging{})
+	changes := pg10.Rows
 	require.Equal(t, account.ChangePassword, changes[0].Action)
 	require.Equal(t, []string{"password"}, changes[0].Fields)
 	require.Empty(t, changes[0].After, "never the value")
 	require.Contains(t, n.events, "password 2 by 1")
 
-	_, _, err = k.Admin.SignIns(t.Context(), 2, account.Paging{})
+	_, err = k.Admin.SignIns(t.Context(), 2, account.SignInsAll, account.Paging{})
 	require.NoError(t, err)
 
 	require.True(t, apperr.HasReason(k.Admin.SetPassword(t.Context(), account.SetPassword{ID: 2, Password: "short", ActorID: 1}), account.ReasonPasswordWeak))
@@ -255,7 +259,8 @@ func TestDeactivateEndsTheSessionsAndIsOnTheHistory(t *testing.T) {
 	_, err = k.SignIn.Authenticate(t.Context(), signed.Credentials.Access)
 	require.True(t, apperr.HasReason(err, account.ReasonSessionInvalid))
 
-	changes, _, _ := k.Admin.Changes(t.Context(), 2, account.Paging{})
+	pg12, _ := k.Admin.Changes(t.Context(), 2, account.ChangesAll, account.Paging{})
+	changes := pg12.Rows
 	require.Equal(t, account.ChangeDeactivated, changes[0].Action)
 	require.Contains(t, n.events, "deactivated 2 by 1")
 
@@ -283,7 +288,8 @@ func TestActivateBringsAnAccountBack(t *testing.T) {
 	_, err := k.SignIn.Login(t.Context(), account.LoginInput{Login: "ines", Password: "secret"})
 	require.NoError(t, err)
 
-	changes, _, _ := k.Admin.Changes(t.Context(), 3, account.Paging{})
+	pg13, _ := k.Admin.Changes(t.Context(), 3, account.ChangesAll, account.Paging{})
+	changes := pg13.Rows
 	require.Equal(t, account.ChangeActivated, changes[0].Action)
 	require.Contains(t, n.events, "activated 3 by 1")
 }
@@ -326,7 +332,8 @@ func TestADeactivationHookCanVeto(t *testing.T) {
 	_, err = k.SignIn.Authenticate(t.Context(), signed.Credentials.Access)
 	require.NoError(t, err, "the session is intact")
 
-	_, total, _ := k.Admin.Changes(t.Context(), 2, account.Paging{})
+	pg14, _ := k.Admin.Changes(t.Context(), 2, account.ChangesAll, account.Paging{})
+	total := pg14.Total
 	require.Zero(t, total, "nothing on the history")
 
 	dora, err := k.Admin.Create(t.Context(), newPerson())
@@ -388,7 +395,8 @@ func TestUnlock(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, unlocked, "a person who is not locked is left alone")
 
-	rows, _, err := k.Admin.SignIns(t.Context(), 2, account.Paging{})
+	pg15, err := k.Admin.SignIns(t.Context(), 2, account.SignInsAll, account.Paging{})
+	rows := pg15.Rows
 	require.NoError(t, err)
 
 	var events []account.SignInEvent
@@ -527,7 +535,8 @@ func TestSessionsAdmin(t *testing.T) {
 	sessions, _ = k.Admin.Sessions(t.Context(), 2)
 	require.Empty(t, sessions)
 
-	rows, _, _ := k.Admin.SignIns(t.Context(), 2, account.Paging{})
+	pg16, _ := k.Admin.SignIns(t.Context(), 2, account.SignInsAll, account.Paging{})
+	rows := pg16.Rows
 	require.Equal(t, account.SignedOutEverywhere, rows[0].Event)
 	require.Equal(t, 1, rows[0].ActorID)
 	require.Equal(t, account.SessionRevoked, rows[1].Event)
@@ -541,15 +550,16 @@ func TestSignInsAndChangesPage(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	rows, total, err := k.Admin.SignIns(t.Context(), 1, account.Paging{Page: 2, PerPage: 2})
+	pg17, err := k.Admin.SignIns(t.Context(), 1, account.SignInsAll, account.Paging{Page: 2, PerPage: 2})
+	rows, total := pg17.Rows, pg17.Total
 	require.NoError(t, err)
 	require.Equal(t, 3, total)
 	require.Len(t, rows, 1)
 
-	_, _, err = k.Admin.SignIns(t.Context(), 99, account.Paging{})
+	_, err = k.Admin.SignIns(t.Context(), 99, account.SignInsAll, account.Paging{})
 	require.True(t, apperr.HasReason(err, account.ReasonAccountNotFound))
 
-	_, _, err = k.Admin.Changes(t.Context(), 99, account.Paging{})
+	_, err = k.Admin.Changes(t.Context(), 99, account.ChangesAll, account.Paging{})
 	require.True(t, apperr.HasReason(err, account.ReasonAccountNotFound))
 }
 
@@ -579,3 +589,59 @@ func TestNewAdminNamesWhatIsMissing(t *testing.T) {
 }
 
 var _ = errors.New
+
+// The sign-in history and the changes come in views, with a count for each whichever is shown.
+func TestHistoryViewsFilterAndCount(t *testing.T) {
+	k := seeded(t)
+	ctx := t.Context()
+
+	_, err := k.SignIn.Login(ctx, account.LoginInput{Login: "boris", Password: "hunter2"})
+	require.NoError(t, err)
+
+	for range 5 {
+		_, _ = k.SignIn.Login(ctx, account.LoginInput{Login: "boris", Password: "nope"})
+	}
+
+	_, _ = k.SignIn.Login(ctx, account.LoginInput{Login: "boris", Password: "hunter2"}) // refused while locked
+
+	all, err := k.Admin.SignIns(ctx, 2, "", account.Paging{})
+	require.NoError(t, err)
+	require.Equal(t, 7, all.Total)
+	require.Equal(t, account.SignInCounts{All: 7, Failed: 6}, all.Counts)
+
+	failed, err := k.Admin.SignIns(ctx, 2, account.SignInsFailed, account.Paging{PerPage: 2})
+	require.NoError(t, err)
+	require.Equal(t, 6, failed.Total, "the view's total, not the page")
+	require.Len(t, failed.Rows, 2)
+	require.Equal(t, account.LockedOut, failed.Rows[0].Event)
+	require.Equal(t, all.Counts, failed.Counts, "the counts do not follow the view")
+
+	own, err := k.Profile.SignIns(ctx, 2, account.SignInsFailed, account.Paging{})
+	require.NoError(t, err)
+	require.Equal(t, failed.Total, own.Total, "the person sees the same history")
+
+	_, err = k.Profile.SignIns(ctx, 2, "recent", account.Paging{})
+	require.True(t, apperr.HasReason(err, account.ReasonHistoryViewInvalid))
+
+	require.NoError(t, k.Admin.SetPassword(ctx, account.SetPassword{ID: 2, Password: "a new long password", ActorID: 1}))
+	require.NoError(t, k.Admin.Deactivate(ctx, account.DeactivateInput{ID: 2, ActorID: 1}))
+
+	_, err = k.Admin.Update(ctx, account.UpdateAccount{ID: 2, Login: "boris", Name: "Boris K.", Email: "boris@example.test", Locale: "hr", ActorID: 1})
+	require.NoError(t, err)
+
+	want := account.ChangeCounts{All: 3, Access: 2, Details: 1}
+
+	for view, n := range map[account.ChangeView]int{account.ChangesAll: 3, account.ChangesAccess: 2, account.ChangesDetails: 1, "": 3} {
+		page, err := k.Admin.Changes(ctx, 2, view, account.Paging{})
+		require.NoError(t, err)
+		require.Equal(t, n, page.Total, "view %q", view)
+		require.Len(t, page.Rows, n)
+		require.Equal(t, want, page.Counts, "view %q", view)
+	}
+
+	_, err = k.Admin.Changes(ctx, 2, "recent", account.Paging{})
+	require.True(t, apperr.HasReason(err, account.ReasonHistoryViewInvalid))
+
+	_, err = k.Admin.Changes(ctx, 99, account.ChangesAll, account.Paging{})
+	require.True(t, apperr.HasReason(err, account.ReasonAccountNotFound))
+}

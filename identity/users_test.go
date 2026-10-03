@@ -109,11 +109,11 @@ func TestEmailChangeThroughTheInstalledModule(t *testing.T) {
 	assert.NotContains(t, told[0].Text, "ana@new.example")
 
 	// the change is on the history in the audit trail, which Install made the table for
-	changes, total, err := users.Admin().Changes(t.Context(), 1, account.Paging{})
+	changes, err := users.Admin().Changes(t.Context(), 1, account.ChangesAll, account.Paging{})
 	require.NoError(t, err)
-	require.Equal(t, 1, total)
-	assert.Equal(t, account.ChangeEmail, changes[0].Action)
-	assert.Equal(t, map[string]string{"email": "ana@old.example"}, changes[0].Before)
+	require.Equal(t, 1, changes.Total)
+	assert.Equal(t, account.ChangeEmail, changes.Rows[0].Action)
+	assert.Equal(t, map[string]string{"email": "ana@old.example"}, changes.Rows[0].Before)
 }
 
 func TestAPasswordChangeIsMailedToTheAccount(t *testing.T) {

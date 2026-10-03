@@ -25,6 +25,19 @@ export const ChangePasswordInputSchema = z.object({
 
 export type ChangePasswordInput = z.infer<typeof ChangePasswordInputSchema>;
 
+export const ChangeViewSchema = z.enum(["all", "access", "details"]);
+
+export type ChangeView = z.infer<typeof ChangeViewSchema>;
+
+export const ChangesInputSchema = z.object({
+  id: z.number().int(),
+  view: ChangeViewSchema.optional(),
+  page: z.number().int().optional(),
+  per_page: z.number().int().optional(),
+});
+
+export type ChangesInput = z.infer<typeof ChangesInputSchema>;
+
 export const ConfirmEmailInputSchema = z.object({
   code: z.string().min(1).max(12),
 });
@@ -41,14 +54,6 @@ export const CreateUserInputSchema = z.object({
 });
 
 export type CreateUserInput = z.infer<typeof CreateUserInputSchema>;
-
-export const HistoryInputSchema = z.object({
-  id: z.number().int(),
-  page: z.number().int().optional(),
-  per_page: z.number().int().optional(),
-});
-
-export type HistoryInput = z.infer<typeof HistoryInputSchema>;
 
 export const ListUsersInputSchema = z.object({
   view: z.string().max(16).optional(),
@@ -80,12 +85,17 @@ export const OwnSessionInputSchema = z.object({
 
 export type OwnSessionInput = z.infer<typeof OwnSessionInputSchema>;
 
-export const PageInputSchema = z.object({
+export const SignInViewSchema = z.enum(["all", "failed"]);
+
+export type SignInView = z.infer<typeof SignInViewSchema>;
+
+export const OwnSignInsInputSchema = z.object({
+  view: SignInViewSchema.optional(),
   page: z.number().int().optional(),
   per_page: z.number().int().optional(),
 });
 
-export type PageInput = z.infer<typeof PageInputSchema>;
+export type OwnSignInsInput = z.infer<typeof OwnSignInsInputSchema>;
 
 export const RefreshInputSchema = z.object({
   refresh_token: z.string().max(255),
@@ -106,6 +116,15 @@ export const SetPasswordInputSchema = z.object({
 });
 
 export type SetPasswordInput = z.infer<typeof SetPasswordInputSchema>;
+
+export const SignInsInputSchema = z.object({
+  id: z.number().int(),
+  view: SignInViewSchema.optional(),
+  page: z.number().int().optional(),
+  per_page: z.number().int().optional(),
+});
+
+export type SignInsInput = z.infer<typeof SignInsInputSchema>;
 
 export const UpdateProfileInputSchema = z.object({
   name: z.string().min(1).max(150),

@@ -37,7 +37,8 @@ func TestProfileGetAndUpdateDetails(t *testing.T) {
 	require.Equal(t, "ana@old.test", view.Email, "the address is not part of the details")
 	require.Equal(t, "ana", view.Login, "nor is the login (IAM-PROFILE-002)")
 
-	changes, _, _ := k.Admin.Changes(t.Context(), 1, account.Paging{})
+	pg1, _ := k.Admin.Changes(t.Context(), 1, account.ChangesAll, account.Paging{})
+	changes := pg1.Rows
 	require.Equal(t, account.ChangeProfile, changes[0].Action)
 	require.Equal(t, []string{"name", "phone"}, changes[0].Fields)
 	require.Equal(t, 0, changes[0].ActorID, "the person themselves")
@@ -45,7 +46,8 @@ func TestProfileGetAndUpdateDetails(t *testing.T) {
 	_, err = k.Profile.UpdateDetails(t.Context(), account.ProfileDetails{AccountID: 1, Name: "Ana Anić", Phone: "099 111"})
 	require.NoError(t, err)
 
-	_, total, _ := k.Admin.Changes(t.Context(), 1, account.Paging{})
+	pg2, _ := k.Admin.Changes(t.Context(), 1, account.ChangesAll, account.Paging{})
+	total := pg2.Total
 	require.Equal(t, 1, total, "saving what is there records nothing")
 
 	_, err = k.Profile.UpdateDetails(t.Context(), account.ProfileDetails{AccountID: 1, Name: " "})
@@ -86,12 +88,14 @@ func TestChangePasswordSignsOutEverywhereElse(t *testing.T) {
 	_, err = k.SignIn.Login(t.Context(), account.LoginInput{Login: "boris", Password: "a better one"})
 	require.NoError(t, err)
 
-	changes, _, _ := k.Admin.Changes(t.Context(), 2, account.Paging{})
+	pg3, _ := k.Admin.Changes(t.Context(), 2, account.ChangesAll, account.Paging{})
+	changes := pg3.Rows
 	require.Equal(t, account.ChangePassword, changes[0].Action)
 	require.Empty(t, changes[0].After, "never the value")
 	require.Contains(t, n.events, "password 2 by 0")
 
-	rows, _, _ := k.Profile.SignIns(t.Context(), 2, account.Paging{})
+	pg4, _ := k.Profile.SignIns(t.Context(), 2, account.SignInsAll, account.Paging{})
+	rows := pg4.Rows
 	require.Equal(t, account.SignedIn, rows[0].Event)
 }
 
@@ -124,7 +128,8 @@ func TestARefusedPasswordChangeLeavesTheSessionsIntact(t *testing.T) {
 	_, err = k.SignIn.Login(t.Context(), account.LoginInput{Login: "boris", Password: "hunter2"})
 	require.NoError(t, err, "the password is unchanged")
 
-	_, total, _ := k.Admin.Changes(t.Context(), 2, account.Paging{})
+	pg5, _ := k.Admin.Changes(t.Context(), 2, account.ChangesAll, account.Paging{})
+	total := pg5.Total
 	require.Zero(t, total)
 }
 
@@ -211,7 +216,8 @@ func TestEmailChangeByCode(t *testing.T) {
 	require.Equal(t, "new@example.test", view.Email)
 	require.Nil(t, view.PendingEmail)
 
-	changes, _, _ := k.Admin.Changes(ctx, 1, account.Paging{})
+	pg6, _ := k.Admin.Changes(ctx, 1, account.ChangesAll, account.Paging{})
+	changes := pg6.Rows
 	require.Equal(t, account.ChangeEmail, changes[0].Action)
 	require.Equal(t, map[string]string{"email": "ana@old.test"}, changes[0].Before)
 	require.Equal(t, map[string]string{"email": "new@example.test"}, changes[0].After)

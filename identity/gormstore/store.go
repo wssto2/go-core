@@ -442,14 +442,23 @@ func (s *SignIns) LockEvents(ctx context.Context, accountID, n int) ([]account.S
 }
 
 // Entries implements account.SignInHistory.
-func (s *SignIns) Entries(ctx context.Context, accountID, offset, limit int) ([]account.SignInEntry, int, error) {
+func (s *SignIns) Entries(ctx context.Context, q account.SignInQuery) ([]account.SignInEntry, int, error) {
+	where := func() *gorm.DB {
+		db := dbOf(s.db, ctx).Model(&signInModel{}).Where("user_id = ?", q.AccountID)
+		if len(q.Events) > 0 {
+			db = db.Where("event IN ?", q.Events)
+		}
+
+		return db
+	}
+
 	var total int64
-	if err := dbOf(s.db, ctx).Model(&signInModel{}).Where("user_id = ?", accountID).Count(&total).Error; err != nil {
+	if err := where().Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	var rows []signInModel
-	if err := dbOf(s.db, ctx).Where("user_id = ?", accountID).Order("id DESC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
+	if err := where().Order("id DESC").Offset(q.Offset).Limit(q.Limit).Find(&rows).Error; err != nil {
 		return nil, 0, err
 	}
 
@@ -459,6 +468,26 @@ func (s *SignIns) Entries(ctx context.Context, accountID, offset, limit int) ([]
 	}
 
 	return out, int(total), nil
+}
+
+// EventCounts implements account.SignInHistory.
+func (s *SignIns) EventCounts(ctx context.Context, accountID int) (map[account.SignInEvent]int, error) {
+	var rows []struct {
+		Event string
+		N     int
+	}
+
+	err := dbOf(s.db, ctx).Model(&signInModel{}).Select("event, COUNT(*) AS n").Where("user_id = ?", accountID).Group("event").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(map[account.SignInEvent]int, len(rows))
+	for _, r := range rows {
+		out[account.SignInEvent(r.Event)] = r.N
+	}
+
+	return out, nil
 }
 
 func (r signInModel) entry() account.SignInEntry {

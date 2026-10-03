@@ -26,18 +26,19 @@ var (
 	ConfirmEmailChange = route.Post[ConfirmEmailInput, ProfileResponse](profileBase + "/email/confirm").Name("identity.profile.confirm-email")
 	// CancelEmailChange drops the pending change.
 	CancelEmailChange = route.Delete[route.None, route.Empty](profileBase + "/email").Name("identity.profile.cancel-email")
-	// OwnSignIns is the person's own sign-in history, newest first.
-	OwnSignIns = route.Get[PageInput, datatable.DatatableResult[SignInRow]](profileBase + "/signins").Name("identity.profile.signins")
+	// OwnSignIns is the person's own sign-in history, newest first, with the count of each view in meta.views.
+	OwnSignIns = route.Get[OwnSignInsInput, datatable.DatatableResult[SignInRow]](profileBase + "/signins").Name("identity.profile.signins")
 	// OwnSessions lists the person's live sessions; the one the request came with is marked current.
 	OwnSessions = route.Get[route.None, SessionList](profileBase + "/sessions").Name("identity.profile.sessions")
 	// RevokeOwnSession ends one of the person's sessions, not the current one (that is signing out).
 	RevokeOwnSession = route.Delete[OwnSessionInput, route.Empty](profileBase + "/sessions/:session_id").Name("identity.profile.revoke-session")
 )
 
-// PageInput is a page of a list.
-type PageInput struct {
-	Page    int `query:"page" json:"page,omitempty"`
-	PerPage int `query:"per_page" json:"per_page,omitempty"`
+// OwnSignInsInput is a page of the person's own sign-in history; View is as in SignInsInput.
+type OwnSignInsInput struct {
+	View    account.SignInView `query:"view" json:"view,omitempty" validation:"max:16"`
+	Page    int                `query:"page" json:"page,omitempty"`
+	PerPage int                `query:"per_page" json:"per_page,omitempty"`
 }
 
 // OwnSessionInput addresses one of the person's own sessions.
@@ -186,23 +187,15 @@ func (h *Handler) cancelEmailChange(ctx context.Context, _ route.None) (route.Em
 	return route.Empty{}, h.profile.CancelEmailChange(ctx, who.Account.ID)
 }
 
-func (h *Handler) ownSignIns(ctx context.Context, in PageInput) (datatable.DatatableResult[SignInRow], error) {
+func (h *Handler) ownSignIns(ctx context.Context, in OwnSignInsInput) (datatable.DatatableResult[SignInRow], error) {
 	who, err := h.actor(ctx)
 	if err != nil {
 		return datatable.DatatableResult[SignInRow]{}, err
 	}
 
-	rows, total, err := h.profile.SignIns(ctx, who.Account.ID, pagingOf(in.Page, in.PerPage))
-	if err != nil {
-		return datatable.DatatableResult[SignInRow]{}, err
-	}
+	page, err := h.profile.SignIns(ctx, who.Account.ID, in.View, pagingOf(in.Page, in.PerPage))
 
-	names, err := h.people(ctx, signInActors(rows))
-	if err != nil {
-		return datatable.DatatableResult[SignInRow]{}, err
-	}
-
-	return pageOf(signInRows(rows, names), total, max(in.Page, 1), resolvedPerPage(in.PerPage)), nil
+	return h.signInPage(ctx, page, err, in.Page, in.PerPage)
 }
 
 func (h *Handler) ownSessions(ctx context.Context, _ route.None) (SessionList, error) {
