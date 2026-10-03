@@ -134,7 +134,7 @@ Layer 7 — example only:
 
 Specific prohibitions:
 - `auth`     MUST NOT import `database`, `bootstrap`, or `event`
-- `event`    MUST NOT import `bootstrap`, `auth`, or `database`
+- `event`    MUST NOT import `bootstrap` or `auth`. It imports `database` (the transaction `Publish` joins, the outbox worker) and never `gocore`; `gocore` imports `event` and `event/migrations` for `App.Events`
 - `audit`    MUST NOT import `bootstrap` or `auth`
 - `database` MUST NOT import `event`, `auth`, or `bootstrap`
 - `health`   MUST NOT import `bootstrap`

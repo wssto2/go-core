@@ -54,7 +54,7 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 * `audit` → audit logging and diff tracking
 * `datatable` → filtering, pagination, query helpers
 * `tenancy` → multi-tenant context + DB scoping
-* `event` → event bus abstraction
+* `event` → typed events and the per-consumer queue behind them (see "Events"; tables in `event/migrations`)
 * `identity` → accounts, password sign-in, sessions, the lock after wrong passwords, the `/auth/me` payload, user administration and each person's profile with e-mail codes (see "Sign-in" and "Users and profile"; core `identity/account`, routes `identity/http`, store `identity/gormstore`, mail text `identity/mailtext`, tests `identity/identitytest`)
 * `mail` → the `Sender` port, SMTP over the standard library, a recording `Sink` for tests, per-locale `Renderer` (see "mail")
 * `navigation` → the menu tree an application declares and the filter by held permissions
@@ -394,6 +394,42 @@ In a test, `identity.Install` runs on `gocoretest.New(t)`: SQLite tables are cre
 * Transaction support via context
 * Custom nullable & typed fields
 * SQL migrations per connection (`database/migrate`, goose): `migrations/<connection>/<yyyymmddhhmmss>_<name>.sql`, each database records its own versions; `MarkApplied` adopts a database whose changes ran by hand. `go-core new migration <name> -c <connection>` creates one
+
+---
+
+## Events
+
+A fact one feature reports and others react to is an `event.Event`, declared once as a value. The name is stored with every queued row, so it never changes with the Go type.
+
+```go
+var Assigned = event.Define[TicketAssigned]("tickets.assigned") // version 1; .Version(2) only when the payload's shape changes
+
+func Install(app *gocore.App, users identity.Users) {
+	notices := NewNotices(users)
+	app.Events(Assigned.To("notifications.assignee", notices.Assigned)) // the consumer's durable name is the first argument
+	// Assigned.To(...).Retry(event.Attempts(10), event.Backoff(time.Second, time.Hour)) // optional; the defaults are 5 attempts, 5 s doubling to 30 min
+}
+
+// in the write that the event reports
+err := transactor.WithinTransaction(ctx, func(ctx context.Context) error {
+	if err := tickets.Assign(ctx, id, user); err != nil {
+		return err
+	}
+
+	return Assigned.Publish(ctx, TicketAssigned{TicketID: id, UserID: user}) // joins the transaction in ctx
+})
+
+// in a test
+gocoretest.Publish(t, app, Assigned, TicketAssigned{TicketID: 7, UserID: 3}) // the consumers have run when it returns
+```
+
+* `Publish` joins the transaction `database.Transactor.WithinTransaction` put in ctx, so the event is queued if and only if the write commits. Without one it fails with an error saying so.
+* `app.Events(...)` collects consumers and, with them, the queue's tables (`event/migrations`: `outbox_events` and `event_consumer_attempts`) on the primary connection. A feature that only publishes calls `app.Events()` with none. `Run` starts one worker per consumer and stops them with the other background work; `Check` refuses two consumers with one name, a name that is not lower-case words joined by dots or dashes, and two `Define` calls that share a name but not a payload.
+* Each consumer has its own state per event: it claims the due events of its name, leases them for five minutes, retries a failing handler with a doubling backoff, and after its attempts sets the event aside as a dead letter. An event whose envelope, payload or version cannot be read is a dead letter at once. One failing consumer holds back no other, and the outbox row is marked processed once every consumer of it finished.
+* **Delivery is at least once.** A handler whose lease ran out while it was still working can run beside a second delivery of the same event, and a dead letter put back runs again: a handler must tolerate being called twice. `event.ID(ctx)` is the event's id, the key to dedupe on.
+* `event.NewDeadLetters(db, clock)` lists the dead letters and puts them back (`Retry` one, `RetryAll` of a consumer); its HTTP routes come with the notification module.
+* The claim is MariaDB 10.3 safe (no `SKIP LOCKED`, no `FOR UPDATE OF`: candidates are read, their outbox rows locked by primary key, the consumer's attempts read and the leases written). The queue is tested on SQLite, MySQL and MariaDB 10.3, including three workers on one database never handling an event twice.
+* Rows an application wrote with `event.InsertOutboxEvent` are named by the Go type (`"lead.AssignedEvent"`: package name and type name) with version 1; `event.Define[AssignedEvent]("lead.AssignedEvent")` consumes them unchanged. `outbox_events` has the DDL such an application already has.
 
 ---
 
