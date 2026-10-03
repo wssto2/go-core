@@ -146,7 +146,7 @@ func buildFixture() (*fixture, func(), error) {
 func onEveryDatabase(t *testing.T, fn func(t *testing.T, f *fixture)) {
 	t.Helper()
 	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
-		if db.Dialector.Name() == "sqlite" {
+		if db.Name() == "sqlite" {
 			require.NoError(t, gormstore.Migrate(db))
 		} else {
 			reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})

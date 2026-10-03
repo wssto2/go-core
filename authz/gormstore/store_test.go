@@ -193,7 +193,7 @@ func TestStoreHoldersOnEveryDatabase(t *testing.T) {
 			for _, table := range []string{"role_bindings", "role_permissions", "roles"} {
 				require.NoError(t, db.Exec("DROP TABLE IF EXISTS "+table).Error)
 			}
-			if db.Dialector.Name() == "sqlite" {
+			if db.Name() == "sqlite" {
 				require.NoError(t, gormstore.Migrate(db))
 			} else {
 				reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})

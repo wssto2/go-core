@@ -125,7 +125,7 @@ func TestAnApplicationWithoutTenancyAdministersRolesAndBindings(t *testing.T) {
 			return access.Install(app, permissions(), team{}, access.WithRoles(roles()...), access.On(local))
 		})
 
-		if db.Dialector.Name() == "sqlite" {
+		if db.Name() == "sqlite" {
 			require.NoError(t, gormstore.Migrate(db))
 		} else {
 			require.NoError(t, app.Migrate(t.Context()), "the module's own migrations create the tables")

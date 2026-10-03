@@ -55,7 +55,7 @@ func NoScopes() ScopeCatalog { return noScopes{} }
 
 type noScopes struct{}
 
-func (noScopes) Parent(_ context.Context, s authz.Scope) (authz.Scope, error) {
+func (noScopes) Parent(context.Context, authz.Scope) (authz.Scope, error) {
 	return authz.Scope{}, authz.ErrInvalidScope
 }
 
