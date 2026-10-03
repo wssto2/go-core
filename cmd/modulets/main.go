@@ -2,7 +2,7 @@
 //
 //	go run github.com/wssto2/go-core/cmd/modulets <dir>
 //
-// writes <dir>/identity/{entities,schemas,routes}.ts, <dir>/access/…, <dir>/notification/… (the inbox) and
+// writes <dir>/identity/{entities,schemas,routes}.ts, <dir>/access/…, <dir>/notification/… (the inbox, and a person's e-mail preferences and quiet hours) and
 // <dir>/events/… (the dead letters of the event queue), each
 // file starting with the go-core version that wrote it. vue-core runs it to
 // commit the module types its screens use; an app generates only its own

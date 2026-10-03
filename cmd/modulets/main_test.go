@@ -28,3 +28,35 @@ func TestGenerateWritesAFolderPerModule(t *testing.T) {
 		}
 	}
 }
+
+// The settings of a person and the consumer names are part of the contract the screens are built from.
+func TestTheContractHasThePreferencesQuietHoursAndConsumers(t *testing.T) {
+	dir := t.TempDir()
+	if err := generate(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	for file, wants := range map[string][]string{
+		"notification/routes.ts": {
+			`"/v1/notifications/preferences"`, `"PUT", "/v1/notifications/preferences/:category"`, `"PUT", "/v1/notifications/quiet-hours"`,
+		},
+		"notification/entities.ts": {
+			"export type Preferences", "email_available: boolean", "export type CategorySettings", `export type Source = "enforced" | "person" | "default"`,
+			"export type QuietHours", "time_zone: string",
+		},
+		"notification/schemas.ts": {"export const SetEmailInputSchema", "export const QuietHoursInputSchema"},
+		"events/routes.ts":        {`"/v1/events/consumers", { permission: "events.deadletter:view" }`},
+		"events/entities.ts":      {"export type ConsumerNames"},
+	} {
+		src, err := os.ReadFile(filepath.Join(dir, file)) //nolint:gosec // a temp dir of this test
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, want := range wants {
+			if !strings.Contains(string(src), want) {
+				t.Errorf("%s misses %q", file, want)
+			}
+		}
+	}
+}
