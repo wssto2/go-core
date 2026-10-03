@@ -560,13 +560,15 @@ type ListInput struct {
 // Row is an account in a list: the details with the last sign-in and the lock.
 type Row = Detail
 
-// Listing is one page of the list.
+// Listing is one page of the list. Counts is how many accounts each view has under the same
+// search, whichever view is shown.
 type Listing struct {
 	Rows     []Row
 	Total    int
 	Page     int
 	PerPage  int
 	LastPage int
+	Counts   StatusCounts
 }
 
 // List searches the accounts (IAM-USER-006). The views split them by status and
@@ -622,6 +624,11 @@ func (a *Admin) List(ctx context.Context, in ListInput) (Listing, error) {
 		return Listing{}, apperr.Internal(err)
 	}
 
+	counts, err := a.d.Search.Counts(ctx, Query{Search: q.Search, LockedIDs: ids})
+	if err != nil {
+		return Listing{}, apperr.Internal(err)
+	}
+
 	rowIDs := make([]int, len(page.Accounts))
 	for i, acc := range page.Accounts {
 		rowIDs[i] = acc.ID
@@ -632,7 +639,7 @@ func (a *Admin) List(ctx context.Context, in ListInput) (Listing, error) {
 		return Listing{}, apperr.Internal(err)
 	}
 
-	out := Listing{Rows: make([]Row, len(page.Accounts)), Total: page.Total, Page: paging.Page, PerPage: paging.PerPage}
+	out := Listing{Rows: make([]Row, len(page.Accounts)), Total: page.Total, Page: paging.Page, PerPage: paging.PerPage, Counts: counts}
 	out.LastPage = max((page.Total+paging.PerPage-1)/paging.PerPage, 1)
 
 	for i, acc := range page.Accounts {

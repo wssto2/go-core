@@ -256,6 +256,33 @@ func (s *Accounts) Search(_ context.Context, q account.Query) (account.Page, err
 	return page, nil
 }
 
+// Counts implements account.Searcher.
+func (s *Accounts) Counts(_ context.Context, q account.Query) (account.StatusCounts, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	term := strings.ToLower(q.Search)
+
+	var out account.StatusCounts
+
+	for _, a := range s.rows {
+		if term != "" && !strings.Contains(strings.ToLower(a.Login+"\x00"+a.Name+"\x00"+a.Email), term) {
+			continue
+		}
+
+		switch {
+		case !a.Active:
+			out.Inactive++
+		case slices.Contains(q.LockedIDs, a.ID):
+			out.Locked++
+		default:
+			out.Active++
+		}
+	}
+
+	return out, nil
+}
+
 // SignIns is a memory account.SignInLog.
 type SignIns struct {
 	mu   sync.Mutex

@@ -71,9 +71,21 @@ type Page struct {
 	Total    int
 }
 
+// StatusCounts is how many accounts are in each status: active (not locked), locked (active
+// and in Query.LockedIDs) and inactive.
+type StatusCounts struct {
+	Active, Locked, Inactive int
+}
+
+// All is every account.
+func (c StatusCounts) All() int { return c.Active + c.Locked + c.Inactive }
+
 // Searcher lists and searches accounts.
 type Searcher interface {
 	Search(ctx context.Context, q Query) (Page, error)
+	// Counts says how many accounts match q.Search in each status, in one query; q.LockedIDs
+	// are the locked ones, and the rest of q (the status, the order, the page) is ignored.
+	Counts(ctx context.Context, q Query) (StatusCounts, error)
 }
 
 // SignInHistory is the sign-in log together with what the users module reads

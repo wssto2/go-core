@@ -94,6 +94,12 @@ func TestTheListIsADatatablePage(t *testing.T) {
 	assert.EqualValues(t, 1, body["from"])
 	assert.EqualValues(t, 2, body["to"])
 
+	meta, _ := body["meta"].(map[string]any)
+	assert.Equal(t, []any{
+		map[string]any{"key": "active", "count": 2.0}, map[string]any{"key": "locked", "count": 0.0},
+		map[string]any{"key": "inactive", "count": 1.0}, map[string]any{"key": "all", "count": 3.0},
+	}, meta["views"], "a count per view, whichever is shown")
+
 	rows, _ := body["data"].([]any)
 	require.Len(t, rows, 2)
 

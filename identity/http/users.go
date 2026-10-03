@@ -77,7 +77,7 @@ type UserSessionInput struct {
 }
 
 // ListUsersInput is a page of the list. View is one of active (the default),
-// locked, inactive, all; OrderCol one of login (the default), name, email,
+// locked, inactive, all (meta.views counts each, under the same search); OrderCol one of login (the default), name, email,
 // created_at; OrderDir asc (the default) or desc; PerPage at most 100.
 type ListUsersInput struct {
 	View     string `query:"view" json:"view,omitempty" validation:"max:16"`
@@ -118,15 +118,6 @@ type ActivityRow struct {
 	Action     account.ActivityAction `json:"action"`
 	SignedInAs *PersonRef             `json:"signed_in_as"`
 	CreatedAt  time.Time              `json:"created_at"`
-}
-
-// AreaCount is one entry of the activity page's meta.views: how many entries the person has in the
-// area ("all" for every one, then each area the application named, "identity" and "other"), within
-// the days asked for and whatever area is shown. The datatable's meta is untyped, so this shape is
-// documented, not generated.
-type AreaCount struct {
-	Key   string `json:"key"`
-	Count int    `json:"count"`
 }
 
 // CreateUserInput is a new person. Locale is a BCP-47 tag such as "hr".
@@ -359,7 +350,12 @@ func (h *Handler) listUsers(ctx context.Context, in ListUsersInput) (datatable.D
 		rows[i] = rowOf(r)
 	}
 
-	return pageOf(rows, listing.Total, listing.Page, listing.PerPage), nil
+	return pageOf(rows, listing.Total, listing.Page, listing.PerPage).WithViews(
+		datatable.ViewCount{Key: string(account.ViewActive), Count: listing.Counts.Active},
+		datatable.ViewCount{Key: string(account.ViewLocked), Count: listing.Counts.Locked},
+		datatable.ViewCount{Key: string(account.ViewInactive), Count: listing.Counts.Inactive},
+		datatable.ViewCount{Key: string(account.ViewAll), Count: listing.Counts.All()},
+	), nil
 }
 
 func (h *Handler) showUser(ctx context.Context, in UserInput) (UserDetail, error) {
@@ -622,14 +618,10 @@ func (h *Handler) userActivity(ctx context.Context, in ActivityInput) (datatable
 		}
 	}
 
-	page := pageOf(out, total, max(in.Page, 1), resolvedPerPage(in.PerPage))
-
-	views := make([]AreaCount, len(counts))
+	views := make([]datatable.ViewCount, len(counts))
 	for i, c := range counts {
-		views[i] = AreaCount{Key: c.Area, Count: c.Count}
+		views[i] = datatable.ViewCount{Key: c.Area, Count: c.Count}
 	}
 
-	page.Meta = map[string]any{"views": views}
-
-	return page, nil
+	return pageOf(out, total, max(in.Page, 1), resolvedPerPage(in.PerPage)).WithViews(views...), nil
 }

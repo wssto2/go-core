@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/wssto2/go-core/authz"
+	"github.com/wssto2/go-core/datatable"
 	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/navigation"
 	"github.com/wssto2/go-core/route"
@@ -42,7 +43,7 @@ var (
 		UserSignIns, UserChanges, UserActivity, UserSessions, RevokeUserSession, RevokeUserSessions,
 		ShowProfile, UpdateProfile, ChangeOwnPassword, RequestEmailChange, ResendEmailCode, ConfirmEmailChange,
 		CancelEmailChange, OwnSignIns, OwnSessions, RevokeOwnSession,
-	).Types(User{}, PersonRef{}, AreaCount{}, Statuses, SignInEvents, ChangeActions, ActivityActions)
+	).Types(User{}, PersonRef{}, datatable.ViewCount{}, Statuses, SignInEvents, ChangeActions, ActivityActions)
 )
 
 // Status is where an account stands: usable, locked after wrong passwords, or deactivated.

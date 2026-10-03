@@ -119,6 +119,7 @@ func Run(t *testing.T, newStores Factory) {
 		"accounts/email is unique":       accountsEmailUnique,
 		"accounts/search":                accountsSearch,
 		"accounts/search escapes":        accountsSearchEscapes,
+		"accounts/counts":                accountsCounts,
 		"signins/entries":                signInsEntries,
 		"signins/last sign-ins":          signInsLast,
 		"signins/wrong passwords since":  signInsWrongSince,
@@ -1069,6 +1070,27 @@ func accountsSearch(t *testing.T, s Stores) {
 		c.noErr(err, name)
 		c.equal(tc.want, logins(got), name+": rows")
 		c.equal(tc.total, got.Total, name+": total counts every match, not the page")
+	}
+}
+
+func accountsCounts(t *testing.T, s Stores) {
+	c := check{t}
+	people := seedForSearch(c, s)
+
+	for name, tc := range map[string]struct {
+		q    account.Query
+		want account.StatusCounts
+	}{
+		"nobody locked":          {account.Query{}, account.StatusCounts{Active: 4, Inactive: 1}},
+		"two locked":             {account.Query{LockedIDs: []int{people[0].ID, people[1].ID}}, account.StatusCounts{Active: 2, Locked: 2, Inactive: 1}},
+		"an inactive one locked": {account.Query{LockedIDs: []int{people[2].ID}}, account.StatusCounts{Active: 4, Inactive: 1}},
+		"under a search":         {account.Query{Search: "example", LockedIDs: []int{people[0].ID, people[1].ID}}, account.StatusCounts{Active: 2, Locked: 1, Inactive: 1}},
+		"a search finds nobody":  {account.Query{Search: "zzz", LockedIDs: []int{people[0].ID}}, account.StatusCounts{}},
+		"the page is ignored":    {account.Query{Page: 9, PerPage: 1}, account.StatusCounts{Active: 4, Inactive: 1}},
+	} {
+		got, err := s.Accounts.Counts(ctx(), tc.q)
+		c.noErr(err, name)
+		c.equal(tc.want, got, name)
 	}
 }
 

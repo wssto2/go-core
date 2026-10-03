@@ -444,6 +444,12 @@ func TestListViews(t *testing.T) {
 	require.Equal(t, 1, page.Page)
 	require.Equal(t, 20, page.PerPage)
 	require.Equal(t, 1, page.LastPage)
+	require.Equal(t, account.StatusCounts{Active: 1, Locked: 1, Inactive: 1}, page.Counts)
+	require.Equal(t, 3, page.Counts.All())
+
+	shown, err := k.Admin.List(ctx, account.ListInput{View: account.ViewInactive, Search: "bor"})
+	require.NoError(t, err)
+	require.Equal(t, account.StatusCounts{Locked: 1}, shown.Counts, "the counts follow the search, not the view")
 
 	require.Equal(t, identitytest.Epoch, page.Rows[0].LastSignIn, "ana signed in")
 	require.True(t, page.Rows[1].LastSignIn.IsZero(), "boris never did")

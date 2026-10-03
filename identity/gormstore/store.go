@@ -379,6 +379,34 @@ func (s *Accounts) Search(ctx context.Context, q account.Query) (account.Page, e
 	return page, nil
 }
 
+// Counts implements account.Searcher: one query, the accounts that match the search summed by status.
+func (s *Accounts) Counts(ctx context.Context, q account.Query) (account.StatusCounts, error) {
+	db := dbOf(s.db, ctx).Model(&accountModel{})
+
+	if q.Search != "" {
+		p := likePattern(q.Search)
+		db = db.Where("LOWER(login) LIKE ? ESCAPE '!' OR LOWER(name) LIKE ? ESCAPE '!' OR LOWER(email) LIKE ? ESCAPE '!'", p, p, p)
+	}
+
+	// SUM over no rows is NULL, hence COALESCE; the CASE form runs the same on MySQL, MariaDB and SQLite.
+	inactive := "COALESCE(SUM(CASE WHEN active = ? THEN 0 ELSE 1 END), 0)"
+	locked, args := "0", []any{true}
+
+	if len(q.LockedIDs) > 0 {
+		locked = "COALESCE(SUM(CASE WHEN active = ? AND id IN ? THEN 1 ELSE 0 END), 0)"
+		args = append(args, true, q.LockedIDs)
+	}
+
+	var row struct{ Total, Inactive, Locked int }
+
+	err := db.Select("COUNT(*) AS total, "+inactive+" AS inactive, "+locked+" AS locked", args...).Scan(&row).Error
+	if err != nil {
+		return account.StatusCounts{}, err
+	}
+
+	return account.StatusCounts{Active: row.Total - row.Inactive - row.Locked, Locked: row.Locked, Inactive: row.Inactive}, nil
+}
+
 // --- sign-in history ---
 
 // Record implements account.SignInLog: one row of the history (IAM-USER-003).

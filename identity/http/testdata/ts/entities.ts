@@ -10,11 +10,6 @@ export type ActivityRow = {
   created_at: string;
 };
 
-export type AreaCount = {
-  key: string;
-  count: number;
-};
-
 export type ChangeAction = "created" | "updated" | "deactivated" | "activated" | "password" | "email" | "profile";
 
 export type ChangeRow = {
@@ -168,4 +163,9 @@ export type UserRow = {
   last_sign_in: string | null;
   locked_until: string | null;
   created_at: string;
+};
+
+export type ViewCount = {
+  key: string;
+  count: number;
 };
