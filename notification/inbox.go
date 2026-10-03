@@ -164,9 +164,12 @@ type row struct {
 
 func (row) TableName() string { return "notifications" }
 
-// Migrate creates the notifications table from its GORM model, for tests on
-// SQLite and as the reference the migration file is compared with.
-func Migrate(db *gorm.DB) error { return db.AutoMigrate(&row{}) }
+// Migrate creates the module's tables (notifications, notification_deliveries, notification_preferences and
+// notification_quiet_hours) from their GORM models, for tests on SQLite and as the reference the migration
+// files are compared with.
+func Migrate(db *gorm.DB) error {
+	return db.AutoMigrate(&row{}, &deliveryRow{}, &preferenceRow{}, &quietRow{})
+}
 
 func newRow(eventID uint64, userID int, category Kind, m Message, now time.Time) (row, error) {
 	data := "{}"

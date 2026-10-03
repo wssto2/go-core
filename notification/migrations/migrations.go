@@ -1,5 +1,5 @@
 // Package migrations holds the goose migration of the notification inbox, as
-// MariaDB 10.3 / MySQL DDL: the notifications table. notification.Install
+// MariaDB 10.3 / MySQL DDL: the tables of the module. notification.Install
 // registers it; an application that wants the table on its own passes it to
 // app.Migrations:
 //

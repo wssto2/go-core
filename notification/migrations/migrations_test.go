@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,10 @@ func ExampleFiles() {
 	for _, e := range entries {
 		fmt.Println(e.Name())
 	}
-	// Output: 20261016000030_notifications.sql
+	// Output:
+	// 20261016000030_notifications.sql
+	// 20261016000031_notification_deliveries.sql
+	// 20261016000032_notification_settings.sql
 }
 
 type column struct {
@@ -65,63 +69,89 @@ func up(t *testing.T, db *gorm.DB) {
 	require.NoError(t, migrate.New(reg, nil, slog.New(slog.DiscardHandler)).Add("scratch", migrations.Files).Up(context.Background()))
 }
 
-// The file creates the table notification.Migrate creates from the model: the same columns in the same
+var tables = []string{"notifications", "notification_deliveries", "notification_preferences", "notification_quiet_hours"}
+
+// The files create the tables notification.Migrate creates from the models: the same columns in the same
 // order with the same types, nullability and defaults, and the same indexes.
-func TestTheFileCreatesWhatMigrateCreates(t *testing.T) {
+func TestTheFilesCreateWhatMigrateCreates(t *testing.T) {
 	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
 		up(t, db)
-		require.NoError(t, db.Exec("RENAME TABLE notifications TO ddl_notifications").Error)
+
+		for _, table := range tables {
+			require.NoError(t, db.Exec("RENAME TABLE "+table+" TO ddl_"+table).Error)
+		}
+
 		require.NoError(t, notification.Migrate(db))
 
-		require.NotEmpty(t, columnsOf(t, db, "notifications"))
-		require.Equal(t, columnsOf(t, db, "notifications"), columnsOf(t, db, "ddl_notifications"))
-		require.Equal(t, indexesOf(t, db, "notifications"), indexesOf(t, db, "ddl_notifications"))
+		for _, table := range tables {
+			require.NotEmpty(t, columnsOf(t, db, table))
+			require.Equal(t, columnsOf(t, db, table), columnsOf(t, db, "ddl_"+table), table)
+			require.Equal(t, indexesOf(t, db, table), indexesOf(t, db, "ddl_"+table), table)
+		}
 	}, dbtest.MySQL, dbtest.MariaDB)
 }
 
-// arv-next's notifications table, read with SHOW CREATE TABLE, as it is in its local database today.
-// The file must create exactly these columns and keys, so arv-next adopts it with MarkApplied.
-func TestTheFileIsArvNextsTable(t *testing.T) {
+// arv-next's tables, read with SHOW CREATE TABLE, as they are in its local database today (notification_deliveries
+// after its push and settings migrations and the retention index). The files must create exactly these columns and
+// keys, so arv-next adopts them with MarkApplied.
+func TestTheFilesAreArvNextsTables(t *testing.T) {
+	want := map[string]struct {
+		columns []string
+		indexes []string
+	}{
+		"notifications": {
+			[]string{
+				"id bigint unsigned/NO", "user_id int unsigned/NO", "category varchar(64)/NO", "title varchar(160)/NO", "body varchar(500)/NO", "link varchar(255)/NO",
+				"data json/NO", "dedupe_key varchar(128)/NO", "read_at datetime/YES", "created_at datetime/NO",
+			},
+			[]string{"PRIMARY:0:id", "notifications_dedupe_key:0:dedupe_key", "notifications_user_id:1:user_id,id", "notifications_user_read:1:user_id,read_at"},
+		},
+		"notification_deliveries": {
+			[]string{
+				"id bigint unsigned/NO", "notification_id bigint unsigned/NO", "device_id bigint unsigned/NO", "address varchar(255)/YES", "channel varchar(16)/NO",
+				"status varchar(16)/NO", "attempts int unsigned/NO", "next_attempt_at datetime/NO", "expires_at datetime/NO", "sent_at datetime/YES",
+				"last_status smallint/YES", "last_error varchar(500)/YES", "created_at datetime/NO", "updated_at datetime/NO",
+			},
+			[]string{
+				"PRIMARY:0:id", "notification_deliveries_target:0:notification_id,device_id,channel", "notification_deliveries_due:1:status,next_attempt_at",
+				"notification_deliveries_device:1:device_id", "notification_deliveries_finished:1:status,updated_at",
+			},
+		},
+		"notification_preferences": {
+			[]string{"user_id int unsigned/NO", "category varchar(64)/NO", "channel varchar(16)/NO", "enabled tinyint(1)/NO", "updated_at datetime/NO"},
+			[]string{"PRIMARY:0:user_id,category,channel"},
+		},
+		"notification_quiet_hours": {
+			[]string{"user_id int unsigned/NO", "enabled tinyint(1)/NO", "start_minute smallint unsigned/NO", "end_minute smallint unsigned/NO", "updated_at datetime/NO"},
+			[]string{"PRIMARY:0:user_id"},
+		},
+	}
+
 	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
 		up(t, db)
 
-		got := columnsOf(t, db, "notifications")
-		names := make([]string, len(got))
-		types := make([]string, len(got))
+		for _, table := range tables {
+			var got []string
+			for _, c := range columnsOf(t, db, table) {
+				got = append(got, c.Name+" "+normalizeType(c.Type)+"/"+c.Nullable)
+			}
 
-		for i, c := range got {
-			names[i], types[i] = c.Name, c.Type+"/"+c.Nullable
+			require.Equal(t, want[table].columns, got, table)
+			require.ElementsMatch(t, want[table].indexes, indexesOf(t, db, table), table)
 		}
-
-		require.Equal(t, []string{"id", "user_id", "category", "title", "body", "link", "data", "dedupe_key", "read_at", "created_at"}, names)
-		require.Equal(t, []string{
-			"bigint(20) unsigned/NO", "int(10) unsigned/NO", "varchar(64)/NO", "varchar(160)/NO", "varchar(500)/NO", "varchar(255)/NO",
-			"json/NO", "varchar(128)/NO", "datetime/YES", "datetime/NO",
-		}, normalizeTypes(types))
-		require.ElementsMatch(t, []string{
-			"PRIMARY:0:id", "notifications_dedupe_key:0:dedupe_key", "notifications_user_id:1:user_id,id", "notifications_user_read:1:user_id,read_at",
-		}, indexesOf(t, db, "notifications"))
 	}, dbtest.MySQL, dbtest.MariaDB)
 }
 
-// normalizeTypes makes MySQL 9 ("bigint unsigned", "int unsigned") and MariaDB 10.3 ("bigint(20) unsigned",
-// "longtext" for json) name the same column the same way.
-func normalizeTypes(in []string) []string {
-	out := make([]string, len(in))
-	for i, s := range in {
-		switch s {
-		case "bigint unsigned/NO":
-			s = "bigint(20) unsigned/NO"
-		case "int unsigned/NO":
-			s = "int(10) unsigned/NO"
-		case "longtext/NO":
-			s = "json/NO"
-		}
+var displayWidth = regexp.MustCompile(`^(bigint|int|smallint)\(\d+\)`)
 
-		out[i] = s
+// normalizeType makes MySQL 9 ("bigint unsigned", "int unsigned") and MariaDB 10.3 ("bigint(20) unsigned",
+// "longtext" for json) name the same column type the same way.
+func normalizeType(s string) string {
+	if s == "longtext" {
+		return "json"
 	}
 
-	return out
+	return displayWidth.ReplaceAllString(s, "$1")
 }
 
 // Running the file twice, or over a table the application already has, changes nothing.
