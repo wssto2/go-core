@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/wssto2/go-core/authz"
+	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/navigation"
 	"github.com/wssto2/go-core/route"
 )
@@ -37,7 +38,25 @@ var (
 		UserSignIns, UserChanges, UserSessions, RevokeUserSession, RevokeUserSessions,
 		ShowProfile, UpdateProfile, ChangeOwnPassword, RequestEmailChange, ResendEmailCode, ConfirmEmailChange,
 		CancelEmailChange, OwnSignIns, OwnSessions, RevokeOwnSession,
-	).Types(User{})
+	).Types(User{}, Statuses, SignInEvents, ChangeActions)
+)
+
+// Status is where an account stands: usable, locked after wrong passwords, or deactivated.
+type Status string
+
+// The statuses an account reports.
+const (
+	StatusActive   Status = "active"
+	StatusLocked   Status = "locked"
+	StatusInactive Status = "inactive"
+)
+
+// The fixed sets of values the responses carry, listed in the contract so the
+// generated TypeScript has them as unions.
+var (
+	Statuses      = route.Enum(StatusActive, StatusLocked, StatusInactive)
+	SignInEvents  = route.Enum(account.SignedIn, account.WrongPassword, account.LockedOut, account.RefusedInactive, account.SignedInAs, account.Unlocked, account.SignedOutEverywhere, account.SessionRevoked)
+	ChangeActions = route.Enum(account.ChangeCreated, account.ChangeUpdated, account.ChangeDeactivated, account.ChangeActivated, account.ChangePassword, account.ChangeEmail, account.ChangeProfile)
 )
 
 // LoginInput is a sign-in attempt.

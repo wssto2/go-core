@@ -211,6 +211,10 @@ func planOf(g *route.Contract) (*plan, error) {
 		}
 	}
 
+	if err := planEnums(p, g, claim); err != nil {
+		return nil, err
+	}
+
 	for _, r := range p.routes {
 		for _, n := range r.usesIn {
 			if p.outSet[n] {
@@ -408,4 +412,61 @@ func sortedKeys(m map[string]string) []string {
 	sort.Strings(keys)
 
 	return keys
+}
+
+// planEnums adds the group's enumerations: written to entities.ts, and to
+// schemas.ts when an input uses them.
+func planEnums(p *plan, g *route.Contract, claim func(reflect.Type) error) error {
+	seen := map[reflect.Type]bool{}
+
+	var ins, outs []any
+
+	for _, e := range g.Enums() {
+		t := e.Type()
+
+		switch {
+		case t.Kind() != reflect.String || t.Name() == "" || t.PkgPath() == "":
+			return fmt.Errorf("Enum of %s: an enumeration needs a named string type (type Status string), not %s", t, t)
+		case len(e.Values()) == 0:
+			return fmt.Errorf("Enum of %s has no values: pass the constants, route.Enum(%sA, %sB)", t, t.Name(), t.Name())
+		case seen[t]:
+			return fmt.Errorf("Enum of %s is declared twice in group %q: list it once in Types", t, g.Name())
+		}
+
+		seen[t] = true
+
+		if err := claim(t); err != nil {
+			return err
+		}
+
+		values := e.Values()
+		if dup := firstDuplicate(values); dup != "" {
+			return fmt.Errorf("Enum of %s lists %q twice", t, dup)
+		}
+
+		outs = append(outs, go2ts.Enum(t, values))
+		ins = append(ins, go2ts.EnumIfUsed(t, values))
+	}
+
+	p.outs = append(p.outs, outs...)
+
+	if len(p.ins) > 0 {
+		p.ins = append(p.ins, ins...)
+	}
+
+	return nil
+}
+
+func firstDuplicate(values []string) string {
+	seen := map[string]bool{}
+
+	for _, v := range values {
+		if seen[v] {
+			return v
+		}
+
+		seen[v] = true
+	}
+
+	return ""
 }

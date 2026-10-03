@@ -135,10 +135,13 @@ func Declare() *Routes {
 	r.group = route.Group("access",
 		r.ListRoles, r.ShowRole, r.RoleHolders, r.CompareRole, r.CreateRole, r.UpdateRole, r.DeleteRole, r.ReplaceRole,
 		r.BindableRoles, r.SubjectAccess, r.SubjectScopes, r.Bind, r.Unbind, r.MyAccess,
-	)
+	).Types(SubjectKinds)
 
 	return r
 }
+
+// SubjectKinds is the fixed set of who a role can be given to.
+var SubjectKinds = route.Enum(authz.KindUser, authz.KindServiceAccount)
 
 // Contract is the routes as a group: what contract.Generate reads.
 func (r *Routes) Contract() *route.Contract { return r.group }

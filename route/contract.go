@@ -12,6 +12,7 @@ type Contract struct {
 	name   string
 	routes []Declared
 	types  []reflect.Type
+	enums  []Enumeration
 }
 
 // Group collects a feature's routes into its Contract. The name is the
@@ -28,10 +29,16 @@ func Group(name string, routes ...Declared) *Contract {
 	return c
 }
 
-// Types adds types used by no route (an enum on its own, for example) to the
-// contract. Pass a value of each type; its zero value is enough.
+// Types adds to the contract what no route names: a struct (pass a value of
+// it; its zero value is enough) or an Enumeration, which every field of its
+// type in the group's inputs and outputs is then rendered from.
 func (c *Contract) Types(values ...any) *Contract {
 	for _, v := range values {
+		if e, ok := v.(Enumeration); ok {
+			c.enums = append(c.enums, e)
+			continue
+		}
+
 		c.types = append(c.types, reflect.TypeOf(v))
 	}
 
@@ -55,6 +62,9 @@ func (c *Contract) Specs() []Spec {
 func (c *Contract) ExtraTypes() []reflect.Type {
 	return append([]reflect.Type(nil), c.types...)
 }
+
+// Enums lists the enumerations added with Types.
+func (c *Contract) Enums() []Enumeration { return append([]Enumeration(nil), c.enums...) }
 
 // Unhandled returns the routes that are declared in a Contract together with
 // a handled route but have no handler themselves: the one that was forgotten

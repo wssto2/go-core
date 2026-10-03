@@ -1,12 +1,16 @@
+export type ChangeAction = "created" | "updated" | "deactivated" | "activated" | "password" | "email" | "profile";
+
 export type ChangeRow = {
   id: number | null;
-  action: string;
+  action: ChangeAction;
   fields: string[];
   before: any;
   after: any;
   actor_id: number | null;
   created_at: string;
 };
+
+export type Event = "signed_in" | "wrong_password" | "locked_out" | "refused_inactive" | "signed_in_as" | "unlocked" | "signed_out_everywhere" | "session_revoked";
 
 export type MyAccess = {
   subject: Subject;
@@ -65,12 +69,14 @@ export type SessionResponse = {
 
 export type SignInRow = {
   id: number | null;
-  event: string;
+  event: Event;
   ip: string;
   device: string;
   actor_id: number | null;
   created_at: string;
 };
+
+export type Status = "active" | "locked" | "inactive";
 
 export type Subject = {
   kind: string;
@@ -97,7 +103,7 @@ export type UserDetail = {
   phone: string;
   locale: string;
   active: boolean;
-  status: string;
+  status: Status;
   last_sign_in: string | null;
   locked_until: string | null;
   created_at: string;
@@ -111,7 +117,7 @@ export type UserRow = {
   phone: string;
   locale: string;
   active: boolean;
-  status: string;
+  status: Status;
   last_sign_in: string | null;
   locked_until: string | null;
   created_at: string;

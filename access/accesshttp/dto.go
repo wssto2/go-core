@@ -74,8 +74,8 @@ type BindableRoles struct {
 
 // SubjectRef names a person or a service account.
 type SubjectRef struct {
-	Kind string `json:"kind"`
-	ID   int    `json:"id"`
+	Kind authz.Kind `json:"kind"`
+	ID   int        `json:"id"`
 }
 
 // RoleHolder is one binding of a role: who holds it, and where.
@@ -236,7 +236,7 @@ func grantsOf(grants []authz.Grant) []Grant {
 	return out
 }
 
-func subjectOf(s authz.Subject) SubjectRef { return SubjectRef{Kind: string(s.Kind), ID: s.ID} }
+func subjectOf(s authz.Subject) SubjectRef { return SubjectRef{Kind: s.Kind, ID: s.ID} }
 
 func bindingOf(b admin.Binding) Binding {
 	out := Binding{ID: b.ID, Role: summaryOf(b.Role), Scope: scopeOf(b.Place), CreatedAt: b.CreatedAt}

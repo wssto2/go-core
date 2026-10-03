@@ -41,6 +41,8 @@ export type GrantDifference = {
   other: string;
 };
 
+export type Kind = "user" | "service";
+
 export type PersonRef = {
   id: number | null;
   name: string;
@@ -124,6 +126,6 @@ export type SubjectAccess = {
 };
 
 export type SubjectRef = {
-  kind: string;
+  kind: Kind;
   id: number | null;
 };

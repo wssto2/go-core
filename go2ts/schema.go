@@ -94,6 +94,13 @@ func mapGoTypeToZodBaseScoped(t reflect.Type, parentName string, ctx *GenContext
 	case reflect.Bool:
 		return "z.boolean()", isNullable
 	case reflect.String:
+		if en, ok := ctx.enumOf(t); ok && children != nil {
+			name := ctx.resolveTypeName(t, parentName)
+			children[name] = en.used()
+
+			return name + "Schema", isNullable
+		}
+
 		return "z.string()", isNullable
 	case reflect.Slice, reflect.Array:
 		elemExpr, _ := mapGoTypeToZodBaseScoped(t.Elem(), parentName, ctx, children)
@@ -238,6 +245,11 @@ func fieldToZodExprScoped(
 
 	base, isNullable := mapGoTypeToZodBaseScoped(ft, parentName, ctx, children)
 	expr = base
+
+	// An enum is already as narrow as it can be: no string rule applies to it.
+	if _, isEnum := ctx.enumOf(derefType(ft)); isEnum {
+		rules = nil
+	}
 
 	// needsOrEmpty: non-required format rules on non-nullable strings must allow
 	// empty string since Go's validator skips format checks on empty non-required fields.
@@ -440,11 +452,20 @@ func GenerateSchemas(structs []interface{}, dir string) error {
 	}
 
 	ctx := &GenContext{}
+	ctx.register(structs)
 
 	pending := structs
 	for len(pending) > 0 {
 		current := unwrapEntry(pending[0], ctx)
 		pending = pending[1:]
+
+		if en, ok := current.(EnumEntry); ok {
+			if err := writeEnum(ctx, en, dir, true); err != nil {
+				return err
+			}
+
+			continue
+		}
 
 		typeName, output, children, err := structToZod(current, ctx)
 		if err != nil {
@@ -492,4 +513,12 @@ func jsonOmitsEmpty(tag string) bool {
 	}
 
 	return false
+}
+
+func derefType(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	return t
 }

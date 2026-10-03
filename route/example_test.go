@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
+	"github.com/wssto2/go-core/contract"
 	"github.com/wssto2/go-core/route"
 )
 
@@ -153,4 +157,43 @@ func ExampleRoute_Public() {
 func ExampleContract_Name() {
 	fmt.Println(Routes.Name())
 	// Output: tickets
+}
+
+type Status string
+
+const (
+	StatusOpen   Status = "open"
+	StatusClosed Status = "closed"
+)
+
+type Summary struct {
+	ID     int    `json:"id"`
+	Status Status `json:"status"`
+}
+
+// Enum lists the values of a named string type once; the contract renders every
+// field of that type as the union.
+func ExampleEnum() {
+	statuses := route.Enum(StatusOpen, StatusClosed)
+	list := route.Get[route.None, []Summary]("/summaries").Name("tickets.summaries")
+	group := route.Group("tickets", list).Types(statuses)
+
+	dir, _ := os.MkdirTemp("", "enum")
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	if err := contract.Generate(dir, group); err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	src, _ := os.ReadFile(filepath.Join(dir, "tickets", "entities.ts")) //nolint:gosec // temp dir
+	_, types, _ := strings.Cut(string(src), "\n")                       // the first line names the go-core version
+	fmt.Print(types)
+	// Output:
+	// export type Status = "open" | "closed";
+	//
+	// export type Summary = {
+	//   id: number | null;
+	//   status: Status;
+	// };
 }

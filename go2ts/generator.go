@@ -11,6 +11,7 @@ type GenContext struct {
 	Processed  map[string]bool
 	TypeNames  map[string]string
 	NameOwners map[string]string
+	Enums      map[string]EnumEntry
 }
 
 // NamedEntry pairs a Go value with an explicit TypeScript name override.
@@ -43,6 +44,9 @@ func (c *GenContext) ensureMaps() {
 	}
 	if c.NameOwners == nil {
 		c.NameOwners = make(map[string]string)
+	}
+	if c.Enums == nil {
+		c.Enums = make(map[string]EnumEntry)
 	}
 }
 
@@ -192,6 +196,11 @@ func mapGoTypeToTs(t reflect.Type, parentName string, children map[string]interf
 		tsType = "boolean"
 	case reflect.String:
 		tsType = "string"
+		if en, ok := ctx.enumOf(t); ok {
+			name := ctx.resolveTypeName(t, parentName)
+			tsType = name
+			children[name] = en.used()
+		}
 	case reflect.Slice, reflect.Array:
 		elemType := mapCollectionElemTypeToTs(t.Elem(), parentName, children, ctx)
 		tsType = fmt.Sprintf("%s[]", elemType)
@@ -267,10 +276,20 @@ func GenerateTypes(entities []interface{}, dir string) error {
 		unwrapEntry(entry, ctx)
 	}
 
+	ctx.register(entities)
+
 	pending := entities
 	for len(pending) > 0 {
 		current := unwrapEntry(pending[0], ctx)
 		pending = pending[1:]
+
+		if en, ok := current.(EnumEntry); ok {
+			if err := writeEnum(ctx, en, dir, false); err != nil {
+				return err
+			}
+
+			continue
+		}
 
 		typeName, typeDef, children, err := structToTs(current, ctx)
 		if err != nil {
@@ -311,6 +330,28 @@ func GenerateTypes(entities []interface{}, dir string) error {
 		for _, childName := range childNames {
 			pending = append(pending, children[childName])
 		}
+	}
+
+	return nil
+}
+
+// writeEnum writes the file of a declared enum, once, unless it is only
+// declared (EnumIfUsed) and nothing uses it.
+func writeEnum(ctx *GenContext, en EnumEntry, dir string, zod bool) error {
+	if en.ifUsed {
+		return nil
+	}
+
+	name := ctx.resolveTypeName(en.typ, "")
+	if ctx.Processed[name] {
+		return nil
+	}
+
+	ctx.Processed[name] = true
+
+	path := fmt.Sprintf("%s/%s.ts", dir, name)
+	if err := os.WriteFile(path, []byte(enumFile(name, en.values, zod)), 0644); err != nil {
+		return fmt.Errorf("error writing %s: %w", path, err)
 	}
 
 	return nil
