@@ -1,4 +1,4 @@
-// Command devserver serves go-core's identity and access modules for
+// Command devserver serves go-core's identity, access and notification modules for
 // developing a front end against them. Development only.
 //
 //	go run github.com/wssto2/go-core/cmd/devserver
@@ -7,7 +7,9 @@
 // database that starts empty on every run and is seeded with an administrator
 // and a plain user (their logins and passwords are printed at start), who has two
 // things in her activity, the second done while the administrator was signed in as
-// her. E-mail
+// her, and two notifications in her inbox (one read, one unread) of the sample category
+// "devserver.sample". The event queue is drained every second here, so the test notification
+// (POST /api/v1/notifications/test) arrives. E-mail
 // codes are not sent: they are printed to the log. Browsers at
 // http://localhost:5173 (the vue-core playground) may call it with cookies.
 //
@@ -39,12 +41,14 @@ import (
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
+	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/identity"
 	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/identity/gormstore"
 	"github.com/wssto2/go-core/mail"
 	"github.com/wssto2/go-core/middlewares"
+	"github.com/wssto2/go-core/notification"
 	"gorm.io/gorm"
 )
 
@@ -166,6 +170,10 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 	permissions.MustDefine("crm.customer:view")
 	permissions.MustDefine("iam.user:impersonate", authz.Sensitive()) // the administrator may sign in as user: the playground's banner
 
+	if err := notification.DefinePermissions(permissions); err != nil { // the dead-letter routes; the webmaster holds them
+		return nil, err
+	}
+
 	sink := mail.NewSink()
 	printed := mail.SenderFunc(func(ctx context.Context, m mail.Message) error {
 		if err := sink.Send(ctx, m); err != nil {
@@ -186,6 +194,8 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 		authz.Role{Key: "seller", Name: "Seller", Grants: authz.Grants(authz.QualifierAll, "crm.customer:view")},
 		authz.ComputedRole("webmaster", "Webmaster", authz.All()),
 	))
+
+	notices := notification.Install(app, users, sampleCategory)
 
 	gin.DebugPrintRouteFunc = func(string, string, string, int) {} // the route table is in the README, not in the log
 
@@ -217,6 +227,12 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 	if err := seedActivity(ctx, app.Database(), now()); err != nil {
 		return nil, fmt.Errorf("seed activity: %w", err)
 	}
+
+	if err := seedNotices(ctx, app, notices); err != nil {
+		return nil, fmt.Errorf("seed notifications: %w", err)
+	}
+
+	go drainEvents(ctx, app, log)
 
 	gin.SetMode(gin.ReleaseMode)
 
@@ -276,6 +292,72 @@ func seedActivity(ctx context.Context, db *gorm.DB, now time.Time) error {
 	}
 
 	return nil
+}
+
+// sampleCategory is the one category the playground's inbox has.
+const sampleCategory = notification.Category("devserver.sample")
+
+// sampled is the event the seed sends notifications through, the way a feature's event would.
+var sampled = event.Define[sample]("devserver.sample")
+
+type sample struct {
+	UserID int    `json:"user_id"`
+	Title  string `json:"title"`
+	Body   string `json:"body"`
+	Link   string `json:"link"`
+}
+
+// seedNotices puts two notifications in user's inbox, through the event queue as a feature would: the
+// older one read, the newer one unread, so the bell shows one.
+func seedNotices(ctx context.Context, app *gocore.App, notices *notification.Notices) error {
+	app.Events(sampled.To("devserver.sample", func(ctx context.Context, s sample) error {
+		return notices.Send(ctx, sampleCategory, notification.To(s.UserID), func(notification.Recipient) notification.Message {
+			return notification.Message{Title: s.Title, Body: s.Body, Link: s.Link, Data: map[string]string{"sample": "true"}}
+		})
+	}))
+
+	tx := database.NewTransactor(app.Database())
+
+	for _, s := range []sample{
+		{UserID: 2, Title: "Your account is ready", Body: "Welcome to the playground."},
+		{UserID: 2, Title: "A ticket was assigned to you", Body: "Fix the sign-in page", Link: "/tickets/7"},
+	} {
+		err := tx.WithinTransaction(ctx, func(ctx context.Context) error { return sampled.Publish(ctx, s) })
+		if err != nil {
+			return err
+		}
+	}
+
+	if err := app.DrainEvents(ctx); err != nil {
+		return err
+	}
+
+	page, err := notices.Inbox.List(ctx, 2, notification.ListQuery{})
+	if err != nil {
+		return err
+	}
+
+	_, err = notices.Inbox.MarkRead(ctx, 2, page.Items[len(page.Items)-1].ID) // the older one
+
+	return err
+}
+
+// drainEvents stands in for the background workers Run starts: this server serves the handler only, so
+// the event queue (the test notification) is handled here, every second, until ctx ends.
+func drainEvents(ctx context.Context, app *gocore.App, log *slog.Logger) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := app.DrainEvents(ctx); err != nil && ctx.Err() == nil {
+				log.Warn("events", "error", err)
+			}
+		}
+	}
 }
 
 func requestLog(log *slog.Logger) gin.HandlerFunc {

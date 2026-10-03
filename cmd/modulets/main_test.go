@@ -13,7 +13,7 @@ func TestGenerateWritesAFolderPerModule(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, module := range []string{"identity", "access"} {
+	for _, module := range []string{"identity", "access", "notification", "events"} {
 		src, err := os.ReadFile(filepath.Join(dir, module, "routes.ts")) //nolint:gosec // a temp dir of this test
 		if err != nil {
 			t.Fatal(err)

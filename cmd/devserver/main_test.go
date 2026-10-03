@@ -178,3 +178,73 @@ func TestTheUsersSeededActivityIsReadByTheAdministrator(t *testing.T) {
 
 	assert.Contains(t, string(raw), `"actor":{"id":1,"name":"admin"}`, "the seeded change names who made it")
 }
+
+// user's inbox has the two seeded notifications, one read and one unread, and the test notification
+// reaches it through the event queue the server drains.
+func TestTheUsersSeededInboxHasOneUnreadAndTheTestNotificationArrives(t *testing.T) {
+	srv := serve(t)
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+
+	client := &http.Client{Jar: jar}
+	call := func(method, path string) (int, string) {
+		req, err := http.NewRequestWithContext(context.Background(), method, srv.URL+path, nil)
+		require.NoError(t, err)
+
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+
+		raw, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+
+		return resp.StatusCode, string(raw)
+	}
+
+	resp, err := client.Post(srv.URL+"/api/v1/auth/login", "application/json", //nolint:noctx // a test of a local server
+		strings.NewReader(`{"login":"user","password":"user-password"}`))
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+
+	status, body := call(http.MethodGet, "/api/v1/notifications/unread")
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Contains(t, body, `"unread_count":1`)
+
+	status, body = call(http.MethodGet, "/api/v1/notifications")
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Contains(t, body, "A ticket was assigned to you")
+	assert.Contains(t, body, "Your account is ready")
+
+	status, body = call(http.MethodPost, "/api/v1/notifications/test")
+	require.Equal(t, http.StatusNoContent, status, body)
+
+	require.Eventually(t, func() bool {
+		_, body := call(http.MethodGet, "/api/v1/notifications/unread")
+
+		return strings.Contains(body, `"unread_count":2`)
+	}, 5*time.Second, 100*time.Millisecond, "the test notification is handled by the drain loop")
+}
+
+// The administrator holds the dead-letter permissions; the plain user does not.
+func TestTheWebmasterListsDeadLettersAndTheUserMayNot(t *testing.T) {
+	srv := serve(t)
+
+	listFor := func(login, password string) int {
+		jar, err := cookiejar.New(nil)
+		require.NoError(t, err)
+
+		client := &http.Client{Jar: jar}
+		resp, err := client.Post(srv.URL+"/api/v1/auth/login", "application/json", //nolint:noctx // a test of a local server
+			strings.NewReader(`{"login":"`+login+`","password":"`+password+`"}`))
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+
+		resp, err = client.Get(srv.URL + "/api/v1/events/dead-letters") //nolint:noctx // a test of a local server
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+
+		return resp.StatusCode
+	}
+
+	assert.Equal(t, http.StatusOK, listFor("admin", "admin-password"))
+	assert.Equal(t, http.StatusForbidden, listFor("user", "user-password"))
+}

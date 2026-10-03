@@ -34,6 +34,9 @@ const base = "/v1"
 // comes from the session, never from the request.
 var Routes = Declare().Contract()
 
+// StreamKinds is the fixed set of changes the live stream carries.
+var StreamKinds = route.Enum(StreamCreated, StreamRead, StreamUnread).As("StreamKind")
+
 // Declared is the routes of the module as values.
 type Declared struct {
 	// List is a page of the inbox, newest first; before_id loads the next.
@@ -65,7 +68,8 @@ func Declare() *Declared {
 		Test:        route.Post[route.None, route.Empty](inbox + "/test").Name("notification.test"),
 	}
 
-	d.group = route.Group("notification", d.List, d.Unread, d.MarkRead, d.MarkAllRead, d.Stream, d.Test)
+	d.group = route.Group("notification", d.List, d.Unread, d.MarkRead, d.MarkAllRead, d.Stream, d.Test).
+		Types(StreamEvent{}, StreamKinds) // what the stream sends: no route names it
 
 	return d
 }
