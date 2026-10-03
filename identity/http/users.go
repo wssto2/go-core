@@ -80,12 +80,12 @@ type UserSessionInput struct {
 // locked, inactive, all (meta.views counts each, under the same search); OrderCol one of login (the default), name, email,
 // created_at; OrderDir asc (the default) or desc; PerPage at most 100.
 type ListUsersInput struct {
-	View     string `query:"view" json:"view,omitempty" validation:"max:16"`
-	Search   string `query:"search" json:"search,omitempty" validation:"max:100"`
-	OrderCol string `query:"order_col" json:"order_col,omitempty" validation:"max:16"`
-	OrderDir string `query:"order_dir" json:"order_dir,omitempty" validation:"max:4"`
-	Page     int    `query:"page" json:"page,omitempty"`
-	PerPage  int    `query:"per_page" json:"per_page,omitempty"`
+	View     account.View `query:"view" json:"view,omitempty" validation:"max:16"`
+	Search   string       `query:"search" json:"search,omitempty" validation:"max:100"`
+	OrderCol string       `query:"order_col" json:"order_col,omitempty" validation:"max:16"`
+	OrderDir string       `query:"order_dir" json:"order_dir,omitempty" validation:"max:4"`
+	Page     int          `query:"page" json:"page,omitempty"`
+	PerPage  int          `query:"per_page" json:"per_page,omitempty"`
 }
 
 // SignInsInput is a page of a person's sign-in history. View is all (the default) or failed (a wrong
@@ -350,7 +350,7 @@ func (h *Handler) listUsers(ctx context.Context, in ListUsersInput) (datatable.D
 	}
 
 	listing, err := h.admin.List(ctx, account.ListInput{
-		View: account.View(in.View), Search: in.Search, OrderBy: account.Order(in.OrderCol), Desc: in.OrderDir == "desc",
+		View: in.View, Search: in.Search, OrderBy: account.Order(in.OrderCol), Desc: in.OrderDir == "desc",
 		Paging: pagingOf(in.Page, in.PerPage),
 	})
 	if err != nil {

@@ -169,6 +169,8 @@ export type UserRow = {
   created_at: string;
 };
 
+export type UserView = "active" | "locked" | "inactive" | "all";
+
 export type ViewCount = {
   key: string;
   count: number;

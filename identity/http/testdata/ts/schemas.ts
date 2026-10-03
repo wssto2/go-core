@@ -55,8 +55,12 @@ export const CreateUserInputSchema = z.object({
 
 export type CreateUserInput = z.infer<typeof CreateUserInputSchema>;
 
+export const UserViewSchema = z.enum(["active", "locked", "inactive", "all"]);
+
+export type UserView = z.infer<typeof UserViewSchema>;
+
 export const ListUsersInputSchema = z.object({
-  view: z.string().max(16).optional(),
+  view: UserViewSchema.optional(),
   search: z.string().max(100).optional(),
   order_col: z.string().max(16).optional(),
   order_dir: z.string().max(4).optional(),
