@@ -341,3 +341,18 @@ func ExampleArea() {
 	fmt.Println(strings.Contains(fmt.Sprint(app.Check()), `activity area "other" is reserved`))
 	// Output: true
 }
+
+func ExampleUsers_Mail() {
+	// identity.Install(app, identity.WithMail(sink), ...) records where its mail goes; a feature that mails the
+	// same people asks for it.
+	users := &account.Users{}
+	_, ok := users.Mail()
+	fmt.Println(ok)
+
+	users.SetMail(account.Mail{Sender: mail.NewSink()})
+	_, ok = users.Mail()
+	fmt.Println(ok)
+	// Output:
+	// false
+	// true
+}

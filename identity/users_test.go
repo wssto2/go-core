@@ -249,3 +249,27 @@ func TestADeactivationHookRefusesOverHTTP(t *testing.T) {
 func refusal() error {
 	return apperr.BadRequest("owns open leads").WithReason("crm.owns_leads")
 }
+
+// Users.Mail is where identity's mail goes, for a feature that mails the same people: the sender it was
+// given, the renderer with identity's defaults behind the application's, and nothing when there is no mail.
+func TestUsersMailIsWhereIdentitysMailGoes(t *testing.T) {
+	sink := mail.NewSink()
+	app := newApp(t)
+	users := identity.Install(app, identity.WithMail(sink), identity.WithCodeSecret(secret))
+
+	m, ok := users.Mail()
+	require.True(t, ok)
+	require.NoError(t, m.Sender.Send(t.Context(), mail.Message{To: []string{"ana@example.test"}, Text: "hi"}))
+	require.Len(t, sink.Sent(), 1)
+
+	content, err := m.Renderer.Render(t.Context(), "en", mailtext.PasswordChanged, mailtext.PasswordChangedData{Name: "Ana"})
+	require.NoError(t, err)
+	require.Contains(t, content.Text, "Ana")
+
+	_, err = m.Renderer.Render(t.Context(), "en", "tickets.assigned", nil)
+	require.ErrorIs(t, err, mail.ErrNoTemplate, "a mail identity does not know is for the feature's own renderer")
+
+	bare := identity.Install(newApp(t), identity.WithoutMail())
+	_, ok = bare.Mail()
+	require.False(t, ok, "WithoutMail: nothing to mail through")
+}

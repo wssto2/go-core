@@ -124,7 +124,7 @@ Test support with no go-core imports (SQLite, MySQL, MariaDB harness):
 
 Modules — features go-core ships, each a facade that imports gocore (section 4.1):
   notification (the inbox; notification/migrations is its goose file, registered by Install),
-  identity (core identity/account imports apperr, authz and bcrypt only; gormstore,
+  identity (core identity/account imports apperr, authz, mail (Layer 0) and bcrypt only; gormstore,
   identity/http, identity/mailtext and identitytest import the layers below;
   audit/migrations is the audit_logs table's goose file, registered by the
   modules that write an audit trail)

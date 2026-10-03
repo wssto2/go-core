@@ -24,6 +24,8 @@ import (
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/identity/identitytest"
+	"github.com/wssto2/go-core/identity/mailtext"
+	"github.com/wssto2/go-core/mail"
 	"github.com/wssto2/go-core/notification"
 	"gorm.io/gorm"
 )
@@ -97,6 +99,8 @@ type world struct {
 	notices *notification.Notices
 	people  *directory
 	handler http.Handler
+	// sink is where e-mail goes: nil when the world has no mail (identity run WithoutMail).
+	sink *mail.Sink
 }
 
 // assignedEvent is the fact of the tests, carrying the TicketAssigned category of the examples.
@@ -110,9 +114,9 @@ var assigned = event.Define[assignedEvent]("tickets.assigned")
 
 func accounts() []account.Account {
 	ana, ivo, eva, mx := identitytest.Account(1, "ana", "x"), identitytest.Account(2, "ivo", "x"), identitytest.Account(3, "", "x"), identitytest.Account(4, "max", "x")
-	ana.Locale, ana.Name = "hr", "Ana Horvat"
-	ivo.Name = "Ivo"
-	eva.Name, eva.Login = "", "eva" // no name: the login shows
+	ana.Locale, ana.Name, ana.Email = "hr", "Ana Horvat", "ana@example.test"
+	ivo.Name, ivo.Email = "Ivo", "ivo@example.test"
+	eva.Name, eva.Login, eva.Email = "", "eva", "" // no name: the login shows; no address: no e-mail
 	mx.Active = false
 
 	return []account.Account{ana, ivo, eva, mx}
@@ -123,12 +127,30 @@ func accounts() []account.Account {
 func newWorld(t *testing.T, db *gorm.DB, authorizer authz.Authorizer) *world {
 	t.Helper()
 
+	return buildWorld(t, db, authorizer, nil)
+}
+
+// newMailWorld is newWorld with identity's mail going to a sink, and the application's address, so the people
+// can be e-mailed. Ana (1) has ana@example.test, Ivo (2) ivo@example.test; Eva (3) has no address.
+func newMailWorld(t *testing.T, db *gorm.DB, opts ...notification.Option) *world {
+	t.Helper()
+
+	return buildWorld(t, db, nil, mail.NewSink(), append([]notification.Option{notification.AppURL("https://tickets.example.test")}, opts...)...)
+}
+
+func buildWorld(t *testing.T, db *gorm.DB, authorizer authz.Authorizer, sink *mail.Sink, opts ...notification.Option) *world {
+	t.Helper()
+
 	if authorizer == nil {
 		authorizer = authztest.AllowAll()
 	}
 
-	w := &world{t: t, db: db, clock: &fakeClock{now: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}}
+	w := &world{t: t, db: db, sink: sink, clock: &fakeClock{now: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}}
 	w.people = &directory{Users: identitytest.Users(t, accounts()...)}
+
+	if sink != nil {
+		w.people.SetMail(account.Mail{Sender: sink, Renderer: mailtext.Defaults})
+	}
 
 	reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
 	reg.AddConnection("local", db)
@@ -152,7 +174,7 @@ func newWorld(t *testing.T, db *gorm.DB, authorizer authz.Authorizer) *world {
 	require.NoError(t, notification.DefinePermissions(cat))
 	w.app.Permissions(cat)
 
-	w.notices = notification.Install(w.app, w.people, TicketAssigned)
+	w.notices = notification.Install(w.app, w.people, append([]notification.Option{TicketAssigned, TicketCommented}, opts...)...)
 
 	return w
 }

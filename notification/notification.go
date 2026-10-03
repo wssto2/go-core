@@ -150,9 +150,14 @@ type People interface {
 type Notices struct {
 	// Inbox lists, counts and reads a person's notifications.
 	Inbox *Inbox
+	// Settings is what a person chooses for their own notifications: e-mail per category, and quiet hours.
+	Settings *Settings
 
 	people    People
 	kinds     []Kind
+	location  *time.Location
+	mail      *account.Mail
+	appURL    string
 	db        *gorm.DB
 	store     *store
 	clock     gocore.Clock
@@ -193,15 +198,40 @@ func Install(app *gocore.App, users People, opts ...Option) *Notices {
 	app.Schema(gocore.Schema{Files: migrations.Files, Models: Migrate})
 
 	n := &Notices{
-		people: users, kinds: append(slices.Clone(cfg.kinds), systemTest), db: db, store: st, clock: app.Clock(), log: app.Logger(), heartbeat: heartbeatInterval,
+		people: users, kinds: append(slices.Clone(cfg.kinds), systemTest), location: cfg.location, appURL: cfg.appURL,
+		db: db, store: st, clock: app.Clock(), log: app.Logger(), heartbeat: heartbeatInterval,
 	}
+	n.mail = mailOf(users)
+
+	if n.mail != nil && cfg.appURL == "" {
+		app.Fail("e-mail links need notification.AppURL(...): identity sends mail, so notifications are e-mailed, and an e-mail links to the application",
+			"pass notification.AppURL(\"https://your-app.example.com\") to notification.Install")
+	}
+
 	n.Inbox = &Inbox{store: st, clock: app.Clock(), hub: NewHub()}
+	n.Settings = &Settings{store: st, kinds: n.kinds, enforce: cfg.enforce, available: n.mail != nil, clock: app.Clock(), location: cfg.location}
 
 	app.Events(n.testConsumer())
 	app.Routes(Declare().To(n)...)
 	app.Routes(DeclareDeadLetters().To(event.NewDeadLetters(db, app.Clock()))...)
 
 	return n
+}
+
+// mailOf is where identity's mail goes, when the people are identity's Users and it has mail: e-mail is
+// available only then. People that have no Mail method, or identity run WithoutMail, mean no e-mail.
+func mailOf(users People) *account.Mail {
+	m, ok := users.(interface{ Mail() (account.Mail, bool) })
+	if !ok {
+		return nil
+	}
+
+	mail, ok := m.Mail()
+	if !ok || mail.Sender == nil || mail.Renderer == nil {
+		return nil
+	}
+
+	return &mail
 }
 
 // kind is the registered category with the code of k: its defaults are the registered ones.

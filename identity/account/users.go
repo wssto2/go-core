@@ -6,7 +6,16 @@ import (
 
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
+	"github.com/wssto2/go-core/mail"
 )
+
+// Mail is where identity's mail goes: the sender it was given and the renderer of its mails (the
+// application's copy, with identity's English defaults behind it). A feature that mails the same people,
+// such as notification, sends through it, so there is nothing more to configure.
+type Mail struct {
+	Sender   mail.Sender
+	Renderer mail.Renderer
+}
 
 // Users is what other features ask of identity: an account by id, a person's
 // language, and their sessions.
@@ -16,7 +25,23 @@ type Users struct {
 	// set by NewAdmin and NewProfile, for code that has only the Users.
 	admin   *Admin
 	profile *Profile
+	mail    *Mail
 }
+
+// Mail returns where identity's mail goes, and false when identity runs WithoutMail (or Users was built
+// without mail): such a person cannot be mailed through identity, and a feature that would mail them says
+// e-mail is unavailable.
+func (u *Users) Mail() (Mail, bool) {
+	if u.mail == nil {
+		return Mail{}, false
+	}
+
+	return *u.mail, true
+}
+
+// SetMail sets where the mail goes. identity.Install calls it; a test of a feature that mails calls it with a
+// mail.Sink.
+func (u *Users) SetMail(m Mail) { u.mail = &m }
 
 // Admin returns the users module's administration service, which NewAdmin built
 // over these Users (identity.Install does): create a person in code, for the

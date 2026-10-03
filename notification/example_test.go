@@ -40,6 +40,9 @@ func (t *exampleT) done() {
 // The app declares its categories once, as values.
 var TicketAssigned = notification.Category("tickets.assigned").EmailByDefault()
 
+// TicketCommented is in-app only: e-mail is off until the person turns it on.
+var TicketCommented = notification.Category("tickets.commented")
+
 // TicketAssignedEvent is the fact a feature publishes: ids and facts, never text.
 type TicketAssignedEvent struct {
 	TicketID   int

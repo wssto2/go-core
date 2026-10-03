@@ -437,6 +437,10 @@ func Install(app *gocore.App, opts ...Option) *Users {
 	app.Authenticate(identityhttp.Authentication(svc.SignIn, s.cookies, s.principal))
 	app.Routes(identityhttp.NewHandler(cfg).Routes()...)
 
+	if s.mail != nil {
+		svc.Users.SetMail(account.Mail{Sender: s.mail, Renderer: s.mailRenderer()})
+	}
+
 	return svc.Users
 }
 
