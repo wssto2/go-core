@@ -35,3 +35,16 @@ func TestRegistry_Register_UnsupportedDriverFails(t *testing.T) {
 		t.Fatal("expected unsupported driver to fail")
 	}
 }
+
+func TestAddConnectionMakesTheFirstOnePrimary(t *testing.T) {
+	reg := NewRegistry(slog.New(slog.DiscardHandler), RegistryConfig{})
+	first, cleanup := NewTestRegistry("a")
+	defer func() { _ = cleanup() }()
+
+	reg.AddConnection("one", first.MustGet("a"))
+	reg.AddConnection("two", first.MustGet("a"))
+
+	if reg.PrimaryName() != "one" || reg.Primary() == nil {
+		t.Fatalf("primary = %q", reg.PrimaryName())
+	}
+}

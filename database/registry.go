@@ -205,7 +205,8 @@ func (r *Registry) CloseAll() error {
 	return nil
 }
 
-// AddConnection lets you inject a pre-built *gorm.DB directly.
+// AddConnection lets you inject a pre-built *gorm.DB directly. The first
+// connection added to an empty registry becomes the primary one, as with Register.
 // Useful in tests where you want to inject a SQLite in-memory connection
 // without going through the MySQL driver.
 //
@@ -217,6 +218,10 @@ func (r *Registry) AddConnection(name string, conn *gorm.DB) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.connections[name] = conn
+
+	if r.primaryName == "" {
+		r.primaryName = name
+	}
 }
 
 // --- private ---
