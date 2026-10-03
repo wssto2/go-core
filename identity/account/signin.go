@@ -35,7 +35,7 @@ func LockEvent(e Event) bool {
 	return e == WrongPassword || e == SignedIn || e == Unlocked
 }
 
-// SignInEntry is one row of the history. AccountID is who it happened to; ActorID is
+// SignInEntry is one row of the sign-in history (IAM-USER-003). AccountID is who it happened to; ActorID is
 // who did it when that was somebody else (signing in as them, unlocking, ending
 // their sessions), zero otherwise.
 type SignInEntry struct {

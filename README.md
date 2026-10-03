@@ -54,6 +54,8 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 * `datatable` → filtering, pagination, query helpers
 * `tenancy` → multi-tenant context + DB scoping
 * `event` → event bus abstraction
+* `identity` → accounts, password sign-in, sessions, the lock after wrong passwords and the `/auth/me` payload (see "Sign-in"; core `identity/account`, routes `identity/http`, store `identity/gormstore`, tests `identity/identitytest`)
+* `navigation` → the menu tree an application declares and the filter by held permissions
 
 ### Utility Packages
 
@@ -244,6 +246,31 @@ return apperr.BadRequest("invalid input")
 ```go
 user := auth.MustGetUser[MyUser](ctx)
 ```
+
+### Sign-in
+
+`identity` is the sign-in module: accounts, password sign-in, sessions, the lock after wrong passwords, signing in as somebody else, and the `/auth/me` payload the client starts from. One line puts it into an application (`identity/example_test.go`); it also makes it the application's authentication, so every route that is not `.Public()` is behind it and the signed-in person is the authz principal:
+
+```go
+users := identity.Install(app) // routes, tables, authentication
+```
+
+It uses the GORM store, bcrypt and its own migrations unless told otherwise. Options are named for what they change: `identity.On(Shared)` (tables on another connection), `WithAccounts(store)` (your own accounts table), `WithHasher(h)`, `WithConfig(identity.Config{Lock: identity.Lock{After: 3}})`, `WithAccess(engine)` (the payload carries `authz.MyAccess`), `WithNavigation(menu...)` (and the menu, cut to the permissions held), `WithUserProjector(fn)`, `AllowImpersonation(engine, "iam.user:impersonate")`, `WithNotices(n)`, `WithCookies(...)`. `users` is what other features take: `users.Get(ctx, id)`, `users.ChangeLocale(...)`, `users.Sessions(ctx, id)`, `users.RevokeSessions(...)`.
+
+The routes are declared under `/v1/auth` (an app with `gocore.WithPrefix("/api")` serves `/api/v1/auth/login`): `POST login` and `refresh` (public), `POST logout`, `GET me`, `POST change-locale`, `POST login-as`. `identity.Routes` is their declared contract. Tokens travel in HttpOnly cookies (`access_token`, and `refresh_token` for the refresh route only) and an access token is also accepted as `Authorization: Bearer`. Login, refresh and `me` answer the session payload, which vue-core reads with `parseSessionPayload`:
+
+```json
+{"success": true, "data": {
+  "user": {"id": 1, "login": "ana", "name": "Ana Anić", "email": "ana@example.test", "locale": "hr"},
+  "expires_at": "2026-01-03T03:04:05Z",
+  "access": {"subject": {"kind": "user", "id": 1}, "root": false, "permissions": {}},
+  "navigation": [{"i18n": "nav.tickets", "route": "tickets.index", "permissions": ["tickets.ticket:view"]}]
+}}
+```
+
+`user` is what the projector makes of the account (the default has `id`, `login`, `name`, `email`, `locale`, never the password hash), `access` is the authz engine's answer and `navigation` your menu filtered by it. Refusals are `apperr` reasons with params, never sentences: `identity.signin.failed` (an unknown login and a wrong password answer alike, 422), `identity.signin.locked` (`params.locked_until`), `identity.signin.inactive`, `identity.session.invalid`. Five wrong passwords lock sign-in for fifteen minutes, ten attempts a minute per login are let through; the rules, with their Logic IDs (IAM-USER-001 to 004), are in `docs/rules/identity/signin.md`.
+
+In a test, `identity.Install` runs on `gocoretest.New(t)`: SQLite tables are created from the models (`app.Schema`), the real SQL files are tested on MySQL and MariaDB. Feature tests that need people use `identitytest.Users(t, identitytest.Account(1, "ana", "secret"))`, which is the same service over memory stores.
 
 ---
 

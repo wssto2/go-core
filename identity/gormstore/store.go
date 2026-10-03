@@ -179,7 +179,7 @@ func (s *Accounts) SetActive(ctx context.Context, id int, active bool) error {
 
 // --- sign-in history ---
 
-// Record implements account.SignInLog.
+// Record implements account.SignInLog: one row of the history (IAM-USER-003).
 func (s *SignIns) Record(ctx context.Context, row account.SignInEntry) error {
 	m := signInModel{
 		UserID: row.AccountID, Event: string(row.Event), IP: row.IP, UserAgent: row.Device, CreatedAt: whole(row.CreatedAt),
