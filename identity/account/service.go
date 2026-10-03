@@ -42,11 +42,11 @@ type Services struct {
 func New(d Deps, cfg Config) (Services, error) {
 	switch {
 	case d.Accounts == nil:
-		return Services{}, errors.New("identity: Deps.Accounts is missing: pass an AccountStore, for example gormstore.New(db)")
+		return Services{}, errors.New("identity: Deps.Accounts is missing: pass an AccountStore, for example gormstore.New(db).Accounts")
 	case d.SignIns == nil:
-		return Services{}, errors.New("identity: Deps.SignIns is missing: pass a SignInLog, for example gormstore.New(db)")
+		return Services{}, errors.New("identity: Deps.SignIns is missing: pass a SignInLog, for example gormstore.New(db).SignIns")
 	case d.Sessions == nil:
-		return Services{}, errors.New("identity: Deps.Sessions is missing: pass a SessionStore, for example gormstore.New(db)")
+		return Services{}, errors.New("identity: Deps.Sessions is missing: pass a SessionStore, for example gormstore.New(db).Sessions")
 	case d.Clock == nil:
 		return Services{}, errors.New("identity: Deps.Clock is missing: pass the application's clock, app.Clock()")
 	}

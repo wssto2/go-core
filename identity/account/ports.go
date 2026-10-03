@@ -30,10 +30,10 @@ type SignInLog interface {
 // SessionStore keeps sessions: an access token, a refresh token and who they
 // are for. A session that is revoked, expired or unknown is ErrSessionNotFound.
 type SessionStore interface {
-	// Create opens a session and returns the tokens, shown once.
-	Create(ctx context.Context, s NewSession) (Credentials, error)
-	// Find returns the session behind an access token that is live at now.
-	Find(ctx context.Context, accessToken string, now time.Time) (Session, error)
+	// Open opens a session and returns the tokens, shown once.
+	Open(ctx context.Context, s NewSession) (Credentials, error)
+	// Get returns the session behind an access token that is live at now.
+	Get(ctx context.Context, accessToken string, now time.Time) (Session, error)
 	// Touch records that the session was used.
 	Touch(ctx context.Context, sessionID int, at time.Time, ip string) error
 	// Rotate swaps the tokens of the session whose refresh token this is, in

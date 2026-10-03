@@ -141,7 +141,7 @@ func (s *SignIn) Refresh(ctx context.Context, in RefreshInput) (Signed, error) {
 // Logout ends the session behind an access token. A session opened by signing
 // in as somebody says so to the Notices when it ends.
 func (s *SignIn) Logout(ctx context.Context, accessToken string) error {
-	session, err := s.deps.Sessions.Find(ctx, accessToken, s.deps.Clock.Now())
+	session, err := s.deps.Sessions.Get(ctx, accessToken, s.deps.Clock.Now())
 	if errors.Is(err, ErrSessionNotFound) {
 		return sessionInvalid()
 	}
@@ -235,7 +235,7 @@ func (s *SignIn) Authenticate(ctx context.Context, accessToken string) (Authenti
 		return Authenticated{}, sessionInvalid()
 	}
 
-	session, err := s.deps.Sessions.Find(ctx, accessToken, s.deps.Clock.Now())
+	session, err := s.deps.Sessions.Get(ctx, accessToken, s.deps.Clock.Now())
 	if errors.Is(err, ErrSessionNotFound) {
 		return Authenticated{}, sessionInvalid()
 	}
@@ -268,7 +268,7 @@ func (s *SignIn) open(ctx context.Context, n NewSession) (Credentials, error) {
 	n.Device = cut(strings.TrimSpace(n.Device), DeviceMax)
 	n.IP = cut(strings.TrimSpace(n.IP), IPMax)
 
-	creds, err := s.deps.Sessions.Create(ctx, n)
+	creds, err := s.deps.Sessions.Open(ctx, n)
 	if err != nil {
 		return Credentials{}, apperr.Internal(err)
 	}

@@ -30,7 +30,7 @@ func ExampleNew() {
 	fmt.Println(err)
 	// Output:
 	// true true <nil>
-	// identity: Deps.Accounts is missing: pass an AccountStore, for example gormstore.New(db)
+	// identity: Deps.Accounts is missing: pass an AccountStore, for example gormstore.New(db).Accounts
 }
 
 func ExampleSignIn_Login() {

@@ -124,7 +124,7 @@ func (u *Users) RevokeSessions(ctx context.Context, in RevokeSessionsInput) erro
 	keep := 0
 
 	if in.KeepToken != "" {
-		if s, err := u.deps.Sessions.Find(ctx, in.KeepToken, u.deps.Clock.Now()); err == nil && s.AccountID == in.AccountID {
+		if s, err := u.deps.Sessions.Get(ctx, in.KeepToken, u.deps.Clock.Now()); err == nil && s.AccountID == in.AccountID {
 			keep = s.ID
 		}
 	}

@@ -164,8 +164,8 @@ func NewSessions() *Sessions { return &Sessions{} }
 
 func (r *sessionRow) live(now time.Time) bool { return !r.revoked && now.Before(r.ExpiresAt) }
 
-// Create implements account.SessionStore.
-func (s *Sessions) Create(_ context.Context, n account.NewSession) (account.Credentials, error) {
+// Open implements account.SessionStore.
+func (s *Sessions) Open(_ context.Context, n account.NewSession) (account.Credentials, error) {
 	access, err := account.NewToken()
 	if err != nil {
 		return account.Credentials{}, err
@@ -190,8 +190,8 @@ func (s *Sessions) Create(_ context.Context, n account.NewSession) (account.Cred
 	return account.Credentials{Access: access, Refresh: refresh, ExpiresAt: n.ExpiresAt}, nil
 }
 
-// Find implements account.SessionStore.
-func (s *Sessions) Find(_ context.Context, accessToken string, now time.Time) (account.Session, error) {
+// Get implements account.SessionStore.
+func (s *Sessions) Get(_ context.Context, accessToken string, now time.Time) (account.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
