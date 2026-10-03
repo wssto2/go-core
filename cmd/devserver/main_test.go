@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -45,6 +46,35 @@ func TestTheSeededPeopleSignInAndAdministratorHasAccess(t *testing.T) {
 			assert.Contains(t, string(body), "crm.customer:view")
 		}
 	}
+}
+
+func TestTheAdministratorSignsInAsUserAndReturns(t *testing.T) {
+	srv := serve(t)
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+
+	client := &http.Client{Jar: jar}
+	post := func(path, body string) (int, string) {
+		resp, err := client.Post(srv.URL+path, "application/json", strings.NewReader(body)) //nolint:noctx // a test of a local server
+		require.NoError(t, err)
+
+		raw, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+
+		return resp.StatusCode, string(raw)
+	}
+
+	status, body := post("/api/v1/auth/login", `{"login":"admin","password":"admin-password"}`)
+	require.Equal(t, http.StatusOK, status, body)
+
+	status, body = post("/api/v1/auth/login-as", `{"user_id":2}`)
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Contains(t, body, `"impersonator":{"id":1,"name":"admin"}`)
+
+	status, body = post("/api/v1/auth/login-as/return", "")
+	require.Equal(t, http.StatusOK, status, body)
+	assert.NotContains(t, body, "impersonator")
+	assert.Contains(t, body, `"login":"admin"`)
 }
 
 func TestACallFromThePlaygroundOriginMayCarryCookies(t *testing.T) {

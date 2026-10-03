@@ -371,7 +371,7 @@ handOver := identity.DeactivationHookFunc(func(ctx context.Context, a account.Ac
 
 | login | password | role |
 |-------|----------|------|
-| `admin` | `admin-password` | `webmaster` (everything) |
+| `admin` | `admin-password` | `webmaster` (everything, so it may sign in as `user`: `POST /api/v1/auth/login-as {"user_id": 2}`, then `login-as/return`, to see the impersonation banner) |
 | `user` | `user-password` | `seller` (`crm.customer:view`) |
 
 Flags: `-addr host:port`, `-origin http://localhost:5173` (commas for several), `-allow-remote`. The passwords are public, so it refuses to start with `GO_ENV=production` or `APP_ENV=production`, or on an address other than this machine (`127.0.0.1`, `::1`, `localhost`) unless `-allow-remote` says so. Development only.

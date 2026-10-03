@@ -160,6 +160,7 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 
 	permissions := authz.NewCatalogue()
 	permissions.MustDefine("crm.customer:view")
+	permissions.MustDefine("iam.user:impersonate", authz.Sensitive()) // the administrator may sign in as user: the playground's banner
 
 	sink := mail.NewSink()
 	printed := mail.SenderFunc(func(ctx context.Context, m mail.Message) error {
@@ -173,7 +174,8 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 	})
 
 	//nolint:contextcheck // installing builds the routes; no request exists yet
-	users := identity.Install(app, identity.WithMail(printed), identity.WithCodeSecret("devserver-secret-not-for-production!"))
+	users := identity.Install(app, identity.WithMail(printed), identity.WithCodeSecret("devserver-secret-not-for-production!"),
+		identity.AllowImpersonation("iam.user:impersonate"))
 	//nolint:contextcheck // installing builds the routes; no request exists yet
 	acc := access.Install(app, permissions, users, access.WithRoles(
 		authz.Role{Key: "seller", Name: "Seller", Grants: authz.Grants(authz.QualifierAll, "crm.customer:view")},
