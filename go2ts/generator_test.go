@@ -267,3 +267,20 @@ func TestSchemaNamesFieldsByPathAndQueryTags(t *testing.T) {
 		assert.Contains(t, string(content), want)
 	}
 }
+
+type PointerID struct {
+	ID *int `json:"id"`
+}
+
+func TestGenerateTypes_IDIsNullOnlyWhenItIsAPointer(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, go2ts.GenerateTypes([]interface{}{SimpleUser{}, PointerID{}}, dir))
+
+	plain, err := os.ReadFile(filepath.Join(dir, "SimpleUser.ts")) //nolint:gosec // temp dir
+	require.NoError(t, err)
+	assert.Contains(t, string(plain), "id: number;")
+
+	pointer, err := os.ReadFile(filepath.Join(dir, "PointerID.ts")) //nolint:gosec // temp dir
+	require.NoError(t, err)
+	assert.Contains(t, string(pointer), "id: number | null;")
+}

@@ -111,15 +111,16 @@ func planOf(g *route.Contract) (*plan, error) {
 	keys := map[string]string{}
 	owner := map[string]reflect.Type{} // TypeScript name -> its Go type, to catch two types with one name
 
-	claim := func(t reflect.Type) error {
-		if other, ok := owner[t.Name()]; ok && other != t {
-			return fmt.Errorf("two types are named %s (%s and %s): rename one", t.Name(), other, t)
+	claimAs := func(name string, t reflect.Type) error {
+		if other, ok := owner[name]; ok && other != t {
+			return fmt.Errorf("two types are named %s (%s and %s): rename one", name, other, t)
 		}
 
-		owner[t.Name()] = t
+		owner[name] = t
 
 		return nil
 	}
+	claim := func(t reflect.Type) error { return claimAs(t.Name(), t) }
 
 	for _, spec := range g.Specs() {
 		line := routeLine{spec: spec, permission: spec.Permission}
@@ -209,6 +210,10 @@ func planOf(g *route.Contract) (*plan, error) {
 			p.outSet[t.Name()] = true
 			p.outs = append(p.outs, reflect.New(t).Elem().Interface())
 		}
+	}
+
+	if err := planEnums(p, g, claimAs); err != nil {
+		return nil, err
 	}
 
 	for _, r := range p.routes {
@@ -408,4 +413,67 @@ func sortedKeys(m map[string]string) []string {
 	sort.Strings(keys)
 
 	return keys
+}
+
+// planEnums adds the group's enumerations: written to entities.ts, and to
+// schemas.ts when an input uses them.
+func planEnums(p *plan, g *route.Contract, claimAs func(string, reflect.Type) error) error {
+	seen := map[reflect.Type]bool{}
+
+	var ins, outs []any
+
+	for _, e := range g.Enums() {
+		t := e.Type()
+
+		switch {
+		case t.Kind() != reflect.String || t.Name() == "" || t.PkgPath() == "":
+			return fmt.Errorf("enum of %s: an enumeration needs a named string type (type Status string), not %s", t, t)
+		case len(e.Values()) == 0:
+			return fmt.Errorf("enum of %s has no values: pass the constants, route.Enum(%sA, %sB)", t, t.Name(), t.Name())
+		case seen[t]:
+			return fmt.Errorf("enum of %s is declared twice in group %q: list it once in Types", t, g.Name())
+		}
+
+		seen[t] = true
+
+		name := e.Name()
+
+		if err := claimAs(name, t); err != nil {
+			return err
+		}
+
+		values := e.Values()
+		if dup := firstDuplicate(values); dup != "" {
+			return fmt.Errorf("enum of %s lists %q twice", t, dup)
+		}
+
+		out, in := any(go2ts.Enum(t, values)), any(go2ts.EnumIfUsed(t, values))
+		if name != t.Name() {
+			out, in = go2ts.As(out, name), go2ts.As(in, name)
+		}
+
+		outs, ins = append(outs, out), append(ins, in)
+	}
+
+	p.outs = append(p.outs, outs...)
+
+	if len(p.ins) > 0 {
+		p.ins = append(p.ins, ins...)
+	}
+
+	return nil
+}
+
+func firstDuplicate(values []string) string {
+	seen := map[string]bool{}
+
+	for _, v := range values {
+		if seen[v] {
+			return v
+		}
+
+		seen[v] = true
+	}
+
+	return ""
 }

@@ -58,7 +58,7 @@ func (s *SignIn) Login(ctx context.Context, in LoginInput) (Signed, error) {
 		return Signed{}, apperr.Internal(err)
 	}
 
-	record := func(e Event) error { return s.record(ctx, acc.ID, e, 0, in.Device, in.IP) }
+	record := func(e SignInEvent) error { return s.record(ctx, acc.ID, e, 0, in.Device, in.IP) }
 
 	latest, err := s.deps.SignIns.LockEvents(ctx, acc.ID, s.cfg.Lock.After)
 	if err != nil {
@@ -276,7 +276,7 @@ func (s *SignIn) open(ctx context.Context, n NewSession) (Credentials, error) {
 	return creds, nil
 }
 
-func (s *SignIn) record(ctx context.Context, accountID int, e Event, actorID int, device, ip string) error {
+func (s *SignIn) record(ctx context.Context, accountID int, e SignInEvent, actorID int, device, ip string) error {
 	return appendEntry(ctx, s.deps, SignInEntry{AccountID: accountID, Event: e, ActorID: actorID, Device: device, IP: ip})
 }
 

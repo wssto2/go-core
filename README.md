@@ -230,6 +230,31 @@ A route whose output is `datatable.DatatableResult[Row]` types as `ListResult<Ro
 
 The key is the route's `.Name` without the group prefix (`tickets.show` is `show`); without a name it is the method and path (`GET /tickets/:id` is `getTicketsById`). `route.None` and `route.Empty` become `void`. Every file's first line names the go-core version that wrote it.
 
+#### Enums
+
+A named string type with a fixed set of values is declared once, listed in the group, and every field of that type becomes the union in `entities.ts` and a `z.enum` in `schemas.ts` (`route/example_test.go`, `ExampleEnum`):
+
+```go
+type Status string
+
+const (
+    StatusActive Status = "active"
+    StatusLocked Status = "locked"
+)
+
+var Statuses = route.Enum(StatusActive, StatusLocked) // the type is inferred from the constants
+
+var Routes = route.Group("identity", List, Show).Types(Statuses)
+```
+
+```ts
+export type Status = "active" | "locked";
+export type UserRow = { id: number; status: Status; /* … */ };
+// schemas.ts: export const StatusSchema = z.enum(["active", "locked"]);
+```
+
+A named string type that is not declared stays `string`: nothing is guessed. The TypeScript name is the Go type's; `route.Enum(...).As("SubjectKind")` gives another (for a type from another package, or a name that clashes with a DOM global such as `Event`). A field named `ID` is `number`; only a pointer (`*int`) is `number | null`.
+
 ### Roles and access
 
 `access` is the administration of what `authz` decides: which roles exist, who holds them where, and who may give them. One line puts it into an application (`access/example_test.go`):
@@ -339,6 +364,17 @@ handOver := identity.DeactivationHookFunc(func(ctx context.Context, a account.Ac
 ```
 
 `identitytest.New` builds all of it over memory stores for a test (`kit.Admin`, `kit.Profile`, `kit.Mailbox` holding the code a person would have been mailed). `go run github.com/wssto2/go-core/cmd/modulets <dir>` writes the TypeScript of every go-core module (identity, access) for vue-core to commit.
+
+#### Development server
+
+`go run github.com/wssto2/go-core/cmd/devserver` serves identity and access for developing a front end (the vue-core playground signs in against it): `/api/v1/auth/…` and `/api/v1/iam/…` on `127.0.0.1:8090`, an in-memory SQLite database that starts empty on every run, e-mail codes printed to the log (`mail.NewSink`), and CORS with cookies for `http://localhost:5173`. Two people are seeded:
+
+| login | password | role |
+|-------|----------|------|
+| `admin` | `admin-password` | `webmaster` (everything) |
+| `user` | `user-password` | `seller` (`crm.customer:view`) |
+
+Flags: `-addr host:port`, `-origin http://localhost:5173` (commas for several), `-allow-remote`. The passwords are public, so it refuses to start with `GO_ENV=production` or `APP_ENV=production`, or on an address other than this machine (`127.0.0.1`, `::1`, `localhost`) unless `-allow-remote` says so. Development only.
 
 #### mail
 

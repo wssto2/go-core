@@ -251,7 +251,7 @@ func accountsInactive(t *testing.T, s Stores) {
 	c.true(!got.Active, "an account created inactive reads inactive")
 }
 
-func entry(accountID int, e account.Event, at time.Duration) account.SignInEntry {
+func entry(accountID int, e account.SignInEvent, at time.Duration) account.SignInEntry {
 	return account.SignInEntry{AccountID: accountID, Event: e, CreatedAt: base.Add(at), IP: "10.0.0.1", Device: "test"}
 }
 
@@ -273,12 +273,12 @@ func signInsLockEvents(t *testing.T, s Stores) {
 	got, err := s.SignIns.LockEvents(ctx(), 1, 3)
 	c.noErr(err, "lock events")
 
-	var events []account.Event
+	var events []account.SignInEvent
 	for _, e := range got {
 		events = append(events, e.Event)
 	}
 
-	c.equal([]account.Event{account.Unlocked, account.WrongPassword, account.SignedIn}, events, "the latest three lock events, newest first")
+	c.equal([]account.SignInEvent{account.Unlocked, account.WrongPassword, account.SignedIn}, events, "the latest three lock events, newest first")
 
 	all, err := s.SignIns.LockEvents(ctx(), 1, 10)
 	c.noErr(err, "lock events")

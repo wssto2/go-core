@@ -1,6 +1,8 @@
+export type ChangeAction = "created" | "updated" | "deactivated" | "activated" | "password" | "email" | "profile";
+
 export type ChangeRow = {
-  id: number | null;
-  action: string;
+  id: number;
+  action: ChangeAction;
   fields: string[];
   before: any;
   after: any;
@@ -31,7 +33,7 @@ export type PendingEmail = {
 };
 
 export type ProfileResponse = {
-  id: number | null;
+  id: number;
   login: string;
   name: string;
   email: string;
@@ -42,7 +44,7 @@ export type ProfileResponse = {
 };
 
 export type SessionItem = {
-  id: number | null;
+  id: number;
   device: string;
   ip: string;
   opened_by: number | null;
@@ -63,18 +65,22 @@ export type SessionResponse = {
   navigation?: Node[];
 };
 
+export type SignInEvent = "signed_in" | "wrong_password" | "locked_out" | "refused_inactive" | "signed_in_as" | "unlocked" | "signed_out_everywhere" | "session_revoked";
+
 export type SignInRow = {
-  id: number | null;
-  event: string;
+  id: number;
+  event: SignInEvent;
   ip: string;
   device: string;
   actor_id: number | null;
   created_at: string;
 };
 
+export type Status = "active" | "locked" | "inactive";
+
 export type Subject = {
   kind: string;
-  id: number | null;
+  id: number;
 };
 
 export type UnlockResult = {
@@ -82,7 +88,7 @@ export type UnlockResult = {
 };
 
 export type User = {
-  id: number | null;
+  id: number;
   login: string;
   name: string;
   email: string;
@@ -90,28 +96,28 @@ export type User = {
 };
 
 export type UserDetail = {
-  id: number | null;
+  id: number;
   login: string;
   name: string;
   email: string;
   phone: string;
   locale: string;
   active: boolean;
-  status: string;
+  status: Status;
   last_sign_in: string | null;
   locked_until: string | null;
   created_at: string;
 };
 
 export type UserRow = {
-  id: number | null;
+  id: number;
   login: string;
   name: string;
   email: string;
   phone: string;
   locale: string;
   active: boolean;
-  status: string;
+  status: Status;
   last_sign_in: string | null;
   locked_until: string | null;
   created_at: string;

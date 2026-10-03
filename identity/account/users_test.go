@@ -95,7 +95,7 @@ func TestRevokeSessionsKeepsTheCallersAndEndsWhatWasOpenedAsSomebodyElse(t *test
 	_, err = k.SignIn.Authenticate(ctx, asBoris.Credentials.Access)
 	assert.True(t, apperr.HasReason(err, account.ReasonSessionInvalid), "a way in as somebody else does not outlive the person")
 
-	var got []account.Event
+	var got []account.SignInEvent
 
 	for _, e := range k.SignIns.All() {
 		if e.AccountID == 2 {
@@ -103,7 +103,7 @@ func TestRevokeSessionsKeepsTheCallersAndEndsWhatWasOpenedAsSomebodyElse(t *test
 		}
 	}
 
-	assert.Equal(t, []account.Event{account.SignedInAs, account.SessionRevoked}, got, "on the target's history too")
+	assert.Equal(t, []account.SignInEvent{account.SignedInAs, account.SessionRevoked}, got, "on the target's history too")
 }
 
 func TestRevokeSessionsOfAnotherAccountsKeepTokenIsIgnored(t *testing.T) {

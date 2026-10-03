@@ -390,12 +390,12 @@ func TestUnlock(t *testing.T) {
 	rows, _, err := k.Admin.SignIns(t.Context(), 2, account.Paging{})
 	require.NoError(t, err)
 
-	var events []account.Event
+	var events []account.SignInEvent
 	for _, r := range rows {
 		events = append(events, r.Event)
 	}
 
-	require.Equal(t, []account.Event{account.SignedIn, account.Unlocked, account.WrongPassword, account.WrongPassword, account.WrongPassword, account.WrongPassword, account.WrongPassword}, events)
+	require.Equal(t, []account.SignInEvent{account.SignedIn, account.Unlocked, account.WrongPassword, account.WrongPassword, account.WrongPassword, account.WrongPassword, account.WrongPassword}, events)
 
 	require.Equal(t, 1, rows[1].ActorID, "unlocked by the administrator")
 

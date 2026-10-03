@@ -131,7 +131,7 @@ type UserRow struct {
 	Phone       string     `json:"phone"`
 	Locale      string     `json:"locale"`
 	Active      bool       `json:"active"`
-	Status      string     `json:"status"`
+	Status      Status     `json:"status"`
 	LastSignIn  *time.Time `json:"last_sign_in"`
 	LockedUntil *time.Time `json:"locked_until"`
 	CreatedAt   time.Time  `json:"created_at"`
@@ -146,7 +146,7 @@ type UserDetail struct {
 	Phone       string     `json:"phone"`
 	Locale      string     `json:"locale"`
 	Active      bool       `json:"active"`
-	Status      string     `json:"status"`
+	Status      Status     `json:"status"`
 	LastSignIn  *time.Time `json:"last_sign_in"`
 	LockedUntil *time.Time `json:"locked_until"`
 	CreatedAt   time.Time  `json:"created_at"`
@@ -156,25 +156,25 @@ type UserDetail struct {
 // locked_out, refused_inactive, signed_in_as, unlocked, signed_out_everywhere or
 // session_revoked; ActorID is who did it when that was somebody else.
 type SignInRow struct {
-	ID        int       `json:"id"`
-	Event     string    `json:"event"`
-	IP        string    `json:"ip"`
-	Device    string    `json:"device"`
-	ActorID   *int      `json:"actor_id"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        int                 `json:"id"`
+	Event     account.SignInEvent `json:"event"`
+	IP        string              `json:"ip"`
+	Device    string              `json:"device"`
+	ActorID   *int                `json:"actor_id"`
+	CreatedAt time.Time           `json:"created_at"`
 }
 
 // ChangeRow is one change made to a person. Action is created, updated,
 // deactivated, activated, password, email or profile; Fields names what changed,
 // Before and After hold the values of the fields that are not secret.
 type ChangeRow struct {
-	ID        int               `json:"id"`
-	Action    string            `json:"action"`
-	Fields    []string          `json:"fields"`
-	Before    map[string]string `json:"before"`
-	After     map[string]string `json:"after"`
-	ActorID   *int              `json:"actor_id"`
-	CreatedAt time.Time         `json:"created_at"`
+	ID        int                  `json:"id"`
+	Action    account.ChangeAction `json:"action"`
+	Fields    []string             `json:"fields"`
+	Before    map[string]string    `json:"before"`
+	After     map[string]string    `json:"after"`
+	ActorID   *int                 `json:"actor_id"`
+	CreatedAt time.Time            `json:"created_at"`
 }
 
 // SessionItem is one live session. OpenedBy is who opened it by signing in as the
@@ -222,14 +222,14 @@ func idOrNil(id int) *int {
 	return &id
 }
 
-func statusOf(active bool, lockedUntil time.Time) string {
+func statusOf(active bool, lockedUntil time.Time) Status {
 	switch {
 	case !active:
-		return "inactive"
+		return StatusInactive
 	case !lockedUntil.IsZero():
-		return "locked"
+		return StatusLocked
 	default:
-		return "active"
+		return StatusActive
 	}
 }
 
@@ -363,7 +363,7 @@ func (h *Handler) unlockUser(ctx context.Context, in UserInput) (UnlockResult, e
 func signInRows(rows []account.SignInEntry) []SignInRow {
 	out := make([]SignInRow, len(rows))
 	for i, r := range rows {
-		out[i] = SignInRow{ID: r.ID, Event: string(r.Event), IP: r.IP, Device: r.Device, ActorID: idOrNil(r.ActorID), CreatedAt: r.CreatedAt.UTC()}
+		out[i] = SignInRow{ID: r.ID, Event: r.Event, IP: r.IP, Device: r.Device, ActorID: idOrNil(r.ActorID), CreatedAt: r.CreatedAt.UTC()}
 	}
 
 	return out
@@ -389,7 +389,7 @@ func (h *Handler) userChanges(ctx context.Context, in HistoryInput) (datatable.D
 	out := make([]ChangeRow, len(rows))
 	for i, r := range rows {
 		out[i] = ChangeRow{
-			ID: r.ID, Action: string(r.Action), Fields: nonNil(r.Fields), Before: nonNilMap(r.Before), After: nonNilMap(r.After),
+			ID: r.ID, Action: r.Action, Fields: nonNil(r.Fields), Before: nonNilMap(r.Before), After: nonNilMap(r.After),
 			ActorID: idOrNil(r.ActorID), CreatedAt: r.At.UTC(),
 		}
 	}
