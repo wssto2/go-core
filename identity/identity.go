@@ -33,6 +33,7 @@ package identity
 import (
 	"context"
 
+	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/gocore"
@@ -87,6 +88,7 @@ type settings struct {
 	conn          []database.Connection
 	accounts      account.Store
 	hasher        account.PasswordHasher
+	refresh       auth.Hasher
 	cfg           account.Config
 	impersonation account.Impersonation
 	notices       account.Notices
@@ -112,6 +114,11 @@ func WithAccounts(store account.Store) Option { return func(s *settings) { s.acc
 
 // WithHasher replaces bcrypt, for passwords stored in another format.
 func WithHasher(h account.PasswordHasher) Option { return func(s *settings) { s.hasher = h } }
+
+// WithRefreshHasher sets how refresh tokens are hashed at rest. The default
+// (SHA-256) suits a random 256-bit token; set it to keep reading sessions an
+// application already stored with another hasher, such as auth.NewHMACHasher.
+func WithRefreshHasher(h auth.Hasher) Option { return func(s *settings) { s.refresh = h } }
 
 // WithConfig sets the session length, the lock and the attempts per minute.
 func WithConfig(cfg account.Config) Option { return func(s *settings) { s.cfg = cfg } }
@@ -170,7 +177,12 @@ func Install(app *gocore.App, opts ...Option) *Users {
 		opt(&s)
 	}
 
-	stores := gormstore.New(app.Database(s.conn...))
+	var storeOpts []gormstore.Option
+	if s.refresh != nil {
+		storeOpts = append(storeOpts, gormstore.WithRefreshHasher(s.refresh))
+	}
+
+	stores := gormstore.New(app.Database(s.conn...), storeOpts...)
 
 	app.Schema(gocore.Schema{Files: migrations.Files, Models: gormstore.Migrate}, s.conn...)
 

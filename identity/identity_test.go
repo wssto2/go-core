@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/bootstrap"
@@ -279,4 +280,22 @@ func TestInstallEndToEndOnEveryDatabase(t *testing.T) {
 		assert.Equal(t, nethttp.StatusUnprocessableEntity, locked.Code)
 		assert.Contains(t, locked.Body.String(), "identity.signin.locked")
 	})
+}
+
+// An application whose sessions are hashed with another hasher keeps them.
+func TestWithRefreshHasherReadsSessionsStoredThatWay(t *testing.T) {
+	app := gocoretest.New(t)
+	hmac := auth.NewHMACHasher([]byte("secret"))
+
+	identity.Install(app, identity.WithRefreshHasher(hmac))
+	seed(t, app.Database(), identitytest.Account(1, "ana", "secret"))
+
+	c := newClient(t, app)
+	require.Equal(t, nethttp.StatusOK, c.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "ana", "password": "secret"}).Code)
+
+	var stored struct{ RefreshToken string }
+	require.NoError(t, app.Database().Table("tokens").Take(&stored).Error)
+	assert.Len(t, stored.RefreshToken, 43, "an HMAC hash, not SHA-256 hex (64)")
+
+	assert.Equal(t, nethttp.StatusOK, c.do(nethttp.MethodPost, "/v1/auth/refresh", nil).Code)
 }

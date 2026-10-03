@@ -44,7 +44,7 @@ func moduleRoot(t *testing.T) string {
 func TestLogicIDsAreAnchoredInCode(t *testing.T) {
 	root := moduleRoot(t)
 
-	mapping, err := os.ReadFile(filepath.Join(root, "docs", "rules", "mapping.md"))
+	mapping, err := os.ReadFile(filepath.Join(root, "docs", "rules", "mapping.md")) //nolint:gosec // a file of this repository
 	require.NoError(t, err, "docs/rules/mapping.md must exist: it is the Logic ID registry")
 
 	var declared []string

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/gocoretest"
 	"github.com/wssto2/go-core/identity"
@@ -165,6 +166,16 @@ func ExampleWithCookies() {
 
 	app := gocoretest.New(t)
 	identity.Install(app, identity.WithCookies(identity.Cookies{Access: "sid", Refresh: "rid"}))
+	fmt.Println(app.Check())
+	// Output: <nil>
+}
+
+func ExampleWithRefreshHasher() {
+	t := &exampleT{}
+	defer t.done()
+
+	app := gocoretest.New(t)
+	identity.Install(app, identity.WithRefreshHasher(auth.NewHMACHasher([]byte("secret"))))
 	fmt.Println(app.Check())
 	// Output: <nil>
 }
