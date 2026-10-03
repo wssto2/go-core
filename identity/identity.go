@@ -89,6 +89,8 @@ type (
 	DeactivationHookFunc = account.DeactivationHookFunc
 	// PasswordPolicy names the rules a new password breaks; WithPasswordPolicy replaces the default.
 	PasswordPolicy = account.PasswordPolicy
+	// ActivityArea is the application's name for a kind of record in a person's activity; Area makes one.
+	ActivityArea = account.ActivityArea
 	// ChangeLog keeps the history of changes to accounts; the default is go-core's audit trail.
 	ChangeLog = account.ChangeLog
 	// Session is one sign-in of an account on one device.
@@ -145,6 +147,7 @@ type settings struct {
 	codeSecret              string
 	policy                  account.PasswordPolicy
 	hooks                   []account.DeactivationHook
+	areas                   []account.ActivityArea
 }
 
 // Option adjusts Install.
@@ -250,6 +253,24 @@ func WithPasswordPolicy(p account.PasswordPolicy) Option { return func(s *settin
 // an error with a reason the client can explain. Hooks are asked in the order given.
 func WithDeactivationHook(hooks ...account.DeactivationHook) Option {
 	return func(s *settings) { s.hooks = append(s.hooks, hooks...) }
+}
+
+// Area starts an activity area, the application's name for the audit record types of one kind: its key
+// is an i18n key of yours. Declare it as a value and hand it to WithActivityAreas:
+//
+//	identity.WithActivityAreas(
+//		identity.Area("crm").Types("customers", "offers").Prefix("contracts."),
+//		identity.Area("vehicles").Types("vehicles"),
+//	)
+func Area(key string) ActivityArea { return account.Area(key) }
+
+// WithActivityAreas names the kinds of record in a person's activity (GET /v1/iam/users/:id/activity):
+// each area says which audit record types it covers, exactly or by prefix, and the first area that
+// covers a type is that record's area. The keys are yours (i18n keys such as "crm"); identity ships
+// none. A record type no area covers is in area "other"; the changes to accounts are in area
+// "identity" unless you name one so. Without this, activity has just those two.
+func WithActivityAreas(areas ...ActivityArea) Option {
+	return func(s *settings) { s.areas = append(s.areas, areas...) }
 }
 
 // The permissions of the users routes, the same ids access/admin uses for the
@@ -359,6 +380,13 @@ func Install(app *gocore.App, opts ...Option) *Users {
 
 	tx, changes := database.NewTransactor(db), gormstore.NewChangeLog(db)
 
+	areas, err := account.NewActivityAreas(s.areas...)
+	if err != nil {
+		app.Fail(err.Error(), "check the areas given to identity.WithActivityAreas")
+
+		return svc.Users
+	}
+
 	reauth, err := account.NewReauth(account.ReauthDeps{Store: stores.Reauth, Hasher: hasher, Clock: app.Clock()}, s.cfg.ReauthLock)
 	if err != nil {
 		app.Fail("identity could not be installed: "+err.Error(), "check the options given to identity.Install")
@@ -378,7 +406,7 @@ func Install(app *gocore.App, opts ...Option) *Users {
 	}
 
 	admin, err := account.NewAdmin(account.AdminDeps{
-		Users: svc.Users, Search: search, History: stores.SignIns, Changes: changes, Transact: tx, Policy: s.policy, Hooks: s.hooks,
+		Users: svc.Users, Search: search, History: stores.SignIns, Changes: changes, Activity: gormstore.NewActivityLog(db), Areas: areas, Transact: tx, Policy: s.policy, Hooks: s.hooks,
 	})
 	if err != nil {
 		app.Fail("identity could not be installed: "+err.Error(), "check the options given to identity.Install")

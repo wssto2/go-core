@@ -339,9 +339,10 @@ func TestADeactivationHookCanVeto(t *testing.T) {
 // A hook's own failure rolls the transaction back, as a real Transactor does.
 func TestADeactivationRunsInOneTransaction(t *testing.T) {
 	tx := &recordingTransactor{}
+	activity := identitytest.NewActivityLog(identitytest.NewChangeLog(identitytest.NewClock(identitytest.Epoch)), identitytest.NewSessions())
 	svc, err := account.NewAdmin(account.AdminDeps{
 		Users: seeded(t).Users, Search: identitytest.NewAccounts(), History: identitytest.NewSignIns(),
-		Changes: identitytest.NewChangeLog(identitytest.NewClock(identitytest.Epoch)), Transact: tx,
+		Changes: identitytest.NewChangeLog(identitytest.NewClock(identitytest.Epoch)), Activity: activity, Transact: tx,
 		Hooks: []account.DeactivationHook{account.DeactivationHookFunc(func(ctx context.Context, _ account.Account, _ int) error {
 			require.True(t, tx.inside(ctx), "the hook runs in the transaction")
 
@@ -549,7 +550,7 @@ func TestSignInsAndChangesPage(t *testing.T) {
 func TestNewAdminNamesWhatIsMissing(t *testing.T) {
 	k := seeded(t)
 	full := account.AdminDeps{
-		Users: k.Users, Search: k.Accounts, History: k.SignIns, Changes: k.Changes, Transact: identitytest.Transactor{},
+		Users: k.Users, Search: k.Accounts, History: k.SignIns, Changes: k.Changes, Activity: k.Activity, Transact: identitytest.Transactor{},
 	}
 
 	for want, mutate := range map[string]func(*account.AdminDeps){
@@ -557,6 +558,7 @@ func TestNewAdminNamesWhatIsMissing(t *testing.T) {
 		"AdminDeps.Search":   func(d *account.AdminDeps) { d.Search = nil },
 		"AdminDeps.History":  func(d *account.AdminDeps) { d.History = nil },
 		"AdminDeps.Changes":  func(d *account.AdminDeps) { d.Changes = nil },
+		"AdminDeps.Activity": func(d *account.AdminDeps) { d.Activity = nil },
 		"AdminDeps.Transact": func(d *account.AdminDeps) { d.Transact = nil },
 	} {
 		d := full

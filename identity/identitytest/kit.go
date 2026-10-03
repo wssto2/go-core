@@ -66,6 +66,8 @@ type Kit struct {
 	// Admin is the users module; Changes is the history it writes.
 	Admin   *account.Admin
 	Changes *ChangeLog
+	// Activity reads what people did: the changes they made and the sessions opened as them.
+	Activity *ActivityLog
 	// Profile is what a person does with their own account.
 	Profile *account.Profile
 }
@@ -241,9 +243,10 @@ func New(t testing.TB, seed []account.Account, opts ...Option) Kit {
 	kit.Codes, kit.Reauth = codes, reauth
 
 	kit.Changes = NewChangeLog(kit.Clock)
+	kit.Activity = NewActivityLog(kit.Changes, kit.Sessions)
 
 	kit.Admin, err = account.NewAdmin(account.AdminDeps{
-		Users: svc.Users, Search: kit.Accounts, History: kit.SignIns, Changes: kit.Changes, Transact: Transactor{},
+		Users: svc.Users, Search: kit.Accounts, History: kit.SignIns, Changes: kit.Changes, Activity: kit.Activity, Transact: Transactor{},
 		Policy: o.policy, Hooks: o.hooks,
 	})
 	if err != nil {
