@@ -4,10 +4,18 @@ export type ChangeRow = {
   id: number;
   action: ChangeAction;
   fields: string[];
-  before: any;
-  after: any;
+  before: Record<string, string>;
+  after: Record<string, string>;
   actor_id: number | null;
   created_at: string;
+};
+
+export type ClauseInfo = {
+  scope: Scope;
+  qualifier: number;
+  attrs?: Record<string, string[]>;
+  role?: string;
+  binding_id?: number;
 };
 
 export type Impersonator = {
@@ -18,7 +26,7 @@ export type Impersonator = {
 export type MyAccess = {
   subject: Subject;
   root: boolean;
-  permissions: any;
+  permissions: Record<string, PermissionAccess>;
   unavailable?: string[];
 };
 
@@ -37,6 +45,12 @@ export type PendingEmail = {
   attempts_left: number;
 };
 
+export type PermissionAccess = {
+  scope: Scope;
+  qualifier: number;
+  clauses: ClauseInfo[];
+};
+
 export type ProfileResponse = {
   id: number;
   login: string;
@@ -46,6 +60,11 @@ export type ProfileResponse = {
   locale: string;
   created_at: string;
   pending_email: PendingEmail | null;
+};
+
+export type Scope = {
+  level: string;
+  id?: number;
 };
 
 export type SessionItem = {
@@ -64,7 +83,7 @@ export type SessionList = {
 };
 
 export type SessionResponse = {
-  user: any;
+  user: unknown;
   expires_at: string;
   impersonator?: Impersonator | null;
   access: MyAccess;

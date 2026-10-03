@@ -284,3 +284,46 @@ func TestGenerateTypes_IDIsNullOnlyWhenItIsAPointer(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(pointer), "id: number | null;")
 }
+
+type Row struct {
+	ID int `json:"id"`
+}
+
+type WithMaps struct {
+	Labels  map[string]string         `json:"labels"`
+	ByID    map[int]string            `json:"by_id"`
+	Rows    map[string]Row            `json:"rows"`
+	Lists   map[string][]string       `json:"lists"`
+	Nested  map[string]map[string]int `json:"nested"`
+	Maybe   map[string]*Row           `json:"maybe"`
+	Dynamic any                       `json:"dynamic"`
+	Loose   map[string]any            `json:"loose"`
+	Skipped []map[string]float64      `json:"skipped"`
+}
+
+func TestGenerateTypes_MapsAreRecordsAndAnyIsUnknown(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, go2ts.GenerateTypes([]interface{}{WithMaps{}}, dir))
+
+	content, err := os.ReadFile(filepath.Join(dir, "WithMaps.ts"))
+	require.NoError(t, err)
+
+	for _, want := range []string{
+		"labels: Record<string, string>;",
+		"by_id: Record<number, string>;",
+		"rows: Record<string, Row>;",
+		"lists: Record<string, string[]>;",
+		"nested: Record<string, Record<string, number>>;",
+		"maybe: Record<string, Row | null>;",
+		"dynamic: unknown;",
+		"loose: Record<string, unknown>;",
+		"skipped: Record<string, number>[];",
+	} {
+		assert.Contains(t, string(content), want)
+	}
+
+	assert.NotContains(t, string(content), "any")
+
+	_, err = os.Stat(filepath.Join(dir, "Row.ts"))
+	require.NoError(t, err, "a struct inside a map is generated too")
+}

@@ -238,8 +238,20 @@ func mapGoTypeToTs(t reflect.Type, parentName string, children map[string]interf
 			tsType = resolvedName
 			children[resolvedName] = reflect.New(t).Interface()
 		}
+	case reflect.Map:
+		// JSON object keys are strings; a number-keyed map is Record<number, V>.
+		key := "string"
+
+		switch t.Key().Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			key = "number"
+		}
+
+		tsType = fmt.Sprintf("Record<%s, %s>", key, mapGoTypeToTs(t.Elem(), parentName, children, ctx))
 	default:
-		tsType = "any"
+		// any and interface{} values: whatever the application puts there, read it before use.
+		tsType = "unknown"
 	}
 
 	if isPointer && !strings.Contains(tsType, "null") {
