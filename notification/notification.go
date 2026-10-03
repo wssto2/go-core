@@ -180,7 +180,8 @@ type Notices struct {
 
 // Install puts the in-app inbox into app: the notifications table (its
 // migration, which the application runs with "./app migrate"), the inbox
-// routes and the live stream. categories are the application's own; the module's
+// routes, the live stream and, for every consumer of the application, the dead-letter routes (they
+// need DefinePermissions on the permission catalogue). categories are the application's own; the module's
 // test category is added by it. users names the people to notify.
 //
 //	notices := notification.Install(app, users, TicketAssigned, TicketCommented)
@@ -213,6 +214,7 @@ func Install(app *gocore.App, users People, categories ...Category) *Notices {
 
 	app.Events(n.testConsumer())
 	app.Routes(Declare().To(n)...)
+	app.Routes(DeclareDeadLetters().To(event.NewDeadLetters(db, app.Clock()))...)
 
 	return n
 }

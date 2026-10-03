@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"github.com/wssto2/go-core/authz"
+	"github.com/wssto2/go-core/authz/authztest"
+	"github.com/wssto2/go-core/database"
+	"github.com/wssto2/go-core/datatable"
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/gocoretest"
@@ -46,12 +49,28 @@ type TicketAssignedEvent struct {
 
 var Assigned = event.Define[TicketAssignedEvent]("tickets.assigned")
 
+// newApp is a test application whose authorizer allows everything and whose catalogue has the dead-letter
+// permissions, which the module's routes need to start.
+func newApp(t testing.TB, opts ...gocoretest.Option) *gocore.App {
+	t.Helper()
+
+	cat := authz.NewCatalogue()
+	if err := notification.DefinePermissions(cat); err != nil {
+		t.Fatal(err)
+	}
+
+	app := gocoretest.New(t, append([]gocoretest.Option{gocoretest.Authorizer(authztest.AllowAll())}, opts...)...)
+	app.Permissions(cat)
+
+	return app
+}
+
 // people are the accounts of the examples: Ana (1) and Ivo (2) speak Croatian, Eva (3) English.
 func people(t *exampleT) (*notification.Notices, *gocore.App) {
 	ana, ivo, eva := identitytest.Account(1, "ana", "x"), identitytest.Account(2, "ivo", "x"), identitytest.Account(3, "eva", "x")
 	ana.Locale, ivo.Locale = "hr", "hr"
 
-	app := gocoretest.New(t)
+	app := newApp(t)
 	notices := notification.Install(app, identitytest.Users(t, ana, ivo, eva), TicketAssigned)
 
 	return notices, app
@@ -106,7 +125,7 @@ func ExampleInstall() {
 	t := &exampleT{}
 	defer t.done()
 
-	app := gocoretest.New(t)
+	app := newApp(t)
 	users := identitytest.Users(t, identitytest.Account(1, "ana", "x"))
 
 	notices := notification.Install(app, users, TicketAssigned)
@@ -294,7 +313,7 @@ func ExampleDeclare() {
 	t := &exampleT{}
 	defer t.done()
 
-	app := gocoretest.New(t, gocoretest.SignedIn(authz.User(1, 0)))
+	app := newApp(t, gocoretest.SignedIn(authz.User(1, 0)))
 	notification.Install(app, identitytest.Users(t, identitytest.Account(1, "ana", "x")))
 
 	gocoretest.Do(t, app, "POST", "/v1/notifications/test", nil)
@@ -303,4 +322,56 @@ func ExampleDeclare() {
 	page := gocoretest.Decode[notification.Page](t, gocoretest.Do(t, app, "GET", "/v1/notifications", nil))
 	fmt.Println(page.Items[0].Category, page.Items[0].Title)
 	// Output: system.test Test notification
+}
+
+// The dead-letter permissions are defined on the application's catalogue, next to its own.
+func ExampleDefinePermissions() {
+	catalogue := authz.NewCatalogue()
+	_ = notification.DefinePermissions(catalogue)
+
+	_, view := catalogue.Lookup(notification.ViewDeadLetters)
+	_, retry := catalogue.Lookup(notification.RetryDeadLetters)
+	fmt.Println(notification.ViewDeadLetters, view, notification.RetryDeadLetters, retry)
+	// Output: events.deadletter:view true events.deadletter:retry true
+}
+
+// Dead letters are generic over every consumer of the event queue, so the routes are not under /notifications.
+func ExampleDeadLetterRoutes() {
+	for _, spec := range notification.DeadLetterRoutes.Specs() {
+		fmt.Println(spec.Method, spec.Path, spec.Permission)
+	}
+	// Output:
+	// GET /v1/events/dead-letters events.deadletter:view
+	// POST /v1/events/dead-letters/:event/:consumer/retry events.deadletter:retry
+	// POST /v1/events/dead-letters/retry events.deadletter:retry
+}
+
+// A consumer that gave up on an event leaves a dead letter, listed and retried over HTTP by whoever holds
+// the permissions: one letter, or all of one consumer's.
+func ExampleDeclareDeadLetters() {
+	t := &exampleT{}
+	defer t.done()
+
+	app := newApp(t, gocoretest.SignedIn(authz.User(1, 0)))
+	notification.Install(app, identitytest.Users(t, identitytest.Account(1, "ana", "x")))
+
+	ev := event.Define[note]("examples.always-fails")
+	app.Events(ev.To("examples.always-fails", func(context.Context, note) error {
+		return fmt.Errorf("the mail server is away")
+	}).Retry(event.Attempts(1)))
+
+	ctx := context.Background()
+	_ = database.NewTransactor(app.Database()).WithinTransaction(ctx, func(ctx context.Context) error {
+		return ev.Publish(ctx, note{To: 1})
+	})
+	_ = app.DrainEvents(ctx) // fails once: given up on at once
+
+	list := gocoretest.Decode[datatable.DatatableResult[notification.DeadLetterRow]](t, gocoretest.Do(t, app, "GET", "/v1/events/dead-letters?consumer=examples.always-fails", nil))
+	fmt.Println(list.Total, list.Data[0].Consumer, list.Data[0].EventName, list.Data[0].Retryable)
+
+	retried := gocoretest.Decode[notification.Retried](t, gocoretest.Do(t, app, "POST", "/v1/events/dead-letters/retry", notification.RetryAllInput{Consumer: "examples.always-fails"}))
+	fmt.Println(retried.Retried)
+	// Output:
+	// 1 examples.always-fails examples.always-fails true
+	// 1
 }
