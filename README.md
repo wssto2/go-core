@@ -57,6 +57,7 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 * `event` → typed events and the per-consumer queue behind them (see "Events"; tables in `event/migrations`)
 * `identity` → accounts, password sign-in, sessions, the lock after wrong passwords, the `/auth/me` payload, user administration and each person's profile with e-mail codes (see "Sign-in" and "Users and profile"; core `identity/account`, routes `identity/http`, store `identity/gormstore`, mail text `identity/mailtext`, tests `identity/identitytest`)
 * `mail` → the `Sender` port, SMTP over the standard library, a recording `Sink` for tests, per-locale `Renderer` (see "mail")
+* `notification` → the in-app inbox: categories, `Send` from an event consumer, the live stream, the inbox and dead-letter routes (see "Notifications"; migration in `notification/migrations`)
 * `navigation` → the menu tree an application declares and the filter by held permissions
 
 ### Utility Packages
@@ -427,9 +428,49 @@ gocoretest.Publish(t, app, Assigned, TicketAssigned{TicketID: 7, UserID: 3}) // 
 * `app.Events(...)` collects consumers and, with them, the queue's tables (`event/migrations`: `outbox_events` and `event_consumer_attempts`) on the primary connection. A feature that only publishes calls `app.Events()` with none. `Run` starts one worker per consumer and stops them with the other background work; `Check` refuses two consumers with one name, a name that is not lower-case words joined by dots or dashes, and two `Define` calls that share a name but not a payload.
 * Each consumer has its own state per event: it claims the due events of its name, leases them for five minutes, retries a failing handler with a doubling backoff, and after its attempts sets the event aside as a dead letter. An event whose envelope, payload or version cannot be read is a dead letter at once. One failing consumer holds back no other, and the outbox row is marked processed once every consumer of it finished.
 * **Delivery is at least once.** A handler whose lease ran out while it was still working can run beside a second delivery of the same event, and a dead letter put back runs again: a handler must tolerate being called twice. `event.ID(ctx)` is the event's id, the key to dedupe on.
-* `event.NewDeadLetters(db, clock)` lists the dead letters and puts them back (`Retry` one, `RetryAll` of a consumer); its HTTP routes come with the notification module.
+* `event.NewDeadLetters(db, clock)` lists the dead letters and puts them back (`Retry` one, `RetryAll` of a consumer); its HTTP routes come with the notification module (see "Notifications").
+* A housekeeper, added to the background workers by `app.Events`, deletes events every consumer finished more than 30 days ago (`event.Retention`) with their attempts, in batches by primary key. Dead letters are never deleted by it: their events stay for a retry. There is nothing to configure.
 * The claim is MariaDB 10.3 safe (no `SKIP LOCKED`, no `FOR UPDATE OF`: candidates are read, their outbox rows locked by primary key, the consumer's attempts read and the leases written). The queue is tested on SQLite, MySQL and MariaDB 10.3, including three workers on one database never handling an event twice.
 * Rows an application wrote with `event.InsertOutboxEvent` are named by the Go type (`"lead.AssignedEvent"`: package name and type name) with version 1; `event.Define[AssignedEvent]("lead.AssignedEvent")` consumes them unchanged. `outbox_events` has the DDL such an application already has.
+
+---
+
+## Notifications
+
+In-app notifications: what a person finds when they open the application, read on one device and read on all of them. A feature never writes one; it publishes an event, and a consumer of the event sends the notifications, in each recipient's language. The module has no translations of its own: the application renders the text.
+
+```go
+var TicketAssigned = notification.Category("tickets.assigned") // declared once, as a value
+
+// main
+notices := notification.Install(app, users, TicketAssigned /*, ...*/) // users: *identity.Users
+
+// A feature turns its own event into notifications, in a consumer.
+app.Events(tickets.Assigned.To("notifications.ticket-assigned",
+	func(ctx context.Context, e tickets.Assigned) error {
+		return notices.Send(ctx, TicketAssigned, notification.To(e.AssigneeID).Except(e.ActorID),
+			func(r notification.Recipient) notification.Message { // once per recipient
+				return notification.Message{
+					Title: t(r.Locale, "tickets.assigned", e.Title),
+					Link:  fmt.Sprintf("/tickets/%d", e.TicketID), // a path inside the app
+				}
+			})
+	}))
+
+// in a test
+gocoretest.Publish(t, app, tickets.Assigned, tickets.Assigned{TicketID: 7, AssigneeID: 3})
+// GET /v1/notifications as person 3 now has the notification
+```
+
+* **`Send` works only inside an event consumer.** The notification's dedupe key is `<event id>:<user>:<category>`, so an event delivered twice, or retried after a failure, makes one notification per person (NOTIF-EVENT-001). Outside a consumer it fails with an error that says to publish an event and send from its consumer. A rolled-back write never notifies, because the event is queued in the write's transaction.
+* **Recipients** are `notification.To(ids...)`, optionally `.Except(actor)`. Invalid ids, duplicates and inactive people are dropped (NOTIF-RECIPIENT-001); the accounts are looked up in one call per `Send` (`Users.Find`).
+* **The message** is a plain function per recipient (`Recipient` has the id, name and locale). The title is required, text is cut to its columns, the link must be an in-app path (NOTIF-CONTENT-001). A message that can never be valid, or a category that was not registered, sets the event aside as a dead letter at once.
+* **Categories** are `notification.Category` values; `Install` refuses a bad or repeated code at start-up with the fix. Priority, push, e-mail and preferences are not part of this module yet.
+* **The inbox** (`notices.Inbox`: `List`, `Unread`, `MarkRead`, `MarkAllRead`, `Subscribe`) acts on one person's notifications, whose id comes from the session. Routes under `/v1/notifications`, for a signed-in person and no permission: `GET /` (newest first, `before_id` cursor, `limit` up to 50), `GET /unread`, `POST /:id/read`, `POST /read` (`up_to_id`: only what was seen is marked; 0 marks nothing), `GET /stream` (server-sent events; see below), `POST /test` (sends the signed-in person a test notification through the event queue, category `system.test`).
+* **The live stream** tells every open app of a person about a new notification and about a reading, each with the unread count, **after the transaction has committed**, and opens with the current count. It re-checks its session at every heartbeat (25 seconds) and ends when the session was revoked. The `Hub` is process-local: **one instance only**; with several instances an app hears only what its own instance made (the client refetches the count on reconnect).
+* **Dead letters**, of every consumer, not only the notification ones: `GET /v1/events/dead-letters` (page, `consumer` filter), `POST /v1/events/dead-letters/:event/:consumer/retry` and `POST /v1/events/dead-letters/retry` (all of one `consumer`), behind the fixed permissions `events.deadletter:view` and `events.deadletter:retry`. Define them on the application's catalogue before `access.Install`: `notification.DefinePermissions(catalogue)`.
+* **Tables:** `notifications` (`notification/migrations`), arv-next's table as it is, so an application that has it adopts the file with `MarkApplied`. Tests on SQLite, MySQL and MariaDB 10.3 (`dbtest.Run`).
+* The TypeScript contract is `notification.Routes` and `notification.DeadLetterRoutes` (`cmd/modulets` writes `notification/` and `events/`). `cmd/devserver` installs the module with one sample category, two notifications for `user` (one read, one unread) and drains the event queue every second, so the test notification arrives.
 
 ---
 

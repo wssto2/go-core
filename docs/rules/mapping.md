@@ -34,3 +34,11 @@ it adds a rule file under `docs/rules/<module>/`.
 
 - IAM-AUTHZ-005 — roles and bindings are edited through the delegation rules — `access/admin/roles.go`, `access/admin/bindings.go`, `authz/admin.go` — rules: `docs/rules/access/authorization.md`
 - ACCESS-ADMIN-001 — the module asks the application for names; an unknown subject is not found — `access/admin/admin.go` (`requireSubject`), `access/access.go` (`Seed`) — rules: `docs/rules/access/authorization.md`
+
+## notification
+
+- NOTIF-EVENT-001 — a notification is made from an event, deduped on the event id, retried, then a dead letter; dead letters are listed and retried over HTTP; processed events are deleted after 30 days, dead letters kept — `notification/notification.go` (`Notices.Send`, `DedupeKey`), `notification/inbox.go` (`store.insertNew`), `notification/deadletters.go`, `event/housekeeping.go` — rules: `docs/rules/notification/notifications.md`
+- NOTIF-CATEGORY-001 — categories are values registered with Install; a bad, repeated or unregistered one names the fix — `notification/notification.go` (`Category`, `categoryProblems`) — rules: `docs/rules/notification/notifications.md`
+- NOTIF-RECIPIENT-001 — invalid ids, duplicates, inactive people and the actor are dropped, in one lookup per Send — `notification/notification.go` (`Recipients.resolve`, `Notices.Send`) — rules: `docs/rules/notification/notifications.md`
+- NOTIF-CONTENT-001 — rendered per recipient, the title required, text cut to its columns, the link an in-app path — `notification/notification.go` (`finish`, `IsAppLink`) — rules: `docs/rules/notification/notifications.md`
+- NOTIF-READ-001 — read state per notification, mark all only up to what was seen, the stream tells every open app after commit — `notification/inbox.go` (`Inbox.MarkRead`, `Inbox.MarkAllRead`), `notification/hub.go`, `notification/stream.go` — rules: `docs/rules/notification/notifications.md`
