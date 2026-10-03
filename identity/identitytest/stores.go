@@ -720,3 +720,81 @@ type Transactor struct{}
 func (Transactor) WithinTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
 	return fn(ctx)
 }
+
+// ActivityLog is a memory account.ActivityLog over a ChangeLog and the Sessions:
+// what a person did is the changes they made to accounts (record type "account"),
+// and who was signed in as them is read off the sessions opened by signing in as them.
+type ActivityLog struct {
+	changes  *ChangeLog
+	sessions *Sessions
+}
+
+// NewActivityLog returns the log over the stores a test already writes to.
+func NewActivityLog(changes *ChangeLog, sessions *Sessions) *ActivityLog {
+	return &ActivityLog{changes: changes, sessions: sessions}
+}
+
+// Activity implements account.ActivityLog.
+func (l *ActivityLog) Activity(_ context.Context, q account.ActivityQuery) ([]account.ActivityEntry, int, error) {
+	const recordType = "account"
+
+	if (!q.Within.Empty() && !q.Within.Has(recordType)) || q.Outside.Has(recordType) {
+		return nil, 0, nil
+	}
+
+	l.sessions.mu.Lock()
+
+	var windows []account.Session
+
+	for _, r := range l.sessions.rows {
+		if r.AccountID == q.ActorID && r.ActorID > 0 {
+			windows = append(windows, r.Session)
+		}
+	}
+
+	l.sessions.mu.Unlock()
+
+	l.changes.mu.Lock()
+	defer l.changes.mu.Unlock()
+
+	var all []account.ActivityEntry
+
+	for _, r := range slices.Backward(l.changes.rows) {
+		if r.ActorID != q.ActorID || (!q.From.IsZero() && r.At.Before(q.From)) || (!q.To.IsZero() && !r.At.Before(q.To)) {
+			continue
+		}
+
+		entry := account.ActivityEntry{ID: r.ID, RecordType: recordType, RecordID: r.AccountID, Action: account.ActivityActionOf(string(r.Action)), At: r.At}
+
+		for _, w := range slices.Backward(windows) {
+			end := minTime(w.ExpiresAt, maxTime(w.LastUsedAt, w.CreatedAt).Add(time.Minute))
+			if !r.At.Before(w.CreatedAt) && !r.At.After(end) {
+				entry.SignedInAs = w.ActorID
+
+				break
+			}
+		}
+
+		all = append(all, entry)
+	}
+
+	from := min(q.Offset, len(all))
+
+	return all[from:min(from+q.Limit, len(all))], len(all), nil
+}
+
+func maxTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+
+	return b
+}
+
+func minTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+
+	return b
+}

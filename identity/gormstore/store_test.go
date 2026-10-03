@@ -62,7 +62,7 @@ func TestStoresConform(t *testing.T) {
 
 			return storetest.Stores{
 				Accounts: stores.Accounts, SignIns: stores.SignIns, Sessions: stores.Sessions, Codes: stores.Codes, Reauth: stores.Reauth,
-				Changes: gormstore.NewChangeLog(db),
+				Changes: gormstore.NewChangeLog(db), Activity: gormstore.NewActivityLog(db),
 			}
 		})
 	})

@@ -474,3 +474,21 @@ func ExampleNewProfile() {
 	fmt.Println(err)
 	// Output: identity: ProfileDeps.Users is missing: pass the Users service account.New built
 }
+
+func ExampleActivityActionOf() {
+	for _, audit := range []string{"create", "updated", "password", "delete"} {
+		fmt.Println(audit, "->", account.ActivityActionOf(audit))
+	}
+	// Output:
+	// create -> created
+	// updated -> changed
+	// password -> changed
+	// delete -> deleted
+}
+
+func ExampleRecordSet_Has() {
+	contracts := account.RecordSet{Types: []string{"offers"}, Prefixes: []string{"contracts."}}
+
+	fmt.Println(contracts.Has("offers"), contracts.Has("contracts.line"), contracts.Has("customers"))
+	// Output: true true false
+}
