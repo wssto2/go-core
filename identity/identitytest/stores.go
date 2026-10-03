@@ -783,6 +783,26 @@ func (l *ActivityLog) Activity(_ context.Context, q account.ActivityQuery) ([]ac
 	return all[from:min(from+q.Limit, len(all))], len(all), nil
 }
 
+// ActivityByType implements account.ActivityLog.
+func (l *ActivityLog) ActivityByType(_ context.Context, q account.ActivityQuery) (map[string]int, error) {
+	l.changes.mu.Lock()
+	defer l.changes.mu.Unlock()
+
+	out := map[string]int{}
+
+	for _, r := range l.changes.rows {
+		if r.ActorID == q.ActorID && (q.From.IsZero() || !r.At.Before(q.From)) && (q.To.IsZero() || r.At.Before(q.To)) {
+			out["account"]++
+		}
+	}
+
+	if len(out) == 0 {
+		return nil, nil
+	}
+
+	return out, nil
+}
+
 func maxTime(a, b time.Time) time.Time {
 	if a.After(b) {
 		return a

@@ -561,3 +561,19 @@ func ExampleRecordSet_Empty() {
 	fmt.Println(account.RecordSet{}.Empty(), account.RecordSet{Prefixes: []string{"a."}}.Empty())
 	// Output: true false
 }
+
+func ExampleAdmin_ActivityCounts() {
+	k := kit()
+	ctx := context.Background()
+
+	_, _ = k.Admin.Create(ctx, account.CreateAccount{Login: "dora", Name: "Dora", Email: "dora@example.com", Locale: "en", Password: "a long password", ActorID: 1})
+
+	counts, _ := k.Admin.ActivityCounts(ctx, 1, account.ActivityFilter{})
+	for _, c := range counts {
+		fmt.Println(c.Area, c.Count)
+	}
+	// Output:
+	// all 1
+	// identity 1
+	// other 0
+}

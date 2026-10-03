@@ -42,7 +42,7 @@ var (
 		UserSignIns, UserChanges, UserActivity, UserSessions, RevokeUserSession, RevokeUserSessions,
 		ShowProfile, UpdateProfile, ChangeOwnPassword, RequestEmailChange, ResendEmailCode, ConfirmEmailChange,
 		CancelEmailChange, OwnSignIns, OwnSessions, RevokeOwnSession,
-	).Types(User{}, Statuses, SignInEvents, ChangeActions, ActivityActions)
+	).Types(User{}, AreaCount{}, Statuses, SignInEvents, ChangeActions, ActivityActions)
 )
 
 // Status is where an account stands: usable, locked after wrong passwords, or deactivated.

@@ -99,6 +99,18 @@ func TestAdminActivity(t *testing.T) {
 		assert.Zero(t, n, name)
 	}
 
+	counts, err := admin.ActivityCounts(t.Context(), 1, account.ActivityFilter{Area: "people"})
+	require.NoError(t, err)
+	assert.Equal(t, []account.AreaCount{{Area: "all", Count: 2}, {Area: "people", Count: 2}, {Area: "identity", Count: 0}, {Area: "other", Count: 0}}, counts,
+		"every area, whichever is shown")
+
+	counts, err = admin.ActivityCounts(t.Context(), 1, account.ActivityFilter{From: epoch.AddDate(0, 0, 1)})
+	require.NoError(t, err)
+	assert.Zero(t, counts[0].Count, "within the days")
+
+	_, err = admin.ActivityCounts(t.Context(), 1, account.ActivityFilter{From: epoch.AddDate(0, 0, 1), To: epoch})
+	assert.True(t, apperr.HasReason(err, account.ReasonActivityRangeInvalid))
+
 	_, _, err = admin.Activity(t.Context(), 1, account.ActivityFilter{Area: "crm"}, account.Paging{})
 	assert.True(t, apperr.HasReason(err, account.ReasonActivityAreaUnknown), "an area the application did not name")
 

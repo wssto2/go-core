@@ -121,7 +121,15 @@ arv-next's "Radnje" (IAM-USER-007 item 2 there), generic: what a person did, rea
    the session opened last decides. A session ends on record only by being last used, so what the person did in a
    session of their own while one opened as them was still in use is marked too: the mark says "somebody was signed
    in as them", not "it was them".
-7. Not every module writes audit rows yet; what writes none is not in anybody's activity.
+7. **Counts per area** (ARV's tabs): the page's `meta.views` is `[{key, count}]`: `all` first, then each area the
+   application named in order, `identity` (unless named) and `other`, counting the person's entries **within the
+   same days** and **whatever `area` is shown**, so the tabs keep their numbers. They come from one `GROUP BY` of the
+   record type over the actor and time index, folded into areas in the application's order. The datatable's `meta` is
+   untyped, so the shape is documented here and the TypeScript only declares `AreaCount` for the client to read it
+   with; `all` and `other` are reserved keys.
+8. **For arv-next's adoption:** the days are UTC (arv-next's Radnje read them in the server's local time), and
+   `authz.binding` / `authz.role` rows are in `other` unless the application maps them to an area.
+9. Not every module writes audit rows yet; what writes none is not in anybody's activity.
 
 Code: `identity/account/activity.go` (`Admin.Activity`, `ActivityAreas`), `identity/gormstore/activity.go`
 (`ActivityLog`, served by the index `idx_audit_logs_actor_created`), `identity/http/users.go` (`UserActivity`),

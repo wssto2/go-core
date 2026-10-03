@@ -63,6 +63,10 @@ func TestActivityFiltersOnEveryDatabase(t *testing.T) {
 		assert.Equal(t, []int{4, 3}, ids(account.ActivityQuery{From: day.Add(24 * time.Hour), To: day.Add(48 * time.Hour)}), "From inclusive, To exclusive")
 		assert.Empty(t, ids(account.ActivityQuery{Within: account.RecordSet{Prefixes: []string{"%"}}}), "a percent sign is not a wildcard")
 
+		counts, err := log.ActivityByType(t.Context(), account.ActivityQuery{ActorID: 7, From: day.Add(24 * time.Hour), To: day.Add(72 * time.Hour)})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]int{"contracts.head": 1, "contracts_x": 1, "": 1}, counts, "per type in the days, a row without a type under the empty one")
+
 		got, _, err := log.Activity(t.Context(), account.ActivityQuery{ActorID: 7, Limit: 1, Offset: 2})
 		require.NoError(t, err)
 		require.Len(t, got, 1)

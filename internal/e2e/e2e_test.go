@@ -366,6 +366,10 @@ func TestAPersonsActivity(t *testing.T) {
 		assert.Equal(t, "contracts.line", all[1]["record_type"])
 		assert.Equal(t, "created", all[2]["action"])
 
+		_, data = admin.do(nethttp.MethodGet, "/api/v1/iam/users/1/activity?area=crm", nil)
+		assert.Contains(t, string(data), `"views":[{"key":"all","count":3},{"key":"people","count":1},{"key":"crm","count":1},{"key":"identity","count":0},{"key":"other","count":1}]`,
+			"the counts of every area, whichever is shown")
+
 		assert.Len(t, rows(admin, "/api/v1/iam/users/1/activity?area=crm"), 1)
 		assert.Len(t, rows(admin, "/api/v1/iam/users/1/activity?area=other"), 1)
 		assert.Len(t, rows(admin, "/api/v1/iam/users/1/activity?from=2000-01-01&to=2000-01-02"), 0)

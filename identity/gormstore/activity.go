@@ -100,6 +100,35 @@ func (l *ActivityLog) Activity(ctx context.Context, q account.ActivityQuery) ([]
 	return out, int(total), nil
 }
 
+// ActivityByType implements account.ActivityLog: one GROUP BY over the actor and time index.
+func (l *ActivityLog) ActivityByType(ctx context.Context, q account.ActivityQuery) (map[string]int, error) {
+	db := dbOf(l.db, ctx).Model(&audit.AuditLog{}).Where("actor_id = ?", q.ActorID)
+
+	if !q.From.IsZero() {
+		db = db.Where("created_at >= ?", millis(q.From))
+	}
+
+	if !q.To.IsZero() {
+		db = db.Where("created_at < ?", millis(q.To))
+	}
+
+	var rows []struct {
+		RecordType string
+		N          int
+	}
+
+	if err := db.Select("COALESCE(entity_type, '') AS record_type", "COUNT(*) AS n").Group("COALESCE(entity_type, '')").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]int, len(rows))
+	for _, r := range rows {
+		out[r.RecordType] = r.N
+	}
+
+	return out, nil
+}
+
 // window is a time somebody was signed in as the person.
 type window struct {
 	actor      int

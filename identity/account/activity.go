@@ -2,7 +2,6 @@ package account
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -88,6 +87,9 @@ type ActivityQuery struct {
 // person when it was done. The default is gormstore.NewActivityLog.
 type ActivityLog interface {
 	Activity(ctx context.Context, q ActivityQuery) ([]ActivityEntry, int, error)
+	// ActivityByType counts what the person did per record type within the query's actor and
+	// days (Within, Outside, Offset and Limit are ignored). A row without a type counts under "".
+	ActivityByType(ctx context.Context, q ActivityQuery) (map[string]int, error)
 }
 
 // The areas identity itself names.
@@ -151,8 +153,8 @@ func NewActivityAreas(areas ...ActivityArea) (ActivityAreas, error) {
 		switch {
 		case !areaKey.MatchString(a.key):
 			return ActivityAreas{}, fmt.Errorf("identity: activity area %q is not a key: use lower case words, digits, \"_\" and \".\", at most 32 characters, such as \"crm\"", a.key)
-		case a.key == OtherArea:
-			return ActivityAreas{}, errors.New("identity: activity area \"other\" is reserved for the record types no area names: choose another key")
+		case a.key == OtherArea || a.key == AllArea:
+			return ActivityAreas{}, fmt.Errorf("identity: activity area %q is reserved (\"other\" is the record types no area names, \"all\" the count of everything): choose another key", a.key)
 		case seen[a.key]:
 			return ActivityAreas{}, fmt.Errorf("identity: activity area %q is named twice: name each area once, with all its types", a.key)
 		case a.set.Empty() || slices.Contains(a.set.Types, "") || slices.Contains(a.set.Prefixes, ""):
@@ -230,7 +232,10 @@ func (a *Admin) Activity(ctx context.Context, accountID int, f ActivityFilter, p
 		return nil, 0, err
 	}
 
-	q := ActivityQuery{ActorID: accountID}
+	q, err := f.query(accountID)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	if f.Area != "" {
 		within, outside, ok := a.d.Areas.sets(f.Area)
@@ -239,18 +244,6 @@ func (a *Admin) Activity(ctx context.Context, accountID int, f ActivityFilter, p
 		}
 
 		q.Within, q.Outside = within, outside
-	}
-
-	if !f.From.IsZero() {
-		q.From = day(f.From)
-	}
-
-	if !f.To.IsZero() {
-		q.To = day(f.To).AddDate(0, 0, 1)
-	}
-
-	if !q.From.IsZero() && !q.To.IsZero() && !q.From.Before(q.To) {
-		return nil, 0, invalid("to", ReasonActivityRangeInvalid)
 	}
 
 	paging := p.resolved()
@@ -266,6 +259,67 @@ func (a *Admin) Activity(ctx context.Context, accountID int, f ActivityFilter, p
 	}
 
 	return rows, total, nil
+}
+
+// query is the actor and the days of the filter, refusing a range that ends before it starts.
+func (f ActivityFilter) query(accountID int) (ActivityQuery, error) {
+	q := ActivityQuery{ActorID: accountID}
+
+	if !f.From.IsZero() {
+		q.From = day(f.From)
+	}
+
+	if !f.To.IsZero() {
+		q.To = day(f.To).AddDate(0, 0, 1)
+	}
+
+	if !q.From.IsZero() && !q.To.IsZero() && !q.From.Before(q.To) {
+		return q, invalid("to", ReasonActivityRangeInvalid)
+	}
+
+	return q, nil
+}
+
+// AllArea is the key of the count of everything a person did in the days.
+const AllArea = "all"
+
+// AreaCount is how many entries an area has.
+type AreaCount struct {
+	Area  string
+	Count int
+}
+
+// ActivityCounts counts what the person did in the filter's days, for AllArea first, then each
+// area in order, IdentityArea and OtherArea included: the filter's Area is ignored, so the counts
+// stay the same whichever area is shown.
+func (a *Admin) ActivityCounts(ctx context.Context, accountID int, f ActivityFilter) ([]AreaCount, error) {
+	if _, err := a.d.Users.Get(ctx, accountID); err != nil {
+		return nil, err
+	}
+
+	q, err := f.query(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	byType, err := a.d.Activity.ActivityByType(ctx, q)
+	if err != nil {
+		return nil, apperr.Internal(err)
+	}
+
+	counts, total := map[string]int{}, 0
+
+	for recordType, n := range byType {
+		counts[a.d.Areas.AreaOf(recordType)] += n
+		total += n
+	}
+
+	out := []AreaCount{{Area: AllArea, Count: total}}
+	for _, key := range a.d.Areas.Keys() {
+		out = append(out, AreaCount{Area: key, Count: counts[key]})
+	}
+
+	return out, nil
 }
 
 func day(t time.Time) time.Time {

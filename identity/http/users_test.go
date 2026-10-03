@@ -394,6 +394,11 @@ func TestActivityOfAPersonOverHTTP(t *testing.T) {
 	body, _ := page.json()["data"].(map[string]any)
 	assert.EqualValues(t, 2, body["total"])
 
+	meta, _ := body["meta"].(map[string]any)
+	assert.Equal(t, []any{
+		map[string]any{"key": "all", "count": 2.0}, map[string]any{"key": "identity", "count": 2.0}, map[string]any{"key": "other", "count": 0.0},
+	}, meta["views"], "a count per area, whichever is shown")
+
 	for query, want := range map[string]int{
 		"area=identity": 2, "area=other": 0, "from=" + day + "&to=" + day: 2, "from=2026-01-03": 0, "to=2026-01-01": 0,
 	} {

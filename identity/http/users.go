@@ -120,6 +120,15 @@ type ActivityRow struct {
 	CreatedAt  time.Time              `json:"created_at"`
 }
 
+// AreaCount is one entry of the activity page's meta.views: how many entries the person has in the
+// area ("all" for every one, then each area the application named, "identity" and "other"), within
+// the days asked for and whatever area is shown. The datatable's meta is untyped, so this shape is
+// documented, not generated.
+type AreaCount struct {
+	Key   string `json:"key"`
+	Count int    `json:"count"`
+}
+
 // CreateUserInput is a new person. Locale is a BCP-47 tag such as "hr".
 type CreateUserInput struct {
 	Login    string `json:"login" validation:"required|max:100"`
@@ -528,6 +537,11 @@ func (h *Handler) userActivity(ctx context.Context, in ActivityInput) (datatable
 		return datatable.DatatableResult[ActivityRow]{}, err
 	}
 
+	counts, err := h.admin.ActivityCounts(ctx, in.ID, account.ActivityFilter{From: from, To: to})
+	if err != nil {
+		return datatable.DatatableResult[ActivityRow]{}, err
+	}
+
 	out := make([]ActivityRow, len(rows))
 	for i, r := range rows {
 		out[i] = ActivityRow{
@@ -536,5 +550,14 @@ func (h *Handler) userActivity(ctx context.Context, in ActivityInput) (datatable
 		}
 	}
 
-	return pageOf(out, total, max(in.Page, 1), resolvedPerPage(in.PerPage)), nil
+	page := pageOf(out, total, max(in.Page, 1), resolvedPerPage(in.PerPage))
+
+	views := make([]AreaCount, len(counts))
+	for i, c := range counts {
+		views[i] = AreaCount{Key: c.Area, Count: c.Count}
+	}
+
+	page.Meta = map[string]any{"views": views}
+
+	return page, nil
 }
