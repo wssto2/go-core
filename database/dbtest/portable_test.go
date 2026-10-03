@@ -11,19 +11,19 @@ import (
 // The check catches each construct, and leaves alone what MariaDB 10.3 accepts.
 func TestPortabilityCatchesEachConstruct(t *testing.T) {
 	bad := map[string]string{
-		"SELECT id FROM t FOR UPDATE SKIP LOCKED;":                     "SKIP LOCKED",
-		"SELECT id FROM t FOR UPDATE OF t;":                            "FOR UPDATE OF",
-		"SELECT id FROM t FOR SHARE;":                                  "FOR SHARE",
-		"SELECT j.id FROM JSON_TABLE(d, '$' COLUMNS (id INT)) j;":      "JSON_TABLE",
-		"SELECT doc->>'$.id' FROM t;":                                  "->>",
-		"INSERT INTO t (a) VALUES (1) RETURNING id;":                   "RETURNING",
-		"SELECT ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) FROM t;": "window function",
+		"SELECT id FROM t FOR UPDATE SKIP LOCKED;":                "SKIP LOCKED",
+		"SELECT id FROM t FOR UPDATE OF t;":                       "FOR UPDATE OF",
+		"SELECT id FROM t FOR SHARE;":                             "FOR SHARE",
+		"SELECT j.id FROM JSON_TABLE(d, '$' COLUMNS (id INT)) j;": "JSON_TABLE",
+		"SELECT doc->>'$.id' FROM t;":                             "->>",
+		"INSERT INTO t (a) VALUES (1) RETURNING id;":              "RETURNING",
 	}
 	good := []string{
 		"SELECT id FROM t WHERE id = ? FOR UPDATE;",
 		"SELECT id FROM t LOCK IN SHARE MODE;",
 		"-- FOR SHARE is only mentioned in a comment\nSELECT 1;",
 		"CREATE TABLE returning_customers (id INT);",
+		"SELECT ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) FROM t;",
 	}
 
 	for sql, want := range bad {

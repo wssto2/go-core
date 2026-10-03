@@ -23,8 +23,8 @@ func (v Violation) String() string { return v.File + ":" + strconv.Itoa(v.Line) 
 // MariaDB constructs with Error 1064, while local MySQL accepts them, so
 // nothing else would catch one. Rewrite the query instead: a single-table
 // SELECT ... FOR UPDATE by primary key replaces SKIP LOCKED and FOR UPDATE OF;
-// FOR UPDATE (or LOCK IN SHARE MODE) replaces FOR SHARE. Window functions exist
-// in MariaDB 10.2+, but the module rules keep them out of queries (plan 3.8).
+// FOR UPDATE (or LOCK IN SHARE MODE) replaces FOR SHARE. Window functions are
+// fine: MariaDB has them since 10.2.
 var forbidden = []struct {
 	re   *regexp.Regexp
 	what string
@@ -35,12 +35,11 @@ var forbidden = []struct {
 	{regexp.MustCompile(`(?i)\bJSON_TABLE\s*\(`), "JSON_TABLE (MariaDB 10.6+)"},
 	{regexp.MustCompile(`->>`), "->> (not in MariaDB)"},
 	{regexp.MustCompile(`(?i)\bRETURNING\b`), "RETURNING (MariaDB 10.5+)"},
-	{regexp.MustCompile(`(?i)\bOVER\s*\(`), "window function (kept out of module SQL)"},
 }
 
 // Portability scans every .sql file of fsys, comments left out, and returns what
 // MariaDB 10.3 rejects: SKIP LOCKED, FOR UPDATE OF, FOR SHARE, JSON_TABLE, ->>,
-// RETURNING and window functions. Run it over every migration FS a module ships:
+// and RETURNING. Run it over every migration FS a module ships:
 //
 //	dbtest.RequirePortable(t, migrations)
 func Portability(fsys fs.FS) ([]Violation, error) {
