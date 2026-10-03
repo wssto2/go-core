@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// ActivityLog implements account.ActivityLog over go-core's audit trail: what a
+// ActivityLog implements account.ActivityLog (IDENTITY-ADMIN-002) over go-core's audit trail: what a
 // person did is the audit_logs rows whose actor they are, newest first (served
 // by the index on actor and time). Who was signed in as them at the time is read
 // off their sessions: one opened by signing in as somebody covers the time from

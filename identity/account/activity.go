@@ -223,7 +223,7 @@ type ActivityFilter struct {
 	To   time.Time
 }
 
-// Activity pages what the person did, newest first, each entry with its area, with
+// Activity pages what the person did (IDENTITY-ADMIN-002), newest first, each entry with its area, with
 // how many entries match the filter.
 func (a *Admin) Activity(ctx context.Context, accountID int, f ActivityFilter, p Paging) ([]ActivityEntry, int, error) {
 	if _, err := a.d.Users.Get(ctx, accountID); err != nil {

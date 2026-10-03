@@ -5,7 +5,9 @@
 //
 // It serves the API under /api on 127.0.0.1:8090 over an in-memory SQLite
 // database that starts empty on every run and is seeded with an administrator
-// and a plain user (their logins and passwords are printed at start). E-mail
+// and a plain user (their logins and passwords are printed at start), who has two
+// things in her activity, the second done while the administrator was signed in as
+// her. E-mail
 // codes are not sent: they are printed to the log. Browsers at
 // http://localhost:5173 (the vue-core playground) may call it with cookies.
 //
@@ -33,6 +35,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/access"
+	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
@@ -42,6 +45,7 @@ import (
 	"github.com/wssto2/go-core/identity/gormstore"
 	"github.com/wssto2/go-core/mail"
 	"github.com/wssto2/go-core/middlewares"
+	"gorm.io/gorm"
 )
 
 // person is a seeded account: the login and password are fixed so the README
@@ -175,7 +179,8 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 
 	//nolint:contextcheck // installing builds the routes; no request exists yet
 	users := identity.Install(app, identity.WithMail(printed), identity.WithCodeSecret("devserver-secret-not-for-production!"),
-		identity.AllowImpersonation("iam.user:impersonate"))
+		identity.AllowImpersonation("iam.user:impersonate"),
+		identity.WithActivityAreas(identity.Area("crm").Types("customers")))
 	//nolint:contextcheck // installing builds the routes; no request exists yet
 	acc := access.Install(app, permissions, users, access.WithRoles(
 		authz.Role{Key: "seller", Name: "Seller", Grants: authz.Grants(authz.QualifierAll, "crm.customer:view")},
@@ -209,6 +214,10 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 		}
 	}
 
+	if err := seedActivity(ctx, app.Database(), now()); err != nil {
+		return nil, fmt.Errorf("seed activity: %w", err)
+	}
+
 	gin.SetMode(gin.ReleaseMode)
 
 	engine := gin.New()
@@ -220,6 +229,39 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 	engine.NoRoute(gin.WrapH(inner))
 
 	return engine, nil
+}
+
+// seedActivity gives the user two things she did, an hour ago and a minute later, so the
+// Activity section has something to show: the second was done while the administrator was signed
+// in as her (a session opened for the purpose and last used then).
+func seedActivity(ctx context.Context, db *gorm.DB, now time.Time) error {
+	at := now.UTC().Add(-time.Hour).Truncate(time.Second)
+
+	session, err := gormstore.New(db).Sessions.Open(ctx, account.NewSession{
+		AccountID: 2, ActorID: 1, Device: "dev seed", At: at.Add(30 * time.Second), ExpiresAt: at.Add(24 * time.Hour),
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := db.WithContext(ctx).Model(&auth.Token{}).Where("token_value = ?", session.Access).
+		Update("last_used_at", at.Add(2*time.Minute)).Error; err != nil {
+		return err
+	}
+
+	for _, row := range []struct {
+		action string
+		at     time.Time
+	}{{"create", at}, {"update", at.Add(time.Minute)}} {
+		err := db.WithContext(ctx).Exec(
+			"INSERT INTO audit_logs (entity_type, entity_id, action, actor_id, created_at) VALUES ('customers', 41, ?, 2, ?)", row.action, row.at,
+		).Error
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func requestLog(log *slog.Logger) gin.HandlerFunc {
