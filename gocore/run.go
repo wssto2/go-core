@@ -95,7 +95,7 @@ func (a *App) routeProblems() []Problem {
 		if !a.catalogued(spec.Permission) {
 			problems = append(problems, Problem{
 				What: "route " + spec.String() + " requires " + spec.Permission + ", which no permission catalogue defines",
-				Fix:  "define it in the catalogue and pass the catalogue to app.Permissions, or fix the id in Requires",
+				Fix:  "define it in the catalogue and pass the catalogue to app.Permissions (a module's routes: call its DefinePermissions, e.g. notification.DefinePermissions(catalogue)), or fix the id in Requires",
 			})
 		}
 	}
