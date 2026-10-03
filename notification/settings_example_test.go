@@ -148,3 +148,16 @@ func ExampleConsumerNames() {
 	fmt.Println(names.Consumers)
 	// Output: [notification.test tickets.audit]
 }
+
+// Housekeeping: finished deliveries go after 30 days and notifications after 90, in batches. Install runs it every
+// hour; Sweep prunes now.
+func ExampleNotices_Sweep() {
+	t := &exampleT{}
+	defer t.done()
+
+	notices := mailed(t)
+
+	swept, err := notices.Sweep(context.Background())
+	fmt.Println(swept.Notifications, swept.Deliveries, err, notification.NotificationRetention.Hours()/24, notification.DeliveryRetention.Hours()/24)
+	// Output: 0 0 <nil> 90 30
+}

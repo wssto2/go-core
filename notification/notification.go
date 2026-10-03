@@ -212,6 +212,7 @@ func Install(app *gocore.App, users People, opts ...Option) *Notices {
 	n.Settings = &Settings{store: st, kinds: n.kinds, enforce: cfg.enforce, available: n.mail != nil, clock: app.Clock(), location: cfg.location}
 
 	app.Events(n.testConsumer())
+	app.Background(housekeeper{notices: n})
 
 	if n.mail != nil {
 		app.Background(&deliveryWorker{notices: n})
