@@ -150,7 +150,7 @@ func whole(t time.Time) time.Time { return t.Truncate(time.Second) }
 // SQLite, and the shape the store reads and writes. The migration file is the
 // table in production; migrations_test holds the two equal.
 type row struct {
-	ID        uint64     `gorm:"column:id;primaryKey;autoIncrement"`
+	ID        uint64     `gorm:"column:id;primaryKey;autoIncrement;index:notifications_user_id,priority:2"`
 	UserID    uint32     `gorm:"column:user_id;not null;type:int unsigned;index:notifications_user_id,priority:1;index:notifications_user_read,priority:1"`
 	Category  string     `gorm:"column:category;size:64;not null"`
 	Title     string     `gorm:"column:title;size:160;not null"`
