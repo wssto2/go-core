@@ -167,7 +167,7 @@ func TestAnApplicationWithoutTenancyAdministersRolesAndBindings(t *testing.T) {
 
 		status, data = call(t, app, 1, "GET", "/api/v1/iam/users/5/scopes", nil)
 		require.Equal(t, http.StatusOK, status)
-		assert.JSONEq(t, `{"root":true,"places":[]}`, string(data), "no tenancy: the organization is the only place")
+		assert.JSONEq(t, `{"root_level":"organization","root":true,"places":[]}`, string(data), "no tenancy: the organization is the only place")
 
 		status, _ = call(t, app, 5, "GET", "/api/v1/iam/roles", nil)
 		assert.Equal(t, http.StatusForbidden, status, "the clerk may not read roles")

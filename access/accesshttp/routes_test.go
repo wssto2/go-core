@@ -326,7 +326,7 @@ func TestBindingsOverHTTP(t *testing.T) {
 		assert.Equal(t, "seller", access.Effective[0].Grants[0].RoleKey)
 
 		scopes := decode[accesshttp.ScopeOptions](t, s.do(2, "GET", "/v1/iam/users/5/scopes", nil))
-		assert.Equal(t, accesshttp.ScopeOptions{Root: false, Places: []accesshttp.ScopeOption{
+		assert.Equal(t, accesshttp.ScopeOptions{RootLevel: "organization", Root: false, Places: []accesshttp.ScopeOption{
 			{Level: "dealer", ID: 10, Name: "Dealer 10", ParentLevel: "organization"},
 		}}, scopes)
 

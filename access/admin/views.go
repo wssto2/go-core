@@ -124,6 +124,9 @@ type SubjectAccess struct {
 
 // ScopeOptions are the places the actor may give roles at.
 type ScopeOptions struct {
+	// RootLevel names the hierarchy's root level ("organization"), the level a
+	// binding at the root carries.
+	RootLevel string
 	// Root is whether the actor may give roles at the root (the whole organization).
 	Root bool
 	// Places are the places below the root they may give roles at, parents first.
