@@ -80,6 +80,8 @@ type App struct {
 	problems []Problem
 	laters   []unsetter
 	started  bool
+	// authenticatedBy is set once a feature has called Authenticate.
+	authenticatedBy bool
 }
 
 // Option adjusts New.
@@ -199,6 +201,27 @@ func (a *App) Prefix() string {
 	}
 
 	return a.prefix
+}
+
+// Fail reports a problem that stops the application from starting, for a
+// feature whose Install found something it cannot continue with. Run and
+// Check list it with the other problems; what says what is wrong and fix what
+// to do about it.
+func (a *App) Fail(what, fix string) { a.fail(what, fix) }
+
+// Authenticate sets how requests are authenticated, from a feature that does it
+// itself (identity.Install does). Like WithAuthentication it is for the whole
+// application and replaces what the options set, so a test's stand-in gives way
+// to the real thing. Two features authenticating is a start-up problem: an
+// application is authenticated one way.
+func (a *App) Authenticate(middleware ...gin.HandlerFunc) {
+	if a.authenticatedBy {
+		a.fail("two features set how requests are authenticated",
+			"install only one authenticating feature, such as identity.Install, or pass gocore.WithAuthentication to gocore.New for your own")
+	}
+
+	a.authenticatedBy = true
+	a.authenticate = append([]gin.HandlerFunc(nil), middleware...)
 }
 
 // Config returns the configuration the App was created with.
