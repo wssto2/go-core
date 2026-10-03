@@ -94,6 +94,7 @@ type plan struct {
 	outs   []any // output and extra structs, for entities.ts
 	inSet  map[string]bool
 	outSet map[string]bool
+	lists  bool // some output is a ListResult<Row>, imported next to route
 }
 
 type routeLine struct {
@@ -163,7 +164,7 @@ func planOf(g *route.Contract) (*plan, error) {
 		if spec.Out == reflect.TypeFor[route.Empty]() {
 			line.out = "void"
 		} else {
-			expr, structs, err := tsType(spec, spec.Out)
+			expr, structs, err := tsType(spec, spec.Out, &p.lists)
 			if err != nil {
 				return nil, err
 			}
@@ -217,6 +218,13 @@ func planOf(g *route.Contract) (*plan, error) {
 	return p, nil
 }
 
+// isListResult reports whether t is datatable.DatatableResult[Row]: the one
+// generic go-core type with a TypeScript form (ListResult<Row>, which vue-core
+// exports with exactly the datatable wire shape).
+func isListResult(t reflect.Type) bool {
+	return t.PkgPath() == "github.com/wssto2/go-core/datatable" && strings.HasPrefix(t.Name(), "DatatableResult[")
+}
+
 // checkNamed refuses what go2ts cannot name: a generic or anonymous struct.
 func checkNamed(spec route.Spec, t reflect.Type) error {
 	if t.Name() == "" || strings.ContainsAny(t.Name(), "[]") {
@@ -232,10 +240,10 @@ func checkNamed(spec route.Spec, t reflect.Type) error {
 }
 
 // tsType renders t as a TypeScript type and lists the named structs it needs.
-func tsType(spec route.Spec, t reflect.Type) (string, []reflect.Type, error) {
+func tsType(spec route.Spec, t reflect.Type, lists *bool) (string, []reflect.Type, error) {
 	switch t.Kind() {
 	case reflect.Pointer:
-		expr, st, err := tsType(spec, t.Elem())
+		expr, st, err := tsType(spec, t.Elem(), lists)
 		return expr + " | null", st, err
 	case reflect.Bool:
 		return "boolean", nil, nil
@@ -246,7 +254,7 @@ func tsType(spec route.Spec, t reflect.Type) (string, []reflect.Type, error) {
 		reflect.Float32, reflect.Float64:
 		return "number", nil, nil
 	case reflect.Slice, reflect.Array:
-		expr, st, err := tsType(spec, t.Elem())
+		expr, st, err := tsType(spec, t.Elem(), lists)
 		if strings.Contains(expr, " | ") {
 			expr = "(" + expr + ")"
 		}
@@ -257,12 +265,20 @@ func tsType(spec route.Spec, t reflect.Type) (string, []reflect.Type, error) {
 			break
 		}
 
-		expr, st, err := tsType(spec, t.Elem())
+		expr, st, err := tsType(spec, t.Elem(), lists)
 
 		return "Record<string, " + expr + ">", st, err
 	case reflect.Struct:
 		if t.PkgPath() == "time" && t.Name() == "Time" {
 			return "string", nil, nil
+		}
+
+		if isListResult(t) {
+			row, _ := t.FieldByName("Data")
+			expr, st, err := tsType(spec, row.Type.Elem(), lists)
+			*lists = true
+
+			return "ListResult<" + expr + ">", st, err
 		}
 
 		if err := checkNamed(spec, t); err != nil {

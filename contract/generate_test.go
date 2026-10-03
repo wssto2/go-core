@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/wssto2/go-core/datatable"
 	"github.com/wssto2/go-core/route"
 )
 
@@ -51,6 +52,7 @@ type Stats struct {
 
 var (
 	list   = route.Get[ListInput, []Row]("/tickets")
+	paged  = route.Get[ListInput, datatable.DatatableResult[Row]]("/tickets/paged").Name("tickets.paged")
 	show   = route.Get[ShowInput, Ticket]("/tickets/:id").Name("tickets.show").Requires("tickets.ticket:view")
 	create = route.Post[Draft, Ticket]("/tickets").Name("tickets.create").Requires("tickets.ticket:manage")
 	remove = route.Delete[ShowInput, route.Empty]("/tickets/:id")
@@ -59,7 +61,7 @@ var (
 	events = route.Raw("GET", "/events").Public()
 	export = route.Raw("GET", "/export").Requires("tickets.ticket:view")
 
-	tickets = route.Group("tickets", list, show, create, remove, send, health, events, export).Types(Stats{})
+	tickets = route.Group("tickets", list, paged, show, create, remove, send, health, events, export).Types(Stats{})
 )
 
 func fixedVersion(t *testing.T) {

@@ -39,7 +39,7 @@ func ExampleGenerate() {
 	_, table, _ := strings.Cut(string(src), "\n")                     // the first line names the go-core version
 	fmt.Print(table)
 	// Output:
-	// import { route } from "@wssto2/vue-core";
+	// import { route } from "@wssto2/vue-core/client";
 	// import type { ShowInput } from "./schemas";
 	// import type { Ticket } from "./entities";
 	//

@@ -217,7 +217,7 @@ contract.Generate("frontend/generated", tickets.Routes, leads.Routes)
 writes `frontend/generated/tickets/{entities,schemas,routes}.ts`: the output types, the input types as Zod schemas (keeping `max:` bounds), and the route table the client builds typed requests from:
 
 ```ts
-import { route } from "@wssto2/vue-core";
+import { route } from "@wssto2/vue-core/client";
 export const ticketsRoutes = {
   show: route<ShowInput, Ticket>("GET", "/tickets/:id", { permission: "tickets.ticket:view" }),
   events: route.raw("GET", "/events", { public: true }),

@@ -1,4 +1,4 @@
-import { route } from "@wssto2/vue-core";
+import { route } from "@wssto2/vue-core/client";
 import type { ChangeLocaleInput, LoginAsInput, LoginInput, RefreshInput } from "./schemas";
 import type { SessionResponse } from "./entities";
 
