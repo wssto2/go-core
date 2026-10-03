@@ -77,6 +77,11 @@ func (s *Accounts) Create(_ context.Context, a account.Account) (account.Account
 		}
 	}
 
+	a.Email = account.NormalizeEmail(a.Email)
+	if s.emailUsed(a.Email, 0) {
+		return account.Account{}, account.ErrEmailTaken
+	}
+
 	if a.ID == 0 {
 		a.ID = s.next
 	}
@@ -85,6 +90,21 @@ func (s *Accounts) Create(_ context.Context, a account.Account) (account.Account
 	s.rows[a.ID] = a
 
 	return a, nil
+}
+
+// emailUsed reports whether another account has the address; none is never used.
+func (s *Accounts) emailUsed(email string, except int) bool {
+	if email == "" {
+		return false
+	}
+
+	for _, o := range s.rows {
+		if o.ID != except && o.Email == email {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *Accounts) update(id int, fn func(*account.Account)) error {
@@ -159,7 +179,15 @@ func (s *Accounts) Update(_ context.Context, id int, c account.Changes) error {
 		}
 	}
 
-	set(&a.Email, c.Email)
+	if c.Email != nil {
+		email := account.NormalizeEmail(*c.Email)
+		if s.emailUsed(email, id) {
+			return account.ErrEmailTaken
+		}
+
+		a.Email = email
+	}
+
 	set(&a.Name, c.Name)
 	set(&a.Phone, c.Phone)
 	set(&a.Locale, c.Locale)

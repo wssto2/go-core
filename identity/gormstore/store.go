@@ -116,7 +116,7 @@ func millis(t time.Time) time.Time { return t.UTC().Truncate(time.Millisecond) }
 
 func (m accountModel) account() account.Account {
 	return account.Account{
-		ID: m.ID, Login: m.Login, Email: m.Email, Phone: m.Phone, Name: m.Name, Locale: m.Locale, Active: m.Active,
+		ID: m.ID, Login: m.Login, Email: fromNull(m.Email), Phone: m.Phone, Name: m.Name, Locale: m.Locale, Active: m.Active,
 		PasswordHash: m.PasswordHash, CreatedAt: m.CreatedAt.UTC(),
 	}
 }
@@ -168,7 +168,7 @@ func (s *Accounts) one(ctx context.Context, where string, arg any) (account.Acco
 // Create implements account.Store.
 func (s *Accounts) Create(ctx context.Context, a account.Account) (account.Account, error) {
 	m := accountModel{
-		Login: account.NormalizeLogin(a.Login), Email: a.Email, Phone: a.Phone, Name: a.Name, PasswordHash: a.PasswordHash,
+		Login: account.NormalizeLogin(a.Login), Email: toNull(a.Email), Phone: a.Phone, Name: a.Name, PasswordHash: a.PasswordHash,
 		Locale: a.Locale, Active: a.Active, CreatedAt: whole(a.CreatedAt), UpdatedAt: whole(a.CreatedAt),
 	}
 
@@ -182,6 +182,10 @@ func (s *Accounts) Create(ctx context.Context, a account.Account) (account.Accou
 		var n int64
 		if dbOf(s.db, ctx).Model(&accountModel{}).Where("login = ?", m.Login).Count(&n).Error == nil && n > 0 {
 			return account.Account{}, account.ErrLoginTaken
+		}
+
+		if s.emailTaken(ctx, m.Email, 0) {
+			return account.Account{}, account.ErrEmailTaken
 		}
 
 		return account.Account{}, err
@@ -234,7 +238,7 @@ func (s *Accounts) Update(ctx context.Context, id int, c account.Changes) error 
 	}
 
 	if c.Email != nil {
-		set["email"] = *c.Email
+		set["email"] = toNull(*c.Email)
 	}
 
 	if c.Name != nil {
@@ -267,6 +271,10 @@ func (s *Accounts) Update(ctx context.Context, id int, c account.Changes) error 
 			}
 		}
 
+		if c.Email != nil && s.emailTaken(ctx, toNull(*c.Email), id) {
+			return account.ErrEmailTaken
+		}
+
 		return tx.Error
 	}
 
@@ -277,6 +285,37 @@ func (s *Accounts) Update(ctx context.Context, id int, c account.Changes) error 
 	}
 
 	return nil
+}
+
+// toNull is an address as the column keeps it: lower-case, and NULL for none, so
+// accounts without one do not collide in the unique index.
+func toNull(email string) *string {
+	email = account.NormalizeEmail(email)
+	if email == "" {
+		return nil
+	}
+
+	return &email
+}
+
+func fromNull(email *string) string {
+	if email == nil {
+		return ""
+	}
+
+	return *email
+}
+
+// emailTaken asks the table whether another account (not except) has the address;
+// the driver's duplicate-key error differs, so a failed write is explained this way.
+func (s *Accounts) emailTaken(ctx context.Context, email *string, except int) bool {
+	if email == nil {
+		return false
+	}
+
+	var n int64
+
+	return dbOf(s.db, ctx).Model(&accountModel{}).Where("email = ? AND id <> ?", *email, except).Count(&n).Error == nil && n > 0
 }
 
 // likePattern is term as a LIKE pattern that matches it anywhere, the wildcards in it escaped with "!".

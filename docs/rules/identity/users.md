@@ -20,7 +20,7 @@ the actions a person has taken (arv-next's "Radnje").
    characters, no white space, stored lower-case) and the address (one address, no display name, at most 255,
    stored lower-case) are normalised; the name is required (150), the phone optional (30), the locale a BCP-47 tag.
    A login in use is `409 identity.login.taken`, an address in use `409 identity.email.taken` (compared without
-   case): **one account per address**. The password must satisfy the `PasswordPolicy` (default: 8 characters, at most 72
+   case): **one account per address**, backed by a unique index (`uq_accounts_email`; an account without an address is NULL, so any number may have none), so a race past the check is also `identity.email.taken`, not a 500. The password must satisfy the `PasswordPolicy` (default: 8 characters, at most 72
    bytes, bcrypt's limit; `identity.WithPasswordPolicy` replaces it) or the answer is `identity.password.weak` with
    `params.rules`. Every refused field is also in `fields`, named as the input names it. The new person can sign in
    at once.

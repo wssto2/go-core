@@ -24,4 +24,5 @@ func ExampleFiles() {
 	// 20261016000003_identity_verification_codes.sql
 	// 20261016000004_identity_reauth_attempts.sql
 	// 20261016000005_identity_accounts_phone.sql
+	// 20261016000006_identity_accounts_email_unique.sql
 }

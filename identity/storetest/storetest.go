@@ -113,6 +113,7 @@ func Run(t *testing.T, newStores Factory) {
 		"accounts/find by email":         accountsFindByEmail,
 		"accounts/update":                accountsUpdate,
 		"accounts/update login taken":    accountsUpdateLoginTaken,
+		"accounts/email is unique":       accountsEmailUnique,
 		"accounts/search":                accountsSearch,
 		"accounts/search escapes":        accountsSearchEscapes,
 		"signins/entries":                signInsEntries,
@@ -1189,4 +1190,42 @@ func changesRecordAndList(t *testing.T, s Stores) {
 	none, total, err := s.Changes.Changes(ctx(), 7, 0, 10)
 	c.noErr(err, "changes")
 	c.equal(0, total+len(none), "an account without changes")
+}
+
+func accountsEmailUnique(t *testing.T, s Stores) {
+	c := check{t}
+
+	a := newAccount("ana")
+	a.Email = "shared@example.test"
+	first, err := s.Accounts.Create(ctx(), a)
+	c.noErr(err, "create")
+
+	b := newAccount("boris")
+	b.Email = "Shared@Example.test"
+	_, err = s.Accounts.Create(ctx(), b)
+	c.isErr(err, account.ErrEmailTaken, "the same address, in another case")
+
+	b.Email = "boris@example.test"
+	second, err := s.Accounts.Create(ctx(), b)
+	c.noErr(err, "another address")
+
+	c.isErr(s.Accounts.Update(ctx(), second.ID, account.Changes{Email: str("SHARED@example.test")}), account.ErrEmailTaken, "update to a taken address")
+	c.noErr(s.Accounts.Update(ctx(), first.ID, account.Changes{Email: str("shared@example.test")}), "an account keeps its own address")
+
+	got, err := s.Accounts.Find(ctx(), second.ID)
+	c.noErr(err, "find")
+	c.equal("boris@example.test", got.Email, "the refused update wrote nothing")
+
+	// no address is no collision: any number of accounts may have none
+	for _, login := range []string{"cvita", "dino"} {
+		n := newAccount(login)
+		n.Email = ""
+		_, err := s.Accounts.Create(ctx(), n)
+		c.noErr(err, "create without an address: "+login)
+	}
+
+	none, err := s.Accounts.FindByLogin(ctx(), "dino")
+	c.noErr(err, "find")
+	c.equal("", none.Email, "no address reads empty")
+	c.noErr(s.Accounts.Update(ctx(), none.ID, account.Changes{Email: str("")}), "clearing an address")
 }
