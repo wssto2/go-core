@@ -327,6 +327,9 @@ func TestLoginAs(t *testing.T) {
 	got, err := k.SignIn.Authenticate(ctx, signed.Credentials.Access)
 	require.NoError(t, err)
 	assert.Equal(t, 1, got.Session.ActorID, "the session says who signed in")
+	require.NotNil(t, got.Actor)
+	assert.Equal(t, 1, got.Actor.ID)
+	assert.Equal(t, 1, signed.Actor.ID)
 
 	all := k.SignIns.All()
 	require.Len(t, all, 1)
@@ -350,6 +353,7 @@ func TestRefreshKeepsALoginAsSessionMarked(t *testing.T) {
 	got, err := k.SignIn.Authenticate(t.Context(), refreshed.Credentials.Access)
 	require.NoError(t, err)
 	assert.Equal(t, 1, got.Session.ActorID)
+	assert.Equal(t, 1, refreshed.Actor.ID)
 }
 
 func TestNewNamesTheMissingDependency(t *testing.T) {

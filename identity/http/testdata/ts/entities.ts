@@ -10,6 +10,11 @@ export type ChangeRow = {
   created_at: string;
 };
 
+export type Impersonator = {
+  id: number;
+  name: string;
+};
+
 export type MyAccess = {
   subject: Subject;
   root: boolean;
@@ -61,6 +66,7 @@ export type SessionList = {
 export type SessionResponse = {
   user: any;
   expires_at: string;
+  impersonator?: Impersonator | null;
   access: MyAccess;
   navigation?: Node[];
 };

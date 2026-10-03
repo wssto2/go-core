@@ -2,6 +2,7 @@ package http_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"log/slog"
@@ -127,6 +128,19 @@ func ExampleLogin() {
 	// POST /v1/auth/login public: true
 	// GET /v1/auth/me public: false
 	// POST /v1/auth/login-as public: false
+}
+
+// A session opened by signing in as somebody says who is really signed in:
+// the client shows a banner and offers the way back.
+func ExampleImpersonator() {
+	out, _ := json.Marshal(identityhttp.SessionResponse{Impersonator: &identityhttp.Impersonator{ID: 1, Name: "Ana Anić"}})
+	fmt.Println(strings.Contains(string(out), `"impersonator":{"id":1,"name":"Ana Anić"}`))
+
+	own, _ := json.Marshal(identityhttp.SessionResponse{})
+	fmt.Println(strings.Contains(string(own), "impersonator"))
+	// Output:
+	// true
+	// false
 }
 
 // Cookies renames the cookies and places them.

@@ -149,7 +149,7 @@ func (h *Handler) me(ctx context.Context, _ route.None) (SessionResponse, error)
 		return SessionResponse{}, apperr.Unauthorized(string(account.ReasonSessionInvalid)).WithReason(account.ReasonSessionInvalid)
 	}
 
-	return h.payload(ctx, who.Account, who.Session.ExpiresAt)
+	return h.payload(ctx, who.Account, who.Actor, who.Session.ExpiresAt)
 }
 
 func (h *Handler) changeLocale(ctx context.Context, in ChangeLocaleInput) (route.Empty, error) {
@@ -184,13 +184,13 @@ func (h *Handler) loginAs(ctx context.Context, in LoginAsInput) (SessionResponse
 func (h *Handler) session(ctx context.Context, declared string, signed account.Signed) (SessionResponse, error) {
 	h.cookies.set(route.ExchangeOf(ctx), declared, signed.Credentials.Access, signed.Credentials.Refresh, h.clock.Now(), signed.Credentials.ExpiresAt)
 
-	return h.payload(ctx, signed.Account, signed.Credentials.ExpiresAt)
+	return h.payload(ctx, signed.Account, signed.Actor, signed.Credentials.ExpiresAt)
 }
 
-// payload builds {user, expires_at, access, navigation} for an account. The
+// payload builds {user, expires_at, impersonator, access, navigation} for an account. The
 // engine and the projector act as the account: a sign-in has no principal in
 // its request yet, so it is put in the context here.
-func (h *Handler) payload(ctx context.Context, acc account.Account, expires time.Time) (SessionResponse, error) {
+func (h *Handler) payload(ctx context.Context, acc account.Account, actor *account.Account, expires time.Time) (SessionResponse, error) {
 	principal, err := h.principal(ctx, acc)
 	if err != nil {
 		return SessionResponse{}, apperr.Internal(err)
@@ -212,6 +212,10 @@ func (h *Handler) payload(ctx context.Context, acc account.Account, expires time
 	}
 
 	out := SessionResponse{User: user, ExpiresAt: expires.UTC(), Access: held}
+
+	if actor != nil {
+		out.Impersonator = &Impersonator{ID: actor.ID, Name: actor.Name}
+	}
 
 	if h.navigation != nil {
 		tree, err := h.navigation(ctx, acc)

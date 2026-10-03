@@ -319,9 +319,15 @@ func TestLoginAsSignsInAsTheTarget(t *testing.T) {
 	require.Equal(t, nethttp.StatusOK, r.Code, r.Body.String())
 	assert.Equal(t, "boris", r.json()["data"].(map[string]any)["user"].(map[string]any)["login"])
 
+	assert.Equal(t, map[string]any{"id": float64(1), "name": "Ana Anić"}, r.json()["data"].(map[string]any)["impersonator"], "the answer says who is really signed in")
+
 	asBoris := r.cookie("access_token").Value
 	me := h.do(nethttp.MethodGet, "/v1/auth/me", nil, withCookie("access_token", asBoris))
 	assert.Equal(t, "boris", me.json()["data"].(map[string]any)["user"].(map[string]any)["login"])
+	assert.Equal(t, map[string]any{"id": float64(1), "name": "Ana Anić"}, me.json()["data"].(map[string]any)["impersonator"])
+
+	own := h.do(nethttp.MethodGet, "/v1/auth/me", nil, withCookie("access_token", token))
+	assert.NotContains(t, own.json()["data"], "impersonator", "a person's own session has none")
 }
 
 func TestThePayloadCarriesAccessAndTheFilteredMenu(t *testing.T) {
