@@ -211,6 +211,9 @@ func Install(app *gocore.App, users People, categories ...Category) *Notices {
 	}
 	n.Inbox = &Inbox{store: st, clock: app.Clock(), hub: NewHub()}
 
+	app.Events(n.testConsumer())
+	app.Routes(Declare().To(n)...)
+
 	return n
 }
 

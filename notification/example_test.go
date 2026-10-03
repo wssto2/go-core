@@ -6,6 +6,7 @@ import (
 	"log"
 	"testing"
 
+	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/gocoretest"
@@ -271,4 +272,35 @@ func ExampleHub() {
 
 	fmt.Println((<-events).UnreadCount, hub.Subscribers(7), hub.Subscribers(8))
 	// Output: 3 1 0
+}
+
+// The routes are declared as values: the TypeScript contract is generated from them without starting anything.
+func ExampleRoutes() {
+	for _, spec := range notification.Routes.Specs() {
+		fmt.Println(spec.Method, spec.Path)
+	}
+	// Output:
+	// GET /v1/notifications
+	// GET /v1/notifications/unread
+	// POST /v1/notifications/:id/read
+	// POST /v1/notifications/read
+	// GET /v1/notifications/stream
+	// POST /v1/notifications/test
+}
+
+// A signed-in person sends themselves a test notification through the event queue and reads it over
+// HTTP.
+func ExampleDeclare() {
+	t := &exampleT{}
+	defer t.done()
+
+	app := gocoretest.New(t, gocoretest.SignedIn(authz.User(1, 0)))
+	notification.Install(app, identitytest.Users(t, identitytest.Account(1, "ana", "x")))
+
+	gocoretest.Do(t, app, "POST", "/v1/notifications/test", nil)
+	_ = app.DrainEvents(context.Background()) // what the background worker does
+
+	page := gocoretest.Decode[notification.Page](t, gocoretest.Do(t, app, "GET", "/v1/notifications", nil))
+	fmt.Println(page.Items[0].Category, page.Items[0].Title)
+	// Output: system.test Test notification
 }
