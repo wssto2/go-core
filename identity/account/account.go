@@ -42,6 +42,10 @@ type Account struct {
 	CreatedAt    time.Time
 }
 
+// GetID makes an Account an auth.Identifiable, so go-core's rate limiting and
+// audit read who is signed in.
+func (a Account) GetID() int { return a.ID }
+
 var (
 	// ErrNotFound is what an AccountStore returns for an account that does not exist.
 	ErrNotFound = errors.New("identity: account not found")

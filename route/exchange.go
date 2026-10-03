@@ -50,6 +50,16 @@ func (x Exchange) Header(name string) string {
 	return x.c.GetHeader(name)
 }
 
+// Secure reports whether the request came over HTTPS, directly or through a
+// proxy that says so with X-Forwarded-Proto.
+func (x Exchange) Secure() bool {
+	if x.c == nil {
+		return false
+	}
+
+	return x.c.Request.TLS != nil || x.c.GetHeader("X-Forwarded-Proto") == "https"
+}
+
 // Cookie is the value of a request cookie, empty when there is none.
 func (x Exchange) Cookie(name string) string {
 	if x.c == nil {
