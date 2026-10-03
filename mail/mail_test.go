@@ -25,6 +25,8 @@ type relay struct {
 	addr string
 	mu   sync.Mutex
 	got  []received
+	// rcpt is the answer to RCPT TO; empty accepts.
+	rcpt string
 }
 
 type received struct {
@@ -83,7 +85,16 @@ func (r *relay) serve(c net.Conn) {
 			_ = tp.PrintfLine("250 ok")
 		case strings.HasPrefix(cmd, "RCPT TO:"):
 			cur.to = append(cur.to, strings.Trim(line[len("RCPT TO:"):], "<> "))
-			_ = tp.PrintfLine("250 ok")
+
+			r.mu.Lock()
+			answer := r.rcpt
+			r.mu.Unlock()
+
+			if answer == "" {
+				answer = "250 ok"
+			}
+
+			_ = tp.PrintfLine("%s", answer)
 		case cmd == "DATA":
 			_ = tp.PrintfLine("354 go")
 
@@ -107,6 +118,13 @@ func (r *relay) serve(c net.Conn) {
 			_ = tp.PrintfLine("250 ok")
 		}
 	}
+}
+
+func (r *relay) answerRcpt(line string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.rcpt = line
 }
 
 func (r *relay) messages() []received {
@@ -201,6 +219,34 @@ func TestSendersRefuseMessagesThatCouldInjectHeaders(t *testing.T) {
 	}
 
 	require.Empty(t, r.messages())
+}
+
+// ErrPermanent is what no retry can cure: a message the checks refuse, and an address the relay refuses for good (5xx).
+// A relay that says "try later" (4xx), or is not there, is not permanent.
+func TestPermanentErrorsAreTheOnesNoRetryCures(t *testing.T) {
+	r := startRelay(t)
+	sender := mail.SMTP(mail.SMTPConfig{Addr: r.addr, From: "no-reply@example.com"})
+	m := mail.Message{To: []string{"a@example.com"}, Subject: "Hi", Text: "t"}
+
+	require.NoError(t, sender.Send(context.Background(), m))
+
+	for _, bad := range []mail.Message{{Subject: "Hi", Text: "t"}, {To: []string{"ana"}, Text: "t"}, {To: []string{"a@example.com"}, Subject: "a\nb", Text: "t"}, {To: []string{"a@example.com"}}} {
+		require.ErrorIs(t, bad.Check(), mail.ErrPermanent)
+		require.ErrorIs(t, sender.Send(context.Background(), bad), mail.ErrPermanent)
+	}
+
+	r.answerRcpt("550 no such mailbox")
+	err := sender.Send(context.Background(), m)
+	require.ErrorIs(t, err, mail.ErrPermanent)
+	require.ErrorContains(t, err, "the relay refused the recipient a@example.com")
+
+	r.answerRcpt("451 try again later")
+	err = sender.Send(context.Background(), m)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, mail.ErrPermanent)
+
+	down := mail.SMTP(mail.SMTPConfig{Addr: "127.0.0.1:1", From: "no-reply@example.com"})
+	require.NotErrorIs(t, down.Send(context.Background(), m), mail.ErrPermanent)
 }
 
 func TestSMTPNamesAWrongConfiguration(t *testing.T) {

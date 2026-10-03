@@ -2,6 +2,7 @@ package mail_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing/fstest"
 
@@ -100,4 +101,12 @@ func ExampleFallback() {
 	// Output:
 	// Welcome to us
 	// Goodbye
+}
+
+func ExampleErrPermanent() {
+	bad := mail.Message{To: []string{"not an address"}, Subject: "Hi", Text: "Hi"}
+
+	// A message that is wrong as it is can never be sent: do not retry it.
+	fmt.Println(errors.Is(bad.Check(), mail.ErrPermanent))
+	// Output: true
 }

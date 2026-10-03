@@ -3,6 +3,7 @@ package mail
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -127,7 +128,14 @@ func (s *smtpSender) Send(ctx context.Context, m Message) error {
 		addr, _ := mail.ParseAddress(to) // Check parsed it
 
 		if err := client.Rcpt(addr.Address); err != nil {
-			return fmt.Errorf("mail: the relay refused the recipient %s: %w", addr.Address, err)
+			refused := fmt.Errorf("mail: the relay refused the recipient %s: %w", addr.Address, err)
+
+			var answer *textproto.Error
+			if errors.As(err, &answer) && answer.Code >= 500 {
+				return permanent{refused} // a 5xx for the address: it will not be accepted later either
+			}
+
+			return refused
 		}
 	}
 

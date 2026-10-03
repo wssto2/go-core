@@ -1,0 +1,10 @@
+Hello {{.Name}},
+
+{{.Title}}
+{{if .Body}}
+{{.Body}}
+{{end}}{{if .OpenURL}}
+Open: {{.OpenURL}}
+{{end}}
+--
+You receive this e-mail because e-mail is on for this kind of notification, by default or because you chose it. You can change which notifications are e-mailed to you in your notification settings.

@@ -1,0 +1,10 @@
+Pozdravljeni {{.Name}},
+
+{{.Title}}
+{{if .Body}}
+{{.Body}}
+{{end}}{{if .OpenURL}}
+Odpri: {{.OpenURL}}
+{{end}}
+--
+To e-sporočilo prejemate, ker je e-pošta vklopljena za to vrsto obvestil, privzeto ali po vaši izbiri. Katera obvestila prejemate po e-pošti, lahko spremenite v nastavitvah obvestil.

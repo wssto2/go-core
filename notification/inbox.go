@@ -222,8 +222,10 @@ func (s *store) conn(ctx context.Context) *gorm.DB {
 // insertNew writes the rows that do not exist yet, in one transaction, and
 // returns the ones it wrote with their ids. A row whose dedupe key exists is
 // skipped (NOTIF-EVENT-001): the unique index refuses the second insert, so two
-// deliveries racing on one event still make a single row.
-func (s *store) insertNew(ctx context.Context, rows []row) ([]row, error) {
+// deliveries racing on one event still make a single row. The e-mail delivery planned for
+// a person is written in the same transaction, only for a notification that was written: a
+// retried event makes no second e-mail (NOTIF-DELIVERY-001, rule 5).
+func (s *store) insertNew(ctx context.Context, rows []row, deliveries map[uint32]deliveryRow) ([]row, error) {
 	var created []row
 
 	err := s.conn(ctx).Transaction(func(tx *gorm.DB) error {
@@ -233,8 +235,18 @@ func (s *store) insertNew(ctx context.Context, rows []row) ([]row, error) {
 				return res.Error
 			}
 
-			if res.RowsAffected > 0 {
-				created = append(created, r)
+			if res.RowsAffected == 0 {
+				continue
+			}
+
+			created = append(created, r)
+
+			if d, ok := deliveries[r.UserID]; ok {
+				d.NotificationID = r.ID
+
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&d).Error; err != nil {
+					return err
+				}
 			}
 		}
 

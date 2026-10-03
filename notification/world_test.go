@@ -24,7 +24,7 @@ import (
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/identity/identitytest"
-	"github.com/wssto2/go-core/identity/mailtext"
+	identitymail "github.com/wssto2/go-core/identity/mailtext"
 	"github.com/wssto2/go-core/mail"
 	"github.com/wssto2/go-core/notification"
 	"gorm.io/gorm"
@@ -40,6 +40,13 @@ func (c *fakeClock) Now() time.Time {
 	defer c.mu.Unlock()
 
 	return c.now
+}
+
+func (c *fakeClock) Set(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.now = t
 }
 
 func (c *fakeClock) Advance(d time.Duration) {
@@ -127,7 +134,7 @@ func accounts() []account.Account {
 func newWorld(t *testing.T, db *gorm.DB, authorizer authz.Authorizer) *world {
 	t.Helper()
 
-	return buildWorld(t, db, authorizer, nil)
+	return buildWorld(t, db, authorizer, nil, account.Mail{})
 }
 
 // newMailWorld is newWorld with identity's mail going to a sink, and the application's address, so the people
@@ -135,10 +142,33 @@ func newWorld(t *testing.T, db *gorm.DB, authorizer authz.Authorizer) *world {
 func newMailWorld(t *testing.T, db *gorm.DB, opts ...notification.Option) *world {
 	t.Helper()
 
-	return buildWorld(t, db, nil, mail.NewSink(), append([]notification.Option{notification.AppURL("https://tickets.example.test")}, opts...)...)
+	sink := mail.NewSink()
+
+	return buildWorld(t, db, nil, sink, account.Mail{Sender: sink, Renderer: identitymail.Defaults}, withAppURL(opts)...)
 }
 
-func buildWorld(t *testing.T, db *gorm.DB, authorizer authz.Authorizer, sink *mail.Sink, opts ...notification.Option) *world {
+// newSenderWorld is newMailWorld with a sender of the test's own, such as one that fails; the sink stays empty.
+func newSenderWorld(t *testing.T, db *gorm.DB, sender mail.Sender, opts ...notification.Option) *world {
+	t.Helper()
+
+	return buildWorld(t, db, nil, mail.NewSink(), account.Mail{Sender: sender, Renderer: identitymail.Defaults}, withAppURL(opts)...)
+}
+
+// newRendererWorld is newMailWorld with the application's renderer, as identity.WithMailContent gives it, in front of identity's.
+func newRendererWorld(t *testing.T, db *gorm.DB, renderer mail.Renderer, opts ...notification.Option) *world {
+	t.Helper()
+
+	sink := mail.NewSink()
+
+	return buildWorld(t, db, nil, sink, account.Mail{Sender: sink, Renderer: mail.Fallback(renderer, identitymail.Defaults)}, withAppURL(opts)...)
+}
+
+func withAppURL(opts []notification.Option) []notification.Option {
+	return append([]notification.Option{notification.AppURL("https://tickets.example.test")}, opts...)
+}
+
+// buildWorld builds the application; m is where identity's mail goes, the zero Mail for identity run WithoutMail.
+func buildWorld(t *testing.T, db *gorm.DB, authorizer authz.Authorizer, sink *mail.Sink, m account.Mail, opts ...notification.Option) *world {
 	t.Helper()
 
 	if authorizer == nil {
@@ -148,8 +178,8 @@ func buildWorld(t *testing.T, db *gorm.DB, authorizer authz.Authorizer, sink *ma
 	w := &world{t: t, db: db, sink: sink, clock: &fakeClock{now: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}}
 	w.people = &directory{Users: identitytest.Users(t, accounts()...)}
 
-	if sink != nil {
-		w.people.SetMail(account.Mail{Sender: sink, Renderer: mailtext.Defaults})
+	if m.Sender != nil {
+		w.people.SetMail(m)
 	}
 
 	reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
@@ -202,6 +232,55 @@ func (w *world) consumeAssigned(opts ...event.RetryOption) {
 				return notification.Message{Title: "Hi " + r.Name + " (" + r.Locale + ")", Link: "/tickets/" + strconv.Itoa(e.TicketID)}
 			})
 	}).Retry(opts...))
+}
+
+// commented is a second fact, for the category that is e-mailed only when a person asks for it.
+var commented = event.Define[assignedEvent]("tickets.commented")
+
+// consumeCommented collects the consumer that sends tickets.commented to the event's recipients.
+func (w *world) consumeCommented() {
+	w.app.Events(commented.To("notifications.ticket-commented", func(ctx context.Context, e assignedEvent) error {
+		return w.notices.Send(ctx, TicketCommented, notification.To(e.To...).Except(e.Actor),
+			func(r notification.Recipient) notification.Message {
+				return notification.Message{Title: "Comment for " + r.Name, Body: "Somebody wrote", Link: "/tickets/" + strconv.Itoa(e.TicketID)}
+			})
+	}))
+}
+
+// delivery is a notification_deliveries row as the tests read it.
+type delivery struct {
+	ID             uint64
+	NotificationID uint64
+	DeviceID       uint64
+	Address        *string
+	Channel        string
+	Status         string
+	Attempts       uint32
+	NextAttemptAt  time.Time
+	ExpiresAt      time.Time
+	SentAt         *time.Time
+	LastError      *string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+func (w *world) deliveries() []delivery {
+	w.t.Helper()
+
+	var out []delivery
+	require.NoError(w.t, w.db.Table("notification_deliveries").Order("id").Find(&out).Error)
+
+	return out
+}
+
+// deliverDue sends what is due, as the worker does.
+func (w *world) deliverDue() int {
+	w.t.Helper()
+
+	n, err := w.notices.DeliverDue(w.t.Context())
+	require.NoError(w.t, err)
+
+	return n
 }
 
 func (w *world) publish(p assignedEvent) {

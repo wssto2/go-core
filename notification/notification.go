@@ -212,6 +212,11 @@ func Install(app *gocore.App, users People, opts ...Option) *Notices {
 	n.Settings = &Settings{store: st, kinds: n.kinds, enforce: cfg.enforce, available: n.mail != nil, clock: app.Clock(), location: cfg.location}
 
 	app.Events(n.testConsumer())
+
+	if n.mail != nil {
+		app.Background(&deliveryWorker{notices: n})
+	}
+
 	app.Routes(Declare().To(n)...)
 	app.Routes(DeclareDeadLetters().To(event.NewDeadLetters(db, app.Clock()))...)
 
@@ -279,7 +284,8 @@ func (n *Notices) Send(ctx context.Context, category Kind, to Recipients, render
 		return fmt.Errorf("%w: Send commits its own transaction, so it cannot run inside another", ErrNotInConsumer)
 	}
 
-	if _, ok := n.kind(category); !ok {
+	registered, ok := n.kind(category)
+	if !ok {
 		return fmt.Errorf("%w: %w: %q: pass it to notification.Install", event.ErrMalformed, ErrUnknownCategory, category.code)
 	}
 
@@ -304,6 +310,7 @@ func (n *Notices) Send(ctx context.Context, category Kind, to Recipients, render
 
 	now := n.clock.Now()
 	rows := make([]row, 0, len(ids))
+	notified := make([]account.Account, 0, len(ids))
 
 	for _, id := range ids {
 		a, found := byID[id]
@@ -327,13 +334,19 @@ func (n *Notices) Send(ctx context.Context, category Kind, to Recipients, render
 		}
 
 		rows = append(rows, r)
+		notified = append(notified, a)
 	}
 
 	if len(rows) == 0 {
 		return nil
 	}
 
-	created, err := n.store.insertNew(ctx, rows)
+	plans, err := n.emailPlans(ctx, registered, notified, whole(now))
+	if err != nil {
+		return err
+	}
+
+	created, err := n.store.insertNew(ctx, rows, plans)
 	if err != nil {
 		return err
 	}

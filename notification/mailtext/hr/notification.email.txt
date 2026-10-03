@@ -1,0 +1,10 @@
+Poštovani {{.Name}},
+
+{{.Title}}
+{{if .Body}}
+{{.Body}}
+{{end}}{{if .OpenURL}}
+Otvori: {{.OpenURL}}
+{{end}}
+--
+Ovu e-poruku primate jer je e-pošta uključena za ovu vrstu obavijesti, prema zadanoj postavci ili prema vašem izboru. Koje obavijesti primate e-poštom možete promijeniti u postavkama obavijesti.

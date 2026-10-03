@@ -14,7 +14,10 @@ import (
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/gocoretest"
+	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/identity/identitytest"
+	"github.com/wssto2/go-core/identity/mailtext"
+	"github.com/wssto2/go-core/mail"
 	"github.com/wssto2/go-core/notification"
 )
 
@@ -435,4 +438,45 @@ func ExampleDeclareDeadLetters() {
 	// Output:
 	// 1 examples.always-fails examples.always-fails true
 	// 1
+}
+
+// The worker Install starts delivers the due e-mails every second; DeliverDue does it now, for a test or a command.
+func ExampleNotices_DeliverDue() {
+	t := &exampleT{}
+	defer t.done()
+
+	sink := mail.NewSink()
+	ana := identitytest.Account(1, "ana", "x")
+	ana.Email = "ana@example.com"
+	users := identitytest.Users(t, ana)
+	users.SetMail(account.Mail{Sender: sink, Renderer: mailtext.Defaults})
+
+	app := newApp(t)
+	notices := notification.Install(app, users, TicketAssigned, notification.AppURL("https://tickets.example.com"))
+
+	app.Events(Assigned.To("notifications.ticket-assigned", func(ctx context.Context, e TicketAssignedEvent) error {
+		return notices.Send(ctx, TicketAssigned, notification.To(e.AssigneeID), func(notification.Recipient) notification.Message {
+			return notification.Message{Title: "You were assigned " + e.Title, Link: fmt.Sprintf("/tickets/%d", e.TicketID)}
+		})
+	}))
+
+	// Ana has no quiet hours, so the e-mail is not held whatever time it is.
+	_, _ = notices.Settings.SetQuietHours(context.Background(), 1, notification.QuietHours{Enabled: false, Start: 21 * 60, End: 7 * 60})
+
+	gocoretest.Publish(t, app, Assigned, TicketAssignedEvent{TicketID: 7, AssigneeID: 1, Title: "Login bug"})
+
+	handled, _ := notices.DeliverDue(context.Background())
+	fmt.Println(handled)
+
+	if m, ok := sink.Last(); ok {
+		fmt.Println(m.To[0], "|", m.Subject)
+	}
+	// Output:
+	// 1
+	// ana@example.com | You were assigned Login bug
+}
+
+func ExampleDeliveryTTL() {
+	fmt.Println(notification.DeliveryTTL, notification.RetryBaseDelay, notification.RetryMaxDelay)
+	// Output: 24h0m0s 30s 1h0m0s
 }

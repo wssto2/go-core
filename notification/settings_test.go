@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/database/dbtest"
+	"github.com/wssto2/go-core/identity/account"
+	identitymail "github.com/wssto2/go-core/identity/mailtext"
 	"github.com/wssto2/go-core/notification"
 	"gorm.io/gorm"
 )
@@ -165,7 +167,7 @@ func TestWithoutMailEmailIsUnavailableAndSaysSo(t *testing.T) {
 
 func TestMailNeedsTheApplicationsAddressAndCheckSaysSo(t *testing.T) {
 	w := newMailWorld(t, mustSQLite(t))
-	w2 := buildWorld(t, mustSQLite(t), nil, w.sink) // mail, but no AppURL
+	w2 := buildWorld(t, mustSQLite(t), nil, w.sink, account.Mail{Sender: w.sink, Renderer: identitymail.Defaults}) // mail, but no AppURL
 
 	_, err := w2.app.Handler()
 	require.ErrorContains(t, err, "e-mail links need notification.AppURL(")
