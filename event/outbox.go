@@ -13,10 +13,11 @@ import (
 type OutboxEvent struct {
 	ID        uint   `gorm:"primaryKey"`
 	RequestID string `gorm:"index:idx_request_id"`
-	Source    string
-	// EventType is the Go type string (reflect.Type.String()) of the original event,
-	// used by the outbox worker as the delivery subject.
-	EventType string
+	Source    string `gorm:"size:191"`
+	// EventType is the delivery subject: the durable name of an event declared
+	// with Define, or for InsertOutboxEvent the Go type string
+	// (reflect.Type.String()) of the original event.
+	EventType string          `gorm:"size:191"`
 	Envelope  json.RawMessage `gorm:"type:json"`
 	CreatedAt time.Time
 	// ProcessedAt is set when the event has been successfully published.
