@@ -26,10 +26,16 @@
 // write never notifies and a committed one always does, because the event is
 // queued in the write's transaction.
 //
-// The module has no translations of its own: the application renders the text
+// The module has no translations of its own for the notification: the application renders the text
 // for each recipient, in the language Recipient.Locale names. Categories are
 // declared in code and registered with Install; the inbox routes, the live
-// stream and the dead-letter routes come with it.
+// stream, the settings routes and the dead-letter routes come with it.
+//
+// When identity has mail, a person is also e-mailed the categories whose e-mail is on for them: what
+// Enforce says, else their own choice, else the category's default (NOTIF-PREF-001), held while their
+// quiet hours last (NOTIF-QUIET-001) and sent once by a worker that retries and gives up
+// (NOTIF-DELIVERY-001). With identity.WithoutMail() e-mail is unavailable and the settings say so.
+// The text of the e-mail is in mailtext, in English, Croatian, Bosnian and Slovenian.
 package notification
 
 import (

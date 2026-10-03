@@ -57,7 +57,7 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 * `event` → typed events and the per-consumer queue behind them (see "Events"; tables in `event/migrations`)
 * `identity` → accounts, password sign-in, sessions, the lock after wrong passwords, the `/auth/me` payload, user administration and each person's profile with e-mail codes (see "Sign-in" and "Users and profile"; core `identity/account`, routes `identity/http`, store `identity/gormstore`, mail text `identity/mailtext`, tests `identity/identitytest`)
 * `mail` → the `Sender` port, SMTP over the standard library, a recording `Sink` for tests, per-locale `Renderer` (see "mail")
-* `notification` → the in-app inbox: categories, `Send` from an event consumer, the live stream, the inbox and dead-letter routes (see "Notifications"; migration in `notification/migrations`)
+* `notification` → the in-app inbox and e-mail: categories, `Send` from an event consumer, preferences and quiet hours, the delivery worker, the live stream, the inbox and dead-letter routes (see "Notifications"; migrations in `notification/migrations`, mail text in `notification/mailtext`)
 * `navigation` → the menu tree an application declares and the filter by held permissions
 
 ### Utility Packages
@@ -437,13 +437,19 @@ gocoretest.Publish(t, app, Assigned, TicketAssigned{TicketID: 7, UserID: 3}) // 
 
 ## Notifications
 
-In-app notifications: what a person finds when they open the application, read on one device and read on all of them. A feature never writes one; it publishes an event, and a consumer of the event sends the notifications, in each recipient's language. The module has no translations of its own: the application renders the text.
+Notifications: what a person finds when they open the application, read on one device and read on all of them, and, when identity has mail, what is e-mailed to them as they chose. A feature never writes one; it publishes an event, and a consumer of the event sends the notifications, in each recipient's language. The module has no translations of its own: the application renders the text.
 
 ```go
-var TicketAssigned = notification.Category("tickets.assigned") // declared once, as a value
+var TicketAssigned = notification.Category("tickets.assigned").EmailByDefault() // in-app always; e-mail on until the person turns it off
+var TicketCommented = notification.Category("tickets.commented")                // in-app only until the person turns e-mail on
 
-// main
-notices := notification.Install(app, users, TicketAssigned /*, ...*/) // users: *identity.Users
+// main: categories and options go in one list
+notices := notification.Install(app, users, // users: *identity.Users
+	TicketAssigned, TicketCommented,
+	notification.AppURL("https://tickets.example.com"), // e-mail links: AppURL + the message's in-app Link
+	notification.TimeZone(zagreb),                      // quiet hours are read in it; default time.Local
+	// notification.Enforce(func(ctx context.Context, userID int, k notification.Kind) (on, enforced bool, err error) { ... }),
+)
 
 // A feature turns its own event into notifications, in a consumer.
 app.Events(tickets.Assigned.To("notifications.ticket-assigned",
@@ -462,15 +468,34 @@ gocoretest.Publish(t, app, tickets.Assigned, tickets.Assigned{TicketID: 7, Assig
 // GET /v1/notifications as person 3 now has the notification
 ```
 
-* **`Send` works only inside an event consumer.** The notification's dedupe key is `<event id>:<user>:<category>`, so an event delivered twice, or retried after a failure, makes one notification per person (NOTIF-EVENT-001). Outside a consumer it fails with an error that says to publish an event and send from its consumer. A rolled-back write never notifies, because the event is queued in the write's transaction.
+* **`Send` works only inside an event consumer.** The notification's dedupe key is `<event id>:<user>:<category>`, so an event delivered twice, or retried after a failure, makes one notification per person, and one e-mail (NOTIF-EVENT-001). Outside a consumer it fails with an error that says to publish an event and send from its consumer. A rolled-back write never notifies, because the event is queued in the write's transaction.
 * **Recipients** are `notification.To(ids...)`, optionally `.Except(actor)`. Invalid ids, duplicates and inactive people are dropped (NOTIF-RECIPIENT-001); the accounts are looked up in one call per `Send` (`Users.Find`).
 * **The message** is a plain function per recipient (`Recipient` has the id, name and locale). The title is required, text is cut to its columns, the link must be an in-app path (NOTIF-CONTENT-001). A message that can never be valid, or a category that was not registered, sets the event aside as a dead letter at once.
-* **Categories** are values, `notification.Category("tickets.assigned")`, optionally `.EmailByDefault()`; they go to `Install` in one list with its options `AppURL`, `TimeZone` and `Enforce`, and `Install` refuses a bad or repeated code or option at start-up with the fix. *Changed in P6: `Category` was a string type; it is now a function that returns a `notification.Kind`, so a category carries its defaults. `Install(app, users, TicketAssigned)` and `Send(ctx, TicketAssigned, ...)` read as before; `Item.Category` is a plain string.*
-* **The inbox** (`notices.Inbox`: `List`, `Unread`, `MarkRead`, `MarkAllRead`, `Subscribe`) acts on one person's notifications, whose id comes from the session. Routes under `/v1/notifications`, for a signed-in person and no permission: `GET /` (newest first, `before_id` cursor, `limit` up to 50), `GET /unread`, `POST /:id/read`, `POST /read` (`up_to_id`: only what was seen is marked; 0 marks nothing), `GET /stream` (server-sent events; see below), `POST /test` (sends the signed-in person a test notification through the event queue, category `system.test`).
+* **Categories** are values, `notification.Category("tickets.assigned")`, optionally `.EmailByDefault()`; they go to `Install` in one list with its options `AppURL`, `TimeZone` and `Enforce`, and `Install` refuses a bad or repeated code or option at start-up with the fix. *Changed in P6 (go-core is still at a release candidate): `Category` was a string type; it is now a function that returns a `notification.Kind`, so a category carries its defaults. `Install(app, users, TicketAssigned)` and `Send(ctx, TicketAssigned, ...)` read as before, but `[]notification.Category` is now `[]notification.Option` (or `[]notification.Kind`), `DedupeKey` takes a `Kind`, and `Item.Category` is a plain string.*
+* **E-mail goes where identity's mail goes**, so there is nothing more to configure: `identity.WithMail(...)` (`users.Mail()` is its sender and renderer). With `identity.WithoutMail()` e-mail is **unavailable**: the settings say so, no delivery row is ever made and nothing is reported as sent. With mail but no `notification.AppURL(...)`, `Check` and `Run` stop and say so.
+* **Preferences** (NOTIF-PREF-001): per person and category, what `Enforce` says (for an application whose administrators decide, such as ARV's dealer policies: it answers `on, enforced`), else the person's own choice, else the category's default; only a choice that differs from the default is stored. In-app is always on, so only e-mail is configurable. Routes, for a signed-in person and no permission: `GET /v1/notifications/preferences` (each category with its e-mail `{enabled, source}` where the source is `enforced`, `person` or `default`, `email_available`, the quiet hours and the time zone), `PUT /v1/notifications/preferences/:category` with `{"email": true}` (an enforced setting answers 422 with the reason `notification.setting.enforced`), `PUT /v1/notifications/quiet-hours` with `{"enabled": true, "start": 1260, "end": 420}` (minutes after midnight; start must differ from end). The same in Go: `notices.Settings.Get`, `SetEmail`, `SetQuietHours`.
+* **Quiet hours** (NOTIF-QUIET-001): on by default, 21:00 to 07:00 in `TimeZone`, read on the wall clock, so a daylight-saving night still ends at 07:00. The in-app notification is made at once; the e-mail is **held** until the window ends, and then sent only if the notification is still unread.
+* **Delivery** (NOTIF-DELIVERY-001): `Send` writes an e-mail delivery for each recipient whose setting is on and who has an address, in the transaction that writes the notification. A worker that `Install` starts sends the due ones (claimed with a 5-minute lease, so each is sent once however many instances run; no `SKIP LOCKED`, so MariaDB 10.3 works), retries a failure after 30 seconds, doubling to an hour, for 24 hours, then fails it; a permanent mail error (`mail.ErrPermanent`) fails at once. The e-mail is in the person's language (`en`, `hr`, `bs`, `sl`; `mail.Templates` like identity's), the subject is the title, with the body, a button to `AppURL` plus the link, and a footer that says why they get it and where to change it. The application's own look: give `identity.WithMailContent` a renderer that knows `mailtext.Email` (`notification.email`, data `mailtext.EmailData`). `notices.DeliverDue(ctx)` does one tick of the worker, for a test or a command.
+* **Retention**: a worker deletes notifications 90 days after they were made and finished deliveries 30 days after their last change, in batches (`notices.Sweep(ctx)` does it now). Metrics by category and channel are not part of the module yet; the workers `notification.delivery` and `notification.housekeeping` are counted by the worker manager.
+* **The inbox** (`notices.Inbox`: `List`, `Unread`, `MarkRead`, `MarkAllRead`, `Subscribe`) acts on one person's notifications, whose id comes from the session. Routes under `/v1/notifications`, for a signed-in person and no permission: `GET /` (newest first, `before_id` cursor, `limit` up to 50), `GET /unread`, `POST /:id/read`, `POST /read` (`up_to_id`: only what was seen is marked; 0 marks nothing), `GET /stream` (server-sent events; see below), `POST /test` (sends the signed-in person a test notification through the event queue, category `system.test`: in-app only, never e-mailed or held).
 * **The live stream** tells every open app of a person about a new notification and about a reading, each with the unread count, **after the transaction has committed**, and opens with the current count. It re-checks its session at every heartbeat (25 seconds) and ends when the session was revoked. The `Hub` is process-local: **one instance only**; with several instances an app hears only what its own instance made (the client refetches the count on reconnect).
-* **Dead letters**, of every consumer, not only the notification ones: `GET /v1/events/dead-letters` (page, `consumer` filter), `POST /v1/events/dead-letters/:event/:consumer/retry` and `POST /v1/events/dead-letters/retry` (all of one `consumer`), behind the fixed permissions `events.deadletter:view` and `events.deadletter:retry`. Define them on the application's catalogue before `access.Install`: `notification.DefinePermissions(catalogue)`.
-* **Tables:** `notifications` (`notification/migrations`), arv-next's table as it is, so an application that has it adopts the file with `MarkApplied`. Tests on SQLite, MySQL and MariaDB 10.3 (`dbtest.Run`).
-* The TypeScript contract is `notification.Routes` and `notification.DeadLetterRoutes` (`cmd/modulets` writes `notification/` and `events/`). `cmd/devserver` installs the module with one sample category, two notifications for `user` (one read, one unread) and drains the event queue every second, so the test notification arrives.
+* **Dead letters**, of every consumer, not only the notification ones: `GET /v1/events/dead-letters` (page, `consumer` filter), `POST /v1/events/dead-letters/:event/:consumer/retry` and `POST /v1/events/dead-letters/retry` (all of one `consumer`), and `GET /v1/events/consumers` (the consumer names, for the filter: `app.Consumers()`), behind the fixed permissions `events.deadletter:view` and `events.deadletter:retry`. Define them on the application's catalogue before `access.Install`: `notification.DefinePermissions(catalogue)`.
+* **Tables:** `notifications`, `notification_deliveries`, `notification_preferences` and `notification_quiet_hours` (`notification/migrations`), arv-next's tables as they are, so an application that has them adopts the files with `MarkApplied`. Tests on SQLite, MySQL and MariaDB 10.3 (`dbtest.Run`). Web push and devices are not part of the module yet.
+* The TypeScript contract is `notification.Routes` and `notification.DeadLetterRoutes` (`cmd/modulets` writes `notification/` and `events/`). `cmd/devserver` installs the module with one sample category that is e-mailed by default, two notifications for `user` (one read, one unread) and drains the event queue and sends the due e-mails every second, so the test notification arrives; mail goes to an in-memory sink and the log, never out of the machine, and links point at the playground origin. An e-mail as it looks in the sink:
+
+```
+Subject: You were assigned Login bug
+Hello Ana,
+
+You were assigned Login bug
+
+Fix the sign-in page
+
+Open: https://tickets.example.com/tickets/7
+
+--
+You receive this e-mail because e-mail is on for this kind of notification, by default or because you chose it. You can change which notifications are e-mailed to you in your notification settings.
+```
 
 ---
 
