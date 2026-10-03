@@ -422,3 +422,55 @@ type deactivations struct{ account.DiscardNotices }
 func (deactivations) AccountDeactivated(_ context.Context, id, actor int) {
 	fmt.Println("account", id, "deactivated by", actor)
 }
+
+func ExampleProfile_RequestEmailChange() {
+	k := kit()
+	ctx := context.Background()
+
+	// Ana asks to move to a new address: a code goes to the new address, nothing changes yet.
+	_, err := k.Profile.RequestEmailChange(ctx, account.RequestEmail{AccountID: 1, Email: "ana@new.example", CurrentPassword: "secret"})
+	fmt.Println(err, k.Mailbox.Last().Recipient)
+
+	view, _ := k.Profile.Get(ctx, 1)
+	fmt.Println(view.Email == "", view.PendingEmail.Target)
+
+	// She types the code that was mailed; now the address is hers.
+	view, err = k.Profile.ConfirmEmailChange(ctx, account.ConfirmEmail{AccountID: 1, Code: k.Mailbox.Last().Code})
+	fmt.Println(view.Email, view.PendingEmail == nil, err)
+	// Output:
+	// <nil> ana@new.example
+	// true ana@new.example
+	// ana@new.example true <nil>
+}
+
+func ExampleProfile_ChangePassword() {
+	k := kit()
+	ctx := context.Background()
+
+	err := k.Profile.ChangePassword(ctx, account.PasswordChange{AccountID: 1, CurrentPassword: "nope", NewPassword: "a better one", Confirmation: "a better one"})
+	fmt.Println(apperr.HasReason(err, account.ReasonPasswordWrong))
+
+	err = k.Profile.ChangePassword(ctx, account.PasswordChange{AccountID: 1, CurrentPassword: "secret", NewPassword: "a better one", Confirmation: "a better one"})
+	fmt.Println(err)
+
+	_, err = k.SignIn.Login(ctx, account.LoginInput{Login: "ana", Password: "a better one"})
+	fmt.Println(err)
+	// Output:
+	// true
+	// <nil>
+	// <nil>
+}
+
+func ExampleProfile_UpdateDetails() {
+	k := kit()
+
+	view, err := k.Profile.UpdateDetails(context.Background(), account.ProfileDetails{AccountID: 1, Name: " Ana Anić ", Phone: "099 123"})
+	fmt.Println(view.Name, view.Phone, err)
+	// Output: Ana Anić 099 123 <nil>
+}
+
+func ExampleNewProfile() {
+	_, err := account.NewProfile(account.ProfileDeps{})
+	fmt.Println(err)
+	// Output: identity: ProfileDeps.Users is missing: pass the Users service account.New built
+}

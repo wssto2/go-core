@@ -66,6 +66,8 @@ type Kit struct {
 	// Admin is the users module; Changes is the history it writes.
 	Admin   *account.Admin
 	Changes *ChangeLog
+	// Profile is what a person does with their own account.
+	Profile *account.Profile
 }
 
 // CodeSecret is the secret the Kit's codes are hashed with.
@@ -127,7 +129,12 @@ type options struct {
 	// policy and hooks are the users module's.
 	policy account.PasswordPolicy
 	hooks  []account.DeactivationHook
+	noMail bool
 }
+
+// WithoutMail builds the Profile without codes: changing the e-mail address is
+// refused, as in an application that runs without a mail sender.
+func WithoutMail() Option { return func(o *options) { o.noMail = true } }
 
 // WithPasswordPolicy replaces the rules for new passwords.
 func WithPasswordPolicy(p account.PasswordPolicy) Option { return func(o *options) { o.policy = p } }
@@ -238,6 +245,19 @@ func New(t testing.TB, seed []account.Account, opts ...Option) Kit {
 	kit.Admin, err = account.NewAdmin(account.AdminDeps{
 		Users: svc.Users, Search: kit.Accounts, History: kit.SignIns, Changes: kit.Changes, Transact: Transactor{},
 		Policy: o.policy, Hooks: o.hooks,
+	})
+	if err != nil {
+		t.Fatalf("identitytest: %v", err)
+	}
+
+	profileCodes := kit.Codes
+	if o.noMail {
+		profileCodes = nil
+	}
+
+	kit.Profile, err = account.NewProfile(account.ProfileDeps{
+		Users: svc.Users, Reauth: kit.Reauth, History: kit.SignIns, Changes: kit.Changes, Transact: Transactor{},
+		Policy: o.policy, Codes: profileCodes,
 	})
 	if err != nil {
 		t.Fatalf("identitytest: %v", err)

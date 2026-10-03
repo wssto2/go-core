@@ -52,9 +52,9 @@ Code: `identity/account/signin_service.go` (`SignIn.Login`), `identity/account/a
    (`locked_out`) and not compared.
 5. Parallel guesses: the lock is derived, so requests that arrive together are each checked before the first of
    them is recorded; the per-login limit of IAM-USER-001 bounds them.
-6. **Unlock** (`POST /v1/users/:id/unlock`, `iam.user:manage`) writes `unlocked` with the actor on the history of
+6. **Unlock** (`POST /v1/iam/users/:id/unlock`, `iam.user:manage`) writes `unlocked` with the actor on the history of
    a person who is locked; a person who is not locked is left alone (`{"unlocked": false}`).
-7. An administrator's **new password** (`PUT /v1/users/:id/password`) also lifts the lock (`unlocked` with the
+7. An administrator's **new password** (`PUT /v1/iam/users/:id/password`) also lifts the lock (`unlocked` with the
    actor), so a person locked out by wrong passwords can sign in with it at once.
 
 Code: `identity/account/signin.go` (`Lock.LockedUntil`, `LockEvent`), `identity/account/signin_service.go`

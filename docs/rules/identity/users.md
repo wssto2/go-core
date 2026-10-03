@@ -4,7 +4,7 @@ Title: Administering accounts: create, update, deactivate, list, history
 
 Status: Approved (IAM-USER-005 to 007 moved from arv-next, `documentation/business-rules/iam/users.md`, their generic parts; IDENTITY-ADMIN-001 is the module's)
 Last updated: 2026-10-03
-Module: `identity` (`identity/account` `Admin`, `identity/http` routes under `/v1/users`, `identity/gormstore`, go-core `audit`)
+Module: `identity` (`identity/account` `Admin`, `identity/http` routes under `/v1/iam/users`, `identity/gormstore`, go-core `audit`)
 
 ## Summary
 
@@ -16,7 +16,7 @@ the actions a person has taken (arv-next's "Radnje").
 
 ## IDENTITY-ADMIN-001 — Create, update and a new password
 
-1. **Create** (`POST /v1/users`, `iam.user:manage`) makes an **active** account. The login (at most 100
+1. **Create** (`POST /v1/iam/users`, `iam.user:manage`) makes an **active** account. The login (at most 100
    characters, no white space, stored lower-case) and the address (one address, no display name, at most 255,
    stored lower-case) are normalised; the name is required (150), the phone optional (30), the locale a BCP-47 tag.
    A login in use is `409 identity.login.taken`, an address in use `409 identity.email.taken` (compared without
@@ -24,9 +24,9 @@ the actions a person has taken (arv-next's "Radnje").
    bytes, bcrypt's limit; `identity.WithPasswordPolicy` replaces it) or the answer is `identity.password.weak` with
    `params.rules`. Every refused field is also in `fields`, named as the input names it. The new person can sign in
    at once.
-2. **Update** (`PUT /v1/users/:id`) writes the fields that differ (login, name, e-mail, phone, locale) and nothing
+2. **Update** (`PUT /v1/iam/users/:id`) writes the fields that differ (login, name, e-mail, phone, locale) and nothing
    else: never the password hash, never the status. Nothing differing writes nothing and records nothing.
-3. **A new password** (`PUT /v1/users/:id/password`) is given to an account by an administrator: the policy
+3. **A new password** (`PUT /v1/iam/users/:id/password`) is given to an account by an administrator: the policy
    applies, the lock is lifted (IAM-USER-002 item 7) and **every session of the person ends** (IAM-USER-004).
 4. Creation, updates and the new password are on the person's change history (IAM-USER-007), the password by name
    only, **never by value**.
@@ -37,7 +37,7 @@ Code: `identity/account/admin.go` (`Admin.Create`, `Update`, `SetPassword`), `id
 
 ## IAM-USER-005 — Deactivation (the generic part)
 
-1. A person is deactivated by `POST /v1/users/:id/deactivate` and made active again by `POST /v1/users/:id/activate`
+1. A person is deactivated by `POST /v1/iam/users/:id/deactivate` and made active again by `POST /v1/iam/users/:id/activate`
    (`iam.user:manage`); `active` is not part of the update. Nobody deactivates themselves
    (`400 identity.account.self_deactivation`); an inactive account is not deactivated again
    (`409 identity.account.already_inactive`), nor an active one activated (`409 identity.account.already_active`).
@@ -56,7 +56,7 @@ Code: `identity/account/admin.go` (`Admin.Deactivate`, `Activate`, `Deactivation
 
 ## IAM-USER-006 — The list
 
-1. `GET /v1/users` answers go-core's datatable page (`data`, `meta?`, `total`, `per_page`, `current_page`,
+1. `GET /v1/iam/users` answers go-core's datatable page (`data`, `meta?`, `total`, `per_page`, `current_page`,
    `last_page`, `from`, `to`; TypeScript `ListResult<UserRow>`). The views `view=active` (the default: active and
    not locked), `locked` (active and locked), `inactive` and `all`, each counted under the same search. `search`
    matches the login, the name and the address, without case, a `%` or `_` in it being itself. Sorting by
@@ -72,7 +72,7 @@ Code: `identity/account/admin.go` (`Admin.List`), `identity/gormstore/store.go` 
 
 ## IAM-USER-007 — The change history
 
-1. `GET /v1/users/:id/changes` (`iam.user:view`) lists the changes made to the person, newest first, with how
+1. `GET /v1/iam/users/:id/changes` (`iam.user:view`) lists the changes made to the person, newest first, with how
    many there are: created, updated (the names of the changed fields with their before and after values),
    deactivated, activated, a new password, a changed e-mail address and a changed profile, each with who did it (empty:
    the person) and when.
@@ -81,8 +81,8 @@ Code: `identity/account/admin.go` (`Admin.List`), `identity/gormstore/store.go` 
    `audit.Migrate` creates, so a database that has the table adopts the file with `MarkApplied`.
 3. **Only names and non-secret values are recorded**: a password change lists `password` as a changed field and no
    value; the audit package also masks keys that look secret.
-4. A person's **sign-in history** (`GET /v1/users/:id/signins`, IAM-USER-003) and **sessions** (`GET
-   /v1/users/:id/sessions`, `DELETE` one or all; IAM-USER-004) are read and ended by the same permissions. arv-next's
+4. A person's **sign-in history** (`GET /v1/iam/users/:id/signins`, IAM-USER-003) and **sessions** (`GET
+   /v1/iam/users/:id/sessions`, `DELETE` one or all; IAM-USER-004) are read and ended by the same permissions. arv-next's
    "Radnje" (the actions a person took across modules) is not here: it needs every module to write audit rows.
 
 Code: `identity/account/admin.go` (`Admin.Changes`, `SignIns`, `Sessions`), `identity/gormstore/changelog.go`,

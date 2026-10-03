@@ -320,6 +320,11 @@ func (a *Admin) SetPassword(ctx context.Context, in SetPassword) error {
 	}
 
 	err = a.within(ctx, func(ctx context.Context) error {
+		// The history first, so a failure there writes nothing; a database rolls back the rest.
+		if err := a.d.Changes.Record(ctx, Change{AccountID: in.ID, ActorID: in.ActorID, Action: ChangePassword, Fields: []string{"password"}}); err != nil {
+			return err
+		}
+
 		if err := a.deps().Accounts.SetPasswordHash(ctx, in.ID, hash); err != nil {
 			return stored(err)
 		}
@@ -328,11 +333,7 @@ func (a *Admin) SetPassword(ctx context.Context, in SetPassword) error {
 			return err
 		}
 
-		if err := a.d.Users.RevokeSessions(ctx, RevokeSessionsInput{AccountID: in.ID, ActorID: in.ActorID}); err != nil {
-			return err
-		}
-
-		return a.d.Changes.Record(ctx, Change{AccountID: in.ID, ActorID: in.ActorID, Action: ChangePassword, Fields: []string{"password"}})
+		return a.d.Users.RevokeSessions(ctx, RevokeSessionsInput{AccountID: in.ID, ActorID: in.ActorID})
 	})
 	if err != nil {
 		return err
