@@ -3,6 +3,7 @@ package identitytest
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -116,6 +117,117 @@ func (s *Accounts) SetActive(_ context.Context, id int, active bool) error {
 	return s.update(id, func(a *account.Account) { a.Active = active })
 }
 
+// FindByEmail implements account.Store.
+func (s *Accounts) FindByEmail(_ context.Context, email string) (account.Account, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, a := range s.rows {
+		if strings.EqualFold(a.Email, strings.TrimSpace(email)) {
+			return a, nil
+		}
+	}
+
+	return account.Account{}, account.ErrNotFound
+}
+
+// Update implements account.Store.
+func (s *Accounts) Update(_ context.Context, id int, c account.Changes) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	a, ok := s.rows[id]
+	if !ok {
+		return account.ErrNotFound
+	}
+
+	if c.Login != nil {
+		login := account.NormalizeLogin(*c.Login)
+
+		for _, other := range s.rows {
+			if other.ID != id && other.Login == login {
+				return account.ErrLoginTaken
+			}
+		}
+
+		a.Login = login
+	}
+
+	set := func(field *string, v *string) {
+		if v != nil {
+			*field = *v
+		}
+	}
+
+	set(&a.Email, c.Email)
+	set(&a.Name, c.Name)
+	set(&a.Phone, c.Phone)
+	set(&a.Locale, c.Locale)
+
+	s.rows[id] = a
+
+	return nil
+}
+
+// Search implements account.Searcher.
+func (s *Accounts) Search(_ context.Context, q account.Query) (account.Page, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	term := strings.ToLower(q.Search)
+
+	var rows []account.Account
+
+	for _, a := range s.rows {
+		if term != "" && !strings.Contains(strings.ToLower(a.Login+"\x00"+a.Name+"\x00"+a.Email), term) {
+			continue
+		}
+
+		if q.Active != nil && a.Active != *q.Active {
+			continue
+		}
+
+		if q.Locked != nil && slices.Contains(q.LockedIDs, a.ID) != *q.Locked {
+			continue
+		}
+
+		rows = append(rows, a)
+	}
+
+	key := func(a account.Account) string {
+		switch q.OrderBy {
+		case account.OrderName:
+			return strings.ToLower(a.Name)
+		case account.OrderEmail:
+			return strings.ToLower(a.Email)
+		case account.OrderCreated:
+			return a.CreatedAt.Format(time.RFC3339Nano)
+		default:
+			return a.Login
+		}
+	}
+
+	slices.SortFunc(rows, func(a, b account.Account) int {
+		c := strings.Compare(key(a), key(b))
+		if c == 0 {
+			c = a.ID - b.ID
+		}
+
+		if q.Desc {
+			return -c
+		}
+
+		return c
+	})
+
+	page := account.Page{Total: len(rows)}
+	perPage := max(q.PerPage, 1)
+	from := min((max(q.Page, 1)-1)*perPage, len(rows))
+	page.Accounts = rows[from:min(from+perPage, len(rows))]
+
+	return page, nil
+}
+
 // SignIns is a memory account.SignInLog.
 type SignIns struct {
 	mu   sync.Mutex
@@ -153,6 +265,56 @@ func (s *SignIns) LockEvents(_ context.Context, accountID, n int) ([]account.Sig
 	}
 
 	return out, nil
+}
+
+// Entries implements account.SignInHistory.
+func (s *SignIns) Entries(_ context.Context, accountID, offset, limit int) ([]account.SignInEntry, int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var mine []account.SignInEntry
+
+	for _, r := range slices.Backward(s.rows) {
+		if r.AccountID == accountID {
+			mine = append(mine, r)
+		}
+	}
+
+	from := min(offset, len(mine))
+
+	return mine[from:min(from+limit, len(mine))], len(mine), nil
+}
+
+// LastSignIns implements account.SignInHistory.
+func (s *SignIns) LastSignIns(_ context.Context, ids []int) (map[int]time.Time, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	out := map[int]time.Time{}
+
+	for _, r := range s.rows {
+		if r.Event == account.SignedIn && slices.Contains(ids, r.AccountID) {
+			out[r.AccountID] = r.CreatedAt
+		}
+	}
+
+	return out, nil
+}
+
+// WrongPasswordsSince implements account.SignInHistory.
+func (s *SignIns) WrongPasswordsSince(_ context.Context, since time.Time) ([]int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var ids []int
+
+	for _, r := range s.rows {
+		if r.Event == account.WrongPassword && r.CreatedAt.After(since) && !slices.Contains(ids, r.AccountID) {
+			ids = append(ids, r.AccountID)
+		}
+	}
+
+	return ids, nil
 }
 
 // All returns every row recorded, oldest first, for a test to read.
@@ -480,4 +642,53 @@ func sameTime(a, b *time.Time) bool {
 	}
 
 	return a.Equal(*b)
+}
+
+// ChangeLog is a memory account.ChangeLog.
+type ChangeLog struct {
+	mu    sync.Mutex
+	clock account.Clock
+	rows  []account.ChangeEntry
+}
+
+// NewChangeLog returns an empty log that stamps changes with the clock.
+func NewChangeLog(clock account.Clock) *ChangeLog { return &ChangeLog{clock: clock} }
+
+// Record implements account.ChangeLog.
+func (l *ChangeLog) Record(_ context.Context, c account.Change) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.rows = append(l.rows, account.ChangeEntry{ID: len(l.rows) + 1, Change: c, At: l.clock.Now()})
+
+	return nil
+}
+
+// Changes implements account.ChangeLog.
+func (l *ChangeLog) Changes(_ context.Context, accountID, offset, limit int) ([]account.ChangeEntry, int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	var mine []account.ChangeEntry
+
+	for _, r := range slices.Backward(l.rows) {
+		if r.AccountID == accountID {
+			mine = append(mine, r)
+		}
+	}
+
+	from := min(offset, len(mine))
+
+	return mine[from:min(from+limit, len(mine))], len(mine), nil
+}
+
+// Transactor is an account.Transactor over memory: it just runs the function.
+// Memory stores cannot roll back, so a test of a veto checks that nothing was
+// written before the refusal, which is what the services guarantee by asking
+// the hooks first.
+type Transactor struct{}
+
+// WithinTransaction implements account.Transactor.
+func (Transactor) WithinTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
 }

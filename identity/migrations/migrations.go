@@ -1,6 +1,6 @@
 // Package migrations holds the goose migrations of the identity tables:
 // accounts, user_signins, tokens (the sessions), user_verification_codes and
-// user_reauth_attempts, as MariaDB 10.3 / MySQL
+// user_reauth_attempts and a phone column on accounts, as MariaDB 10.3 / MySQL
 // DDL. An application installs them on the connection the store uses;
 // identity.Install does it for you:
 //

@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -25,11 +26,15 @@ import (
 
 // Stores are the stores under test, over one database.
 type Stores struct {
-	Accounts account.Store
-	SignIns  account.SignInLog
+	Accounts interface {
+		account.Store
+		account.Searcher
+	}
+	SignIns  account.SignInHistory
 	Sessions account.SessionStore
 	Codes    account.CodeStore
 	Reauth   account.ReauthStore
+	Changes  account.ChangeLog
 }
 
 // Factory returns new empty stores for one subtest.
@@ -105,6 +110,15 @@ func Run(t *testing.T, newStores Factory) {
 		"sessions/end opened by":         sessionsEndOpenedBy,
 		"sessions/long device name":      sessionsLongDevice,
 		"sessions/tokens are not stored": sessionsTokensDiffer,
+		"accounts/find by email":         accountsFindByEmail,
+		"accounts/update":                accountsUpdate,
+		"accounts/update login taken":    accountsUpdateLoginTaken,
+		"accounts/search":                accountsSearch,
+		"accounts/search escapes":        accountsSearchEscapes,
+		"signins/entries":                signInsEntries,
+		"signins/last sign-ins":          signInsLast,
+		"signins/wrong passwords since":  signInsWrongSince,
+		"changes/record and list":        changesRecordAndList,
 		"codes/issue and latest":         codesIssueAndLatest,
 		"codes/issue ends the live one":  codesIssueEndsLive,
 		"codes/issued since":             codesIssuedSince,
@@ -123,7 +137,7 @@ func ctx() context.Context { return context.Background() }
 
 func newAccount(login string) account.Account {
 	return account.Account{
-		Login: login, Email: strings.ToLower(login) + "@example.test", Name: strings.ToUpper(login[:1]) + login[1:], Locale: "hr",
+		Login: login, Email: strings.ToLower(login) + "@example.test", Phone: "+385 1 555 " + login, Name: strings.ToUpper(login[:1]) + login[1:], Locale: "hr",
 		Active: true, PasswordHash: "hash-" + login, CreatedAt: base,
 	}
 }
@@ -141,6 +155,7 @@ func accountsCreateAndFind(t *testing.T, s Stores) {
 	c.equal(created.ID, byID.ID, "id")
 	c.equal("ana", byID.Login, "login")
 	c.equal("ana@example.test", byID.Email, "email")
+	c.equal("+385 1 555 Ana", byID.Phone, "phone")
 	c.equal("Ana", byID.Name, "name")
 	c.equal("hr", byID.Locale, "locale")
 	c.equal("hash-Ana", byID.PasswordHash, "password hash")
@@ -908,4 +923,270 @@ func reauthOneWins(t *testing.T, s Stores) {
 	for _, err := range errs {
 		c.isErr(err, account.ErrReauthConflict, "the others conflict")
 	}
+}
+
+func accountsFindByEmail(t *testing.T, s Stores) {
+	c := check{t}
+
+	a, err := s.Accounts.Create(ctx(), newAccount("ana"))
+	c.noErr(err, "create")
+
+	got, err := s.Accounts.FindByEmail(ctx(), " ANA@Example.test ")
+	c.noErr(err, "find by email")
+	c.equal(a.ID, got.ID, "the address is compared without case or space")
+
+	_, err = s.Accounts.FindByEmail(ctx(), "nobody@example.test")
+	c.isErr(err, account.ErrNotFound, "no such address")
+}
+
+func str(s string) *string { return &s }
+
+func accountsUpdate(t *testing.T, s Stores) {
+	c := check{t}
+
+	a, err := s.Accounts.Create(ctx(), newAccount("ana"))
+	c.noErr(err, "create")
+
+	c.noErr(s.Accounts.Update(ctx(), a.ID, account.Changes{Name: str("Ana Anić"), Phone: str("")}), "update some fields")
+
+	got, err := s.Accounts.Find(ctx(), a.ID)
+	c.noErr(err, "find")
+	c.equal("Ana Anić", got.Name, "name")
+	c.equal("", got.Phone, "phone cleared")
+	c.equal("ana", got.Login, "a field not set is left alone")
+	c.equal("ana@example.test", got.Email, "email left alone")
+	c.equal("hash-ana", got.PasswordHash, "the password hash is not touched")
+	c.true(got.Active, "active left alone")
+
+	c.noErr(s.Accounts.Update(ctx(), a.ID, account.Changes{Login: str(" NEW "), Email: str("new@example.test"), Locale: str("en")}), "update login, email and locale")
+	c.noErr(s.Accounts.Update(ctx(), a.ID, account.Changes{Locale: str("en")}), "update to what it is: not a missing account")
+	c.noErr(s.Accounts.Update(ctx(), a.ID, account.Changes{}), "nothing to update")
+
+	got, err = s.Accounts.Find(ctx(), a.ID)
+	c.noErr(err, "find")
+	c.equal("new", got.Login, "the login is stored normalised")
+	c.equal("new@example.test", got.Email, "email")
+	c.equal("en", got.Locale, "locale")
+
+	_, err = s.Accounts.FindByLogin(ctx(), "ana")
+	c.isErr(err, account.ErrNotFound, "the old login is free")
+
+	c.isErr(s.Accounts.Update(ctx(), 999, account.Changes{Name: str("x")}), account.ErrNotFound, "a missing account")
+	c.isErr(s.Accounts.Update(ctx(), 999, account.Changes{}), account.ErrNotFound, "a missing account, nothing to write")
+}
+
+func accountsUpdateLoginTaken(t *testing.T, s Stores) {
+	c := check{t}
+
+	a, _ := s.Accounts.Create(ctx(), newAccount("ana"))
+	_, err := s.Accounts.Create(ctx(), newAccount("boris"))
+	c.noErr(err, "create")
+
+	c.isErr(s.Accounts.Update(ctx(), a.ID, account.Changes{Login: str("BORIS")}), account.ErrLoginTaken, "a login in use")
+	c.noErr(s.Accounts.Update(ctx(), a.ID, account.Changes{Login: str("ANA")}), "its own login, in another case")
+}
+
+func seedForSearch(c check, s Stores) []account.Account {
+	c.t.Helper()
+
+	var out []account.Account
+
+	for i, in := range []struct {
+		login, name, email string
+		active             bool
+	}{
+		{"ana", "Ana Horvat", "ana@example.test", true},
+		{"boris", "Boris Kovač", "boris@firma.test", true},
+		{"cvita", "Cvita Babić", "cvita@example.test", false},
+		{"dino", "Dino 100%", "dino@example.test", true},
+		{"eva", "Eva_Marić", "eva@example.test", true},
+	} {
+		a := newAccount(in.login)
+		a.Name, a.Email, a.Active, a.CreatedAt = in.name, in.email, in.active, base.Add(time.Duration(i)*time.Hour)
+
+		created, err := s.Accounts.Create(ctx(), a)
+		c.noErr(err, "create")
+
+		if !in.active {
+			c.noErr(s.Accounts.SetActive(ctx(), created.ID, false), "deactivate")
+		}
+
+		out = append(out, created)
+	}
+
+	return out
+}
+
+func logins(page account.Page) []string {
+	var out []string
+	for _, a := range page.Accounts {
+		out = append(out, a.Login)
+	}
+
+	return out
+}
+
+func accountsSearch(t *testing.T, s Stores) {
+	c := check{t}
+	people := seedForSearch(c, s)
+
+	yes, no := true, false
+
+	for name, tc := range map[string]struct {
+		q     account.Query
+		want  []string
+		total int
+	}{
+		"everyone, by login":     {account.Query{Page: 1, PerPage: 10}, []string{"ana", "boris", "cvita", "dino", "eva"}, 5},
+		"descending":             {account.Query{OrderBy: account.OrderLogin, Desc: true, Page: 1, PerPage: 10}, []string{"eva", "dino", "cvita", "boris", "ana"}, 5},
+		"by name":                {account.Query{OrderBy: account.OrderName, Page: 1, PerPage: 10}, []string{"ana", "boris", "cvita", "dino", "eva"}, 5},
+		"by e-mail":              {account.Query{OrderBy: account.OrderEmail, Page: 1, PerPage: 10}, []string{"ana", "boris", "cvita", "dino", "eva"}, 5},
+		"newest first":           {account.Query{OrderBy: account.OrderCreated, Desc: true, Page: 1, PerPage: 10}, []string{"eva", "dino", "cvita", "boris", "ana"}, 5},
+		"a page":                 {account.Query{Page: 2, PerPage: 2}, []string{"cvita", "dino"}, 5},
+		"past the end":           {account.Query{Page: 9, PerPage: 2}, nil, 5},
+		"search the login":       {account.Query{Search: "BOR", Page: 1, PerPage: 10}, []string{"boris"}, 1},
+		"search the name":        {account.Query{Search: "kovač", Page: 1, PerPage: 10}, []string{"boris"}, 1},
+		"search the e-mail":      {account.Query{Search: "firma", Page: 1, PerPage: 10}, []string{"boris"}, 1},
+		"search finds several":   {account.Query{Search: "example", Page: 1, PerPage: 10}, []string{"ana", "cvita", "dino", "eva"}, 4},
+		"search finds nobody":    {account.Query{Search: "zzz", Page: 1, PerPage: 10}, nil, 0},
+		"active only":            {account.Query{Active: &yes, Page: 1, PerPage: 10}, []string{"ana", "boris", "dino", "eva"}, 4},
+		"inactive only":          {account.Query{Active: &no, Page: 1, PerPage: 10}, []string{"cvita"}, 1},
+		"locked ones":            {account.Query{Locked: &yes, LockedIDs: []int{people[0].ID, people[1].ID}, Page: 1, PerPage: 10}, []string{"ana", "boris"}, 2},
+		"locked, nobody":         {account.Query{Locked: &yes, Page: 1, PerPage: 10}, nil, 0},
+		"not locked":             {account.Query{Locked: &no, LockedIDs: []int{people[0].ID}, Page: 1, PerPage: 10}, []string{"boris", "cvita", "dino", "eva"}, 4},
+		"not locked, nobody is":  {account.Query{Locked: &no, Page: 1, PerPage: 10}, []string{"ana", "boris", "cvita", "dino", "eva"}, 5},
+		"search with a status":   {account.Query{Search: "example", Active: &yes, Page: 1, PerPage: 10}, []string{"ana", "dino", "eva"}, 3},
+		"an unknown order falls": {account.Query{OrderBy: "nonsense", Page: 1, PerPage: 10}, []string{"ana", "boris", "cvita", "dino", "eva"}, 5},
+	} {
+		got, err := s.Accounts.Search(ctx(), tc.q)
+		c.noErr(err, name)
+		c.equal(tc.want, logins(got), name+": rows")
+		c.equal(tc.total, got.Total, name+": total counts every match, not the page")
+	}
+}
+
+func accountsSearchEscapes(t *testing.T, s Stores) {
+	c := check{t}
+	seedForSearch(c, s)
+
+	for term, want := range map[string][]string{"%": {"dino"}, "_": {"eva"}, "100%": {"dino"}, "!": nil, "a_a": nil} {
+		got, err := s.Accounts.Search(ctx(), account.Query{Search: term, Page: 1, PerPage: 10})
+		c.noErr(err, "search "+term)
+		c.equal(want, logins(got), "a wildcard in the term is itself: "+term)
+	}
+}
+
+func signInsEntries(t *testing.T, s Stores) {
+	c := check{t}
+
+	for i := range 5 {
+		c.noErr(s.SignIns.Record(ctx(), entry(1, account.SignedIn, time.Duration(i)*time.Second)), "record")
+	}
+
+	c.noErr(s.SignIns.Record(ctx(), entry(2, account.SignedIn, 9*time.Second)), "another account")
+
+	got, total, err := s.SignIns.Entries(ctx(), 1, 0, 2)
+	c.noErr(err, "entries")
+	c.equal(5, total, "every row of the account")
+	c.equal(2, len(got), "a page")
+	c.same(base.Add(4*time.Second), got[0].CreatedAt, "newest first")
+	c.same(base.Add(3*time.Second), got[1].CreatedAt, "newest first")
+
+	got, _, err = s.SignIns.Entries(ctx(), 1, 4, 2)
+	c.noErr(err, "entries")
+	c.equal(1, len(got), "the last page")
+
+	got, total, err = s.SignIns.Entries(ctx(), 3, 0, 2)
+	c.noErr(err, "entries")
+	c.equal(0, total+len(got), "an account without history")
+}
+
+func signInsLast(t *testing.T, s Stores) {
+	c := check{t}
+
+	for _, e := range []account.SignInEntry{
+		entry(1, account.SignedIn, 1*time.Second),
+		entry(1, account.WrongPassword, 9*time.Second), // not a sign-in
+		entry(1, account.SignedIn, 5*time.Second),
+		entry(2, account.WrongPassword, 2*time.Second), // never signed in
+		entry(3, account.SignedIn, 3*time.Second),
+	} {
+		c.noErr(s.SignIns.Record(ctx(), e), "record")
+	}
+
+	got, err := s.SignIns.LastSignIns(ctx(), []int{1, 2, 3})
+	c.noErr(err, "last sign-ins")
+	c.equal(2, len(got), "only who has one")
+	c.same(base.Add(5*time.Second), got[1], "the latest sign-in of 1")
+	c.same(base.Add(3*time.Second), got[3], "the sign-in of 3")
+
+	got, err = s.SignIns.LastSignIns(ctx(), []int{1})
+	c.noErr(err, "last sign-ins")
+	c.equal(1, len(got), "only who is asked for")
+
+	got, err = s.SignIns.LastSignIns(ctx(), nil)
+	c.noErr(err, "last sign-ins")
+	c.equal(0, len(got), "nobody asked for")
+}
+
+func signInsWrongSince(t *testing.T, s Stores) {
+	c := check{t}
+
+	for _, e := range []account.SignInEntry{
+		entry(1, account.WrongPassword, 1*time.Minute),
+		entry(1, account.WrongPassword, 2*time.Minute),
+		entry(2, account.WrongPassword, 10*time.Minute),
+		entry(3, account.SignedIn, 11*time.Minute),
+		entry(4, account.WrongPassword, 30*time.Minute),
+	} {
+		c.noErr(s.SignIns.Record(ctx(), e), "record")
+	}
+
+	got, err := s.SignIns.WrongPasswordsSince(ctx(), base.Add(90*time.Second))
+	c.noErr(err, "since")
+
+	slices.Sort(got)
+	c.equal([]int{1, 2, 4}, got, "each account once, only wrong passwords, only after the time")
+
+	got, err = s.SignIns.WrongPasswordsSince(ctx(), base.Add(time.Hour))
+	c.noErr(err, "since")
+	c.equal(0, len(got), "none")
+}
+
+func changesRecordAndList(t *testing.T, s Stores) {
+	c := check{t}
+
+	c.noErr(s.Changes.Record(ctx(), account.Change{
+		AccountID: 1, ActorID: 9, Action: account.ChangeUpdated, Fields: []string{"name", "phone"},
+		Before: map[string]string{"name": "Ana", "phone": ""}, After: map[string]string{"name": "Ana Anić", "phone": "123"},
+	}), "record")
+	c.noErr(s.Changes.Record(ctx(), account.Change{AccountID: 1, Action: account.ChangePassword, Fields: []string{"password"}}), "record a change without values")
+	c.noErr(s.Changes.Record(ctx(), account.Change{AccountID: 2, ActorID: 9, Action: account.ChangeCreated}), "another account")
+
+	got, total, err := s.Changes.Changes(ctx(), 1, 0, 10)
+	c.noErr(err, "changes")
+	c.equal(2, total, "the account's own")
+	c.equal(2, len(got), "rows")
+	c.equal(account.ChangePassword, got[0].Action, "newest first")
+	c.equal([]string{"password"}, got[0].Fields, "fields")
+	c.equal(0, got[0].ActorID, "no actor reads zero")
+	c.true(len(got[0].Before) == 0 && len(got[0].After) == 0, "no values")
+	c.true(!got[0].At.IsZero(), "stamped")
+
+	c.equal(account.ChangeUpdated, got[1].Action, "action")
+	c.equal(1, got[1].AccountID, "account")
+	c.equal(9, got[1].ActorID, "actor")
+	c.equal([]string{"name", "phone"}, got[1].Fields, "fields")
+	c.equal(map[string]string{"name": "Ana", "phone": ""}, got[1].Before, "before")
+	c.equal(map[string]string{"name": "Ana Anić", "phone": "123"}, got[1].After, "after")
+
+	page, total, err := s.Changes.Changes(ctx(), 1, 1, 1)
+	c.noErr(err, "changes")
+	c.equal(2, total, "the total is not the page")
+	c.equal(1, len(page), "a page")
+	c.equal(account.ChangeUpdated, page[0].Action, "the second page")
+
+	none, total, err := s.Changes.Changes(ctx(), 7, 0, 10)
+	c.noErr(err, "changes")
+	c.equal(0, total+len(none), "an account without changes")
 }

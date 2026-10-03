@@ -32,6 +32,8 @@ type Account struct {
 	// Login is what the person types to sign in, stored lower-case.
 	Login string
 	Email string
+	// Phone is optional, free text of at most PhoneMax characters.
+	Phone string
 	Name  string
 	// Locale is a BCP-47 language tag such as "hr" or "en".
 	Locale string
@@ -49,8 +51,21 @@ func (a Account) GetID() int { return a.ID }
 var (
 	// ErrNotFound is what a Store returns for an account that does not exist.
 	ErrNotFound = errors.New("identity: account not found")
-	// ErrLoginTaken is what Store.Create returns when the login is in use.
+	// ErrLoginTaken is what Store.Create and Store.Update return when the login is in use.
 	ErrLoginTaken = errors.New("identity: login already in use")
+	// ErrEmailTaken is what Store.Create and Store.Update return when the store
+	// itself refuses an e-mail address that belongs to another account (a store
+	// with a unique index). The services check before writing, so a store
+	// without one still gets one account per address, except under a race.
+	ErrEmailTaken = errors.New("identity: e-mail address already in use")
+)
+
+// The widths of the stored fields; the services refuse longer values.
+const (
+	LoginMax = 100
+	NameMax  = 150
+	EmailMax = 255
+	PhoneMax = 30
 )
 
 // NormalizeLogin is how a login is compared and stored: without surrounding

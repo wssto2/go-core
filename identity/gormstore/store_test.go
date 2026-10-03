@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/audit"
+	auditmigrations "github.com/wssto2/go-core/audit/migrations"
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/dbtest"
@@ -29,20 +31,22 @@ func tables(t *testing.T, db *gorm.DB) {
 
 	if db.Name() == "sqlite" {
 		require.NoError(t, gormstore.Migrate(db))
+		require.NoError(t, audit.Migrate(db))
+
 		return
 	}
 
 	reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
 	reg.AddConnection("scratch", db)
 
-	require.NoError(t, migrate.New(reg, nil, slog.New(slog.DiscardHandler)).Add("scratch", migrations.Files).Up(context.Background()))
+	require.NoError(t, migrate.New(reg, nil, slog.New(slog.DiscardHandler)).Add("scratch", migrations.Files).Add("scratch", auditmigrations.Files).Up(context.Background()))
 }
 
 // empty clears the tables between subtests, so every one starts from nothing.
 func empty(t *testing.T, db *gorm.DB) {
 	t.Helper()
 
-	for _, table := range []string{"accounts", "user_signins", "tokens", "user_verification_codes", "user_reauth_attempts"} {
+	for _, table := range []string{"accounts", "user_signins", "tokens", "user_verification_codes", "user_reauth_attempts", "audit_logs"} {
 		require.NoError(t, db.Exec("DELETE FROM "+table).Error)
 	}
 }
@@ -56,7 +60,10 @@ func TestStoresConform(t *testing.T) {
 
 			stores := gormstore.New(db)
 
-			return storetest.Stores{Accounts: stores.Accounts, SignIns: stores.SignIns, Sessions: stores.Sessions, Codes: stores.Codes, Reauth: stores.Reauth}
+			return storetest.Stores{
+				Accounts: stores.Accounts, SignIns: stores.SignIns, Sessions: stores.Sessions, Codes: stores.Codes, Reauth: stores.Reauth,
+				Changes: gormstore.NewChangeLog(db),
+			}
 		})
 	})
 }

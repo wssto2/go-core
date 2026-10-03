@@ -11,6 +11,7 @@ import (
 func TestMemoryStoresConform(t *testing.T) {
 	storetest.Run(t, func(*testing.T) storetest.Stores {
 		return storetest.Stores{Accounts: identitytest.NewAccounts(), SignIns: identitytest.NewSignIns(), Sessions: identitytest.NewSessions(),
-			Codes: identitytest.NewCodes(), Reauth: identitytest.NewReauth()}
+			Codes: identitytest.NewCodes(), Reauth: identitytest.NewReauth(),
+			Changes: identitytest.NewChangeLog(identitytest.NewClock(identitytest.Epoch))}
 	})
 }

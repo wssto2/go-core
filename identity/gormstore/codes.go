@@ -76,7 +76,7 @@ func wholeOrNil(t *time.Time) any {
 func (s *Codes) Latest(ctx context.Context, accountID int, p account.Purpose) (account.Code, error) {
 	var m codeModel
 
-	err := s.db.WithContext(ctx).Where("user_id = ? AND purpose = ?", accountID, string(p)).Order("id DESC").Take(&m).Error
+	err := dbOf(s.db, ctx).Where("user_id = ? AND purpose = ?", accountID, string(p)).Order("id DESC").Take(&m).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return account.Code{}, account.ErrCodeNotFound
 	}
@@ -93,7 +93,7 @@ func (s *Codes) IssuedSince(ctx context.Context, accountID int, p account.Purpos
 	where := "user_id = ? AND purpose = ? AND created_at > ?"
 
 	var n int64
-	if err := s.db.WithContext(ctx).Model(&codeModel{}).Where(where, accountID, string(p), whole(since)).Count(&n).Error; err != nil {
+	if err := dbOf(s.db, ctx).Model(&codeModel{}).Where(where, accountID, string(p), whole(since)).Count(&n).Error; err != nil {
 		return 0, time.Time{}, err
 	}
 
@@ -102,7 +102,7 @@ func (s *Codes) IssuedSince(ctx context.Context, accountID int, p account.Purpos
 	}
 
 	var oldest codeModel
-	if err := s.db.WithContext(ctx).Where(where, accountID, string(p), whole(since)).Order("created_at ASC").Take(&oldest).Error; err != nil {
+	if err := dbOf(s.db, ctx).Where(where, accountID, string(p), whole(since)).Order("created_at ASC").Take(&oldest).Error; err != nil {
 		return 0, time.Time{}, err
 	}
 
@@ -117,7 +117,7 @@ func (s *Codes) Issue(ctx context.Context, c account.Code, now time.Time) (accou
 		ExpiresAt: whole(c.ExpiresAt), CreatedIP: orNil(c.IP), CreatedAt: whole(c.CreatedAt), UpdatedAt: whole(now),
 	}
 
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := dbOf(s.db, ctx).Transaction(func(tx *gorm.DB) error {
 		if err := ends(tx, c.AccountID, c.Purpose, now); err != nil {
 			return err
 		}
@@ -143,7 +143,7 @@ func ends(db *gorm.DB, accountID int, p account.Purpose, now time.Time) error {
 // latest committed row, so of two requests that read one state exactly one
 // updates it; the other matches nothing.
 func (s *Codes) SaveVerification(ctx context.Context, c account.Code, readAttempts int, now time.Time) error {
-	tx := s.db.WithContext(ctx).Model(&codeModel{}).
+	tx := dbOf(s.db, ctx).Model(&codeModel{}).
 		Where("id = ? AND consumed_at IS NULL AND invalidated_at IS NULL AND attempts = ?", c.ID, readAttempts).
 		Updates(map[string]any{
 			"attempts": c.Attempts, "consumed_at": wholeOrNil(c.ConsumedAt), "invalidated_at": wholeOrNil(c.InvalidatedAt), "updated_at": whole(now),
@@ -161,5 +161,5 @@ func (s *Codes) SaveVerification(ctx context.Context, c account.Code, readAttemp
 
 // InvalidateLive implements account.CodeStore.
 func (s *Codes) InvalidateLive(ctx context.Context, accountID int, p account.Purpose, now time.Time) error {
-	return ends(s.db.WithContext(ctx), accountID, p, now)
+	return ends(dbOf(s.db, ctx), accountID, p, now)
 }

@@ -13,7 +13,7 @@ import (
 func (s *Reauth) Find(ctx context.Context, accountID int) (account.Attempts, error) {
 	var m reauthModel
 
-	err := s.db.WithContext(ctx).Where("user_id = ?", accountID).Take(&m).Error
+	err := dbOf(s.db, ctx).Where("user_id = ?", accountID).Take(&m).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return account.Attempts{}, account.ErrReauthNotFound
 	}
@@ -41,10 +41,10 @@ func (s *Reauth) Create(ctx context.Context, a account.Attempts) error {
 		m.LockedUntil = &at
 	}
 
-	if err := s.db.WithContext(ctx).Create(&m).Error; err != nil {
+	if err := dbOf(s.db, ctx).Create(&m).Error; err != nil {
 		// The driver's error for a duplicate key differs, so ask the table.
 		var n int64
-		if s.db.WithContext(ctx).Model(&reauthModel{}).Where("user_id = ?", a.AccountID).Count(&n).Error == nil && n > 0 {
+		if dbOf(s.db, ctx).Model(&reauthModel{}).Where("user_id = ?", a.AccountID).Count(&n).Error == nil && n > 0 {
 			return account.ErrReauthConflict
 		}
 
@@ -57,7 +57,7 @@ func (s *Reauth) Create(ctx context.Context, a account.Attempts) error {
 // Save implements account.ReauthStore: a compare-and-set on the counter as it
 // was read, which InnoDB evaluates against the latest committed row.
 func (s *Reauth) Save(ctx context.Context, a, read account.Attempts) error {
-	q := s.db.WithContext(ctx).Model(&reauthModel{}).Where("user_id = ? AND failures = ?", read.AccountID, read.Failures)
+	q := dbOf(s.db, ctx).Model(&reauthModel{}).Where("user_id = ? AND failures = ?", read.AccountID, read.Failures)
 
 	if read.LockedUntil == nil {
 		q = q.Where("locked_until IS NULL")

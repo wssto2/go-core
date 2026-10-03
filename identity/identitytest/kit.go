@@ -63,6 +63,9 @@ type Kit struct {
 	Codes   *account.Codes
 	Reauth  *account.Reauth
 	Mailbox *Mailbox
+	// Admin is the users module; Changes is the history it writes.
+	Admin   *account.Admin
+	Changes *ChangeLog
 }
 
 // CodeSecret is the secret the Kit's codes are hashed with.
@@ -121,6 +124,17 @@ type options struct {
 	deps  func(*account.Deps)
 	codes account.CodeRules
 	lock  account.Lock
+	// policy and hooks are the users module's.
+	policy account.PasswordPolicy
+	hooks  []account.DeactivationHook
+}
+
+// WithPasswordPolicy replaces the rules for new passwords.
+func WithPasswordPolicy(p account.PasswordPolicy) Option { return func(o *options) { o.policy = p } }
+
+// WithDeactivationHooks asks the hooks before an account is deactivated.
+func WithDeactivationHooks(h ...account.DeactivationHook) Option {
+	return func(o *options) { o.hooks = append(o.hooks, h...) }
 }
 
 // WithCodeRules sets the limits of one-time codes, such as a shorter cooldown.
@@ -218,6 +232,16 @@ func New(t testing.TB, seed []account.Account, opts ...Option) Kit {
 	}
 
 	kit.Codes, kit.Reauth = codes, reauth
+
+	kit.Changes = NewChangeLog(kit.Clock)
+
+	kit.Admin, err = account.NewAdmin(account.AdminDeps{
+		Users: svc.Users, Search: kit.Accounts, History: kit.SignIns, Changes: kit.Changes, Transact: Transactor{},
+		Policy: o.policy, Hooks: o.hooks,
+	})
+	if err != nil {
+		t.Fatalf("identitytest: %v", err)
+	}
 
 	return kit
 }

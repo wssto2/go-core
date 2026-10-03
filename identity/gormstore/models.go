@@ -14,6 +14,7 @@ type accountModel struct {
 	ID           int       `gorm:"primaryKey;autoIncrement"`
 	Login        string    `gorm:"size:100;not null;uniqueIndex:uq_accounts_login"`
 	Email        string    `gorm:"size:255;not null"`
+	Phone        string    `gorm:"size:30;not null;default:''"`
 	Name         string    `gorm:"size:150;not null"`
 	PasswordHash string    `gorm:"size:255;not null"`
 	Locale       string    `gorm:"size:16;not null"`
