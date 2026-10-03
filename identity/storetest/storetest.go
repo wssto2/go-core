@@ -1152,6 +1152,7 @@ func signInsByEvent(t *testing.T, s Stores) {
 	got, total, err = s.SignIns.Entries(ctx(), account.SignInQuery{AccountID: 1, Events: []account.SignInEvent{account.Unlocked}, Limit: 10})
 	c.noErr(err, "entries")
 	c.equal(1, total, "one event")
+	c.equal(account.Unlocked, got[0].Event, "that event")
 
 	counts, err := s.SignIns.EventCounts(ctx(), 1)
 	c.noErr(err, "counts")
