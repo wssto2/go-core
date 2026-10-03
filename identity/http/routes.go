@@ -29,11 +29,15 @@ var (
 	ChangeLocale = route.Post[ChangeLocaleInput, route.Empty](base + "/change-locale").Name("identity.change-locale")
 	// LoginAs signs in as somebody else, when the application has said who may.
 	LoginAs = route.Post[LoginAsInput, SessionResponse](base + "/login-as").Name("identity.login-as")
+	// ReturnToOwn ends a session opened by signing in as somebody and signs the
+	// person in as themselves again, with no password; any other session is refused
+	// with identity.impersonation.not_active.
+	ReturnToOwn = route.Post[route.None, SessionResponse](base + "/login-as/return").Name("identity.login-as.return")
 
 	// Routes is identity's contract: contract.Generate(dir, identity.Routes) writes
 	// its TypeScript. User is the default projection of an account, listed because
 	// no route names it (the payload's user is whatever the application projects).
-	Routes = route.Group("identity", Login, Refresh, Logout, Me, ChangeLocale, LoginAs,
+	Routes = route.Group("identity", Login, Refresh, Logout, Me, ChangeLocale, LoginAs, ReturnToOwn,
 		ListUsers, ShowUser, CreateUser, UpdateUser, SetUserPassword, DeactivateUser, ActivateUser, UnlockUser,
 		UserSignIns, UserChanges, UserSessions, RevokeUserSession, RevokeUserSessions,
 		ShowProfile, UpdateProfile, ChangeOwnPassword, RequestEmailChange, ResendEmailCode, ConfirmEmailChange,

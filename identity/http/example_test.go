@@ -130,6 +130,14 @@ func ExampleLogin() {
 	// POST /v1/auth/login-as public: false
 }
 
+// ReturnToOwn is the way back from a session opened with LoginAs: the person is
+// signed in as themselves again, with no password.
+func ExampleReturnToOwn() {
+	spec := identityhttp.ReturnToOwn.Spec()
+	fmt.Println(spec.Method, spec.Path, "public:", spec.Public)
+	// Output: POST /v1/auth/login-as/return public: false
+}
+
 // A session opened by signing in as somebody says who is really signed in:
 // the client shows a banner and offers the way back.
 func ExampleImpersonator() {

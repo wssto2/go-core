@@ -10,12 +10,14 @@
 //	GET  /v1/auth/me                                           the session payload
 //	POST /v1/auth/change-locale           {locale}             sets the person's language
 //	POST /v1/auth/login-as                {user_id}            signs in as somebody, when the application allows it
+//	POST /v1/auth/login-as/return                              ends that session and signs in as oneself, no password
 //
 // The paths carry their version; the application's own prefix goes in front
 // (gocore.WithPrefix("/api") serves /api/v1/auth/login). A v2 is new
 // declarations in another group beside these.
 //
-// The session payload is {user, expires_at, access, navigation}: user is what
+// The session payload is {user, expires_at, impersonator, access, navigation}: impersonator (absent for a
+// person's own session) is who really signed in, when the session was opened by login-as; user is what
 // the UserProjector makes of the account (it must hold the id), access is the
 // authz engine's MyAccess of the person, navigation the application's menu cut
 // down to what they may reach. The client reads it with vue-core's

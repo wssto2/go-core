@@ -9,6 +9,7 @@ export const identityRoutes = {
   me: route<void, SessionResponse>("GET", "/v1/auth/me"),
   changeLocale: route<ChangeLocaleInput, void>("POST", "/v1/auth/change-locale"),
   loginAs: route<LoginAsInput, SessionResponse>("POST", "/v1/auth/login-as"),
+  loginAsReturn: route<void, SessionResponse>("POST", "/v1/auth/login-as/return"),
   usersList: route<ListUsersInput, ListResult<UserRow>>("GET", "/v1/iam/users", { permission: "iam.user:view" }),
   usersShow: route<UserInput, UserDetail>("GET", "/v1/iam/users/:id", { permission: "iam.user:view" }),
   usersCreate: route<CreateUserInput, UserDetail>("POST", "/v1/iam/users", { permission: "iam.user:manage" }),

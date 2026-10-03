@@ -225,6 +225,43 @@ func (s *SignIn) LoginAs(ctx context.Context, in LoginAsInput) (Signed, error) {
 	return Signed{Account: target, Credentials: creds, Actor: &actor}, nil
 }
 
+// ReturnInput is the session to leave, which must have been opened by signing in
+// as somebody (Authenticated.Session), and the device it returns on.
+type ReturnInput struct {
+	Session Session
+	Device  string
+	IP      string
+}
+
+// Return ends a session opened by signing in as somebody and opens the actor's
+// own, without asking for their password: the actor already proved who they
+// are when they signed in as somebody (IAM-USER-008). Any other session is
+// refused with ReasonImpersonationNotActive. The Notices hear SignedOutAs, as
+// when the session is signed out.
+func (s *SignIn) Return(ctx context.Context, in ReturnInput) (Signed, error) {
+	actor, err := s.actorOf(ctx, in.Session)
+	if err != nil {
+		return Signed{}, err
+	}
+
+	if actor == nil {
+		return Signed{}, apperr.BadRequest(string(ReasonImpersonationNotActive)).WithReason(ReasonImpersonationNotActive)
+	}
+
+	creds, err := s.open(ctx, NewSession{AccountID: actor.ID, Device: in.Device, IP: in.IP})
+	if err != nil {
+		return Signed{}, err
+	}
+
+	if _, err := s.deps.Sessions.End(ctx, in.Session.AccountID, []int{in.Session.ID}, 0, s.deps.Clock.Now()); err != nil {
+		return Signed{}, apperr.Internal(err)
+	}
+
+	s.deps.Notices.SignedOutAs(ctx, actor.ID, in.Session.AccountID)
+
+	return Signed{Account: *actor, Credentials: creds}, nil
+}
+
 // touchEvery is how often a session's last use is written: once a minute at
 // most, not on every request.
 const touchEvery = time.Minute

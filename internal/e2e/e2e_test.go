@@ -198,12 +198,28 @@ func TestIdentityAndAccessWorkTogether(t *testing.T) {
 		status, _ = ines.do(nethttp.MethodPost, "/api/v1/auth/login-as", map[string]int{"user_id": 1})
 		assert.Equal(t, nethttp.StatusForbidden, status)
 
+		// The administrator signs in as ines, the payload says who is really there, and
+		// returning needs no password and gives the administrator's own session back.
+		status, _ = admin.do(nethttp.MethodPost, "/api/v1/auth/login-as/return", nil)
+		assert.Equal(t, nethttp.StatusBadRequest, status, "returning from one's own session is refused")
+
 		status, data = admin.do(nethttp.MethodPost, "/api/v1/auth/login-as", map[string]int{"user_id": 2})
 		assert.Equal(t, nethttp.StatusOK, status, string(data))
+		assert.Contains(t, string(data), `"impersonator":{"id":1,"name":"admin"}`)
+		assert.NotContains(t, admin.me(), "iam.role:manage", "as ines, the administrator has only what ines has")
 
-		// User administration: ines holds no iam.user:manage, the administrator does (the
-		// administrator's browser was signed in as ines by login-as, so sign in again).
-		admin.signIn("admin", "secret")
+		asInes := admin.cookies["access_token"]
+
+		status, data = admin.do(nethttp.MethodPost, "/api/v1/auth/login-as/return", nil)
+		require.Equal(t, nethttp.StatusOK, status, string(data))
+		assert.NotContains(t, string(data), "impersonator")
+		assert.Contains(t, admin.me(), "iam.role:manage", "the administrator's permissions are back")
+
+		gone := &browser{t: t, handler: handler, cookies: map[string]*nethttp.Cookie{"access_token": asInes}}
+		status, _ = gone.do(nethttp.MethodGet, "/api/v1/auth/me", nil)
+		assert.Equal(t, nethttp.StatusUnauthorized, status, "the impersonation session ended with the return")
+
+		// User administration: ines holds no iam.user:manage, the administrator does.
 
 		newUser := identityhttp.CreateUserInput{
 			Login: "dora", Name: "Dora Horvat", Email: "dora@old.example", Locale: "hr", Password: "a long password",

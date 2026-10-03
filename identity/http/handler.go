@@ -73,6 +73,7 @@ func (h *Handler) Routes() []route.Handled {
 		Me.To(h.me),
 		ChangeLocale.To(h.changeLocale),
 		LoginAs.To(h.loginAs),
+		ReturnToOwn.To(h.returnToOwn),
 
 		ListUsers.To(h.listUsers),
 		ShowUser.To(h.showUser),
@@ -177,6 +178,22 @@ func (h *Handler) loginAs(ctx context.Context, in LoginAsInput) (SessionResponse
 	}
 
 	return h.session(ctx, LoginAs.Spec().Path, signed)
+}
+
+func (h *Handler) returnToOwn(ctx context.Context, _ route.None) (SessionResponse, error) {
+	who, ok := AuthenticatedFrom(ctx)
+	if !ok {
+		return SessionResponse{}, apperr.Unauthorized(string(account.ReasonSessionInvalid)).WithReason(account.ReasonSessionInvalid)
+	}
+
+	x := route.ExchangeOf(ctx)
+
+	signed, err := h.signIn.Return(ctx, account.ReturnInput{Session: who.Session, Device: x.UserAgent(), IP: x.ClientIP()})
+	if err != nil {
+		return SessionResponse{}, err
+	}
+
+	return h.session(ctx, ReturnToOwn.Spec().Path, signed)
 }
 
 // session sets the cookies for a fresh session, served at the declared path,

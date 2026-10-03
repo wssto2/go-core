@@ -14,6 +14,7 @@ it adds a rule file under `docs/rules/<module>/`.
 - IAM-USER-002 — five wrong passwords lock sign-in for fifteen minutes, derived from the history — `identity/account/signin.go` (`Lock.LockedUntil`) — rules: `docs/rules/identity/signin.md`
 - IAM-USER-003 — every sign-in event is on the person's history — `identity/account/signin.go` (`SignInEntry`), `identity/gormstore/store.go` — rules: `docs/rules/identity/signin.md`
 - IAM-USER-004 — sessions are listed and ended, and ending all ends what the person opened as somebody else — `identity/account/users.go`, `identity/gormstore/store.go` — rules: `docs/rules/identity/signin.md`
+- IAM-USER-008 — the payload names who is really signed in, and returning to one's own account needs no password and only an impersonation session — `identity/account/signin_service.go` (`SignIn.Return`) — rules: `docs/rules/identity/signin.md`
 - IAM-USER-005 — deactivation: nobody deactivates themselves, the application's hooks can refuse in the same transaction, the sessions end — `identity/account/admin.go` (`Admin.Deactivate`) — rules: `docs/rules/identity/users.md`
 - IAM-USER-006 — the list: views by status and lock, search, last sign-in and lock on each row — `identity/account/admin.go` (`Admin.List`), `identity/gormstore/store.go` — rules: `docs/rules/identity/users.md`
 - IAM-USER-007 — the change history, names and non-secret values, from the audit trail — `identity/account/admin.go` (`Admin.Changes`), `identity/gormstore/changelog.go` — rules: `docs/rules/identity/users.md`
