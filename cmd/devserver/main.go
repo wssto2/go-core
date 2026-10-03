@@ -231,7 +231,7 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 	return engine, nil
 }
 
-// seedActivity gives the user two things she did, an hour ago and a minute later, so the
+// seedActivity gives the user a failed sign-in, a change made to her and two things she did, an hour ago and a minute later, so the
 // Activity section has something to show: the second was done while the administrator was signed
 // in as her (a session opened for the purpose and last used then).
 func seedActivity(ctx context.Context, db *gorm.DB, now time.Time) error {
@@ -246,6 +246,20 @@ func seedActivity(ctx context.Context, db *gorm.DB, now time.Time) error {
 
 	if err := db.WithContext(ctx).Model(&auth.Token{}).Where("token_value = ?", session.Access).
 		Update("last_used_at", at.Add(2*time.Minute)).Error; err != nil {
+		return err
+	}
+
+	// A refused attempt on her history, and a change the administrator made to her: the Sign-ins
+	// (Failed) and Changes sections have something to show, the change naming who made it.
+	if err := gormstore.New(db).SignIns.Record(ctx, account.SignInEntry{
+		AccountID: 2, Event: account.WrongPassword, IP: "203.0.113.7", Device: "dev seed", CreatedAt: at.Add(45 * time.Minute),
+	}); err != nil {
+		return err
+	}
+
+	if err := gormstore.NewChangeLog(db).Record(ctx, account.Change{
+		AccountID: 2, ActorID: 1, Action: account.ChangeUpdated, Fields: []string{"phone"}, Before: map[string]string{"phone": ""}, After: map[string]string{"phone": "+385 1 555 0100"},
+	}); err != nil {
 		return err
 	}
 

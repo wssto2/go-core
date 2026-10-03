@@ -253,6 +253,16 @@ func ExampleUsers_SubjectNames() {
 	// Output: map[user:1:ana]
 }
 
+// Names reads the names of the people a page of rows mentions in one query; an id that is no
+// account is absent, and a person without a name shows their login.
+func ExampleUsers_Names() {
+	users := identitytest.Users(exampleT{}, identitytest.Account(1, "ana", "secret"))
+
+	names, _ := users.Names(context.Background(), []int{1, 2})
+	fmt.Println(names)
+	// Output: map[1:ana]
+}
+
 func ExampleCodes() {
 	k := kit()
 	ctx := context.Background()
@@ -370,6 +380,37 @@ func ExampleAdmin_Deactivate() {
 	// true
 	// <nil>
 	// false
+}
+
+// A sign-in history has two views, all and failed, and says how many rows each has.
+func ExampleAdmin_SignIns() {
+	k := kit()
+	ctx := context.Background()
+
+	_, _ = k.SignIn.Login(ctx, account.LoginInput{Login: "ana", Password: "secret"})
+	_, _ = k.SignIn.Login(ctx, account.LoginInput{Login: "ana", Password: "wrong"})
+
+	failed, err := k.Admin.SignIns(ctx, 1, account.SignInsFailed, account.Paging{})
+	fmt.Println(len(failed.Rows), failed.Rows[0].Event, failed.Counts, err)
+
+	_, err = k.Admin.SignIns(ctx, 1, "recent", account.Paging{})
+	fmt.Println(apperr.HasReason(err, account.ReasonHistoryViewInvalid))
+	// Output:
+	// 1 wrong_password {2 1} <nil>
+	// true
+}
+
+// The changes to an account have three views: all, access (password, deactivation, activation)
+// and details (the rest).
+func ExampleAdmin_Changes() {
+	k := kit()
+	ctx := context.Background()
+
+	_ = k.Admin.SetPassword(ctx, account.SetPassword{ID: 1, Password: "a new long password", ActorID: 1})
+
+	access, err := k.Admin.Changes(ctx, 1, account.ChangesAccess, account.Paging{})
+	fmt.Println(len(access.Rows), access.Rows[0].Action, access.Counts, err)
+	// Output: 1 password {1 1 0} <nil>
 }
 
 func ExampleAdmin_List() {

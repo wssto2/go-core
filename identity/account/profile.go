@@ -397,13 +397,8 @@ func (p *Profile) RevokeSession(ctx context.Context, accountID, sessionID, curre
 	return p.d.Users.RevokeSession(ctx, RevokeSessionInput{AccountID: accountID, SessionID: sessionID, Keep: current})
 }
 
-// SignIns lists the person's own sign-in history, newest first, with how many
-// rows there are (IAM-USER-003).
-func (p *Profile) SignIns(ctx context.Context, accountID int, page Paging) ([]SignInEntry, int, error) {
-	rows, total, err := p.d.History.Entries(ctx, accountID, page.offset(), page.resolved().PerPage)
-	if err != nil {
-		return nil, 0, apperr.Internal(err)
-	}
-
-	return rows, total, nil
+// SignIns lists the person's own sign-in history in a view, newest first, with how many rows the
+// view has and how many each view has (IAM-USER-003; see Admin.SignIns).
+func (p *Profile) SignIns(ctx context.Context, accountID int, view SignInView, page Paging) (SignInPage, error) {
+	return signInPage(ctx, p.d.History, accountID, view, page)
 }

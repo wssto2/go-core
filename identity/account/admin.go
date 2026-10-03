@@ -560,13 +560,15 @@ type ListInput struct {
 // Row is an account in a list: the details with the last sign-in and the lock.
 type Row = Detail
 
-// Listing is one page of the list.
+// Listing is one page of the list. Counts is how many accounts each view has under the same
+// search, whichever view is shown.
 type Listing struct {
 	Rows     []Row
 	Total    int
 	Page     int
 	PerPage  int
 	LastPage int
+	Counts   StatusCounts
 }
 
 // List searches the accounts (IAM-USER-006). The views split them by status and
@@ -622,6 +624,11 @@ func (a *Admin) List(ctx context.Context, in ListInput) (Listing, error) {
 		return Listing{}, apperr.Internal(err)
 	}
 
+	counts, err := a.d.Search.Counts(ctx, Query{Search: q.Search, LockedIDs: ids})
+	if err != nil {
+		return Listing{}, apperr.Internal(err)
+	}
+
 	rowIDs := make([]int, len(page.Accounts))
 	for i, acc := range page.Accounts {
 		rowIDs[i] = acc.ID
@@ -632,7 +639,7 @@ func (a *Admin) List(ctx context.Context, in ListInput) (Listing, error) {
 		return Listing{}, apperr.Internal(err)
 	}
 
-	out := Listing{Rows: make([]Row, len(page.Accounts)), Total: page.Total, Page: paging.Page, PerPage: paging.PerPage}
+	out := Listing{Rows: make([]Row, len(page.Accounts)), Total: page.Total, Page: paging.Page, PerPage: paging.PerPage, Counts: counts}
 	out.LastPage = max((page.Total+paging.PerPage-1)/paging.PerPage, 1)
 
 	for i, acc := range page.Accounts {
@@ -692,32 +699,58 @@ func (a *Admin) RevokeSessions(ctx context.Context, accountID, actorID int) erro
 	return a.d.Users.RevokeSessions(ctx, RevokeSessionsInput{AccountID: accountID, ActorID: actorID})
 }
 
-// SignIns lists the account's sign-in history (IAM-USER-003), newest first, with
-// how many rows it has.
-func (a *Admin) SignIns(ctx context.Context, accountID int, p Paging) ([]SignInEntry, int, error) {
+// SignIns lists the account's sign-in history (IAM-USER-003) in a view, newest first, with how
+// many rows the view has and how many each view has. An empty view is SignInsAll; one that does
+// not exist is refused (identity.history.view_invalid).
+func (a *Admin) SignIns(ctx context.Context, accountID int, view SignInView, p Paging) (SignInPage, error) {
 	if _, err := a.d.Users.Get(ctx, accountID); err != nil {
-		return nil, 0, err
+		return SignInPage{}, err
 	}
 
-	rows, total, err := a.d.History.Entries(ctx, accountID, p.offset(), p.resolved().PerPage)
-	if err != nil {
-		return nil, 0, apperr.Internal(err)
-	}
-
-	return rows, total, nil
+	return signInPage(ctx, a.d.History, accountID, view, p)
 }
 
-// Changes lists the changes made to the account (IAM-USER-007), newest first,
-// with how many there are.
-func (a *Admin) Changes(ctx context.Context, accountID int, p Paging) ([]ChangeEntry, int, error) {
-	if _, err := a.d.Users.Get(ctx, accountID); err != nil {
-		return nil, 0, err
-	}
-
-	rows, total, err := a.d.Changes.Changes(ctx, accountID, p.offset(), p.resolved().PerPage)
+func signInPage(ctx context.Context, history SignInHistory, accountID int, view SignInView, p Paging) (SignInPage, error) {
+	events, err := view.events()
 	if err != nil {
-		return nil, 0, apperr.Internal(err)
+		return SignInPage{}, err
 	}
 
-	return rows, total, nil
+	rows, total, err := history.Entries(ctx, SignInQuery{AccountID: accountID, Events: events, Offset: p.offset(), Limit: p.resolved().PerPage})
+	if err != nil {
+		return SignInPage{}, apperr.Internal(err)
+	}
+
+	byEvent, err := history.EventCounts(ctx, accountID)
+	if err != nil {
+		return SignInPage{}, apperr.Internal(err)
+	}
+
+	return SignInPage{Rows: rows, Total: total, Counts: signInCounts(byEvent)}, nil
+}
+
+// Changes lists the changes made to the account (IAM-USER-007) in a view, newest first, with how
+// many there are in the view and in each view. An empty view is ChangesAll; one that does not
+// exist is refused (identity.history.view_invalid).
+func (a *Admin) Changes(ctx context.Context, accountID int, view ChangeView, p Paging) (ChangePage, error) {
+	if _, err := a.d.Users.Get(ctx, accountID); err != nil {
+		return ChangePage{}, err
+	}
+
+	only, except, err := view.narrow()
+	if err != nil {
+		return ChangePage{}, err
+	}
+
+	rows, total, err := a.d.Changes.Changes(ctx, ChangeQuery{AccountID: accountID, Only: only, Except: except, Offset: p.offset(), Limit: p.resolved().PerPage})
+	if err != nil {
+		return ChangePage{}, apperr.Internal(err)
+	}
+
+	byAction, err := a.d.Changes.ChangeCounts(ctx, accountID)
+	if err != nil {
+		return ChangePage{}, apperr.Internal(err)
+	}
+
+	return ChangePage{Rows: rows, Total: total, Counts: changeCounts(byAction)}, nil
 }

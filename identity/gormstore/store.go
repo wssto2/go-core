@@ -379,6 +379,34 @@ func (s *Accounts) Search(ctx context.Context, q account.Query) (account.Page, e
 	return page, nil
 }
 
+// Counts implements account.Searcher: one query, the accounts that match the search summed by status.
+func (s *Accounts) Counts(ctx context.Context, q account.Query) (account.StatusCounts, error) {
+	db := dbOf(s.db, ctx).Model(&accountModel{})
+
+	if q.Search != "" {
+		p := likePattern(q.Search)
+		db = db.Where("LOWER(login) LIKE ? ESCAPE '!' OR LOWER(name) LIKE ? ESCAPE '!' OR LOWER(email) LIKE ? ESCAPE '!'", p, p, p)
+	}
+
+	// SUM over no rows is NULL, hence COALESCE; the CASE form runs the same on MySQL, MariaDB and SQLite.
+	inactive := "COALESCE(SUM(CASE WHEN active = ? THEN 0 ELSE 1 END), 0)"
+	locked, args := "0", []any{true}
+
+	if len(q.LockedIDs) > 0 {
+		locked = "COALESCE(SUM(CASE WHEN active = ? AND id IN ? THEN 1 ELSE 0 END), 0)"
+		args = append(args, true, q.LockedIDs)
+	}
+
+	var row struct{ Total, Inactive, Locked int }
+
+	err := db.Select("COUNT(*) AS total, "+inactive+" AS inactive, "+locked+" AS locked", args...).Scan(&row).Error
+	if err != nil {
+		return account.StatusCounts{}, err
+	}
+
+	return account.StatusCounts{Active: row.Total - row.Inactive - row.Locked, Locked: row.Locked, Inactive: row.Inactive}, nil
+}
+
 // --- sign-in history ---
 
 // Record implements account.SignInLog: one row of the history (IAM-USER-003).
@@ -414,14 +442,23 @@ func (s *SignIns) LockEvents(ctx context.Context, accountID, n int) ([]account.S
 }
 
 // Entries implements account.SignInHistory.
-func (s *SignIns) Entries(ctx context.Context, accountID, offset, limit int) ([]account.SignInEntry, int, error) {
+func (s *SignIns) Entries(ctx context.Context, q account.SignInQuery) ([]account.SignInEntry, int, error) {
+	where := func() *gorm.DB {
+		db := dbOf(s.db, ctx).Model(&signInModel{}).Where("user_id = ?", q.AccountID)
+		if len(q.Events) > 0 {
+			db = db.Where("event IN ?", q.Events)
+		}
+
+		return db
+	}
+
 	var total int64
-	if err := dbOf(s.db, ctx).Model(&signInModel{}).Where("user_id = ?", accountID).Count(&total).Error; err != nil {
+	if err := where().Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
 	var rows []signInModel
-	if err := dbOf(s.db, ctx).Where("user_id = ?", accountID).Order("id DESC").Offset(offset).Limit(limit).Find(&rows).Error; err != nil {
+	if err := where().Order("id DESC").Offset(q.Offset).Limit(q.Limit).Find(&rows).Error; err != nil {
 		return nil, 0, err
 	}
 
@@ -431,6 +468,26 @@ func (s *SignIns) Entries(ctx context.Context, accountID, offset, limit int) ([]
 	}
 
 	return out, int(total), nil
+}
+
+// EventCounts implements account.SignInHistory.
+func (s *SignIns) EventCounts(ctx context.Context, accountID int) (map[account.SignInEvent]int, error) {
+	var rows []struct {
+		Event string
+		N     int
+	}
+
+	err := dbOf(s.db, ctx).Model(&signInModel{}).Select("event, COUNT(*) AS n").Where("user_id = ?", accountID).Group("event").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(map[account.SignInEvent]int, len(rows))
+	for _, r := range rows {
+		out[account.SignInEvent(r.Event)] = r.N
+	}
+
+	return out, nil
 }
 
 func (r signInModel) entry() account.SignInEntry {

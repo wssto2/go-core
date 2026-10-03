@@ -70,6 +70,11 @@ Code: `identity/account/signin.go` (`Lock.LockedUntil`, `LockEvent`), `identity/
 2. **Last sign-in** is the latest `signed_in`.
 3. The table is arv-next's as it is (columns `user_id`, `event`, `ip`, `user_agent`, `actor_id`), so an
    application that already has it adopts the module's migration with `MarkApplied`.
+4. **Views** (`GET /v1/iam/users/:id/signins` and the person's own `GET /v1/iam/profile/signins`, `?view=`): `all`
+   (also the empty one) and `failed`, the refused attempts: `wrong_password`, `locked_out` and `refused_inactive`
+   (arv-next's *Sve* and *Neuspjele*). `meta.views` is `[{key, count}]` for both, whatever view is shown, from one
+   `GROUP BY event`; `total` and the rows are the shown view's. A view that does not exist is
+   `422 identity.history.view_invalid`. `actor` is `{id, name}` of who did it, `null` when nobody.
 
 Code: `identity/account/signin.go` (`SignInEntry`, `Event`), `identity/account/signin_service.go` (`appendEntry`),
 `identity/migrations/20261016000001_identity_signins.sql`.

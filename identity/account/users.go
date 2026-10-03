@@ -41,20 +41,11 @@ func (u *Users) Get(ctx context.Context, id int) (Account, error) {
 	return acc, nil
 }
 
-// SubjectNames returns the display name of each person among subjects that
-// exists, which is what access.SubjectDirectory asks: *Users satisfies it as it
-// is. The name is the account's name, or its login when it has none. Service
-// accounts are not identity's, and are left out.
-func (u *Users) SubjectNames(ctx context.Context, subjects []authz.Subject) (map[authz.Subject]string, error) {
-	var ids []int
-
-	for _, s := range subjects {
-		if s.Kind == authz.KindUser {
-			ids = append(ids, s.ID)
-		}
-	}
-
-	out := make(map[authz.Subject]string, len(ids))
+// Names returns the display name of each account among ids that exists, in one query: the
+// account's name, or its login when it has none. An id that is not an account (deleted, or
+// never one) is simply absent.
+func (u *Users) Names(ctx context.Context, ids []int) (map[int]string, error) {
+	out := make(map[int]string, len(ids))
 	if len(ids) == 0 {
 		return out, nil
 	}
@@ -70,7 +61,33 @@ func (u *Users) SubjectNames(ctx context.Context, subjects []authz.Subject) (map
 			name = a.Login
 		}
 
-		out[authz.Subject{Kind: authz.KindUser, ID: a.ID}] = name
+		out[a.ID] = name
+	}
+
+	return out, nil
+}
+
+// SubjectNames returns the display name of each person among subjects that
+// exists, which is what access.SubjectDirectory asks: *Users satisfies it as it
+// is. The name is the account's name, or its login when it has none. Service
+// accounts are not identity's, and are left out.
+func (u *Users) SubjectNames(ctx context.Context, subjects []authz.Subject) (map[authz.Subject]string, error) {
+	var ids []int
+
+	for _, s := range subjects {
+		if s.Kind == authz.KindUser {
+			ids = append(ids, s.ID)
+		}
+	}
+
+	names, err := u.Names(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(map[authz.Subject]string, len(names))
+	for id, name := range names {
+		out[authz.Subject{Kind: authz.KindUser, ID: id}] = name
 	}
 
 	return out, nil

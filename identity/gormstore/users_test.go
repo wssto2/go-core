@@ -126,7 +126,8 @@ func TestTheUsersModuleOverRealTables(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, inactive.Rows, 1)
 
-		changes, total, err := admin.Changes(ctx, boris.ID, account.Paging{})
+		pg20, err := admin.Changes(ctx, boris.ID, account.ChangesAll, account.Paging{})
+		changes, total := pg20.Rows, pg20.Total
 		require.NoError(t, err)
 		require.Equal(t, 3, total)
 		require.Equal(t, account.ChangeDeactivated, changes[0].Action)
@@ -166,7 +167,7 @@ func TestAFailedPasswordChangeRollsBack(t *testing.T) {
 		_, err = stores.Sessions.Get(t.Context(), session.Access, time.Now())
 		require.NoError(t, err, "the session lives")
 
-		_, total, err := gormstore.NewChangeLog(db).Changes(t.Context(), boris.ID, 0, 10)
+		_, total, err := gormstore.NewChangeLog(db).Changes(t.Context(), account.ChangeQuery{AccountID: boris.ID, Limit: 10})
 		require.NoError(t, err)
 		require.Equal(t, 1, total, "only the creation: the password change left no history either")
 	})
@@ -220,7 +221,8 @@ func TestAVetoRollsBackWhatHooksWrote(t *testing.T) {
 		require.True(t, after.Active, "still active")
 		require.Equal(t, "en", after.Locale, "the hand-over's write was rolled back")
 
-		_, total, err := admin.Changes(t.Context(), boris.ID, account.Paging{})
+		pg21, err := admin.Changes(t.Context(), boris.ID, account.ChangesAll, account.Paging{})
+		total := pg21.Total
 		require.NoError(t, err)
 		require.Equal(t, 1, total, "only the creation")
 	})

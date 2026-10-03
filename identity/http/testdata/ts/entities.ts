@@ -6,13 +6,8 @@ export type ActivityRow = {
   record_type: string;
   record_id: number;
   action: ActivityAction;
-  signed_in_as: number | null;
+  signed_in_as: PersonRef | null;
   created_at: string;
-};
-
-export type AreaCount = {
-  key: string;
-  count: number;
 };
 
 export type ChangeAction = "created" | "updated" | "deactivated" | "activated" | "password" | "email" | "profile";
@@ -23,9 +18,11 @@ export type ChangeRow = {
   fields: string[];
   before: Record<string, string>;
   after: Record<string, string>;
-  actor_id: number | null;
+  actor: PersonRef | null;
   created_at: string;
 };
+
+export type ChangeView = "all" | "access" | "details";
 
 export type ClauseInfo = {
   scope: Scope;
@@ -68,6 +65,11 @@ export type PermissionAccess = {
   clauses: ClauseInfo[];
 };
 
+export type PersonRef = {
+  id: number;
+  name: string;
+};
+
 export type ProfileResponse = {
   id: number;
   login: string;
@@ -88,7 +90,7 @@ export type SessionItem = {
   id: number;
   device: string;
   ip: string;
-  opened_by: number | null;
+  opened_by: PersonRef | null;
   current: boolean;
   last_used_at: string;
   expires_at: string;
@@ -114,9 +116,11 @@ export type SignInRow = {
   event: SignInEvent;
   ip: string;
   device: string;
-  actor_id: number | null;
+  actor: PersonRef | null;
   created_at: string;
 };
+
+export type SignInView = "all" | "failed";
 
 export type Status = "active" | "locked" | "inactive";
 
@@ -163,4 +167,11 @@ export type UserRow = {
   last_sign_in: string | null;
   locked_until: string | null;
   created_at: string;
+};
+
+export type UserView = "active" | "locked" | "inactive" | "all";
+
+export type ViewCount = {
+  key: string;
+  count: number;
 };

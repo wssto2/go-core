@@ -50,10 +50,10 @@ var (
 	ActivateUser = route.Post[UserInput, route.Empty](usersBase + "/:id/activate").Name("identity.users.activate").Requires(ManageUsers)
 	// UnlockUser lifts the lock after wrong passwords.
 	UnlockUser = route.Post[UserInput, UnlockResult](usersBase + "/:id/unlock").Name("identity.users.unlock").Requires(ManageUsers)
-	// UserSignIns is a person's sign-in history, newest first.
-	UserSignIns = route.Get[HistoryInput, datatable.DatatableResult[SignInRow]](usersBase + "/:id/signins").Name("identity.users.signins").Requires(ViewUsers)
-	// UserChanges is the history of changes made to a person, newest first.
-	UserChanges = route.Get[HistoryInput, datatable.DatatableResult[ChangeRow]](usersBase + "/:id/changes").Name("identity.users.changes").Requires(ViewUsers)
+	// UserSignIns is a person's sign-in history, newest first, with the count of each view in meta.views.
+	UserSignIns = route.Get[SignInsInput, datatable.DatatableResult[SignInRow]](usersBase + "/:id/signins").Name("identity.users.signins").Requires(ViewUsers)
+	// UserChanges is the history of changes made to a person, newest first, with the count of each view in meta.views.
+	UserChanges = route.Get[ChangesInput, datatable.DatatableResult[ChangeRow]](usersBase + "/:id/changes").Name("identity.users.changes").Requires(ViewUsers)
 	// UserActivity is what a person did, newest first: the records they created, changed or
 	// deleted, by area and days.
 	UserActivity = route.Get[ActivityInput, datatable.DatatableResult[ActivityRow]](usersBase + "/:id/activity").Name("identity.users.activity").Requires(ViewActivity)
@@ -77,22 +77,34 @@ type UserSessionInput struct {
 }
 
 // ListUsersInput is a page of the list. View is one of active (the default),
-// locked, inactive, all; OrderCol one of login (the default), name, email,
+// locked, inactive, all (meta.views counts each, under the same search); OrderCol one of login (the default), name, email,
 // created_at; OrderDir asc (the default) or desc; PerPage at most 100.
 type ListUsersInput struct {
-	View     string `query:"view" json:"view,omitempty" validation:"max:16"`
-	Search   string `query:"search" json:"search,omitempty" validation:"max:100"`
-	OrderCol string `query:"order_col" json:"order_col,omitempty" validation:"max:16"`
-	OrderDir string `query:"order_dir" json:"order_dir,omitempty" validation:"max:4"`
-	Page     int    `query:"page" json:"page,omitempty"`
-	PerPage  int    `query:"per_page" json:"per_page,omitempty"`
+	View     account.View `query:"view" json:"view,omitempty" validation:"max:16"`
+	Search   string       `query:"search" json:"search,omitempty" validation:"max:100"`
+	OrderCol string       `query:"order_col" json:"order_col,omitempty" validation:"max:16"`
+	OrderDir string       `query:"order_dir" json:"order_dir,omitempty" validation:"max:4"`
+	Page     int          `query:"page" json:"page,omitempty"`
+	PerPage  int          `query:"per_page" json:"per_page,omitempty"`
 }
 
-// HistoryInput is a page of a person's sign-in history or changes.
-type HistoryInput struct {
-	ID      int `path:"id"`
-	Page    int `query:"page" json:"page,omitempty"`
-	PerPage int `query:"per_page" json:"per_page,omitempty"`
+// SignInsInput is a page of a person's sign-in history. View is all (the default) or failed (a wrong
+// password, a refusal while locked, a refusal for an inactive account); meta.views counts both.
+type SignInsInput struct {
+	ID      int                `path:"id"`
+	View    account.SignInView `query:"view" json:"view,omitempty" validation:"max:16"`
+	Page    int                `query:"page" json:"page,omitempty"`
+	PerPage int                `query:"per_page" json:"per_page,omitempty"`
+}
+
+// ChangesInput is a page of the changes made to a person. View is all (the default), access (a new
+// password, a deactivation, an activation) or details (everything else: creation, details, e-mail
+// address); meta.views counts all three.
+type ChangesInput struct {
+	ID      int                `path:"id"`
+	View    account.ChangeView `query:"view" json:"view,omitempty" validation:"max:16"`
+	Page    int                `query:"page" json:"page,omitempty"`
+	PerPage int                `query:"per_page" json:"per_page,omitempty"`
 }
 
 // ActivityInput is a page of what a person did. Area is one of the keys the application named
@@ -116,17 +128,8 @@ type ActivityRow struct {
 	RecordType string                 `json:"record_type"`
 	RecordID   int                    `json:"record_id"`
 	Action     account.ActivityAction `json:"action"`
-	SignedInAs *int                   `json:"signed_in_as"`
+	SignedInAs *PersonRef             `json:"signed_in_as"`
 	CreatedAt  time.Time              `json:"created_at"`
-}
-
-// AreaCount is one entry of the activity page's meta.views: how many entries the person has in the
-// area ("all" for every one, then each area the application named, "identity" and "other"), within
-// the days asked for and whatever area is shown. The datatable's meta is untyped, so this shape is
-// documented, not generated.
-type AreaCount struct {
-	Key   string `json:"key"`
-	Count int    `json:"count"`
 }
 
 // CreateUserInput is a new person. Locale is a BCP-47 tag such as "hr".
@@ -194,40 +197,41 @@ type UserDetail struct {
 
 // SignInRow is one row of a sign-in history. Event is signed_in, wrong_password,
 // locked_out, refused_inactive, signed_in_as, unlocked, signed_out_everywhere or
-// session_revoked; ActorID is who did it when that was somebody else.
+// session_revoked; Actor is who did it when that was somebody else, null otherwise.
 type SignInRow struct {
 	ID        int                 `json:"id"`
 	Event     account.SignInEvent `json:"event"`
 	IP        string              `json:"ip"`
 	Device    string              `json:"device"`
-	ActorID   *int                `json:"actor_id"`
+	Actor     *PersonRef          `json:"actor"`
 	CreatedAt time.Time           `json:"created_at"`
 }
 
 // ChangeRow is one change made to a person. Action is created, updated,
 // deactivated, activated, password, email or profile; Fields names what changed,
-// Before and After hold the values of the fields that are not secret.
+// Before and After hold the values of the fields that are not secret. Actor is who made the
+// change, null when the person did it themselves.
 type ChangeRow struct {
 	ID        int                  `json:"id"`
 	Action    account.ChangeAction `json:"action"`
 	Fields    []string             `json:"fields"`
 	Before    map[string]string    `json:"before"`
 	After     map[string]string    `json:"after"`
-	ActorID   *int                 `json:"actor_id"`
+	Actor     *PersonRef           `json:"actor"`
 	CreatedAt time.Time            `json:"created_at"`
 }
 
 // SessionItem is one live session. OpenedBy is who opened it by signing in as the
-// person; Current is the session the request came with (only the profile knows).
+// person, null for the person's own; Current is the session the request came with (only the profile knows).
 type SessionItem struct {
-	ID         int       `json:"id"`
-	Device     string    `json:"device"`
-	IP         string    `json:"ip"`
-	OpenedBy   *int      `json:"opened_by"`
-	Current    bool      `json:"current"`
-	LastUsedAt time.Time `json:"last_used_at"`
-	ExpiresAt  time.Time `json:"expires_at"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID         int        `json:"id"`
+	Device     string     `json:"device"`
+	IP         string     `json:"ip"`
+	OpenedBy   *PersonRef `json:"opened_by"`
+	Current    bool       `json:"current"`
+	LastUsedAt time.Time  `json:"last_used_at"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
 // SessionList is a person's live sessions, the latest used first.
@@ -254,12 +258,48 @@ func timeOrNil(t time.Time) *time.Time {
 	return &t
 }
 
-func idOrNil(id int) *int {
+// PersonRef is a person a row names: who did it, who was signed in as them. Name is the
+// account's name (its login when it has no name), and empty when the account no longer
+// exists, so a row never loses the id it was written with.
+type PersonRef struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// people are the names of the accounts a page's rows mention, read in one query.
+type people map[int]string
+
+// people reads the names of the ids that are somebody (above zero), once each.
+func (h *Handler) people(ctx context.Context, ids []int) (people, error) {
+	seen := map[int]bool{}
+	unique := make([]int, 0, len(ids))
+
+	for _, id := range ids {
+		if id > 0 && !seen[id] {
+			seen[id] = true
+			unique = append(unique, id)
+		}
+	}
+
+	return h.users.Names(ctx, unique)
+}
+
+// ref is the person with the id: nil when nobody (id zero), an empty name when unknown.
+func (p people) ref(id int) *PersonRef {
 	if id <= 0 {
 		return nil
 	}
 
-	return &id
+	return &PersonRef{ID: id, Name: p[id]}
+}
+
+func signInActors(rows []account.SignInEntry) []int {
+	ids := make([]int, len(rows))
+	for i, r := range rows {
+		ids[i] = r.ActorID
+	}
+
+	return ids
 }
 
 func statusOf(active bool, lockedUntil time.Time) Status {
@@ -310,7 +350,7 @@ func (h *Handler) listUsers(ctx context.Context, in ListUsersInput) (datatable.D
 	}
 
 	listing, err := h.admin.List(ctx, account.ListInput{
-		View: account.View(in.View), Search: in.Search, OrderBy: account.Order(in.OrderCol), Desc: in.OrderDir == "desc",
+		View: in.View, Search: in.Search, OrderBy: account.Order(in.OrderCol), Desc: in.OrderDir == "desc",
 		Paging: pagingOf(in.Page, in.PerPage),
 	})
 	if err != nil {
@@ -322,7 +362,12 @@ func (h *Handler) listUsers(ctx context.Context, in ListUsersInput) (datatable.D
 		rows[i] = rowOf(r)
 	}
 
-	return pageOf(rows, listing.Total, listing.Page, listing.PerPage), nil
+	return pageOf(rows, listing.Total, listing.Page, listing.PerPage).WithViews(
+		datatable.ViewCount{Key: string(account.ViewActive), Count: listing.Counts.Active},
+		datatable.ViewCount{Key: string(account.ViewLocked), Count: listing.Counts.Locked},
+		datatable.ViewCount{Key: string(account.ViewInactive), Count: listing.Counts.Inactive},
+		datatable.ViewCount{Key: string(account.ViewAll), Count: listing.Counts.All()},
+	), nil
 }
 
 func (h *Handler) showUser(ctx context.Context, in UserInput) (UserDetail, error) {
@@ -400,41 +445,67 @@ func (h *Handler) unlockUser(ctx context.Context, in UserInput) (UnlockResult, e
 	return UnlockResult{Unlocked: unlocked}, err
 }
 
-func signInRows(rows []account.SignInEntry) []SignInRow {
+func signInRows(rows []account.SignInEntry, who people) []SignInRow {
 	out := make([]SignInRow, len(rows))
 	for i, r := range rows {
-		out[i] = SignInRow{ID: r.ID, Event: r.Event, IP: r.IP, Device: r.Device, ActorID: idOrNil(r.ActorID), CreatedAt: r.CreatedAt.UTC()}
+		out[i] = SignInRow{ID: r.ID, Event: r.Event, IP: r.IP, Device: r.Device, Actor: who.ref(r.ActorID), CreatedAt: r.CreatedAt.UTC()}
 	}
 
 	return out
 }
 
-func (h *Handler) userSignIns(ctx context.Context, in HistoryInput) (datatable.DatatableResult[SignInRow], error) {
-	paging := pagingOf(in.Page, in.PerPage)
+func (h *Handler) userSignIns(ctx context.Context, in SignInsInput) (datatable.DatatableResult[SignInRow], error) {
+	page, err := h.admin.SignIns(ctx, in.ID, in.View, pagingOf(in.Page, in.PerPage))
 
-	rows, total, err := h.admin.SignIns(ctx, in.ID, paging)
+	return h.signInPage(ctx, page, err, in.Page, in.PerPage)
+}
+
+// signInPage is a page of sign-in history as the response, the actors named in one lookup.
+func (h *Handler) signInPage(ctx context.Context, page account.SignInPage, err error, pageNo, perPage int) (datatable.DatatableResult[SignInRow], error) {
 	if err != nil {
 		return datatable.DatatableResult[SignInRow]{}, err
 	}
 
-	return pageOf(signInRows(rows), total, max(in.Page, 1), resolvedPerPage(in.PerPage)), nil
+	who, err := h.people(ctx, signInActors(page.Rows))
+	if err != nil {
+		return datatable.DatatableResult[SignInRow]{}, err
+	}
+
+	return pageOf(signInRows(page.Rows, who), page.Total, max(pageNo, 1), resolvedPerPage(perPage)).WithViews(
+		datatable.ViewCount{Key: string(account.SignInsAll), Count: page.Counts.All},
+		datatable.ViewCount{Key: string(account.SignInsFailed), Count: page.Counts.Failed},
+	), nil
 }
 
-func (h *Handler) userChanges(ctx context.Context, in HistoryInput) (datatable.DatatableResult[ChangeRow], error) {
-	rows, total, err := h.admin.Changes(ctx, in.ID, pagingOf(in.Page, in.PerPage))
+func (h *Handler) userChanges(ctx context.Context, in ChangesInput) (datatable.DatatableResult[ChangeRow], error) {
+	page, err := h.admin.Changes(ctx, in.ID, in.View, pagingOf(in.Page, in.PerPage))
 	if err != nil {
 		return datatable.DatatableResult[ChangeRow]{}, err
 	}
 
-	out := make([]ChangeRow, len(rows))
-	for i, r := range rows {
+	ids := make([]int, len(page.Rows))
+	for i, r := range page.Rows {
+		ids[i] = r.ActorID
+	}
+
+	who, err := h.people(ctx, ids)
+	if err != nil {
+		return datatable.DatatableResult[ChangeRow]{}, err
+	}
+
+	out := make([]ChangeRow, len(page.Rows))
+	for i, r := range page.Rows {
 		out[i] = ChangeRow{
 			ID: r.ID, Action: r.Action, Fields: nonNil(r.Fields), Before: nonNilMap(r.Before), After: nonNilMap(r.After),
-			ActorID: idOrNil(r.ActorID), CreatedAt: r.At.UTC(),
+			Actor: who.ref(r.ActorID), CreatedAt: r.At.UTC(),
 		}
 	}
 
-	return pageOf(out, total, max(in.Page, 1), resolvedPerPage(in.PerPage)), nil
+	return pageOf(out, page.Total, max(in.Page, 1), resolvedPerPage(in.PerPage)).WithViews(
+		datatable.ViewCount{Key: string(account.ChangesAll), Count: page.Counts.All},
+		datatable.ViewCount{Key: string(account.ChangesAccess), Count: page.Counts.Access},
+		datatable.ViewCount{Key: string(account.ChangesDetails), Count: page.Counts.Details},
+	), nil
 }
 
 // resolvedPerPage is the page size the services use for a requested one.
@@ -462,11 +533,11 @@ func nonNilMap(m map[string]string) map[string]string {
 	return m
 }
 
-func sessionItems(sessions []account.Session, current int) SessionList {
+func sessionItems(sessions []account.Session, current int, who people) SessionList {
 	out := SessionList{Sessions: make([]SessionItem, len(sessions))}
 	for i, s := range sessions {
 		out.Sessions[i] = SessionItem{
-			ID: s.ID, Device: s.Label(), IP: s.IP, OpenedBy: idOrNil(s.ActorID), Current: s.ID == current,
+			ID: s.ID, Device: s.Label(), IP: s.IP, OpenedBy: who.ref(s.ActorID), Current: s.ID == current,
 			LastUsedAt: s.LastUsedAt.UTC(), ExpiresAt: s.ExpiresAt.UTC(), CreatedAt: s.CreatedAt.UTC(),
 		}
 	}
@@ -480,7 +551,17 @@ func (h *Handler) userSessions(ctx context.Context, in UserInput) (SessionList, 
 		return SessionList{}, err
 	}
 
-	return sessionItems(sessions, 0), nil
+	ids := make([]int, len(sessions))
+	for i, s := range sessions {
+		ids[i] = s.ActorID
+	}
+
+	who, err := h.people(ctx, ids)
+	if err != nil {
+		return SessionList{}, err
+	}
+
+	return sessionItems(sessions, 0, who), nil
 }
 
 func (h *Handler) revokeUserSession(ctx context.Context, in UserSessionInput) (route.Empty, error) {
@@ -542,22 +623,28 @@ func (h *Handler) userActivity(ctx context.Context, in ActivityInput) (datatable
 		return datatable.DatatableResult[ActivityRow]{}, err
 	}
 
+	ids := make([]int, len(rows))
+	for i, r := range rows {
+		ids[i] = r.SignedInAs
+	}
+
+	who, err := h.people(ctx, ids)
+	if err != nil {
+		return datatable.DatatableResult[ActivityRow]{}, err
+	}
+
 	out := make([]ActivityRow, len(rows))
 	for i, r := range rows {
 		out[i] = ActivityRow{
 			ID: r.ID, Area: r.Area, RecordType: r.RecordType, RecordID: r.RecordID, Action: r.Action,
-			SignedInAs: idOrNil(r.SignedInAs), CreatedAt: r.At.UTC(),
+			SignedInAs: who.ref(r.SignedInAs), CreatedAt: r.At.UTC(),
 		}
 	}
 
-	page := pageOf(out, total, max(in.Page, 1), resolvedPerPage(in.PerPage))
-
-	views := make([]AreaCount, len(counts))
+	views := make([]datatable.ViewCount, len(counts))
 	for i, c := range counts {
-		views[i] = AreaCount{Key: c.Area, Count: c.Count}
+		views[i] = datatable.ViewCount{Key: c.Area, Count: c.Count}
 	}
 
-	page.Meta = map[string]any{"views": views}
-
-	return page, nil
+	return pageOf(out, total, max(in.Page, 1), resolvedPerPage(in.PerPage)).WithViews(views...), nil
 }

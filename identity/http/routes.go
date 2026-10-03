@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/wssto2/go-core/authz"
+	"github.com/wssto2/go-core/datatable"
 	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/navigation"
 	"github.com/wssto2/go-core/route"
@@ -42,7 +43,7 @@ var (
 		UserSignIns, UserChanges, UserActivity, UserSessions, RevokeUserSession, RevokeUserSessions,
 		ShowProfile, UpdateProfile, ChangeOwnPassword, RequestEmailChange, ResendEmailCode, ConfirmEmailChange,
 		CancelEmailChange, OwnSignIns, OwnSessions, RevokeOwnSession,
-	).Types(User{}, AreaCount{}, Statuses, SignInEvents, ChangeActions, ActivityActions)
+	).Types(User{}, PersonRef{}, datatable.ViewCount{}, Statuses, SignInEvents, ChangeActions, ActivityActions, SignInViews, ChangeViews, UserViews)
 )
 
 // Status is where an account stands: usable, locked after wrong passwords, or deactivated.
@@ -61,6 +62,9 @@ var (
 	Statuses        = route.Enum(StatusActive, StatusLocked, StatusInactive)
 	SignInEvents    = route.Enum(account.SignedIn, account.WrongPassword, account.LockedOut, account.RefusedInactive, account.SignedInAs, account.Unlocked, account.SignedOutEverywhere, account.SessionRevoked)
 	ActivityActions = route.Enum(account.ActivityCreated, account.ActivityChanged, account.ActivityDeleted)
+	UserViews       = route.Enum(account.ViewActive, account.ViewLocked, account.ViewInactive, account.ViewAll).As("UserView")
+	SignInViews     = route.Enum(account.SignInsAll, account.SignInsFailed)
+	ChangeViews     = route.Enum(account.ChangesAll, account.ChangesAccess, account.ChangesDetails)
 	ChangeActions   = route.Enum(account.ChangeCreated, account.ChangeUpdated, account.ChangeDeactivated, account.ChangeActivated, account.ChangePassword, account.ChangeEmail, account.ChangeProfile)
 )
 

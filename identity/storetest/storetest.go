@@ -119,10 +119,13 @@ func Run(t *testing.T, newStores Factory) {
 		"accounts/email is unique":       accountsEmailUnique,
 		"accounts/search":                accountsSearch,
 		"accounts/search escapes":        accountsSearchEscapes,
+		"accounts/counts":                accountsCounts,
 		"signins/entries":                signInsEntries,
+		"signins/entries by event":       signInsByEvent,
 		"signins/last sign-ins":          signInsLast,
 		"signins/wrong passwords since":  signInsWrongSince,
 		"changes/record and list":        changesRecordAndList,
+		"changes/by action":              changesByAction,
 		"activity/page and filters":      activityPageAndFilters,
 		"activity/an ended session":      activityEndedSession,
 		"activity/counts per type":       activityByType,
@@ -1072,6 +1075,27 @@ func accountsSearch(t *testing.T, s Stores) {
 	}
 }
 
+func accountsCounts(t *testing.T, s Stores) {
+	c := check{t}
+	people := seedForSearch(c, s)
+
+	for name, tc := range map[string]struct {
+		q    account.Query
+		want account.StatusCounts
+	}{
+		"nobody locked":          {account.Query{}, account.StatusCounts{Active: 4, Inactive: 1}},
+		"two locked":             {account.Query{LockedIDs: []int{people[0].ID, people[1].ID}}, account.StatusCounts{Active: 2, Locked: 2, Inactive: 1}},
+		"an inactive one locked": {account.Query{LockedIDs: []int{people[2].ID}}, account.StatusCounts{Active: 4, Inactive: 1}},
+		"under a search":         {account.Query{Search: "example", LockedIDs: []int{people[0].ID, people[1].ID}}, account.StatusCounts{Active: 2, Locked: 1, Inactive: 1}},
+		"a search finds nobody":  {account.Query{Search: "zzz", LockedIDs: []int{people[0].ID}}, account.StatusCounts{}},
+		"the page is ignored":    {account.Query{Page: 9, PerPage: 1}, account.StatusCounts{Active: 4, Inactive: 1}},
+	} {
+		got, err := s.Accounts.Counts(ctx(), tc.q)
+		c.noErr(err, name)
+		c.equal(tc.want, got, name)
+	}
+}
+
 func accountsSearchEscapes(t *testing.T, s Stores) {
 	c := check{t}
 	seedForSearch(c, s)
@@ -1092,20 +1116,51 @@ func signInsEntries(t *testing.T, s Stores) {
 
 	c.noErr(s.SignIns.Record(ctx(), entry(2, account.SignedIn, 9*time.Second)), "another account")
 
-	got, total, err := s.SignIns.Entries(ctx(), 1, 0, 2)
+	got, total, err := s.SignIns.Entries(ctx(), account.SignInQuery{AccountID: 1, Limit: 2})
 	c.noErr(err, "entries")
 	c.equal(5, total, "every row of the account")
 	c.equal(2, len(got), "a page")
 	c.same(base.Add(4*time.Second), got[0].CreatedAt, "newest first")
 	c.same(base.Add(3*time.Second), got[1].CreatedAt, "newest first")
 
-	got, _, err = s.SignIns.Entries(ctx(), 1, 4, 2)
+	got, _, err = s.SignIns.Entries(ctx(), account.SignInQuery{AccountID: 1, Offset: 4, Limit: 2})
 	c.noErr(err, "entries")
 	c.equal(1, len(got), "the last page")
 
-	got, total, err = s.SignIns.Entries(ctx(), 3, 0, 2)
+	got, total, err = s.SignIns.Entries(ctx(), account.SignInQuery{AccountID: 3, Limit: 2})
 	c.noErr(err, "entries")
 	c.equal(0, total+len(got), "an account without history")
+}
+
+func signInsByEvent(t *testing.T, s Stores) {
+	c := check{t}
+
+	for i, e := range []account.SignInEvent{account.SignedIn, account.WrongPassword, account.WrongPassword, account.LockedOut, account.Unlocked} {
+		c.noErr(s.SignIns.Record(ctx(), entry(1, e, time.Duration(i)*time.Second)), "record")
+	}
+
+	c.noErr(s.SignIns.Record(ctx(), entry(2, account.WrongPassword, 9*time.Second)), "another account")
+
+	failed := []account.SignInEvent{account.WrongPassword, account.LockedOut}
+
+	got, total, err := s.SignIns.Entries(ctx(), account.SignInQuery{AccountID: 1, Events: failed, Limit: 2})
+	c.noErr(err, "entries")
+	c.equal(3, total, "every failed row, not the page")
+	c.equal(2, len(got), "a page")
+	c.equal(account.LockedOut, got[0].Event, "newest first")
+
+	got, total, err = s.SignIns.Entries(ctx(), account.SignInQuery{AccountID: 1, Events: []account.SignInEvent{account.Unlocked}, Limit: 10})
+	c.noErr(err, "entries")
+	c.equal(1, total, "one event")
+	c.equal(account.Unlocked, got[0].Event, "that event")
+
+	counts, err := s.SignIns.EventCounts(ctx(), 1)
+	c.noErr(err, "counts")
+	c.equal(map[account.SignInEvent]int{account.SignedIn: 1, account.WrongPassword: 2, account.LockedOut: 1, account.Unlocked: 1}, counts, "a count per event, the account's own")
+
+	none, err := s.SignIns.EventCounts(ctx(), 7)
+	c.noErr(err, "counts")
+	c.equal(0, len(none), "an account without history")
 }
 
 func signInsLast(t *testing.T, s Stores) {
@@ -1170,7 +1225,7 @@ func changesRecordAndList(t *testing.T, s Stores) {
 	c.noErr(s.Changes.Record(ctx(), account.Change{AccountID: 1, Action: account.ChangePassword, Fields: []string{"password"}}), "record a change without values")
 	c.noErr(s.Changes.Record(ctx(), account.Change{AccountID: 2, ActorID: 9, Action: account.ChangeCreated}), "another account")
 
-	got, total, err := s.Changes.Changes(ctx(), 1, 0, 10)
+	got, total, err := s.Changes.Changes(ctx(), account.ChangeQuery{AccountID: 1, Limit: 10})
 	c.noErr(err, "changes")
 	c.equal(2, total, "the account's own")
 	c.equal(2, len(got), "rows")
@@ -1187,15 +1242,47 @@ func changesRecordAndList(t *testing.T, s Stores) {
 	c.equal(map[string]string{"name": "Ana", "phone": ""}, got[1].Before, "before")
 	c.equal(map[string]string{"name": "Ana Anić", "phone": "123"}, got[1].After, "after")
 
-	page, total, err := s.Changes.Changes(ctx(), 1, 1, 1)
+	page, total, err := s.Changes.Changes(ctx(), account.ChangeQuery{AccountID: 1, Offset: 1, Limit: 1})
 	c.noErr(err, "changes")
 	c.equal(2, total, "the total is not the page")
 	c.equal(1, len(page), "a page")
 	c.equal(account.ChangeUpdated, page[0].Action, "the second page")
 
-	none, total, err := s.Changes.Changes(ctx(), 7, 0, 10)
+	none, total, err := s.Changes.Changes(ctx(), account.ChangeQuery{AccountID: 7, Limit: 10})
 	c.noErr(err, "changes")
 	c.equal(0, total+len(none), "an account without changes")
+}
+
+func changesByAction(t *testing.T, s Stores) {
+	c := check{t}
+
+	for _, a := range []account.ChangeAction{account.ChangeCreated, account.ChangePassword, account.ChangeUpdated, account.ChangeDeactivated, account.ChangeActivated} {
+		c.noErr(s.Changes.Record(ctx(), account.Change{AccountID: 1, Action: a, Fields: []string{"x"}}), "record")
+	}
+
+	c.noErr(s.Changes.Record(ctx(), account.Change{AccountID: 2, Action: account.ChangePassword}), "another account")
+
+	access := []account.ChangeAction{account.ChangePassword, account.ChangeDeactivated, account.ChangeActivated}
+
+	got, total, err := s.Changes.Changes(ctx(), account.ChangeQuery{AccountID: 1, Only: access, Limit: 2})
+	c.noErr(err, "only")
+	c.equal(3, total, "every access change, not the page")
+	c.equal(account.ChangeActivated, got[0].Action, "newest first")
+
+	got, total, err = s.Changes.Changes(ctx(), account.ChangeQuery{AccountID: 1, Except: access, Limit: 10})
+	c.noErr(err, "except")
+	c.equal(2, total, "the rest")
+	c.equal([]account.ChangeAction{account.ChangeUpdated, account.ChangeCreated}, []account.ChangeAction{got[0].Action, got[1].Action}, "the details")
+
+	counts, err := s.Changes.ChangeCounts(ctx(), 1)
+	c.noErr(err, "counts")
+	c.equal(map[account.ChangeAction]int{
+		account.ChangeCreated: 1, account.ChangePassword: 1, account.ChangeUpdated: 1, account.ChangeDeactivated: 1, account.ChangeActivated: 1,
+	}, counts, "a count per action, the account's own")
+
+	none, err := s.Changes.ChangeCounts(ctx(), 7)
+	c.noErr(err, "counts")
+	c.equal(0, len(none), "an account without changes")
 }
 
 func accountsEmailUnique(t *testing.T, s Stores) {
