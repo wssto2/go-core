@@ -173,6 +173,10 @@ rec := gocoretest.Do(t, app, http.MethodGet, "/tickets/7", nil)
 ticket := gocoretest.Decode[Ticket](t, rec)
 ```
 
+### API prefix and versions
+
+`gocore.New(cfg, gocore.WithPrefix("/api"))` mounts every route under one app-wide prefix (`app.Prefix()` returns it, for cookie paths and the like). The prefix is only where the API lives; it carries no version. Routes declare their version themselves: a module's route is `route.Get[...]("/v1/iam/roles")`, served at `/api/v1/iam/roles`. Modules never take a prefix. A future v2 is new declarations next to v1 in the same module (`ListRolesV2 = route.Get[...]("/v2/iam/roles")`, `RoutesV2 = route.Group("accessv2", ...)`): both are served, and the TypeScript is generated into separate folders. `gocoretest` apps use the prefix too.
+
 ### Migrations
 
 An application keeps its own goose files in one directory per connection; a module ships a flat `embed.FS` and hands it over with its connection. Both are collected by `Install`; none runs until you say so (`gocore/example_test.go`):

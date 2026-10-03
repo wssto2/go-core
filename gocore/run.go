@@ -118,7 +118,7 @@ func (a *App) dryMount(scratch *gin.Engine, r route.Handled) (err error) {
 		}
 	}()
 
-	return r.Mount(scratch, a.security())
+	return r.Mount(scratch.Group(a.prefix), a.security())
 }
 
 func (a *App) catalogued(permission string) bool {
@@ -226,7 +226,7 @@ func (m *featuresModule) Register(c *bootstrap.Container) error {
 	}
 
 	for _, r := range m.app.routes {
-		if err := r.Mount(engine, m.app.security()); err != nil {
+		if err := r.Mount(engine.Group(m.app.prefix), m.app.security()); err != nil {
 			return err
 		}
 	}
@@ -294,7 +294,7 @@ func (a *App) Handler() (http.Handler, error) {
 	engine.Use(middlewares.ErrorHandler(a.log, nil, true))
 
 	for _, r := range a.routes {
-		if err := r.Mount(engine, a.security()); err != nil {
+		if err := r.Mount(engine.Group(a.prefix), a.security()); err != nil {
 			return nil, err
 		}
 	}

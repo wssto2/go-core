@@ -218,3 +218,15 @@ func ExampleWithAutoMigrate() {
 	fmt.Println(app.Database().Exec("INSERT INTO things (id) VALUES (1)").Error)
 	// Output: <nil>
 }
+
+// WithPrefix is where the API lives. Routes declare their own version, so a
+// route declared "/v1/ping" is served at "/api/v1/ping".
+func ExampleWithPrefix() {
+	app := gocore.New(bootstrap.DefaultConfig(),
+		gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithPrefix("/api"),
+	)
+
+	fmt.Println(app.Prefix())
+	// Output: /api
+}

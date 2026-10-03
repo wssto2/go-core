@@ -76,6 +76,7 @@ type App struct {
 	// autoMigrate, when set, applies migrations as they are collected.
 	autoMigrate context.Context //nolint:containedctx // test option: the context of the test
 
+	prefix   string
 	problems []Problem
 	laters   []unsetter
 	started  bool
@@ -101,6 +102,14 @@ func WithAuthorizer(a authz.Authorizer) Option {
 // those do. Without this option, any route that is not Public stops start-up.
 func WithAuthentication(middleware ...gin.HandlerFunc) Option {
 	return func(app *App) { app.authenticate = append(app.authenticate, middleware...) }
+}
+
+// WithPrefix mounts every route collected by Routes under one path prefix, the
+// place the API lives: WithPrefix("/api") serves a route declared as
+// "/v1/iam/roles" at "/api/v1/iam/roles". The prefix does not carry a version:
+// routes declare theirs. Modules never take a prefix of their own.
+func WithPrefix(prefix string) Option {
+	return func(app *App) { app.prefix = "/" + strings.Trim(prefix, "/") }
 }
 
 // WithClock replaces the system clock.
@@ -180,6 +189,16 @@ func (a *App) security() route.Security {
 
 func (a *App) fail(what, fix string) {
 	a.problems = append(a.problems, Problem{What: what, Fix: fix})
+}
+
+// Prefix is the path prefix every route is served under ("" for none, "/api"
+// for WithPrefix("/api")), for what must name the API's path, such as a cookie.
+func (a *App) Prefix() string {
+	if a.prefix == "/" {
+		return ""
+	}
+
+	return a.prefix
 }
 
 // Config returns the configuration the App was created with.

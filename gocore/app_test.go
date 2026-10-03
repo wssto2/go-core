@@ -1,9 +1,13 @@
 package gocore
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"github.com/gin-gonic/gin"
+	"github.com/wssto2/go-core/route"
 	"log/slog"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -76,5 +80,31 @@ func TestAuthorizeSetsTheAuthorizerOnceAndFailReportsAtCheck(t *testing.T) {
 
 	if !strings.Contains(startup.Problems[0].What, "set twice") || startup.Problems[1].Fix != "pass the users" {
 		t.Fatalf("problems: %v", startup.Problems)
+	}
+}
+
+func TestPrefixMountsEveryRouteUnderIt(t *testing.T) {
+	for prefix, want := range map[string]string{"": "/v1/ping", "/api": "/api/v1/ping", "api/": "/api/v1/ping", "/": "/v1/ping"} {
+		app := New(bootstrap.DefaultConfig(), WithLogger(slog.New(slog.DiscardHandler)),
+			WithAuthentication(func(c *gin.Context) { c.Next() }), WithPrefix(prefix))
+		app.Routes(route.Get[route.None, string]("/v1/ping").To(func(context.Context, route.None) (string, error) { return "pong", nil }))
+
+		handler, err := app.Handler()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for path, code := range map[string]int{want: 200, "/v1/ping": map[bool]int{true: 200, false: 404}[want == "/v1/ping"]} {
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), "GET", path, nil))
+
+			if rec.Code != code {
+				t.Errorf("prefix %q: GET %s = %d, want %d", prefix, path, rec.Code, code)
+			}
+		}
+
+		if got := app.Prefix(); got != strings.TrimSuffix(want, "/v1/ping") {
+			t.Errorf("prefix %q: Prefix() = %q", prefix, got)
+		}
 	}
 }
