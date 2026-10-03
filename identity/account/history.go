@@ -2,7 +2,7 @@ package account
 
 import "slices"
 
-// SignInView is which rows of a sign-in history are shown: the tabs of the page.
+// SignInView is which rows of a sign-in history are shown: the tabs of the page (IAM-USER-003).
 type SignInView string
 
 // The views of a sign-in history.
@@ -57,7 +57,7 @@ func signInCounts(byEvent map[SignInEvent]int) SignInCounts {
 	return out
 }
 
-// ChangeView is which changes to an account are shown: the tabs of the page.
+// ChangeView is which changes to an account are shown: the tabs of the page (IAM-USER-007).
 type ChangeView string
 
 // The views of the changes made to an account.

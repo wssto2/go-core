@@ -62,6 +62,10 @@ Code: `identity/account/admin.go` (`Admin.Deactivate`, `Activate`, `Deactivation
    matches the login, the name and the address, without case, a `%` or `_` in it being itself. Sorting by
    `order_col` = `login` (default), `name`, `email`, `created_at` and `order_dir` = `asc` or `desc`; `per_page`
    at most 100 (default 20); an unknown view or column is a validation error.
+   **The tabs' counts** are the page's `meta.views`, `[{key, count}]` for `active`, `locked`, `inactive` and `all`
+   (TypeScript `ViewCount`, the one shape every list with tab counts uses, `datatable.ViewCount`), under the same
+   `search` and whatever `view` is shown. They come from **one** query (`Accounts.Counts`: the accounts that match
+   the search summed by status with `CASE`, the locked ones being the ids the lock history names), not one per view.
 2. Each row carries the person's details, **last sign-in** (the latest `signed_in`, empty: never), the **lock**
    (`locked_until`, derived from the history as IAM-USER-002 says) and its status. The lock is asked only about
    people who had a wrong password within the lock's length, so a list costs one query per such person, not one per row.
@@ -74,15 +78,27 @@ Code: `identity/account/admin.go` (`Admin.List`), `identity/gormstore/store.go` 
 
 1. `GET /v1/iam/users/:id/changes` (`iam.user:view`) lists the changes made to the person, newest first, with how
    many there are: created, updated (the names of the changed fields with their before and after values),
-   deactivated, activated, a new password, a changed e-mail address and a changed profile, each with who did it (empty:
-   the person) and when.
+   deactivated, activated, a new password, a changed e-mail address and a changed profile, each with who did it
+   (`actor`, `{id, name}`, `null`: the person) and when.
+   **Views** (`?view=`, ARV's Sve / Pristup / Podaci): `all` (also the empty one), `access` (what decides whether and
+   how the person can get in: `password`, `deactivated`, `activated`) and `details` (every other action: `created`,
+   `updated`, `email`, `profile` and any action another writer put on the account's rows). `meta.views` counts all
+   three, whatever view is shown, from one `GROUP BY action`; a view that does not exist is
+   `422 identity.history.view_invalid`. ARV's `access` also holds role bindings, impersonation and ended sessions: those
+   are not on an account's change history in go-core (bindings are access's, sessions are on the sign-in history), so
+   an application that wants them there writes them as audit rows of the account.
 2. It is go-core's audit trail: a row of `audit_logs` of entity `account`, written in the transaction of the
    change. The table is `audit/migrations`', which `identity.Install` registers; its columns are what
    `audit.Migrate` creates, so a database that has the table adopts the file with `MarkApplied`.
 3. **Only names and non-secret values are recorded**: a password change lists `password` as a changed field and no
    value; the audit package also masks keys that look secret.
 4. A person's **sign-in history** (`GET /v1/iam/users/:id/signins`, IAM-USER-003) and **sessions** (`GET
-   /v1/iam/users/:id/sessions`, `DELETE` one or all; IAM-USER-004) are read and ended by the same permissions. What
+   /v1/iam/users/:id/sessions`, `DELETE` one or all; IAM-USER-004) are read and ended by the same permissions
+   (the sign-in history's views are IAM-USER-003 item 4). Wherever a row names a person by id (a change's `actor`, a
+   session's `opened_by`, a sign-in row's `actor`, an activity row's `signed_in_as`) it is `{id, name}` (`PersonRef`),
+   `null` when nobody: the names of a page come from one `Store.FindMany`, never one query per row, the name being the
+   account's name or its login when it has none, and **empty when the account no longer exists** (the row keeps its
+   id). What
    the person *did* (arv-next's "Radnje") is IDENTITY-ADMIN-002.
 
 Code: `identity/account/admin.go` (`Admin.Changes`, `SignIns`, `Sessions`), `identity/gormstore/changelog.go`,
@@ -114,7 +130,7 @@ arv-next's "Radnje" (IAM-USER-007 item 2 there), generic: what a person did, rea
    `422 identity.activity.area_unknown` (`fields.area`). `from` and `to` are days, `YYYY-MM-DD`, **inclusive and
    UTC**; a day that is not one, or a range that ends before it starts, is `422 identity.activity.range_invalid`.
 6. **Somebody signed in as the person (`signed_in_as`).** When the row was made while another person was signed in
-   as them (IAM-USER-008: a session opened by `login-as`), `signed_in_as` is that person's id, else `null`: the row
+   as them (IAM-USER-008: a session opened by `login-as`), `signed_in_as` is that person (`{id, name}`), else `null`: the row
    may be theirs, not the person's. It is derived, with no column of its own: a session opened by signing in as
    somebody is named `login-as:<actor>|<device>` in `tokens`, and it covers the time **from its opening to its last use
    (plus the minute a use is recorded at most once in)**, or to its expiry if that is sooner; where windows overlap
@@ -125,7 +141,7 @@ arv-next's "Radnje" (IAM-USER-007 item 2 there), generic: what a person did, rea
    application named in order, `identity` (unless named) and `other`, counting the person's entries **within the
    same days** and **whatever `area` is shown**, so the tabs keep their numbers. They come from one `GROUP BY` of the
    record type over the actor and time index, folded into areas in the application's order. The datatable's `meta` is
-   untyped, so the shape is documented here and the TypeScript only declares `AreaCount` for the client to read it
+   untyped, so the shape is documented here and the TypeScript declares `ViewCount` for the client to read it
    with; `all` and `other` are reserved keys.
 8. **For arv-next's adoption:** the days are UTC (arv-next's Radnje read them in the server's local time), and
    `authz.binding` / `authz.role` rows are in `other` unless the application maps them to an area.

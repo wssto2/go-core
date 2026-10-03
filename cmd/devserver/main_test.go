@@ -143,7 +143,10 @@ func TestTheUsersSeededActivityIsReadByTheAdministrator(t *testing.T) {
 			Rows []struct {
 				Area       string `json:"area"`
 				Action     string `json:"action"`
-				SignedInAs *int   `json:"signed_in_as"`
+				SignedInAs *struct {
+					ID   int    `json:"id"`
+					Name string `json:"name"`
+				} `json:"signed_in_as"`
 			} `json:"data"`
 		} `json:"data"`
 	}
@@ -154,6 +157,24 @@ func TestTheUsersSeededActivityIsReadByTheAdministrator(t *testing.T) {
 	assert.Equal(t, "crm", page[0].Area)
 	assert.Equal(t, "changed", page[0].Action)
 	require.NotNil(t, page[0].SignedInAs, "the later one was done as the administrator")
-	assert.Equal(t, 1, *page[0].SignedInAs)
+	assert.Equal(t, 1, page[0].SignedInAs.ID)
+	assert.Equal(t, "admin", page[0].SignedInAs.Name)
 	assert.Nil(t, page[1].SignedInAs)
+
+	resp, err = client.Get(srv.URL + "/api/v1/iam/users/2/signins?view=failed") //nolint:noctx // a test of a local server
+	require.NoError(t, err)
+
+	raw, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	assert.Contains(t, string(raw), `"event":"wrong_password"`, "the seeded refused attempt")
+	assert.Contains(t, string(raw), `"views":[{"key":"all","count":1},{"key":"failed","count":1}]`)
+
+	resp, err = client.Get(srv.URL + "/api/v1/iam/users/2/changes") //nolint:noctx // a test of a local server
+	require.NoError(t, err)
+
+	raw, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	assert.Contains(t, string(raw), `"actor":{"id":1,"name":"admin"}`, "the seeded change names who made it")
 }

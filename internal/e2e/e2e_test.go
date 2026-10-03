@@ -394,11 +394,34 @@ func TestAPersonsActivity(t *testing.T) {
 
 		boris := rows(admin, "/api/v1/iam/users/2/activity")
 		require.Len(t, boris, 1)
-		assert.EqualValues(t, 1, boris[0]["signed_in_as"], "the administrator was signed in as boris")
+		assert.Equal(t, map[string]any{"id": 1.0, "name": "admin"}, boris[0]["signed_in_as"], "the administrator was signed in as boris")
 
 		for _, row := range rows(admin, "/api/v1/iam/users/1/activity") {
 			assert.Nil(t, row["signed_in_as"], "the administrator's own work is not marked")
 		}
+
+		// The history names who acted, and the lists count their views.
+		changes := rows(admin, "/api/v1/iam/users/4/changes")
+		require.Len(t, changes, 1)
+		assert.Equal(t, map[string]any{"id": 1.0, "name": "admin"}, changes[0]["actor"], "dora was made by the administrator")
+
+		stranger := &browser{t: t, handler: handler, cookies: map[string]*nethttp.Cookie{}}
+		status, _ = stranger.do(nethttp.MethodPost, "/api/v1/auth/login", map[string]string{"login": "boris", "password": "wrong"})
+		require.Equal(t, nethttp.StatusUnprocessableEntity, status, "a wrong password is refused")
+
+		failed := rows(admin, "/api/v1/iam/users/2/signins?view=failed")
+		require.Len(t, failed, 1, "the refused attempt is under failed")
+		assert.Equal(t, "wrong_password", failed[0]["event"])
+
+		_, data = admin.do(nethttp.MethodGet, "/api/v1/iam/users/2/signins?view=failed", nil)
+		assert.Contains(t, string(data), `"views":[{"key":"all","count":2},{"key":"failed","count":1}]`, "the administrator signed in as boris, and one wrong password")
+
+		_, data = admin.do(nethttp.MethodGet, "/api/v1/iam/users/4/changes?view=access", nil)
+		assert.Contains(t, string(data), `"views":[{"key":"all","count":1},{"key":"access","count":0},{"key":"details","count":1}]`)
+
+		_, data = admin.do(nethttp.MethodGet, "/api/v1/iam/users?view=inactive", nil)
+		assert.Contains(t, string(data), `"views":[{"key":"active","count":5},{"key":"locked","count":0},{"key":"inactive","count":0},{"key":"all","count":5}]`,
+			"admin, boris, ines, dora and eva, whichever view is shown")
 
 		// Reading it is for who holds the System permission: a webmaster does, a plain person does not.
 		plain := &browser{t: t, handler: handler, cookies: map[string]*nethttp.Cookie{}}
