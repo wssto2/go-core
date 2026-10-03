@@ -26,10 +26,12 @@ type LoginInput struct {
 	IP       string
 }
 
-// Signed is a signed-in account and its session's tokens.
+// Signed is a signed-in account and its session's tokens. Actor is who opened
+// the session by signing in as the account, nil for a person's own session.
 type Signed struct {
 	Account     Account
 	Credentials Credentials
+	Actor       *Account
 }
 
 // Login signs a person in (IAM-USER-001, IAM-USER-002). More than the allowed
@@ -135,7 +137,12 @@ func (s *SignIn) Refresh(ctx context.Context, in RefreshInput) (Signed, error) {
 		return Signed{}, apperr.Internal(err)
 	}
 
-	return Signed{Account: acc, Credentials: creds}, nil
+	actor, err := s.actorOf(ctx, session)
+	if err != nil {
+		return Signed{}, err
+	}
+
+	return Signed{Account: acc, Credentials: creds, Actor: actor}, nil
 }
 
 // Logout ends the session behind an access token. A session opened by signing
@@ -215,17 +222,56 @@ func (s *SignIn) LoginAs(ctx context.Context, in LoginAsInput) (Signed, error) {
 
 	s.deps.Notices.SignedInAs(ctx, actor.ID, target.ID)
 
-	return Signed{Account: target, Credentials: creds}, nil
+	return Signed{Account: target, Credentials: creds, Actor: &actor}, nil
+}
+
+// ReturnInput is the session to leave, which must have been opened by signing in
+// as somebody (Authenticated.Session), and the device it returns on.
+type ReturnInput struct {
+	Session Session
+	Device  string
+	IP      string
+}
+
+// Return ends a session opened by signing in as somebody and opens the actor's
+// own, without asking for their password: the actor already proved who they
+// are when they signed in as somebody (IAM-USER-008). Any other session is
+// refused with ReasonImpersonationNotActive. The Notices hear SignedOutAs, as
+// when the session is signed out.
+func (s *SignIn) Return(ctx context.Context, in ReturnInput) (Signed, error) {
+	actor, err := s.actorOf(ctx, in.Session)
+	if err != nil {
+		return Signed{}, err
+	}
+
+	if actor == nil {
+		return Signed{}, apperr.BadRequest(string(ReasonImpersonationNotActive)).WithReason(ReasonImpersonationNotActive)
+	}
+
+	creds, err := s.open(ctx, NewSession{AccountID: actor.ID, Device: in.Device, IP: in.IP})
+	if err != nil {
+		return Signed{}, err
+	}
+
+	if _, err := s.deps.Sessions.End(ctx, in.Session.AccountID, []int{in.Session.ID}, 0, s.deps.Clock.Now()); err != nil {
+		return Signed{}, apperr.Internal(err)
+	}
+
+	s.deps.Notices.SignedOutAs(ctx, actor.ID, in.Session.AccountID)
+
+	return Signed{Account: *actor, Credentials: creds}, nil
 }
 
 // touchEvery is how often a session's last use is written: once a minute at
 // most, not on every request.
 const touchEvery = time.Minute
 
-// Authenticated is the account and session behind an access token.
+// Authenticated is the account and session behind an access token. Actor is
+// who opened the session by signing in as the account, nil for a person's own.
 type Authenticated struct {
 	Account Account
 	Session Session
+	Actor   *Account
 }
 
 // Authenticate resolves an access token to its live session and its account,
@@ -259,7 +305,32 @@ func (s *SignIn) Authenticate(ctx context.Context, accessToken string) (Authenti
 		}
 	}
 
-	return Authenticated{Account: acc, Session: session}, nil
+	actor, err := s.actorOf(ctx, session)
+	if err != nil {
+		return Authenticated{}, err
+	}
+
+	return Authenticated{Account: acc, Session: session, Actor: actor}, nil
+}
+
+// actorOf is the account behind a session opened by signing in as somebody,
+// nil for a person's own session. An actor who is gone or deactivated ends the
+// session's use: nobody may be somebody else on behalf of nobody.
+func (s *SignIn) actorOf(ctx context.Context, session Session) (*Account, error) {
+	if session.ActorID == 0 {
+		return nil, nil
+	}
+
+	actor, err := s.deps.Accounts.Find(ctx, session.ActorID)
+	if errors.Is(err, ErrNotFound) || (err == nil && !actor.Active) {
+		return nil, sessionInvalid()
+	}
+
+	if err != nil {
+		return nil, apperr.Internal(err)
+	}
+
+	return &actor, nil
 }
 
 func (s *SignIn) open(ctx context.Context, n NewSession) (Credentials, error) {

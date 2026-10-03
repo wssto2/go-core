@@ -317,7 +317,7 @@ users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecre
 
 Mail is the one thing identity cannot default (see "Users and profile" below): pass `WithMail(sender)` and `WithCodeSecret(secret)`, or `identity.WithoutMail()`; without either, start-up stops and says which. It uses the GORM store, bcrypt and its own migrations unless told otherwise. Options are named for what they change: `identity.On(Shared)` (tables on another connection), `WithAccounts(store)` (your own accounts table), `WithHasher(h)`, `WithRefreshHasher(h)`, `WithConfig(identity.Config{Lock: identity.Lock{After: 3}})`, `WithAccess(a)` (override where the payload's `authz.MyAccess` comes from; by default the application's authorizer, once `access.Install` is part of it), `WithNavigation(menu...)` (and the menu, cut to the permissions held), `WithUserProjector(fn)`, `AllowImpersonation("iam.user:impersonate")` (checked through the application's authorizer), `WithNotices(n)`, `WithCookies(...)`. `users` is what other features take: `users.Get(ctx, id)`, `users.ChangeLocale(...)`, `users.Sessions(ctx, id)`, `users.RevokeSessions(...)`.
 
-The routes are declared under `/v1/auth` (an app with `gocore.WithPrefix("/api")` serves `/api/v1/auth/login`): `POST login` and `refresh` (public), `POST logout`, `GET me`, `POST change-locale`, `POST login-as`. `identity.Routes` is their declared contract. Tokens travel in HttpOnly cookies (`access_token`, and `refresh_token` for the refresh route only) and an access token is also accepted as `Authorization: Bearer`. Login, refresh and `me` answer the session payload, which vue-core reads with `parseSessionPayload`:
+The routes are declared under `/v1/auth` (an app with `gocore.WithPrefix("/api")` serves `/api/v1/auth/login`): `POST login` and `refresh` (public), `POST logout`, `GET me`, `POST change-locale`, `POST login-as` and `POST login-as/return` (back to one's own account with no password; any other session is refused with `identity.impersonation.not_active`). `identity.Routes` is their declared contract. Tokens travel in HttpOnly cookies (`access_token`, and `refresh_token` for the refresh route only) and an access token is also accepted as `Authorization: Bearer`. Login, refresh and `me` answer the session payload, which vue-core reads with `parseSessionPayload`:
 
 ```json
 {"success": true, "data": {
@@ -328,7 +328,7 @@ The routes are declared under `/v1/auth` (an app with `gocore.WithPrefix("/api")
 }}
 ```
 
-`user` is what the projector makes of the account (the default has `id`, `login`, `name`, `email`, `locale`, never the password hash), `access` is the authz engine's answer and `navigation` your menu filtered by it. Refusals are `apperr` reasons with params, never sentences: `identity.signin.failed` (an unknown login and a wrong password answer alike, 422), `identity.signin.locked` (`params.locked_until`), `identity.signin.inactive`, `identity.session.invalid`. Five wrong passwords lock sign-in for fifteen minutes, ten attempts a minute per login are let through; the rules, with their Logic IDs (IAM-USER-001 to 004), are in `docs/rules/identity/signin.md`.
+When the session was opened by signing in as somebody (`login-as`), the payload also has `"impersonator": {"id": 1, "name": "Ana Anić"}`, the person really signed in; for a person's own session the key is absent. `user` is what the projector makes of the account (the default has `id`, `login`, `name`, `email`, `locale`, never the password hash), `access` is the authz engine's answer and `navigation` your menu filtered by it. Refusals are `apperr` reasons with params, never sentences: `identity.signin.failed` (an unknown login and a wrong password answer alike, 422), `identity.signin.locked` (`params.locked_until`), `identity.signin.inactive`, `identity.session.invalid`. Five wrong passwords lock sign-in for fifteen minutes, ten attempts a minute per login are let through; the rules, with their Logic IDs (IAM-USER-001 to 004 and 008), are in `docs/rules/identity/signin.md`.
 
 #### Users and profile
 
@@ -371,7 +371,7 @@ handOver := identity.DeactivationHookFunc(func(ctx context.Context, a account.Ac
 
 | login | password | role |
 |-------|----------|------|
-| `admin` | `admin-password` | `webmaster` (everything) |
+| `admin` | `admin-password` | `webmaster` (everything, so it may sign in as `user`: `POST /api/v1/auth/login-as {"user_id": 2}`, then `login-as/return`, to see the impersonation banner) |
 | `user` | `user-password` | `seller` (`crm.customer:view`) |
 
 Flags: `-addr host:port`, `-origin http://localhost:5173` (commas for several), `-allow-remote`. The passwords are public, so it refuses to start with `GO_ENV=production` or `APP_ENV=production`, or on an address other than this machine (`127.0.0.1`, `::1`, `localhost`) unless `-allow-remote` says so. Development only.

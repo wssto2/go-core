@@ -1,8 +1,8 @@
-# Logic IDs: IAM-USER-001, IAM-USER-002, IAM-USER-003, IAM-USER-004
+# Logic IDs: IAM-USER-001, IAM-USER-002, IAM-USER-003, IAM-USER-004, IAM-USER-008
 
 Title: Sign-in answers alike, locks after wrong passwords, is recorded, and sessions can be listed and ended
 
-Status: Approved (the rules moved from arv-next, `documentation/business-rules/iam/users.md`, IAM-USER-001 to 004; owner decisions 2026-09-30 and 2026-10-03)
+Status: Approved (the rules moved from arv-next, `documentation/business-rules/iam/users.md`, IAM-USER-001 to 004; owner decisions 2026-09-30 and 2026-10-03; IAM-USER-008 new, owner decision 2026-10-03)
 Last updated: 2026-10-03
 Module: `identity` (`identity/account` services, `identity/http` routes, `identity/gormstore` tables)
 
@@ -95,3 +95,20 @@ Code: `identity/account/signin.go` (`SignInEntry`, `Event`), `identity/account/s
 
 Code: `identity/account/users.go` (`Users.Sessions`, `RevokeSession`, `RevokeSessions`), `identity/account/session.go`
 (`DeviceLabel`), `identity/gormstore/store.go` (`Sessions.Rotate`, `End`, `EndOpenedBy`).
+
+## IAM-USER-008 — Returning to one's own account
+
+1. A session opened by signing in as somebody (`POST /v1/auth/login-as`) says who is really signed in: the
+   session payload (login-as, refresh and `GET /v1/auth/me`) carries `impersonator: {id, name}`, derived from the
+   session's actor (`login-as:<actor id>|<device>`, IAM-USER-004), absent for a person's own session. An actor who
+   is gone or deactivated ends the session's use (`401 identity.session.invalid`).
+2. `POST /v1/auth/login-as/return` ends that session and opens a fresh session for the actor, **without asking for
+   a password**: the actor proved who they are when they signed in as somebody. It answers the actor's own
+   session payload and sets the cookies.
+3. Any other session is refused: `400`, reason `identity.impersonation.not_active`.
+4. The impersonation session is revoked, so its token stops working at once; the actor's own permissions are back
+   because the new session is theirs. The Notices hear `SignedOutAs(actor, target)`, as when the session is signed
+   out. The actor's history gets no row: returning is not a sign-in.
+
+Code: `identity/account/signin_service.go` (`SignIn.Return`, `actorOf`), `identity/http/handler.go` (`returnToOwn`,
+`payload`).

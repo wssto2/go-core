@@ -33,6 +33,9 @@ const (
 	// ReasonImpersonationDisabled is signing in as somebody when the application
 	// has not said who may.
 	ReasonImpersonationDisabled apperr.Reason = "identity.impersonation.disabled"
+	// ReasonImpersonationNotActive is returning to one's own account from a
+	// session that was not opened by signing in as somebody.
+	ReasonImpersonationNotActive apperr.Reason = "identity.impersonation.not_active"
 )
 
 // The errors are built with the reason as their message: the person reads the

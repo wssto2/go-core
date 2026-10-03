@@ -163,11 +163,12 @@ func ExampleRoutes() {
 	// GET /v1/auth/me
 	// POST /v1/auth/change-locale
 	// POST /v1/auth/login-as
+	// POST /v1/auth/login-as/return
 	// GET /v1/iam/users iam.user:view
 	// POST /v1/iam/users iam.user:manage
 	// GET /v1/iam/profile
 	// PUT /v1/iam/profile
-	// 29 routes in all
+	// 30 routes in all
 }
 
 func ExampleWithConfig() {

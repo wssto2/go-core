@@ -327,6 +327,9 @@ func TestLoginAs(t *testing.T) {
 	got, err := k.SignIn.Authenticate(ctx, signed.Credentials.Access)
 	require.NoError(t, err)
 	assert.Equal(t, 1, got.Session.ActorID, "the session says who signed in")
+	require.NotNil(t, got.Actor)
+	assert.Equal(t, 1, got.Actor.ID)
+	assert.Equal(t, 1, signed.Actor.ID)
 
 	all := k.SignIns.All()
 	require.Len(t, all, 1)
@@ -350,6 +353,42 @@ func TestRefreshKeepsALoginAsSessionMarked(t *testing.T) {
 	got, err := k.SignIn.Authenticate(t.Context(), refreshed.Credentials.Access)
 	require.NoError(t, err)
 	assert.Equal(t, 1, got.Session.ActorID)
+	assert.Equal(t, 1, refreshed.Actor.ID)
+}
+
+func TestReturnGivesBackTheActorsOwnSession(t *testing.T) {
+	n := &notices{}
+	k := seeded(t, identitytest.WithImpersonation(permitAll{}), identitytest.WithNotices(n))
+	ctx := t.Context()
+
+	own, err := k.SignIn.Login(ctx, account.LoginInput{Login: "ana", Password: "secret"})
+	require.NoError(t, err)
+
+	got, err := k.SignIn.Authenticate(ctx, own.Credentials.Access)
+	require.NoError(t, err)
+
+	_, err = k.SignIn.Return(ctx, account.ReturnInput{Session: got.Session})
+	assert.True(t, apperr.HasReason(err, account.ReasonImpersonationNotActive), "a person's own session has nothing to return from")
+
+	as, err := k.SignIn.LoginAs(ctx, account.LoginAsInput{ActorID: 1, TargetID: 2})
+	require.NoError(t, err)
+
+	asSession, err := k.SignIn.Authenticate(ctx, as.Credentials.Access)
+	require.NoError(t, err)
+
+	back, err := k.SignIn.Return(ctx, account.ReturnInput{Session: asSession.Session, Device: "ana's laptop"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, back.Account.ID)
+	assert.Nil(t, back.Actor)
+
+	_, err = k.SignIn.Authenticate(ctx, as.Credentials.Access)
+	assert.True(t, apperr.HasReason(err, account.ReasonSessionInvalid), "the impersonation session is gone")
+
+	again, err := k.SignIn.Authenticate(ctx, back.Credentials.Access)
+	require.NoError(t, err)
+	assert.Zero(t, again.Session.ActorID)
+	assert.Nil(t, again.Actor)
+	assert.Equal(t, []string{"in 1>2", "out 1>2"}, n.events)
 }
 
 func TestNewNamesTheMissingDependency(t *testing.T) {

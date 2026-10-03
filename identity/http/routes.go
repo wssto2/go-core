@@ -29,11 +29,15 @@ var (
 	ChangeLocale = route.Post[ChangeLocaleInput, route.Empty](base + "/change-locale").Name("identity.change-locale")
 	// LoginAs signs in as somebody else, when the application has said who may.
 	LoginAs = route.Post[LoginAsInput, SessionResponse](base + "/login-as").Name("identity.login-as")
+	// ReturnToOwn ends a session opened by signing in as somebody and signs the
+	// person in as themselves again, with no password; any other session is refused
+	// with identity.impersonation.not_active.
+	ReturnToOwn = route.Post[route.None, SessionResponse](base + "/login-as/return").Name("identity.login-as.return")
 
 	// Routes is identity's contract: contract.Generate(dir, identity.Routes) writes
 	// its TypeScript. User is the default projection of an account, listed because
 	// no route names it (the payload's user is whatever the application projects).
-	Routes = route.Group("identity", Login, Refresh, Logout, Me, ChangeLocale, LoginAs,
+	Routes = route.Group("identity", Login, Refresh, Logout, Me, ChangeLocale, LoginAs, ReturnToOwn,
 		ListUsers, ShowUser, CreateUser, UpdateUser, SetUserPassword, DeactivateUser, ActivateUser, UnlockUser,
 		UserSignIns, UserChanges, UserSessions, RevokeUserSession, RevokeUserSessions,
 		ShowProfile, UpdateProfile, ChangeOwnPassword, RequestEmailChange, ResendEmailCode, ConfirmEmailChange,
@@ -86,12 +90,22 @@ type SessionResponse struct {
 	// User is what the UserProjector made of the account; the default is User.
 	User      any       `json:"user"`
 	ExpiresAt time.Time `json:"expires_at"`
+	// Impersonator is who is really signed in when the session was opened by
+	// signing in as the user (the actor); absent for a person's own session.
+	Impersonator *Impersonator `json:"impersonator,omitempty"`
 	// Access is how each permission is held, the authz engine's MyAccess; without
 	// an engine it holds the subject and no permissions.
 	Access authz.MyAccess `json:"access"`
 	// Navigation is the application's menu filtered by the permissions held; absent
 	// when the application declared none.
 	Navigation []navigation.Node `json:"navigation,omitempty"`
+}
+
+// Impersonator is the person behind a session opened by signing in as somebody
+// else: who to return to.
+type Impersonator struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
 }
 
 // User is the default projection of an account into the session payload.

@@ -319,9 +319,35 @@ func TestLoginAsSignsInAsTheTarget(t *testing.T) {
 	require.Equal(t, nethttp.StatusOK, r.Code, r.Body.String())
 	assert.Equal(t, "boris", r.json()["data"].(map[string]any)["user"].(map[string]any)["login"])
 
+	assert.Equal(t, map[string]any{"id": float64(1), "name": "Ana Anić"}, r.json()["data"].(map[string]any)["impersonator"], "the answer says who is really signed in")
+
 	asBoris := r.cookie("access_token").Value
 	me := h.do(nethttp.MethodGet, "/v1/auth/me", nil, withCookie("access_token", asBoris))
 	assert.Equal(t, "boris", me.json()["data"].(map[string]any)["user"].(map[string]any)["login"])
+	assert.Equal(t, map[string]any{"id": float64(1), "name": "Ana Anić"}, me.json()["data"].(map[string]any)["impersonator"])
+
+	own := h.do(nethttp.MethodGet, "/v1/auth/me", nil, withCookie("access_token", token))
+	assert.NotContains(t, own.json()["data"], "impersonator", "a person's own session has none")
+}
+
+func TestReturnToOwnEndsTheImpersonationWithoutAPassword(t *testing.T) {
+	h := newHarness(t, nil, identitytest.WithImpersonation(permitAll{}))
+	own := h.login().cookie("access_token").Value
+
+	r := h.do(nethttp.MethodPost, "/v1/auth/login-as/return", nil, withCookie("access_token", own))
+	assert.Equal(t, nethttp.StatusBadRequest, r.Code)
+	assert.Equal(t, "identity.impersonation.not_active", r.json()["code"])
+
+	as := h.do(nethttp.MethodPost, "/v1/auth/login-as", map[string]int{"user_id": 2}, withCookie("access_token", own))
+	asBoris := as.cookie("access_token").Value
+
+	back := h.do(nethttp.MethodPost, "/v1/auth/login-as/return", nil, withCookie("access_token", asBoris))
+	require.Equal(t, nethttp.StatusOK, back.Code, back.Body.String())
+	assert.Equal(t, "ana", back.json()["data"].(map[string]any)["user"].(map[string]any)["login"])
+	assert.NotContains(t, back.json()["data"], "impersonator")
+
+	old := h.do(nethttp.MethodGet, "/v1/auth/me", nil, withCookie("access_token", asBoris))
+	assert.Equal(t, nethttp.StatusUnauthorized, old.Code)
 }
 
 func TestThePayloadCarriesAccessAndTheFilteredMenu(t *testing.T) {
