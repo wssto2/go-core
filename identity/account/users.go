@@ -41,6 +41,22 @@ func (u *Users) Get(ctx context.Context, id int) (Account, error) {
 	return acc, nil
 }
 
+// Find returns the accounts that exist among ids, active or not, in one query and in no particular
+// order; an id that is not an account (deleted, or never one) is simply absent. It is what a feature
+// that notifies or addresses many people asks, such as notification.Install.
+func (u *Users) Find(ctx context.Context, ids []int) ([]Account, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	found, err := u.deps.Accounts.FindMany(ctx, ids)
+	if err != nil {
+		return nil, apperr.Internal(err)
+	}
+
+	return found, nil
+}
+
 // Names returns the display name of each account among ids that exists, in one query: the
 // account's name, or its login when it has none. An id that is not an account (deleted, or
 // never one) is simply absent.

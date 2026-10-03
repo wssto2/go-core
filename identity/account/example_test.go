@@ -263,6 +263,17 @@ func ExampleUsers_Names() {
 	// Output: map[1:ana]
 }
 
+// Find reads the accounts of many ids in one query, active or not; an id that is no account is absent.
+func ExampleUsers_Find() {
+	users := identitytest.Users(exampleT{}, identitytest.Account(1, "ana", "secret"))
+
+	found, _ := users.Find(context.Background(), []int{1, 2})
+	for _, a := range found {
+		fmt.Println(a.ID, a.Login, a.Locale, a.Active)
+	}
+	// Output: 1 ana en true
+}
+
 func ExampleCodes() {
 	k := kit()
 	ctx := context.Background()
