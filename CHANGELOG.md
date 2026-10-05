@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased (after v1.7.0-rc.1)
+## v1.7.1
 
 ### Security
 
 - OpenTelemetry exporters and SDK v1.44.0 → v1.46.0, in line with `otel` itself: GO-2026-6505 (exporter config logging may leak endpoint URLs in info logs), fixed in v1.45.0.
+
+## v1.7.0
 
 ### Added
 
