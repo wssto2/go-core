@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `pdf`: every document registers its own copy of the `FontSet` bytes. gofpdf writes into the font bytes while subsetting them, so documents rendered concurrently from one shared (usually `go:embed`'ed) `FontSet` raced and could corrupt each other's output.
+
 ## v1.7.1
 
 ### Security

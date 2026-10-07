@@ -1,6 +1,7 @@
 package pdf
 
 import (
+	"bytes"
 	"errors"
 
 	"github.com/phpdave11/gofpdf"
@@ -53,11 +54,16 @@ func fontStyle(bold bool) string {
 // registerFonts embeds fs's UTF-8 font files into pdf under fs.Family.
 // Without this, gofpdf falls back to treating text as cp1252, garbling any
 // non-ASCII character.
+//
+// gofpdf writes into the font bytes while it subsets them on output
+// (utf8FontFile.generateChecksum), so each document gets its own copy: callers
+// pass shared, usually go:embed'ed slices, and documents rendered concurrently
+// from them would race and corrupt each other.
 func registerFonts(pdf *gofpdf.Fpdf, fs FontSet) {
-	pdf.AddUTF8FontFromBytes(fs.Family, "", fs.Regular)
-	pdf.AddUTF8FontFromBytes(fs.Family, "B", fs.Bold)
+	pdf.AddUTF8FontFromBytes(fs.Family, "", bytes.Clone(fs.Regular))
+	pdf.AddUTF8FontFromBytes(fs.Family, "B", bytes.Clone(fs.Bold))
 
 	if len(fs.Light) > 0 {
-		pdf.AddUTF8FontFromBytes(fs.Family, "L", fs.Light)
+		pdf.AddUTF8FontFromBytes(fs.Family, "L", bytes.Clone(fs.Light))
 	}
 }
