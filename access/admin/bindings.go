@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strconv"
 	"time"
@@ -257,7 +258,11 @@ func (b *Bindings) Unbind(ctx context.Context, subject authz.Subject, bindingID 
 }
 
 // Scopes are the places the actor may give this subject roles at: where they
-// hold ManageBindings, with the names of the places below the root.
+// hold ManageBindings, with the names of the places below the root. Where the
+// application has a BindingCheck, only places where a binding of this subject
+// could pass are offered: the check is asked once per place, with a candidate
+// binding without a role, so a check that judges the place (a person is bound
+// within their dealer) answers the same as it would at the bind.
 func (b *Bindings) Scopes(ctx context.Context, subject authz.Subject) (ScopeOptions, error) {
 	actor, err := b.actor(ctx)
 	if err != nil {
@@ -291,6 +296,13 @@ func (b *Bindings) Scopes(ctx context.Context, subject authz.Subject) (ScopeOpti
 		out.Root = out.Root || h.IsRoot(c.Scope)
 	}
 
+	if out.Root {
+		out.Root, err = b.bindable(ctx, subject, h.Root())
+		if err != nil {
+			return ScopeOptions{}, err
+		}
+	}
+
 	for _, option := range options {
 		chain, err := h.Chain(ctx, b.cfg.Scopes, option.Scope)
 		if err != nil {
@@ -298,10 +310,20 @@ func (b *Bindings) Scopes(ctx context.Context, subject authz.Subject) (ScopeOpti
 		}
 
 		for _, c := range clauses {
-			if chain.Within(c.Scope) {
-				out.Places = append(out.Places, option)
-				break
+			if !chain.Within(c.Scope) {
+				continue
 			}
+
+			ok, err := b.bindable(ctx, subject, option.Scope)
+			if err != nil {
+				return ScopeOptions{}, err
+			}
+
+			if ok {
+				out.Places = append(out.Places, option)
+			}
+
+			break
 		}
 	}
 
@@ -354,6 +376,25 @@ func (b *Bindings) BindableRoles(ctx context.Context, scope authz.Scope) ([]Role
 	}
 
 	return out, nil
+}
+
+// bindable asks the BindingCheck about a candidate binding at the scope. A
+// refusal (a client error) is a no; a failure of the check itself is returned.
+func (b *Bindings) bindable(ctx context.Context, subject authz.Subject, scope authz.Scope) (bool, error) {
+	candidate := authz.Binding{
+		ID: 0, Subject: subject, Role: authz.RoleRef{ID: 0, Key: ""}, Scope: scope, CreatedBy: 0, CreatedAt: time.Time{},
+	}
+
+	err := b.cfg.BindingCheck(ctx, subject, candidate)
+	if err == nil {
+		return true, nil
+	}
+
+	if apperr.GetHTTPStatus(err) >= http.StatusInternalServerError {
+		return false, err
+	}
+
+	return false, nil
 }
 
 // roleRef reads a role reference: the key of a predefined role, or the ID of a

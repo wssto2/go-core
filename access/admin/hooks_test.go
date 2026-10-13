@@ -150,3 +150,37 @@ func TestSubjectReachAnswersNotFoundForTheRest(t *testing.T) {
 	_, err = world.Bindings.Access(as(1), user(6))
 	require.NoError(t, err, "the webmaster reaches everyone")
 }
+
+func TestScopesOfferOnlyWhereTheBindingCheckPasses(t *testing.T) {
+	t.Parallel()
+
+	refused := apperr.Forbidden("not in this dealer")
+	calls := 0
+	world := newFixture(t, func(c *admin.Config) {
+		c.BindingCheck = func(_ context.Context, _ authz.Subject, b authz.Binding) error {
+			calls++
+
+			if b.Scope == authztest.Dealer(20) || b.Scope == authztest.Location(201) {
+				return refused
+			}
+
+			return nil
+		}
+	})
+	world.seed(1, "webmaster", authztest.Org())
+
+	got, err := world.Bindings.Scopes(as(1), user(5))
+	require.NoError(t, err)
+
+	for _, p := range got.Places {
+		assert.NotEqual(t, authztest.Dealer(20), p.Scope)
+		assert.NotEqual(t, authztest.Location(201), p.Scope)
+	}
+
+	assert.Len(t, got.Places, 2, "dealer 10 and its location are left")
+	assert.True(t, got.Root)
+	assert.Equal(t, 5, calls, "one call per candidate place, the root included")
+
+	_, err = world.Bindings.Bind(as(1), user(5), admin.BindingDraft{Role: roleSeller, Scope: authztest.Dealer(20)})
+	require.ErrorIs(t, err, refused, "a bind there is still refused")
+}
