@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"maps"
 	nethttp "net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -431,4 +433,40 @@ func TestReturnFromALoginAsSessionTheHostNamed(t *testing.T) {
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, old)
 	assert.Equal(t, nethttp.StatusUnauthorized, rec.Code, "the login-as session is over")
+}
+
+// R5 and R6: every login refusal has the one body shape (success, error, code), the inactive one too;
+// signing in as an inactive person answers its own reason, not the not-found of a person who is not there.
+func TestRefusalsHaveOneShapeAndLoginAsSaysInactive(t *testing.T) {
+	app := newApp(t)
+	identity.Install(app, identity.WithoutMail(), identity.AllowImpersonation("iam.user:impersonate"))
+	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
+
+	gone := identitytest.Account(8, "bob", "secret")
+	gone.Active = false
+	seed(t, app.Database(), gone)
+
+	keys := func(rec *httptest.ResponseRecorder) []string {
+		var body map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+
+		return slices.Sorted(maps.Keys(body))
+	}
+
+	inactive := newClient(t, app).do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "bob", "password": "secret"})
+	wrong := newClient(t, app).do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "bob", "password": "nope"})
+
+	assert.Contains(t, inactive.Body.String(), "identity.signin.inactive")
+	assert.Equal(t, keys(wrong), keys(inactive), "the same keys as a wrong password")
+
+	c := newClient(t, app)
+	login(t, c, "ana", "secret")
+
+	rec := c.do(nethttp.MethodPost, "/v1/auth/login-as", map[string]int{"user_id": 8})
+	assert.Equal(t, nethttp.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "identity.account.inactive")
+
+	rec = c.do(nethttp.MethodPost, "/v1/auth/login-as", map[string]int{"user_id": 99})
+	assert.Equal(t, nethttp.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "identity.account.not_found")
 }
