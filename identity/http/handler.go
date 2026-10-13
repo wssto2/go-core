@@ -69,8 +69,9 @@ func NewHandler(cfg Config) *Handler {
 func (h *Handler) Routes() []route.Handled {
 	login := Login.To(h.login)
 	if h.admin == nil { // left out on purpose: not mounted, and not reported as unhandled
-		login = login.Excuses(ListUsers, ShowUser, CreateUser, UpdateUser, SetUserPassword, DeactivateUser, ActivateUser, UnlockUser,
-			UserSignIns, UserChanges, UserActivity, UserSessions, RevokeUserSession, RevokeUserSessions)
+		login = login.Excuses(ListUsers, ShowUser, CreateUser, UpdateUser, SetUserPassword, DeactivateUser,
+			ActivateUser, UnlockUser, UserSignIns, UserChanges, UserActivity, UserSessions,
+			RevokeUserSession, RevokeUserSessions)
 	}
 
 	routes := []route.Handled{

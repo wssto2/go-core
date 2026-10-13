@@ -31,6 +31,8 @@ func ExampleFiles() {
 }
 
 func TestWithoutAccountsKeepsTheSessionTables(t *testing.T) {
+	t.Parallel()
+
 	entries, err := fs.ReadDir(migrations.WithoutAccounts(), ".")
 	require.NoError(t, err)
 

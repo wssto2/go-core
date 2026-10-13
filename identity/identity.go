@@ -319,9 +319,9 @@ func WithAuditRecord(entityType string, actions map[account.ChangeAction]string)
 
 // WithoutUserAdmin leaves the users administration out: no /v1/iam/users routes are
 // mounted (list, record, create, update, password, deactivate, unlock, and the
-// signins, changes, activity and sessions of another person), the store need not
+// sign-in history, changes, activity and sessions of another person), the store need not
 // be a Searcher, and users.Admin() is nil. Sign-in, session, login-as and the
-// person's own profile, signins and sessions stay. For an application with its own
+// person's own profile, sign-in history and sessions stay. For an application with its own
 // users module, whose paths would otherwise collide.
 func WithoutUserAdmin() Option { return func(s *settings) { s.noUserAdmin = true } }
 
@@ -449,11 +449,12 @@ func Install(app *gocore.App, opts ...Option) *Users {
 		changeOpts = append(changeOpts, gormstore.AuditRecord(s.auditRecord, s.auditActions))
 
 		if !slices.ContainsFunc(s.areas, func(a account.ActivityArea) bool { return a.Key() == account.IdentityArea }) {
-			s.areas = append(s.areas, account.Area(account.IdentityArea).Types(s.auditRecord)) // the people's changes are the host's record type
+			// the people's changes are the host's record type
+			s.areas = append(s.areas, account.Area(account.IdentityArea).Types(s.auditRecord))
 		}
 	}
 
-	tx, changes := database.NewTransactor(db), gormstore.NewChangeLog(db, changeOpts...)
+	transact, changes := database.NewTransactor(db), gormstore.NewChangeLog(db, changeOpts...)
 
 	areas, err := account.NewActivityAreas(s.areas...)
 	if err != nil {
@@ -484,7 +485,8 @@ func Install(app *gocore.App, opts ...Option) *Users {
 
 	if !s.noUserAdmin {
 		admin, err = account.NewAdmin(account.AdminDeps{
-			Users: svc.Users, Search: search, History: stores.SignIns, Changes: changes, Activity: gormstore.NewActivityLog(db), Areas: areas, Transact: tx, Policy: s.policy, Hooks: s.hooks,
+			Users: svc.Users, Search: search, History: stores.SignIns, Changes: changes, Activity: gormstore.NewActivityLog(db),
+			Areas: areas, Transact: transact, Policy: s.policy, Hooks: s.hooks,
 		})
 		if err != nil {
 			app.Fail("identity could not be installed: "+err.Error(), "check the options given to identity.Install")
@@ -494,7 +496,8 @@ func Install(app *gocore.App, opts ...Option) *Users {
 	}
 
 	profile, err := account.NewProfile(account.ProfileDeps{
-		Users: svc.Users, Reauth: reauth, History: stores.SignIns, Changes: changes, Transact: tx, Policy: s.policy, Codes: codes,
+		Users: svc.Users, Reauth: reauth, History: stores.SignIns, Changes: changes, Transact: transact,
+		Policy: s.policy, Codes: codes,
 	})
 	if err != nil {
 		app.Fail("identity could not be installed: "+err.Error(), "check the options given to identity.Install")

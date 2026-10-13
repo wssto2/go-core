@@ -315,7 +315,8 @@ func (c *Codes) verifyOnce(ctx context.Context, accountID int, p Purpose, hash s
 	}
 
 	if code.ConsumedAt != nil || code.InvalidatedAt != nil { // used or ended: nothing is waiting for a code
-		return "", apperr.New(nil, string(ReasonCodeNoPending), apperr.CodeInvalidArgument).WithReason(ReasonCodeNoPending).WithLog(apperr.LevelInfo)
+		return "", apperr.New(nil, string(ReasonCodeNoPending), apperr.CodeInvalidArgument).
+			WithReason(ReasonCodeNoPending).WithLog(apperr.LevelInfo)
 	}
 
 	now := c.deps.Clock.Now()

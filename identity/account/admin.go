@@ -239,7 +239,8 @@ func (a *Admin) Update(ctx context.Context, in UpdateAccount) (Account, error) {
 	}
 
 	if err := checkAll(
-		checkLogin(next.Login), checkName(next.Name), checkEmail("email", next.Email), checkPhone(next.Phone), a.checkLocale(next.Locale),
+		checkLogin(next.Login), checkName(next.Name), checkEmail("email", next.Email), checkPhone(next.Phone),
+		a.checkLocale(next.Locale),
 	); err != nil {
 		return Account{}, err
 	}

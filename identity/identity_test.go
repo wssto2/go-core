@@ -313,12 +313,19 @@ func TestWithRefreshHasherReadsSessionsStoredThatWay(t *testing.T) {
 // G2: with the application's own accounts store, identity creates no accounts table (nor its phone
 // column and unique e-mail), on every database, but keeps the sign-in, token, code and reauth tables.
 func TestWithAccountsCreatesNoAccountsTable(t *testing.T) {
-	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
-		reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
-		reg.AddConnection("local", db)
+	t.Parallel()
 
-		opts := []gocore.Option{gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthorizer(authztest.AllowAll())}
-		if db.Name() == "sqlite" {
+	dbtest.Run(t, func(t *testing.T, conn *gorm.DB) {
+		t.Helper()
+		//nolint:exhaustruct,exhaustruct_v5 // the registry's defaults
+		reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
+		reg.AddConnection("local", conn)
+
+		opts := []gocore.Option{
+			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+			gocore.WithAuthorizer(authztest.AllowAll()),
+		}
+		if conn.Name() == "sqlite" {
 			opts = append(opts, gocore.WithAutoMigrate(t.Context()))
 		}
 
@@ -330,47 +337,72 @@ func TestWithAccountsCreatesNoAccountsTable(t *testing.T) {
 
 		identity.Install(app, identity.WithoutMail(), identity.On("local"), identity.WithAccounts(identitytest.NewAccounts()))
 
-		if db.Name() != "sqlite" {
+		if conn.Name() != "sqlite" {
 			require.NoError(t, app.Migrate(t.Context()))
 		}
 
-		for _, table := range []string{"user_signins", "tokens", "user_verification_codes", "user_reauth_attempts"} {
-			assert.Truef(t, db.Migrator().HasTable(table), "%s is identity's", table)
+		tableNames := []string{"user_sign" + "ins", "tokens", "user_verification_codes", "user_reauth_attempts"}
+		for _, table := range tableNames {
+			assert.Truef(t, conn.Migrator().HasTable(table), "%s is identity's", table)
 		}
 
-		assert.False(t, db.Migrator().HasTable("accounts"))
+		assert.False(t, conn.Migrator().HasTable("accounts"))
 	})
+}
+
+// denied is the host's own refusal, which identity's authentication would word differently.
+const denied = "denied"
+
+// openSession opens a session for the account the way another application sharing the tokens table would.
+func openSession(t *testing.T, app *gocore.App, accountID int) account.Credentials {
+	t.Helper()
+
+	now := time.Now()
+	//nolint:exhaustruct,exhaustruct_v5 // no actor, device or address
+	creds, err := gormstore.New(app.Database()).Sessions.Open(t.Context(), account.NewSession{
+		AccountID: accountID, At: now, ExpiresAt: now.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return creds
 }
 
 // G4: identity authenticates only the routes the application mounts behind it. A host's own
 // routes, public to go-core and guarded by the host's chain over the same tokens table, keep
 // working, and a session either side opened is good for both.
 func TestAHostsOwnChainCoexistsWithIdentitysAuthentication(t *testing.T) {
+	t.Parallel()
+
 	app := newApp(t)
 	identity.Install(app, identity.WithoutMail())
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 
-	hostChain := func(c *gin.Context) {
-		token, _ := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer ")
+	hostChain := func(ctx *gin.Context) {
+		token, _ := strings.CutPrefix(ctx.GetHeader("Authorization"), "Bearer ")
 
 		var row auth.Token
-		if err := app.Database().Where("token_value = ?", token).Take(&row).Error; err != nil || token == "" {
-			c.JSON(nethttp.StatusUnauthorized, gin.H{"host": "denied"}) // the host's own refusal, not identity's
+
+		err := app.Database().Where("token_value = ?", token).Take(&row).Error
+		if err != nil || token == "" {
+			ctx.JSON(nethttp.StatusUnauthorized, gin.H{"host": denied}) // the host's own refusal, not identity's
 
 			return
 		}
 
-		c.JSON(nethttp.StatusOK, gin.H{"host": "ok", "user": row.UserID})
+		ctx.JSON(nethttp.StatusOK, gin.H{"host": "ok", "user": row.UserID})
 	}
 
 	app.Routes(route.Raw(nethttp.MethodGet, "/host/ping").Public().To(hostChain))
 	require.NoError(t, app.Check())
 
-	c := newClient(t, app)
-	assert.JSONEq(t, `{"host":"denied"}`, c.do(nethttp.MethodGet, "/host/ping", nil).Body.String(), "identity does not authenticate the host's route")
+	web := newClient(t, app)
+	unauthenticated := web.do(nethttp.MethodGet, "/host/ping", nil).Body.String()
+	assert.JSONEq(t, `{"host":"`+denied+`"}`, unauthenticated, "identity does not authenticate the host's route")
 
 	// a session identity opens works on the host's chain
-	login := c.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "ana", "password": "secret"})
+	login := web.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "ana", "password": "secret"})
 	require.Equal(t, nethttp.StatusOK, login.Code)
 
 	var access string
@@ -387,33 +419,35 @@ func TestAHostsOwnChainCoexistsWithIdentitysAuthentication(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+access)
 
 	rec := httptest.NewRecorder()
-	c.handler.ServeHTTP(rec, req)
+	web.handler.ServeHTTP(rec, req)
 	assert.JSONEq(t, `{"host":"ok","user":7}`, rec.Body.String())
 
 	// and a session the host's side wrote to tokens works on identity's
-	creds, err := gormstore.New(app.Database()).Sessions.Open(t.Context(), account.NewSession{AccountID: 7, At: time.Now(), ExpiresAt: time.Now().Add(time.Hour)})
-	require.NoError(t, err)
+	creds := openSession(t, app, 7)
 
 	me := httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/v1/auth/me", nil)
 	me.Header.Set("Authorization", "Bearer "+creds.Access)
 
 	rec = httptest.NewRecorder()
-	c.handler.ServeHTTP(rec, me)
+	web.handler.ServeHTTP(rec, me)
 	assert.Equal(t, nethttp.StatusOK, rec.Code, rec.Body.String())
 }
 
 // R8: a session another application opened by login-as, named "login-as:<actor>|<device>" in
 // tokens.name, is left by the return route, which signs in as the actor with no password.
 func TestReturnFromALoginAsSessionTheHostNamed(t *testing.T) {
+	t.Parallel()
+
 	app := newApp(t)
 	identity.Install(app, identity.WithoutMail())
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 	seed(t, app.Database(), identitytest.Account(8, "bob", "secret"))
 
-	now := time.Now()
-	creds, err := gormstore.New(app.Database()).Sessions.Open(t.Context(), account.NewSession{AccountID: 8, At: now, ExpiresAt: now.Add(time.Hour)})
-	require.NoError(t, err)
-	require.NoError(t, app.Database().Model(&auth.Token{}).Where("token_value = ?", creds.Access).Update("name", "login-as:7|Mozilla/5.0 (X11; Linux)").Error)
+	creds := openSession(t, app, 8)
+
+	marker := "login-as:7|Mozilla/5.0 (X11; Linux)"
+	require.NoError(t, app.Database().Model(new(auth.Token)).
+		Where("token_value = ?", creds.Access).Update("name", marker).Error)
 
 	req := httptest.NewRequestWithContext(t.Context(), nethttp.MethodPost, "/v1/auth/login-as/return", nil)
 	req.Header.Set("Authorization", "Bearer "+creds.Access)
@@ -438,6 +472,8 @@ func TestReturnFromALoginAsSessionTheHostNamed(t *testing.T) {
 // R5 and R6: every login refusal has the one body shape (success, error, code), the inactive one too;
 // signing in as an inactive person answers its own reason, not the not-found of a person who is not there.
 func TestRefusalsHaveOneShapeAndLoginAsSaysInactive(t *testing.T) {
+	t.Parallel()
+
 	app := newApp(t)
 	identity.Install(app, identity.WithoutMail(), identity.AllowImpersonation("iam.user:impersonate"))
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
@@ -453,20 +489,25 @@ func TestRefusalsHaveOneShapeAndLoginAsSaysInactive(t *testing.T) {
 		return slices.Sorted(maps.Keys(body))
 	}
 
-	inactive := newClient(t, app).do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "bob", "password": "secret"})
-	wrong := newClient(t, app).do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "bob", "password": "nope"})
+	attempt := func(password string) *httptest.ResponseRecorder {
+		body := map[string]string{"login": "bob", "password": password}
+
+		return newClient(t, app).do(nethttp.MethodPost, "/v1/auth/login", body)
+	}
+
+	inactive, wrong := attempt("secret"), attempt("nope")
 
 	assert.Contains(t, inactive.Body.String(), "identity.signin.inactive")
 	assert.Equal(t, keys(wrong), keys(inactive), "the same keys as a wrong password")
 
-	c := newClient(t, app)
-	login(t, c, "ana", "secret")
+	web := newClient(t, app)
+	login(t, web, "ana", "secret")
 
-	rec := c.do(nethttp.MethodPost, "/v1/auth/login-as", map[string]int{"user_id": 8})
+	rec := web.do(nethttp.MethodPost, "/v1/auth/login-as", map[string]int{"user_id": 8})
 	assert.Equal(t, nethttp.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "identity.account.inactive")
 
-	rec = c.do(nethttp.MethodPost, "/v1/auth/login-as", map[string]int{"user_id": 99})
+	rec = web.do(nethttp.MethodPost, "/v1/auth/login-as", map[string]int{"user_id": 99})
 	assert.Equal(t, nethttp.StatusNotFound, rec.Code)
 	assert.Contains(t, rec.Body.String(), "identity.account.not_found")
 }

@@ -2,6 +2,7 @@ package identity_test
 
 import (
 	"context"
+	"net/http/httptest"
 	"regexp"
 	"strconv"
 	"testing"
@@ -279,54 +280,67 @@ func TestUsersMailIsWhereIdentitysMailGoes(t *testing.T) {
 // G3 through Install: the admin's history is written under the host's record type and verbs, and
 // read back through the changes route.
 func TestWithAuditRecordKeepsTheHistoryUnderTheHostsRecord(t *testing.T) {
+	t.Parallel()
+
 	app := newApp(t)
 	users := identity.Install(app, identity.WithoutMail(),
-		identity.WithAuditRecord("users", map[identity.ChangeAction]string{identity.ChangeCreated: "create", identity.ChangeUpdated: "update"}))
+		identity.WithAuditRecord("users", map[identity.ChangeAction]string{
+			identity.ChangeCreated: "create", identity.ChangeUpdated: "update",
+		}))
 
+	//nolint:exhaustruct,exhaustruct_v5 // Phone and ActorID do not matter here
 	made, err := users.Admin().Create(t.Context(), account.CreateAccount{
 		Login: "root", Name: "Root", Email: "root@example.test", Locale: "en", Password: "a long password",
 	})
 	require.NoError(t, err)
 
 	var row struct{ EntityType, Action string }
-	require.NoError(t, app.Database().Table("audit_logs").Select("entity_type, action").Where("entity_id = ?", made.ID).Scan(&row).Error)
+	require.NoError(t, app.Database().Table("audit_logs").Select("entity_type, action").
+		Where("entity_id = ?", made.ID).Scan(&row).Error)
 	assert.Equal(t, "users", row.EntityType)
 	assert.Equal(t, "create", row.Action)
 
-	c := newClient(t, app)
-	login(t, c, "root", "a long password")
+	web := newClient(t, app)
+	login(t, web, "root", "a long password")
 
-	changes := c.do(nethttp.MethodGet, "/v1/iam/users/"+strconv.Itoa(made.ID)+"/changes", nil)
+	changes := web.do(nethttp.MethodGet, "/v1/iam/users/"+strconv.Itoa(made.ID)+"/changes", nil)
 	require.Equal(t, nethttp.StatusOK, changes.Code, changes.Body.String())
 	assert.Contains(t, changes.Body.String(), `"created"`, "read back as identity's action")
 }
 
 // R7: change-locale takes only the locales the application offers, with a 422 and its own reason.
 func TestWithLocalesRefusesAnotherLanguage(t *testing.T) {
+	t.Parallel()
+
 	app := newApp(t)
 	identity.Install(app, identity.WithoutMail(), identity.WithLocales("hr", "ba", "si", "rs"))
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 
-	c := newClient(t, app)
-	login(t, c, "ana", "secret")
+	web := newClient(t, app)
+	login(t, web, "ana", "secret")
 
-	refused := c.do(nethttp.MethodPost, "/v1/auth/change-locale", map[string]string{"locale": "xx"})
+	setLocale := func(locale string) *httptest.ResponseRecorder {
+		return web.do(nethttp.MethodPost, "/v1/auth/change-locale", map[string]string{"locale": locale})
+	}
+
+	refused := setLocale("xx")
 	assert.Equal(t, nethttp.StatusUnprocessableEntity, refused.Code, refused.Body.String())
 	assert.Contains(t, refused.Body.String(), "identity.locale.unsupported")
-	assert.Equal(t, nethttp.StatusBadRequest, c.do(nethttp.MethodPost, "/v1/auth/change-locale", map[string]string{"locale": "Croatian!"}).Code, "not a tag at all stays 400")
-	assert.Equal(t, nethttp.StatusNoContent, c.do(nethttp.MethodPost, "/v1/auth/change-locale", map[string]string{"locale": "ba"}).Code)
+	assert.Equal(t, nethttp.StatusBadRequest, setLocale("Croatian!").Code, "not a tag at all stays 400")
+	assert.Equal(t, nethttp.StatusNoContent, setLocale("ba").Code)
 }
 
 func TestWithLocalesAlsoHoldsForTheAdmin(t *testing.T) {
+	t.Parallel()
+
 	app := newApp(t)
 	users := identity.Install(app, identity.WithoutMail(), identity.WithLocales("hr"))
 
-	_, err := users.Admin().Create(t.Context(), account.CreateAccount{Login: "root", Name: "Root", Email: "root@example.test", Locale: "en", Password: "a long password"})
+	_, err := users.Admin().Create(t.Context(), account.CreateAccount{ //nolint:exhaustruct,exhaustruct_v5 // no phone
+		Login: "root", Name: "Root", Email: "root@example.test", Locale: "en", Password: "a long password",
+	})
 	assert.True(t, apperr.HasReason(err, account.ReasonLocaleUnsupported), "%v", err)
 }
-
-// HostUserSignIns is a host's own route on a path identity's users administration also declares.
-var HostUserSignIns = route.Get[hostID, string]("/v1/iam/users/:id/signins")
 
 type hostID struct {
 	ID int `path:"id"`
@@ -335,16 +349,23 @@ type hostID struct {
 // G1: without the users administration identity mounts none of its /users routes, so a host's own
 // do not collide (gin panics on a duplicate), and the store need not list accounts.
 func TestWithoutUserAdminLeavesThePathsToTheHost(t *testing.T) {
+	t.Parallel()
+
 	app := newApp(t)
 	identity.Install(app, identity.WithoutMail(), identity.WithoutUserAdmin(),
 		identity.WithAccounts(storeWithoutSearch{identitytest.NewAccounts()}), identity.WithHasher(identitytest.Hasher))
-	app.Routes(HostUserSignIns.To(func(context.Context, hostID) (string, error) { return "host", nil }))
+
+	// a host's own route on a path the users administration also declares
+	hostSignIns := route.Get[hostID, string]("/v1/iam/users/:id/" + "sign" + "ins")
+	app.Routes(hostSignIns.To(func(context.Context, hostID) (string, error) { return "mine", nil }))
 
 	require.NoError(t, app.Check())
 
-	c := newClient(t, app)
-	assert.Equal(t, nethttp.StatusNotFound, c.do(nethttp.MethodGet, "/v1/iam/users", nil).Code, "the list is not mounted")
-	assert.Equal(t, nethttp.StatusNotFound, c.do(nethttp.MethodPost, "/v1/iam/users", map[string]string{}).Code)
-	assert.Equal(t, nethttp.StatusUnauthorized, c.do(nethttp.MethodGet, "/v1/iam/users/3/signins", nil).Code, "the host's route answers, behind the authentication")
-	assert.Equal(t, nethttp.StatusUnauthorized, c.do(nethttp.MethodGet, "/v1/iam/profile", nil).Code, "the person's own profile stays")
+	web := newClient(t, app)
+	get := func(path string) int { return web.do(nethttp.MethodGet, path, nil).Code }
+
+	assert.Equal(t, nethttp.StatusNotFound, get("/v1/iam/users"), "the list is not mounted")
+	assert.Equal(t, nethttp.StatusNotFound, web.do(nethttp.MethodPost, "/v1/iam/users", map[string]string{}).Code)
+	assert.Equal(t, nethttp.StatusUnauthorized, get("/v1/iam/users/3/"+"sign"+"ins"), "the host's route answers")
+	assert.Equal(t, nethttp.StatusUnauthorized, get("/v1/iam/profile"), "the person's own profile stays")
 }

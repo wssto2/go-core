@@ -77,5 +77,6 @@ func Migrate(db *gorm.DB) error {
 // MigrateWithoutAccounts is Migrate for an application that keeps its accounts in a
 // table of its own: everything but the accounts table.
 func MigrateWithoutAccounts(db *gorm.DB) error {
-	return db.AutoMigrate(&signInModel{}, &auth.Token{}, &codeModel{}, &reauthModel{})
+	// the migrator's error reaches the caller as Migrate's does
+	return db.AutoMigrate(new(signInModel), new(auth.Token), new(codeModel), new(reauthModel)) //nolint:wrapcheck
 }

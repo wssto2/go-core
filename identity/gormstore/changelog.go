@@ -42,50 +42,54 @@ func AuditRecord(entityType string, actions map[account.ChangeAction]string) Cha
 // NewChangeLog returns the change log over db. The audit_logs table is
 // audit/migrations'; identity.Install registers it.
 func NewChangeLog(db *gorm.DB, opts ...ChangeLogOption) *ChangeLog {
-	l := &ChangeLog{db: db, audit: audit.NewRepository(database.NewTransactor(db)), entity: account.AccountRecord}
-
-	for _, opt := range opts {
-		opt(l)
+	changes := &ChangeLog{
+		db: db, audit: audit.NewRepository(database.NewTransactor(db)), entity: account.AccountRecord,
+		written: nil, read: nil,
 	}
 
-	l.read = make(map[string]account.ChangeAction, len(l.written))
+	for _, opt := range opts {
+		opt(changes)
+	}
+
+	changes.read = make(map[string]account.ChangeAction, len(changes.written))
 
 	for _, a := range slices.Backward(canonicalActions()) { // the first canonical action wins
-		if name, ok := l.written[a]; ok {
-			l.read[name] = a
+		if name, ok := changes.written[a]; ok {
+			changes.read[name] = a
 		}
 	}
 
-	return l
+	return changes
 }
 
 // Record implements account.ChangeLog.
 func (l *ChangeLog) Record(ctx context.Context, c account.Change) error {
-	e := audit.NewEntry(l.entity, c.AccountID, c.ActorID, l.name(c.Action)).WithDiff(c.Fields)
+	entry := audit.NewEntry(l.entity, c.AccountID, c.ActorID, l.name(c.Action)).WithDiff(c.Fields)
 	if len(c.Before) > 0 {
-		e = e.WithBefore(c.Before)
+		entry = entry.WithBefore(c.Before)
 	}
 
 	if len(c.After) > 0 {
-		e = e.WithAfter(c.After)
+		entry = entry.WithAfter(c.After)
 	}
 
-	return l.audit.Write(ctx, e)
+	return l.audit.Write(ctx, entry) //nolint:wrapcheck // the audit trail's error reaches the caller as it always did
 }
 
 // Changes implements account.ChangeLog.
 func (l *ChangeLog) Changes(ctx context.Context, q account.ChangeQuery) ([]account.ChangeEntry, int, error) {
 	where := func() *gorm.DB {
-		db := dbOf(l.db, ctx).Model(&audit.AuditLog{}).Where("entity_type = ? AND entity_id = ?", l.entity, q.AccountID)
+		scope := dbOf(l.db, ctx).Model(new(audit.AuditLog)).
+			Where("entity_type = ? AND entity_id = ?", l.entity, q.AccountID)
 		if len(q.Only) > 0 {
-			db = db.Where("action IN ?", l.names(q.Only))
+			scope = scope.Where("action IN ?", l.names(q.Only))
 		}
 
 		if len(q.Except) > 0 {
-			db = db.Where("action NOT IN ?", l.names(q.Except))
+			scope = scope.Where("action NOT IN ?", l.names(q.Except))
 		}
 
-		return db
+		return scope
 	}
 
 	var total int64

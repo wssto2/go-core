@@ -142,6 +142,8 @@ func TestUnhandledCoversRawRoutes(t *testing.T) {
 }
 
 func TestExcusedRoutesAreNotUnhandledAndNotMounted(t *testing.T) {
+	t.Parallel()
+
 	kept := route.Get[route.None, string]("/kept")
 	left := route.Get[route.None, string]("/left")
 	route.Group("excuse", kept, left)
@@ -156,7 +158,9 @@ func TestExcusedRoutesAreNotUnhandledAndNotMounted(t *testing.T) {
 	}
 
 	engine := newEngine()
-	if err := bound.Excuses(left).Mount(engine, secured(nil)); err != nil {
+
+	err := bound.Excuses(left).Mount(engine, secured(nil))
+	if err != nil {
 		t.Fatal(err)
 	}
 
