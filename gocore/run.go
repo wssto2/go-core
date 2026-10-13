@@ -45,7 +45,7 @@ func (a *App) checked(extra []Problem) error {
 		}
 	}
 
-	for _, spec := range route.Unhandled(a.routes...) {
+	for _, spec := range route.Unhandled(a.handled()...) {
 		problems = append(problems, Problem{
 			What: "route " + spec.String() + " is declared but has no handler",
 			Fix:  "bind a handler with the route's To method and pass it to app.Routes in the feature's Install",
@@ -117,14 +117,14 @@ func (a *App) routeProblems() []Problem {
 
 // dryMount mounts r on a scratch router, turning the router's panic on a
 // path it refuses into an error.
-func (a *App) dryMount(scratch *gin.Engine, r route.Handled) (err error) {
+func (a *App) dryMount(scratch *gin.Engine, r mounted) (err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			err = fmt.Errorf("route %s was refused by the router: %v", r.Spec(), p)
 		}
 	}()
 
-	return r.Mount(scratch.Group(a.prefix), a.security())
+	return r.mount(scratch.Group(a.prefix), a.security())
 }
 
 func (a *App) catalogued(permission string) bool {
@@ -232,7 +232,7 @@ func (m *featuresModule) Register(c *bootstrap.Container) error {
 	}
 
 	for _, r := range m.app.routes {
-		if err := r.Mount(engine.Group(m.app.prefix), m.app.security()); err != nil {
+		if err := r.mount(engine.Group(m.app.prefix), m.app.security()); err != nil {
 			return err
 		}
 	}
@@ -302,7 +302,7 @@ func (a *App) Handler() (http.Handler, error) {
 	engine.Use(middlewares.ErrorHandler(a.log, nil, true))
 
 	for _, r := range a.routes {
-		if err := r.Mount(engine.Group(a.prefix), a.security()); err != nil {
+		if err := r.mount(engine.Group(a.prefix), a.security()); err != nil {
 			return nil, err
 		}
 	}

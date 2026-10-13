@@ -70,7 +70,7 @@ type App struct {
 	authenticate []gin.HandlerFunc
 	customize    []func(*bootstrap.AppBuilder)
 
-	routes     []route.Handled
+	routes     []mounted
 	workers    []worker.Worker
 	catalogues []*authz.Catalogue
 	modules    []bootstrap.Module
@@ -300,7 +300,28 @@ func (a *App) Database(conn ...database.Connection) *gorm.DB {
 
 // Routes collects the routes a feature serves. They are mounted by Run.
 func (a *App) Routes(routes ...route.Handled) {
-	a.routes = append(a.routes, routes...)
+	for _, r := range routes {
+		a.routes = append(a.routes, mounted{Handled: r, own: nil})
+	}
+}
+
+// RoutesWith collects routes that are authenticated by a chain of the feature's
+// own instead of the application's: an app whose routes take API keys or its
+// own tokens next to identity's session, for instance.
+//
+//	app.RoutesWith(route.Security{Authenticate: []gin.HandlerFunc{auth.Authenticated(provider)}}, routes...)
+//
+// Everything else is as for Routes: Public routes stay open, Requires is checked
+// by the authorizer (the application's, unless security sets one) and a
+// permission no catalogue defines stops start-up. The 401 a failing chain
+// answers is the chain's own. The tenant is not put in the context: the chain
+// does that, if it wants. The routes of go-core's modules (identity, access,
+// notification) always keep the application's chain. A security without an Authenticate chain does not fall back to the
+// application's: its non-public routes stop start-up; use Routes for those.
+func (a *App) RoutesWith(security route.Security, routes ...route.Handled) {
+	for _, r := range routes {
+		a.routes = append(a.routes, mounted{Handled: r, own: &security})
+	}
 }
 
 // Background collects workers that run for the life of the application: they
@@ -320,4 +341,34 @@ func (a *App) Permissions(catalogue *authz.Catalogue) {
 // they always did.
 func (a *App) Modules(modules ...bootstrap.Module) {
 	a.modules = append(a.modules, modules...)
+}
+
+// mounted is a collected route with the security it asked for, if any.
+type mounted struct {
+	route.Handled
+
+	own *route.Security
+}
+
+// mount registers the route behind the application's security, or its own.
+func (m mounted) mount(group gin.IRoutes, app route.Security) error {
+	if m.own == nil {
+		return m.Mount(group, app) //nolint:wrapcheck // the route's own message names the route
+	}
+
+	sec := *m.own
+	if sec.Authorizer == nil {
+		sec.Authorizer = app.Authorizer
+	}
+
+	return m.Mount(group, sec) //nolint:wrapcheck // the route's own message names the route
+}
+
+func (a *App) handled() []route.Handled {
+	out := make([]route.Handled, len(a.routes))
+	for i, r := range a.routes {
+		out[i] = r.Handled
+	}
+
+	return out
 }
