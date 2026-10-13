@@ -93,3 +93,64 @@ func TestTheHousekeeperWorksInBatches(t *testing.T) {
 		require.Zero(t, count(t, db, "outbox_events"), fmt.Sprint(n))
 	})
 }
+
+// G21: told how long to keep dead letters, the housekeeper deletes a letter and the event only it kept once it is that
+// old; a letter retried in time, or younger, stays. Without the option nothing changes: they are kept for ever.
+func TestTheHousekeeperCanEndDeadLettersAfterTheTimeItWasToldToKeepThem(t *testing.T) {
+	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+		publish := setup(t, db)
+		clock := newClock()
+		ctx := context.Background()
+
+		c := Assigned.To("notifications.assignee", func(_ context.Context, p TicketAssigned) error {
+			if p.TicketID <= 3 {
+				return errors.New("down")
+			}
+
+			return nil
+		}).Retry(event.Attempts(1))
+		q := event.NewQueue(db, clock, quiet(), c)
+
+		forever := event.NewHousekeeper(db, clock, quiet())
+		ninety := event.NewHousekeeper(db, clock, quiet()).KeepDeadLetters(90 * 24 * time.Hour)
+
+		publish(TicketAssigned{TicketID: 1})
+		publish(TicketAssigned{TicketID: 2})
+		require.Error(t, q.Drain(ctx)) // events 1 and 2 are dead letters
+
+		clock.Advance(50 * 24 * time.Hour)
+		publish(TicketAssigned{TicketID: 3})
+		publish(TicketAssigned{TicketID: 4})
+		require.Error(t, q.Drain(ctx)) // event 3 is a dead letter 50 days younger; event 4 was handled
+
+		// Event 1's letter is retried in time: it is not dead any more, so its age no longer counts.
+		require.NoError(t, event.NewDeadLetters(db, clock).Retry(ctx, 1, "notifications.assignee"))
+
+		clock.Advance(41 * 24 * time.Hour) // event 2's letter is 91 days old, event 3's 41
+
+		n, err := forever.Sweep(ctx)
+		require.NoError(t, err)
+		require.Equal(t, 1, n, "only event 4, processed 41 days ago; the letters are kept for ever without the option")
+		require.EqualValues(t, 3, count(t, db, "outbox_events"))
+
+		n, err = ninety.Sweep(ctx)
+		require.NoError(t, err)
+		require.Equal(t, 1, n, "event 2, whose only reason to stay was a letter 91 days old")
+
+		var left []uint64
+		require.NoError(t, db.Model(&event.OutboxEvent{}).Order("id").Pluck("id", &left).Error)
+		require.Equal(t, []uint64{1, 3}, left, "the retried one and the letter younger than 90 days")
+		require.EqualValues(t, 1, count(t, db, "event_consumer_attempts WHERE dead_at IS NOT NULL"))
+
+		clock.Advance(50 * 24 * time.Hour) // event 3's letter is 91 days old now
+
+		n, err = ninety.Sweep(ctx)
+		require.NoError(t, err)
+		require.Equal(t, 1, n)
+		require.EqualValues(t, 1, count(t, db, "outbox_events"), "event 1 waits to be handled")
+
+		n, err = event.NewHousekeeper(db, clock, quiet()).KeepDeadLetters(0).Sweep(ctx)
+		require.NoError(t, err)
+		require.Zero(t, n, "zero keeps letters for ever")
+	})
+}

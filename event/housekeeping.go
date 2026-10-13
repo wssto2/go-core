@@ -13,8 +13,9 @@ import (
 
 // Retention is how long an event that every consumer has finished stays in the
 // outbox, with its consumers' attempts, before the housekeeper deletes it. Dead
-// letters are never deleted by it: a dead letter's event is kept for as long as
-// the letter is, because a retry needs it.
+// letters are not deleted by it unless the housekeeper was told how long to keep
+// them (KeepDeadLetters): a dead letter's event is kept for as long as the
+// letter is, because a retry needs it.
 const Retention = 30 * 24 * time.Hour
 
 const (
@@ -31,6 +32,8 @@ type Housekeeper struct {
 	db    *gorm.DB
 	clock Clock
 	log   *slog.Logger
+	// deadFor is how long a dead letter is kept; zero is for ever.
+	deadFor time.Duration
 }
 
 // NewHousekeeper returns the housekeeper of the queue in db. A nil clock is the
@@ -45,6 +48,20 @@ func NewHousekeeper(db *gorm.DB, clock Clock, log *slog.Logger) *Housekeeper {
 	}
 
 	return &Housekeeper{db: db, clock: clock, log: log}
+}
+
+// KeepDeadLetters makes the housekeeper delete dead letters, and the events only they kept, d after the consumer gave
+// up on them, instead of keeping them for ever: a letter nobody retried in that time is not going to be. Zero or less
+// keeps them for ever, which is the default. gocore's own housekeeper keeps them for ever, so an application that wants
+// an end gives its own to its background work:
+//
+//	app.Background(event.NewHousekeeper(db, clock, log).KeepDeadLetters(90 * 24 * time.Hour))
+//
+// It returns the housekeeper, so it chains.
+func (h *Housekeeper) KeepDeadLetters(d time.Duration) *Housekeeper {
+	h.deadFor = max(d, 0)
+
+	return h
 }
 
 // Name identifies the worker in logs.
@@ -75,8 +92,13 @@ func (h *Housekeeper) Run(ctx context.Context) error {
 
 // Sweep deletes the events processed more than Retention ago, with their
 // consumers' attempts, and returns how many events it deleted. An event with a
-// dead letter is kept.
+// dead letter is kept, unless KeepDeadLetters ended the letter: the letters older
+// than that go first, and their events follow when nothing else keeps them.
 func (h *Housekeeper) Sweep(ctx context.Context) (int, error) {
+	if err := h.expireDeadLetters(ctx); err != nil {
+		return 0, err
+	}
+
 	cutoff := whole(h.clock.Now()).Add(-Retention)
 	deleted := 0
 	after := uint64(0)
@@ -155,6 +177,68 @@ func (h *Housekeeper) prune(ctx context.Context, ids []uint64, cutoff time.Time)
 	})
 	if err != nil {
 		return 0, fmt.Errorf("event housekeeping: %w", err)
+	}
+
+	return n, nil
+}
+
+// expireDeadLetters deletes the dead letters older than the time KeepDeadLetters set, in batches of events. The outbox
+// rows of a batch are locked first, by primary key, as Retry locks them: a letter being retried is no longer dead
+// when the delete looks at it, and stays.
+func (h *Housekeeper) expireDeadLetters(ctx context.Context) error {
+	if h.deadFor <= 0 {
+		return nil
+	}
+
+	cutoff := whole(h.clock.Now()).Add(-h.deadFor)
+	after := uint64(0)
+	letters := 0
+
+	for {
+		var ids []uint64
+
+		if err := h.db.WithContext(ctx).Table(attemptsTable).
+			Where("event_id > ? AND dead_at IS NOT NULL AND dead_at < ?", after, cutoff).
+			Distinct().Order("event_id ASC").Limit(pruneBatch).Pluck("event_id", &ids).Error; err != nil {
+			return fmt.Errorf("event housekeeping: select dead letters: %w", err)
+		}
+
+		if len(ids) == 0 {
+			break
+		}
+
+		n, err := h.deleteLetters(ctx, ids, cutoff)
+		if err != nil {
+			return err
+		}
+
+		letters += n
+		after = ids[len(ids)-1]
+	}
+
+	if letters > 0 {
+		h.log.InfoContext(ctx, "event: deleted dead letters", "letters", letters)
+	}
+
+	return nil
+}
+
+func (h *Housekeeper) deleteLetters(ctx context.Context, ids []uint64, cutoff time.Time) (int, error) {
+	n := 0
+
+	err := h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var locked []uint64
+		if err := tx.Table(outboxTable).Where("id IN ?", ids).Clauses(clause.Locking{Strength: "UPDATE"}).Pluck("id", &locked).Error; err != nil {
+			return fmt.Errorf("lock events: %w", err)
+		}
+
+		res := tx.Table(attemptsTable).Where("event_id IN ? AND dead_at IS NOT NULL AND dead_at < ?", ids, cutoff).Delete(&attemptRow{})
+		n = int(res.RowsAffected)
+
+		return res.Error
+	})
+	if err != nil {
+		return 0, fmt.Errorf("event housekeeping: delete dead letters: %w", err)
 	}
 
 	return n, nil
