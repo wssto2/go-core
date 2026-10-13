@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"slices"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/authz"
@@ -30,6 +31,8 @@ type Bound struct {
 	d     *declaration
 	build func(security Security) []gin.HandlerFunc
 	err   error
+	// excused are declared routes of the same contract this application leaves out on purpose.
+	excused []*declaration
 }
 
 // To binds the handler to the route. The handler is a plain function; its
@@ -100,6 +103,19 @@ func bindInput[In any](c *gin.Context, in *In, hasBody bool) error {
 	}
 
 	return validation.ValidateInput(in)
+}
+
+// Excuses says that the routes, declared in the same contract as this one, are left out of this
+// application on purpose, so Unhandled does not report them. A feature whose option drops part of its
+// routes (the users administration, for a host with its own) binds the rest and excuses those; nothing
+// is mounted for an excused route, so the host may serve the path itself.
+func (b Bound) Excuses(routes ...Declared) Bound {
+	b.excused = slices.Clone(b.excused)
+	for _, r := range routes {
+		b.excused = append(b.excused, r.declaration())
+	}
+
+	return b
 }
 
 // Spec returns the declaration as data.

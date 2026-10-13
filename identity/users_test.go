@@ -16,6 +16,7 @@ import (
 	"github.com/wssto2/go-core/identity/identitytest"
 	"github.com/wssto2/go-core/identity/mailtext"
 	"github.com/wssto2/go-core/mail"
+	"github.com/wssto2/go-core/route"
 )
 
 const secret = "an-installation-secret-of-32-chars!"
@@ -322,4 +323,28 @@ func TestWithLocalesAlsoHoldsForTheAdmin(t *testing.T) {
 
 	_, err := users.Admin().Create(t.Context(), account.CreateAccount{Login: "root", Name: "Root", Email: "root@example.test", Locale: "en", Password: "a long password"})
 	assert.True(t, apperr.HasReason(err, account.ReasonLocaleUnsupported), "%v", err)
+}
+
+// HostUserSignIns is a host's own route on a path identity's users administration also declares.
+var HostUserSignIns = route.Get[hostID, string]("/v1/iam/users/:id/signins")
+
+type hostID struct {
+	ID int `path:"id"`
+}
+
+// G1: without the users administration identity mounts none of its /users routes, so a host's own
+// do not collide (gin panics on a duplicate), and the store need not list accounts.
+func TestWithoutUserAdminLeavesThePathsToTheHost(t *testing.T) {
+	app := newApp(t)
+	identity.Install(app, identity.WithoutMail(), identity.WithoutUserAdmin(),
+		identity.WithAccounts(storeWithoutSearch{identitytest.NewAccounts()}), identity.WithHasher(identitytest.Hasher))
+	app.Routes(HostUserSignIns.To(func(context.Context, hostID) (string, error) { return "host", nil }))
+
+	require.NoError(t, app.Check())
+
+	c := newClient(t, app)
+	assert.Equal(t, nethttp.StatusNotFound, c.do(nethttp.MethodGet, "/v1/iam/users", nil).Code, "the list is not mounted")
+	assert.Equal(t, nethttp.StatusNotFound, c.do(nethttp.MethodPost, "/v1/iam/users", map[string]string{}).Code)
+	assert.Equal(t, nethttp.StatusUnauthorized, c.do(nethttp.MethodGet, "/v1/iam/users/3/signins", nil).Code, "the host's route answers, behind the authentication")
+	assert.Equal(t, nethttp.StatusUnauthorized, c.do(nethttp.MethodGet, "/v1/iam/profile", nil).Code, "the person's own profile stays")
 }

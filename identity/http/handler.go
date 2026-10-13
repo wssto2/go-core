@@ -26,11 +26,11 @@ type Handler struct {
 	navigation NavigationProvider
 }
 
-// Config is what the handler is built from. Services, Admin, Profile and Clock
-// are required; everything else has a default.
+// Config is what the handler is built from. Services, Profile and Clock
+// are required (Admin too, unless the users routes are left out); everything else has a default.
 type Config struct {
 	Services account.Services
-	// Admin serves the users routes, Profile the profile routes.
+	// Admin serves the users routes (nil leaves them out), Profile the profile routes.
 	Admin   *account.Admin
 	Profile *account.Profile
 	Clock   account.Clock
@@ -64,32 +64,45 @@ func NewHandler(cfg Config) *Handler {
 	return h
 }
 
-// Routes binds every declared route to its handler.
+// Routes binds every declared route to its handler. Without an Admin in the
+// Config the users administration routes (ListUsers .. RevokeUserSessions) are left out.
 func (h *Handler) Routes() []route.Handled {
-	return []route.Handled{
-		Login.To(h.login),
+	login := Login.To(h.login)
+	if h.admin == nil { // left out on purpose: not mounted, and not reported as unhandled
+		login = login.Excuses(ListUsers, ShowUser, CreateUser, UpdateUser, SetUserPassword, DeactivateUser, ActivateUser, UnlockUser,
+			UserSignIns, UserChanges, UserActivity, UserSessions, RevokeUserSession, RevokeUserSessions)
+	}
+
+	routes := []route.Handled{
+		login,
 		Refresh.To(h.refresh),
 		Logout.To(h.logout),
 		Me.To(h.me),
 		ChangeLocale.To(h.changeLocale),
 		LoginAs.To(h.loginAs),
 		ReturnToOwn.To(h.returnToOwn),
+	}
 
-		ListUsers.To(h.listUsers),
-		ShowUser.To(h.showUser),
-		CreateUser.To(h.createUser),
-		UpdateUser.To(h.updateUser),
-		SetUserPassword.To(h.setUserPassword),
-		DeactivateUser.To(h.deactivateUser),
-		ActivateUser.To(h.activateUser),
-		UnlockUser.To(h.unlockUser),
-		UserSignIns.To(h.userSignIns),
-		UserChanges.To(h.userChanges),
-		UserActivity.To(h.userActivity),
-		UserSessions.To(h.userSessions),
-		RevokeUserSession.To(h.revokeUserSession),
-		RevokeUserSessions.To(h.revokeUserSessions),
+	if h.admin != nil {
+		routes = append(routes,
+			ListUsers.To(h.listUsers),
+			ShowUser.To(h.showUser),
+			CreateUser.To(h.createUser),
+			UpdateUser.To(h.updateUser),
+			SetUserPassword.To(h.setUserPassword),
+			DeactivateUser.To(h.deactivateUser),
+			ActivateUser.To(h.activateUser),
+			UnlockUser.To(h.unlockUser),
+			UserSignIns.To(h.userSignIns),
+			UserChanges.To(h.userChanges),
+			UserActivity.To(h.userActivity),
+			UserSessions.To(h.userSessions),
+			RevokeUserSession.To(h.revokeUserSession),
+			RevokeUserSessions.To(h.revokeUserSessions),
+		)
+	}
 
+	return append(routes,
 		ShowProfile.To(h.showProfile),
 		UpdateProfile.To(h.updateProfile),
 		ChangeOwnPassword.To(h.changeOwnPassword),
@@ -100,7 +113,7 @@ func (h *Handler) Routes() []route.Handled {
 		OwnSignIns.To(h.ownSignIns),
 		OwnSessions.To(h.ownSessions),
 		RevokeOwnSession.To(h.revokeOwnSession),
-	}
+	)
 }
 
 func (h *Handler) login(ctx context.Context, in LoginInput) (SessionResponse, error) {

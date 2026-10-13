@@ -141,6 +141,30 @@ func TestUnhandledCoversRawRoutes(t *testing.T) {
 	}
 }
 
+func TestExcusedRoutesAreNotUnhandledAndNotMounted(t *testing.T) {
+	kept := route.Get[route.None, string]("/kept")
+	left := route.Get[route.None, string]("/left")
+	route.Group("excuse", kept, left)
+
+	bound := kept.To(func(context.Context, route.None) (string, error) { return "", nil })
+	if got := route.Unhandled(bound); len(got) != 1 || got[0].Path != "/left" {
+		t.Fatalf("without an excuse the left-out route is reported, got %v", got)
+	}
+
+	if got := route.Unhandled(bound.Excuses(left)); len(got) != 0 {
+		t.Fatalf("an excused route is not reported, got %v", got)
+	}
+
+	engine := newEngine()
+	if err := bound.Excuses(left).Mount(engine, secured(nil)); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(engine.Routes()) != 1 {
+		t.Fatalf("only the bound route is mounted, got %v", engine.Routes())
+	}
+}
+
 func rejectAll(c *gin.Context) {
 	_ = c.Error(apperr.Unauthorized("user not authenticated"))
 	c.Abort()

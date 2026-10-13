@@ -73,6 +73,12 @@ func Unhandled(handled ...Handled) []Spec {
 	have := make(map[*declaration]bool, len(handled))
 	for _, h := range handled {
 		have[h.declaration()] = true
+
+		if b, ok := h.(Bound); ok {
+			for _, d := range b.excused {
+				have[d] = true
+			}
+		}
 	}
 
 	var missing []Spec

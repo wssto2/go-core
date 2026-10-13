@@ -165,6 +165,8 @@ type settings struct {
 	auditRecord             string
 	locales                 []string
 	auditActions            map[account.ChangeAction]string
+
+	noUserAdmin bool
 }
 
 // Option adjusts Install.
@@ -315,6 +317,14 @@ func WithAuditRecord(entityType string, actions map[account.ChangeAction]string)
 	return func(s *settings) { s.auditRecord, s.auditActions = entityType, actions }
 }
 
+// WithoutUserAdmin leaves the users administration out: no /v1/iam/users routes are
+// mounted (list, record, create, update, password, deactivate, unlock, and the
+// signins, changes, activity and sessions of another person), the store need not
+// be a Searcher, and users.Admin() is nil. Sign-in, session, login-as and the
+// person's own profile, signins and sessions stay. For an application with its own
+// users module, whose paths would otherwise collide.
+func WithoutUserAdmin() Option { return func(s *settings) { s.noUserAdmin = true } }
+
 // The permissions of the users routes, the same ids access/admin uses for the
 // same two ideas.
 const (
@@ -389,7 +399,7 @@ func Install(app *gocore.App, opts ...Option) *Users {
 	}
 
 	search, ok := s.accounts.(account.Searcher)
-	if !ok {
+	if !ok && !s.noUserAdmin {
 		app.Fail("the store given to identity.WithAccounts cannot list accounts: it does not implement account.Searcher",
 			"add Search(ctx, account.Query) (account.Page, error) to your store (identity/storetest checks it), or use the default store")
 
@@ -470,13 +480,17 @@ func Install(app *gocore.App, opts ...Option) *Users {
 		}
 	}
 
-	admin, err := account.NewAdmin(account.AdminDeps{
-		Users: svc.Users, Search: search, History: stores.SignIns, Changes: changes, Activity: gormstore.NewActivityLog(db), Areas: areas, Transact: tx, Policy: s.policy, Hooks: s.hooks,
-	})
-	if err != nil {
-		app.Fail("identity could not be installed: "+err.Error(), "check the options given to identity.Install")
+	var admin *account.Admin
 
-		return svc.Users
+	if !s.noUserAdmin {
+		admin, err = account.NewAdmin(account.AdminDeps{
+			Users: svc.Users, Search: search, History: stores.SignIns, Changes: changes, Activity: gormstore.NewActivityLog(db), Areas: areas, Transact: tx, Policy: s.policy, Hooks: s.hooks,
+		})
+		if err != nil {
+			app.Fail("identity could not be installed: "+err.Error(), "check the options given to identity.Install")
+
+			return svc.Users
+		}
 	}
 
 	profile, err := account.NewProfile(account.ProfileDeps{
