@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.8.2
+
+A host that caches verified tokens next to identity no longer serves a signed-out token.
+
+### Added
+
+- `auth.DBTokenProvider.InvalidateUser(userID)` drops every cached entry of a person; `InvalidateSession(tokenID)` drops one session's. A lookup already in flight when an invalidation happens answers its own request but is not cached.
+- `account.Notices.SessionsEnded(ctx, account.SessionsEnded{AccountID, SessionIDs, Reason, ActorID})`: identity says when sessions stop working, after the change is committed. `account.EndReason`: `logout`, `rotation` (a refresh replaced the access token), `revoke`, `password_changed`, `deactivated`, `login_as_return`, `opened_by_ended`.
+- `account.Notices.AccountChanged(ctx, accountID)`: after a change of locale, name, phone, e-mail, password, activation or deactivation.
+- Wire both to `InvalidateUser` (README, "A host that caches verified tokens"; `ExampleWithNotices_tokenCache`). Proven end to end on SQLite, MySQL and MariaDB: after logout or refresh, the old token is refused on the host's own route on the very next request.
+
+### Changed
+
+- **Breaking:** `account.Notices.SessionsRevoked` is replaced by `SessionsEnded`. A `Notices` that defined it changes its method; one that embeds `DiscardNotices` and does not override it needs nothing.
+- The facts of a password change and a deactivation are told after their transaction commits, not inside it.
+
+### Fixed
+
+- A login-as refused by the application's `Impersonation` with a forbidden error that carries no reason answers `authz.forbidden` with the standard body.
+
 ## v1.8.1
 
 ### Added
