@@ -163,6 +163,7 @@ type settings struct {
 	hooks                   []account.DeactivationHook
 	areas                   []account.ActivityArea
 	auditRecord             string
+	locales                 []string
 	auditActions            map[account.ChangeAction]string
 }
 
@@ -191,6 +192,12 @@ func WithRefreshHasher(h auth.Hasher) Option { return func(s *settings) { s.refr
 
 // WithConfig sets the session length, the lock and the attempts per minute.
 func WithConfig(cfg account.Config) Option { return func(s *settings) { s.cfg = cfg } }
+
+// WithLocales limits the languages an account may have to the ones the application offers,
+// for example "hr", "ba", "si", "rs": change-locale (and creating or editing an account)
+// refuses any other with 422 identity.locale.unsupported. Without it any BCP-47 tag is accepted.
+// The tags are those the store is given; a store over a table with other codes maps them.
+func WithLocales(locales ...string) Option { return func(s *settings) { s.locales = locales } }
 
 // WithAccess overrides where /auth/me reads how the person holds each
 // permission. By default it asks the application's authorizer (the engine
@@ -405,6 +412,10 @@ func Install(app *gocore.App, opts ...Option) *Users {
 	if s.mail != nil {
 		m := mailer{sender: s.mail, render: s.mailRenderer(), accounts: s.accounts, clock: app.Clock(), log: app.Logger()}
 		sender, notice = m, notices{Notices: notice, m: m}
+	}
+
+	if s.locales != nil {
+		s.cfg.Locales = s.locales
 	}
 
 	svc, err := account.New(account.Deps{

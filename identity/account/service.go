@@ -3,6 +3,7 @@ package account
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -34,6 +35,10 @@ type Config struct {
 	Codes CodeRules
 	// ReauthLock is the lock after wrong passwords of re-confirmation (NewReauth takes it).
 	ReauthLock Lock
+	// Locales are the languages an account may have (change-locale, and creating or editing an account):
+	// a locale outside them is refused with identity.locale.unsupported (422). Empty accepts any
+	// BCP-47 tag. Compared as given: the store maps them to its own codes.
+	Locales []string
 }
 
 // Services is what New builds.
@@ -88,4 +93,13 @@ func New(d Deps, cfg Config) (Services, error) {
 		SignIn: &SignIn{deps: d, cfg: cfg, placeholder: placeholder, attempts: newAttempts(d.Clock, cfg.AttemptsPerMinute)},
 		Users:  &Users{deps: d, cfg: cfg},
 	}, nil
+}
+
+// offers refuses a locale Config.Locales does not list, as a 422 on the field.
+func (c Config) offers(field, locale string) error {
+	if len(c.Locales) == 0 || slices.Contains(c.Locales, locale) {
+		return nil
+	}
+
+	return invalid(field, ReasonLocaleUnsupported)
 }

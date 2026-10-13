@@ -160,7 +160,7 @@ func (a *Admin) Create(ctx context.Context, in CreateAccount) (Account, error) {
 
 	if err := checkAll(
 		checkLogin(acc.Login), checkName(acc.Name), checkEmail("email", acc.Email), checkPhone(acc.Phone),
-		checkLocale(acc.Locale), checkPassword(a.d.Policy, "password", in.Password),
+		a.checkLocale(acc.Locale), checkPassword(a.d.Policy, "password", in.Password),
 	); err != nil {
 		return Account{}, err
 	}
@@ -210,12 +210,12 @@ func checkAll(errs ...error) error {
 	return nil
 }
 
-func checkLocale(locale string) error {
+func (a *Admin) checkLocale(locale string) error {
 	if !ValidLocale(locale) {
 		return invalid("locale", ReasonLocaleInvalid)
 	}
 
-	return nil
+	return a.d.Users.cfg.offers("locale", locale)
 }
 
 // UpdateAccount is the new values of an account's details: every field is
@@ -247,7 +247,7 @@ func (a *Admin) Update(ctx context.Context, in UpdateAccount) (Account, error) {
 	}
 
 	if err := checkAll(
-		checkLogin(next.Login), checkName(next.Name), checkEmail("email", next.Email), checkPhone(next.Phone), checkLocale(next.Locale),
+		checkLogin(next.Login), checkName(next.Name), checkEmail("email", next.Email), checkPhone(next.Phone), a.checkLocale(next.Locale),
 	); err != nil {
 		return Account{}, err
 	}

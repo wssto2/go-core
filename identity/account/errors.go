@@ -30,6 +30,8 @@ const (
 	ReasonAccountInactive apperr.Reason = "identity.account.inactive"
 	// ReasonLocaleInvalid is a locale that is not a BCP-47 language tag.
 	ReasonLocaleInvalid apperr.Reason = "identity.locale.invalid"
+	// ReasonLocaleUnsupported is a well-formed locale the application does not offer (Config.Locales).
+	ReasonLocaleUnsupported apperr.Reason = "identity.locale.unsupported"
 	// ReasonImpersonationDisabled is signing in as somebody when the application
 	// has not said who may.
 	ReasonImpersonationDisabled apperr.Reason = "identity.impersonation.disabled"

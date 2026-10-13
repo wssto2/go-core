@@ -140,10 +140,14 @@ type ChangeLocaleInput struct {
 	Locale    string
 }
 
-// ChangeLocale sets the account's language, a BCP-47 tag such as "hr".
+// ChangeLocale sets the account's language, a BCP-47 tag such as "hr" that Config.Locales offers.
 func (u *Users) ChangeLocale(ctx context.Context, in ChangeLocaleInput) error {
 	if !ValidLocale(in.Locale) {
 		return apperr.BadRequest(string(ReasonLocaleInvalid)).WithReason(ReasonLocaleInvalid)
+	}
+
+	if err := u.cfg.offers("locale", in.Locale); err != nil {
+		return err
 	}
 
 	err := u.deps.Accounts.SetLocale(ctx, in.AccountID, in.Locale)

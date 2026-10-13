@@ -299,3 +299,27 @@ func TestWithAuditRecordKeepsTheHistoryUnderTheHostsRecord(t *testing.T) {
 	require.Equal(t, nethttp.StatusOK, changes.Code, changes.Body.String())
 	assert.Contains(t, changes.Body.String(), `"created"`, "read back as identity's action")
 }
+
+// R7: change-locale takes only the locales the application offers, with a 422 and its own reason.
+func TestWithLocalesRefusesAnotherLanguage(t *testing.T) {
+	app := newApp(t)
+	identity.Install(app, identity.WithoutMail(), identity.WithLocales("hr", "ba", "si", "rs"))
+	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
+
+	c := newClient(t, app)
+	login(t, c, "ana", "secret")
+
+	refused := c.do(nethttp.MethodPost, "/v1/auth/change-locale", map[string]string{"locale": "xx"})
+	assert.Equal(t, nethttp.StatusUnprocessableEntity, refused.Code, refused.Body.String())
+	assert.Contains(t, refused.Body.String(), "identity.locale.unsupported")
+	assert.Equal(t, nethttp.StatusBadRequest, c.do(nethttp.MethodPost, "/v1/auth/change-locale", map[string]string{"locale": "Croatian!"}).Code, "not a tag at all stays 400")
+	assert.Equal(t, nethttp.StatusNoContent, c.do(nethttp.MethodPost, "/v1/auth/change-locale", map[string]string{"locale": "ba"}).Code)
+}
+
+func TestWithLocalesAlsoHoldsForTheAdmin(t *testing.T) {
+	app := newApp(t)
+	users := identity.Install(app, identity.WithoutMail(), identity.WithLocales("hr"))
+
+	_, err := users.Admin().Create(t.Context(), account.CreateAccount{Login: "root", Name: "Root", Email: "root@example.test", Locale: "en", Password: "a long password"})
+	assert.True(t, apperr.HasReason(err, account.ReasonLocaleUnsupported), "%v", err)
+}
