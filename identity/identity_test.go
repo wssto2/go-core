@@ -305,3 +305,35 @@ func TestWithRefreshHasherReadsSessionsStoredThatWay(t *testing.T) {
 
 	assert.Equal(t, nethttp.StatusOK, c.do(nethttp.MethodPost, "/v1/auth/refresh", nil).Code)
 }
+
+// G2: with the application's own accounts store, identity creates no accounts table (nor its phone
+// column and unique e-mail), on every database, but keeps the sign-in, token, code and reauth tables.
+func TestWithAccountsCreatesNoAccountsTable(t *testing.T) {
+	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+		reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
+		reg.AddConnection("local", db)
+
+		opts := []gocore.Option{gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthorizer(authztest.AllowAll())}
+		if db.Name() == "sqlite" {
+			opts = append(opts, gocore.WithAutoMigrate(t.Context()))
+		}
+
+		app := gocore.New(bootstrap.DefaultConfig(), opts...)
+
+		cat := authz.NewCatalogue()
+		require.NoError(t, identity.DefinePermissions(cat))
+		app.Permissions(cat)
+
+		identity.Install(app, identity.WithoutMail(), identity.On("local"), identity.WithAccounts(identitytest.NewAccounts()))
+
+		if db.Name() != "sqlite" {
+			require.NoError(t, app.Migrate(t.Context()))
+		}
+
+		for _, table := range []string{"user_signins", "tokens", "user_verification_codes", "user_reauth_attempts"} {
+			assert.Truef(t, db.Migrator().HasTable(table), "%s is identity's", table)
+		}
+
+		assert.False(t, db.Migrator().HasTable("accounts"))
+	})
+}

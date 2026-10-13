@@ -160,7 +160,9 @@ func On(conn database.Connection) Option {
 }
 
 // WithAccounts keeps the accounts in your own store, for example over a table
-// that already exists, instead of the default accounts table.
+// that already exists, instead of the default accounts table: identity then
+// creates no accounts table (migrations.WithoutAccounts: the sign-in, token,
+// code and re-authentication tables remain).
 func WithAccounts(store account.Store) Option { return func(s *settings) { s.accounts = store } }
 
 // WithHasher replaces bcrypt, for passwords stored in another format.
@@ -334,7 +336,12 @@ func Install(app *gocore.App, opts ...Option) *Users {
 
 	stores := gormstore.New(db, storeOpts...)
 
-	app.Schema(gocore.Schema{Files: migrations.Files, Models: gormstore.Migrate}, s.conn...)
+	if s.accounts == nil { // the application's own store brings its own table
+		app.Schema(gocore.Schema{Files: migrations.Files, Models: gormstore.Migrate}, s.conn...)
+	} else {
+		app.Schema(gocore.Schema{Files: migrations.WithoutAccounts(), Models: gormstore.MigrateWithoutAccounts}, s.conn...)
+	}
+
 	app.Schema(gocore.Schema{Files: auditmigrations.Files, Models: audit.Migrate}, s.conn...) // the change history
 
 	if s.accounts == nil {

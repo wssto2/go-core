@@ -73,3 +73,9 @@ func (reauthModel) TableName() string { return "user_reauth_attempts" }
 func Migrate(db *gorm.DB) error {
 	return db.AutoMigrate(&accountModel{}, &signInModel{}, &auth.Token{}, &codeModel{}, &reauthModel{})
 }
+
+// MigrateWithoutAccounts is Migrate for an application that keeps its accounts in a
+// table of its own: everything but the accounts table.
+func MigrateWithoutAccounts(db *gorm.DB) error {
+	return db.AutoMigrate(&signInModel{}, &auth.Token{}, &codeModel{}, &reauthModel{})
+}
