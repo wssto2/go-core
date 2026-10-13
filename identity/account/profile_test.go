@@ -224,7 +224,7 @@ func TestEmailChangeByCode(t *testing.T) {
 	require.Contains(t, n.events, "email 1 ana@old.test>new@example.test")
 
 	_, err = k.Profile.ConfirmEmailChange(ctx, account.ConfirmEmail{AccountID: 1, Code: code})
-	require.True(t, apperr.HasReason(err, account.ReasonCodeExpired), "a code is used once")
+	require.True(t, apperr.HasReason(err, account.ReasonCodeNoPending), "a code is used once")
 }
 
 func TestEmailChangeRefusals(t *testing.T) {
@@ -287,7 +287,7 @@ func TestCancelEmailChange(t *testing.T) {
 	require.Nil(t, view.PendingEmail)
 
 	_, err = k.Profile.ConfirmEmailChange(t.Context(), account.ConfirmEmail{AccountID: 1, Code: k.Mailbox.Last().Code})
-	require.True(t, apperr.HasReason(err, account.ReasonCodeExpired))
+	require.True(t, apperr.HasReason(err, account.ReasonCodeNoPending))
 }
 
 // Without a mail sender the address cannot change by code, and the rest of the profile works.

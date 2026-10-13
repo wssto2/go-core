@@ -147,9 +147,10 @@ const (
 	ReasonCodeResendTooSoon apperr.Reason = "identity.code.resend_too_soon"
 	// ReasonCodeTooManyRequests is the cap of codes per hour; params.retry_after is seconds.
 	ReasonCodeTooManyRequests apperr.Reason = "identity.code.too_many_requests"
-	// ReasonCodeNoPending is a code to verify when none was ever issued.
+	// ReasonCodeNoPending is a code to verify when none is pending: none was ever issued, or the
+	// latest was used, cancelled, ended by its wrong guesses or could not be sent.
 	ReasonCodeNoPending apperr.Reason = "identity.code.no_pending"
-	// ReasonCodeExpired is a code that is expired, used, cancelled or out of attempts.
+	// ReasonCodeExpired is a code that is past its time.
 	ReasonCodeExpired apperr.Reason = "identity.code.expired"
 	// ReasonCodeMismatch is a wrong code; params.attempts_left says how many guesses remain.
 	ReasonCodeMismatch apperr.Reason = "identity.code.mismatch"
@@ -311,6 +312,10 @@ func (c *Codes) verifyOnce(ctx context.Context, accountID int, p Purpose, hash s
 
 	if err != nil {
 		return "", apperr.Internal(err)
+	}
+
+	if code.ConsumedAt != nil || code.InvalidatedAt != nil { // used or ended: nothing is waiting for a code
+		return "", apperr.New(nil, string(ReasonCodeNoPending), apperr.CodeInvalidArgument).WithReason(ReasonCodeNoPending).WithLog(apperr.LevelInfo)
 	}
 
 	now := c.deps.Clock.Now()

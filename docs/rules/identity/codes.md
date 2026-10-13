@@ -29,8 +29,9 @@ address); `password_reset` is reserved. The numbers are defaults of `account.Cod
 2. A wrong guess costs one attempt (`identity.code.mismatch`, `params.attempts_left`); the **5th** wrong guess ends
    the code (`identity.code.too_many_attempts`).
 3. A successful verification **consumes** the code; it cannot be used twice.
-4. A consumed, ended or expired code answers `identity.code.expired`; no code ever issued for the account and purpose
-   answers `identity.code.no_pending`. Either way the person asks for a new one.
+4. A code past its time answers `identity.code.expired`. A consumed code, one ended by its wrong guesses or by a
+   cancel, and no code ever issued for the account and purpose, answer `identity.code.no_pending`: nothing is waiting
+   for a code. Either way the person asks for a new one.
 5. The limits hold under parallel requests: an outcome is saved only over the state the code was read in (a
    conditional UPDATE on `id`, `attempts`, unconsumed, not invalidated); a request that lost the race reads again.
    Parallel wrong guesses each cost an attempt, and **of several verifications of one code exactly one wins**

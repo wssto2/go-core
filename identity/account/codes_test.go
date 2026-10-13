@@ -81,7 +81,7 @@ func TestACodeIsUsedOnce(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = k.Codes.Verify(t.Context(), 1, account.PurposeEmailChange, code)
-	require.True(t, apperr.HasReason(err, account.ReasonCodeExpired))
+	require.True(t, apperr.HasReason(err, account.ReasonCodeNoPending), "a used code is not waiting any more")
 
 	_, live, err := k.Codes.Pending(t.Context(), 1, account.PurposeEmailChange)
 	require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestWrongGuessesCostAttemptsAndTheFifthEndsTheCode(t *testing.T) {
 	require.True(t, apperr.HasReason(err, account.ReasonCodeTooManyAttempts))
 
 	_, err = k.Codes.Verify(t.Context(), 1, account.PurposeEmailChange, code)
-	require.True(t, apperr.HasReason(err, account.ReasonCodeExpired), "the right code no longer works")
+	require.True(t, apperr.HasReason(err, account.ReasonCodeNoPending), "the right code no longer works")
 }
 
 // IAM-OTP-003: 60 seconds between sends, params say how long.
@@ -215,7 +215,7 @@ func TestCancelEndsTheLiveCode(t *testing.T) {
 	require.NoError(t, k.Codes.Cancel(t.Context(), 1, account.PurposeEmailChange), "having none is fine")
 
 	_, err := k.Codes.Verify(t.Context(), 1, account.PurposeEmailChange, k.Mailbox.Last().Code)
-	require.True(t, apperr.HasReason(err, account.ReasonCodeExpired))
+	require.True(t, apperr.HasReason(err, account.ReasonCodeNoPending))
 }
 
 func TestRulesCanBeTuned(t *testing.T) {
@@ -274,7 +274,7 @@ func TestParallelGuessesEachCostAnAttempt(t *testing.T) {
 
 	require.Equal(t, 4, reasons[account.ReasonCodeMismatch], "four wrong guesses are counted")
 	require.Equal(t, 1, reasons[account.ReasonCodeTooManyAttempts], "the fifth ends the code")
-	require.Equal(t, workers-5, reasons[account.ReasonCodeExpired], "the rest find it ended")
+	require.Equal(t, workers-5, reasons[account.ReasonCodeNoPending], "the rest find it ended")
 	require.Zero(t, reasons["other"])
 }
 

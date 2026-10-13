@@ -300,7 +300,7 @@ func ExampleCodes() {
 	fmt.Println(target, err)
 
 	_, err = k.Codes.Verify(ctx, 1, account.PurposeEmailChange, code)
-	fmt.Println(apperr.HasReason(err, account.ReasonCodeExpired))
+	fmt.Println(apperr.HasReason(err, account.ReasonCodeNoPending))
 	// Output:
 	// <nil>
 	// 6 digits
