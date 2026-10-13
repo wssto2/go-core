@@ -9,7 +9,6 @@ import (
 
 	nethttp "net/http"
 	"strings"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -373,19 +372,27 @@ func TestWithoutUserAdminLeavesThePathsToTheHost(t *testing.T) {
 }
 
 // WithFieldLimits narrows what the routes take, whatever the order of WithConfig.
+const nameField = "name"
+
 func TestWithFieldLimitsHoldsOverInstall(t *testing.T) {
 	t.Parallel()
 
 	app := newApp(t)
 	identity.Install(app, identity.WithoutMail(),
-		identity.WithFieldLimits(account.Limits{Login: 6, Name: 10, Email: 40, Phone: 8}), identity.WithConfig(account.Config{TokenTTL: time.Hour}))
+		identity.WithFieldLimits(account.Limits{Login: 6, Name: 10, Email: 40, Phone: 8}),
+		identity.WithConfig(account.Config{
+			TokenTTL: 0, Lock: account.Lock{After: 0, For: 0}, AttemptsPerMinute: 0,
+			Codes:      account.CodeRules{TTL: 0, Attempts: 0, Cooldown: 0, PerHour: 0},
+			ReauthLock: account.Lock{After: 0, For: 0}, Locales: nil,
+			Limits: account.Limits{Login: 0, Name: 0, Email: 0, Phone: 0},
+		})) // after the limits: they must survive it
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 
 	web := newClient(t, app)
 	login(t, web, "ana", "secret")
 
 	put := func(name, phone string) *httptest.ResponseRecorder {
-		return web.do(nethttp.MethodPut, "/v1/iam/profile", map[string]string{"name": name, "phone": phone})
+		return web.do(nethttp.MethodPut, "/v1/iam/profile", map[string]string{nameField: name, "phone": phone})
 	}
 
 	assert.Equal(t, nethttp.StatusOK, put(strings.Repeat("n", 10), strings.Repeat("1", 8)).Code, "at the limits")
@@ -393,7 +400,8 @@ func TestWithFieldLimitsHoldsOverInstall(t *testing.T) {
 	assert.Equal(t, nethttp.StatusUnprocessableEntity, put("Ana", strings.Repeat("1", 9)).Code)
 
 	seed(t, app.Database(), identitytest.Account(8, "sevenee", "secret")) // kept before the limit was narrowed
-	long := newClient(t, app).do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "sevenee", "password": "secret"})
+	long := newClient(t, app).do(nethttp.MethodPost, "/v1/auth/login",
+		map[string]string{"login": "sevenee", "password": "secret"})
 	assert.Contains(t, long.Body.String(), "identity.signin.failed", "a login over the limit is a wrong sign-in")
 }
 
@@ -401,7 +409,8 @@ func TestWithFieldLimitsLargerThanGoCoresStopsInstall(t *testing.T) {
 	t.Parallel()
 
 	app := newApp(t)
-	identity.Install(app, identity.WithoutMail(), identity.WithFieldLimits(account.Limits{Name: account.NameMax + 1}))
+	tooWide := account.Limits{Login: 0, Name: account.NameMax + 1, Email: 0, Phone: 0}
+	identity.Install(app, identity.WithoutMail(), identity.WithFieldLimits(tooWide))
 
 	_, err := app.Handler()
 	assert.ErrorContains(t, err, "Limits")

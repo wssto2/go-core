@@ -169,7 +169,9 @@ func (s *SignIn) Logout(ctx context.Context, accessToken string) error {
 	}
 
 	if session.ActorID > 0 {
-		s.deps.Notices.SignedOutAs(ctx, session.ActorID, session.AccountID)
+		s.deps.Notices.SignedOutAs(ctx, LoginAs{
+			ActorID: session.ActorID, TargetID: session.AccountID, Device: session.Label(), IP: session.IP,
+		})
 	}
 
 	return nil
@@ -227,7 +229,9 @@ func (s *SignIn) LoginAs(ctx context.Context, in LoginAsInput) (Signed, error) {
 		return Signed{}, err
 	}
 
-	s.deps.Notices.SignedInAs(ctx, actor.ID, target.ID)
+	s.deps.Notices.SignedInAs(ctx, LoginAs{
+		ActorID: actor.ID, TargetID: target.ID, Device: DeviceLabel(in.Device), IP: in.IP,
+	})
 
 	return Signed{Account: target, Credentials: creds, Actor: &actor}, nil
 }
@@ -264,7 +268,9 @@ func (s *SignIn) Return(ctx context.Context, in ReturnInput) (Signed, error) {
 		return Signed{}, apperr.Internal(err)
 	}
 
-	s.deps.Notices.SignedOutAs(ctx, actor.ID, in.Session.AccountID)
+	s.deps.Notices.SignedOutAs(ctx, LoginAs{
+		ActorID: actor.ID, TargetID: in.Session.AccountID, Device: DeviceLabel(in.Device), IP: in.IP,
+	})
 
 	return Signed{Account: *actor, Credentials: creds}, nil
 }

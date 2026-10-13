@@ -383,7 +383,8 @@ func (h *Handler) createUser(ctx context.Context, in CreateUserInput) (UserDetai
 		return UserDetail{}, err
 	}
 
-	if err := h.fitAccount(in.Login, in.Name, in.Email, in.Phone); err != nil {
+	err = h.fitAccount(in.Login, in.Name, in.Email, in.Phone)
+	if err != nil {
 		return UserDetail{}, err
 	}
 
@@ -403,7 +404,8 @@ func (h *Handler) updateUser(ctx context.Context, in UpdateUserInput) (UserDetai
 		return UserDetail{}, err
 	}
 
-	if err := h.fitAccount(in.Login, in.Name, in.Email, in.Phone); err != nil {
+	err = h.fitAccount(in.Login, in.Name, in.Email, in.Phone)
+	if err != nil {
 		return UserDetail{}, err
 	}
 
@@ -662,6 +664,7 @@ func (h *Handler) userActivity(ctx context.Context, in ActivityInput) (datatable
 func (h *Handler) fitAccount(login, name, email, phone string) error {
 	return fit(
 		field{"login", account.NormalizeLogin(login), h.limits.Login}, field{"name", strings.TrimSpace(name), h.limits.Name},
-		field{"email", account.NormalizeEmail(email), h.limits.Email}, field{"phone", strings.TrimSpace(phone), h.limits.Phone},
+		field{"email", account.NormalizeEmail(email), h.limits.Email},
+		field{"phone", strings.TrimSpace(phone), h.limits.Phone},
 	)
 }

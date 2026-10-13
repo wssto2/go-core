@@ -125,7 +125,9 @@ func (h *Handler) updateProfile(ctx context.Context, in UpdateProfileInput) (Pro
 		return ProfileResponse{}, err
 	}
 
-	if err := fit(field{"name", strings.TrimSpace(in.Name), h.limits.Name}, field{"phone", strings.TrimSpace(in.Phone), h.limits.Phone}); err != nil {
+	err = fit(field{"name", strings.TrimSpace(in.Name), h.limits.Name},
+		field{"phone", strings.TrimSpace(in.Phone), h.limits.Phone})
+	if err != nil {
 		return ProfileResponse{}, err
 	}
 
@@ -154,7 +156,8 @@ func (h *Handler) requestEmailChange(ctx context.Context, in RequestEmailInput) 
 		return PendingEmail{}, err
 	}
 
-	if err := fit(field{"email", account.NormalizeEmail(in.Email), h.limits.Email}); err != nil {
+	err = fit(field{"email", account.NormalizeEmail(in.Email), h.limits.Email})
+	if err != nil {
 		return PendingEmail{}, err
 	}
 

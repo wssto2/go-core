@@ -112,8 +112,9 @@ Code: `identity/account/users.go` (`Users.Sessions`, `RevokeSession`, `RevokeSes
    session payload and sets the cookies.
 3. Any other session is refused: `400`, reason `identity.impersonation.not_active`.
 4. The impersonation session is revoked, so its token stops working at once; the actor's own permissions are back
-   because the new session is theirs. The Notices hear `SignedOutAs(actor, target)`, as when the session is signed
-   out. The actor's history gets no row: returning is not a sign-in.
+   because the new session is theirs. The Notices hear `SignedOutAs(account.LoginAs{ActorID, TargetID, Device, IP})`, as when the session is signed
+   out; `SignedInAs` carries the same struct: the device label (`DeviceLabel` of the User-Agent) and address of the
+   request that did it (of the ended session, for a sign-out or an administrator ending it). The actor's history gets no row: returning is not a sign-in.
 
 Code: `identity/account/signin_service.go` (`SignIn.Return`, `actorOf`), `identity/http/handler.go` (`returnToOwn`,
 `payload`).

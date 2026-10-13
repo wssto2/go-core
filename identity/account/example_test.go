@@ -236,7 +236,7 @@ func ExampleNewToken() {
 
 func ExampleNoNotices() {
 	// The default does nothing with the facts it hears.
-	account.NoNotices.SignedInAs(context.Background(), 1, 2)
+	account.NoNotices.SignedInAs(context.Background(), account.LoginAs{ActorID: 1, TargetID: 2, Device: "", IP: ""})
 	fmt.Println("ok")
 	// Output: ok
 }

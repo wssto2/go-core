@@ -1,6 +1,7 @@
 package http_test
 
 import (
+	"context"
 	nethttp "net/http"
 	"strings"
 	"testing"
@@ -12,37 +13,74 @@ import (
 	"github.com/wssto2/go-core/identity/identitytest"
 )
 
-var narrow = account.Limits{Login: 15, Name: 50, Email: 50, Phone: 20}
+const (
+	usersPath     = "/v1/iam/users"
+	profilePath   = "/v1/iam/profile"
+	password      = "a long password"
+	secret        = "secret"
+	localeField   = "locale"
+	loginField    = "login"
+	nameField     = "name"
+	phoneField    = "phone"
+	passwordField = "password"
+	emailField    = "email"
+	currentPass   = "current_password"
+	userIDField   = "user_id"
+)
+
+// narrow is a store like the legacy users table: login 15, name 50, e-mail 50, phone 20.
+func narrow() account.Limits { return account.Limits{Login: 15, Name: 50, Email: 50, Phone: 20} }
 
 func limited(t *testing.T) *harness {
-	return newHarness(t, func(c *identityhttp.Config) { c.Limits = narrow }, identitytest.WithConfig(account.Config{Limits: narrow}))
+	t.Helper()
+
+	limits := narrow()
+	rules := account.Config{
+		TokenTTL: 0, Lock: account.Lock{After: 0, For: 0}, AttemptsPerMinute: 0,
+		Codes:      account.CodeRules{TTL: 0, Attempts: 0, Cooldown: 0, PerHour: 0},
+		ReauthLock: account.Lock{After: 0, For: 0}, Locales: nil, Limits: limits,
+	}
+
+	return newHarness(t, func(c *identityhttp.Config) { c.Limits = limits }, identitytest.WithConfig(rules))
 }
 
-func email(n int) string { return strings.Repeat("e", n-len("@example.test")) + "@example.test" }
+func address(n int) string { return strings.Repeat("e", n-len("@example.test")) + "@example.test" }
+
+func accountBody(login, name, mail, phone string) map[string]string {
+	return map[string]string{
+		loginField: login, nameField: name, emailField: mail, phoneField: phone, localeField: "hr", passwordField: password,
+	}
+}
 
 // A value between the host's width and the tag's is refused with the answer a tag's max gives.
 func TestHostLimitsAnswerLikeATagsMax(t *testing.T) {
-	h := limited(t)
-	ana := h.as("ana", "secret")
+	t.Parallel()
 
-	tag := h.do(nethttp.MethodPut, "/v1/iam/profile", map[string]string{"name": strings.Repeat("n", 151)}, ana)
+	web := limited(t)
+	ana := web.as("ana", secret)
+
+	tag := web.do(nethttp.MethodPut, profilePath, map[string]string{nameField: strings.Repeat("n", 151)}, ana)
 	require.Equal(t, nethttp.StatusUnprocessableEntity, tag.Code, tag.Body.String())
 
-	host := h.do(nethttp.MethodPut, "/v1/iam/profile", map[string]string{"name": strings.Repeat("n", 51)}, ana)
+	host := web.do(nethttp.MethodPut, profilePath, map[string]string{nameField: strings.Repeat("n", 51)}, ana)
 	require.Equal(t, nethttp.StatusUnprocessableEntity, host.Code, host.Body.String())
-	assert.Equal(t, strings.ReplaceAll(tag.Body.String(), "150", "50"), host.Body.String())
+	assert.Equal(t, tag.Body.String(), host.Body.String())
 }
 
 func TestProfileHonoursTheHostLimits(t *testing.T) {
-	h := limited(t)
-	ana := h.as("ana", "secret")
+	t.Parallel()
+
+	web := limited(t)
+	ana := web.as("ana", secret)
 	put := func(name, phone string) reply {
-		return h.do(nethttp.MethodPut, "/v1/iam/profile", map[string]string{"name": name, "phone": phone}, ana)
+		return web.do(nethttp.MethodPut, profilePath, map[string]string{nameField: name, phoneField: phone}, ana)
 	}
 
 	assert.Equal(t, nethttp.StatusOK, put(strings.Repeat("n", 50), strings.Repeat("1", 20)).Code, "at the limit")
 
-	for field, r := range map[string]reply{"name": put(strings.Repeat("n", 51), "1"), "phone": put("Ana", strings.Repeat("1", 21))} {
+	for field, r := range map[string]reply{
+		nameField: put(strings.Repeat("n", 51), "1"), phoneField: put("Ana", strings.Repeat("1", 21)),
+	} {
 		assert.Equal(t, nethttp.StatusUnprocessableEntity, r.Code, field)
 		assert.Contains(t, r.Body.String(), `"`+field+`"`)
 	}
@@ -51,62 +89,101 @@ func TestProfileHonoursTheHostLimits(t *testing.T) {
 }
 
 func TestEmailChangeHonoursTheHostLimit(t *testing.T) {
-	h := limited(t)
-	ana := h.as("ana", "secret")
-	request := func(e string) reply {
-		return h.do(nethttp.MethodPost, "/v1/iam/profile/email", map[string]string{"email": e, "current_password": "secret"}, ana)
+	t.Parallel()
+
+	web := limited(t)
+	ana := web.as("ana", secret)
+	request := func(mail string) reply {
+		return web.do(nethttp.MethodPost, profilePath+"/email",
+			map[string]string{emailField: mail, currentPass: secret}, ana)
 	}
 
-	r := request(email(51))
+	r := request(address(51))
 	assert.Equal(t, nethttp.StatusUnprocessableEntity, r.Code, r.Body.String())
-	assert.Contains(t, r.Body.String(), `"email"`)
-	assert.Less(t, request(email(50)).Code, 300, "at the limit")
+	assert.Contains(t, r.Body.String(), `"`+emailField+`"`)
+	assert.Less(t, request(address(50)).Code, 300, "at the limit")
 }
 
 func TestAdminHonoursTheHostLimits(t *testing.T) {
-	h := limited(t)
-	ana := h.as("ana", "secret")
+	t.Parallel()
 
-	body := func(login, name, e, phone string) map[string]string {
-		return map[string]string{"login": login, "name": name, "email": e, "phone": phone, "locale": "hr", "password": "a long password"}
-	}
-	ok := func(l string) map[string]string {
-		return body(l, strings.Repeat("n", 50), email(50), strings.Repeat("1", 20))
+	web := limited(t)
+	ana := web.as("ana", secret)
+	within := func(login, mail string) map[string]string {
+		return accountBody(login, strings.Repeat("n", 50), mail, strings.Repeat("1", 20))
 	}
 
-	created := h.do(nethttp.MethodPost, "/v1/iam/users", ok(strings.Repeat("l", 15)), ana)
+	created := web.do(nethttp.MethodPost, usersPath, within(strings.Repeat("l", 15), address(50)), ana)
 	require.Less(t, created.Code, 300, created.Body.String())
 
-	for field, in := range map[string]map[string]string{
-		"login": body(strings.Repeat("l", 16), "N", "n@example.test", ""),
-		"name":  body("nn", strings.Repeat("n", 51), "n@example.test", ""),
-		"email": body("nn", "N", email(51), ""),
-		"phone": body("nn", "N", "n@example.test", strings.Repeat("1", 21)),
+	for field, body := range map[string]map[string]string{
+		loginField: accountBody(strings.Repeat("l", 16), "N", "n@example.test", ""),
+		nameField:  accountBody("nn", strings.Repeat("n", 51), "n@example.test", ""),
+		emailField: accountBody("nn", "N", address(51), ""),
+		phoneField: accountBody("nn", "N", "n@example.test", strings.Repeat("1", 21)),
 	} {
-		for _, r := range []reply{h.do(nethttp.MethodPost, "/v1/iam/users", in, ana), h.do(nethttp.MethodPut, "/v1/iam/users/2", in, ana)} {
+		for _, r := range []reply{
+			web.do(nethttp.MethodPost, usersPath, body, ana), web.do(nethttp.MethodPut, usersPath+"/2", body, ana),
+		} {
 			assert.Equal(t, nethttp.StatusUnprocessableEntity, r.Code, field+" "+r.Body.String())
 			assert.Contains(t, r.Body.String(), `"`+field+`"`)
 		}
 	}
 
-	assert.Less(t, h.do(nethttp.MethodPut, "/v1/iam/users/2", withEmail(ok("bor"), "b@example.test"), ana).Code, 300, "an update at the limits")
+	update := web.do(nethttp.MethodPut, usersPath+"/2", within("bor", "b@example.test"), ana)
+	assert.Less(t, update.Code, 300, "an update at the limits")
 }
 
 // A login wider than the store keeps cannot exist: it is refused like any wrong sign-in.
 func TestALoginWiderThanTheStoreIsAWrongSignIn(t *testing.T) {
-	h := limited(t)
+	t.Parallel()
 
-	long := h.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": strings.Repeat("l", 16), "password": "x"})
-	wrong := h.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "nobody", "password": "x"})
+	web := limited(t)
+
+	long := web.do(nethttp.MethodPost, "/v1/auth/login",
+		map[string]string{loginField: strings.Repeat("l", 16), passwordField: "x"})
+	wrong := web.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{loginField: "nobody", passwordField: "x"})
 
 	assert.Equal(t, nethttp.StatusUnprocessableEntity, long.Code)
 	assert.Equal(t, "identity.signin.failed", long.json()["code"])
 	assert.Equal(t, wrong.Body.String(), long.Body.String())
-	assert.Equal(t, nethttp.StatusOK, h.login().Code, "a login within the limit still signs in")
+	assert.Equal(t, nethttp.StatusOK, web.login().Code, "a login within the limit still signs in")
 }
 
-func withEmail(m map[string]string, e string) map[string]string {
-	m["email"] = e
+type loginAsNotices struct {
+	account.DiscardNotices
 
-	return m
+	in, out []account.LoginAs
+}
+
+func (n *loginAsNotices) SignedInAs(_ context.Context, f account.LoginAs)  { n.in = append(n.in, f) }
+func (n *loginAsNotices) SignedOutAs(_ context.Context, f account.LoginAs) { n.out = append(n.out, f) }
+
+// The facts of signing in as somebody, and of returning, carry the request's device and address.
+func TestLoginAsFactsCarryTheDeviceAndAddress(t *testing.T) {
+	t.Parallel()
+
+	heard := &loginAsNotices{DiscardNotices: account.DiscardNotices{}, in: nil, out: nil}
+	web := newHarness(t, nil, identitytest.WithImpersonation(permitAll{}), identitytest.WithNotices(heard))
+	own := web.login().cookie("access_token").Value
+
+	agent := func(ua string) func(*nethttp.Request) {
+		return func(r *nethttp.Request) { r.Header.Set("User-Agent", ua) }
+	}
+	firefox := "Mozilla/5.0 (Windows NT 10.0) Firefox/130.0"
+	chrome := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120.0 Safari/537.36"
+
+	impersonated := web.do(nethttp.MethodPost, "/v1/auth/login-as", map[string]int{userIDField: 2},
+		withCookie("access_token", own), agent(firefox))
+	require.Equal(t, nethttp.StatusOK, impersonated.Code, impersonated.Body.String())
+	require.Equal(t, []account.LoginAs{{ActorID: 1, TargetID: 2, Device: "Firefox · Windows", IP: "192.0.2.1"}}, heard.in)
+
+	back := web.do(nethttp.MethodPost, "/v1/auth/login-as/return", nil,
+		withCookie("access_token", impersonated.cookie("access_token").Value), agent(chrome))
+	require.Equal(t, nethttp.StatusOK, back.Code, back.Body.String())
+	require.Len(t, heard.out, 1)
+
+	device := account.DeviceLabel(chrome)
+	assert.NotEqual(t, "Firefox · Windows", device)
+	assert.Equal(t, account.LoginAs{ActorID: 1, TargetID: 2, Device: device, IP: "192.0.2.1"}, heard.out[0])
 }

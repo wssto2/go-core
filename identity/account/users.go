@@ -264,7 +264,9 @@ func (u *Users) RevokeSessions(ctx context.Context, in RevokeSessionsInput) erro
 			return err
 		}
 
-		u.deps.Notices.SignedOutAs(ctx, in.AccountID, s.AccountID)
+		u.deps.Notices.SignedOutAs(ctx, LoginAs{
+			ActorID: in.AccountID, TargetID: s.AccountID, Device: s.Label(), IP: s.IP,
+		})
 	}
 
 	return nil

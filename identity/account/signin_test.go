@@ -11,6 +11,11 @@ import (
 	"github.com/wssto2/go-core/identity/identitytest"
 )
 
+const (
+	actorIP = "10.0.0.7"
+	laptop  = "ana's laptop"
+)
+
 func login(login, password string) account.LoginInput {
 	return account.LoginInput{Login: login, Password: password, Device: "test", IP: "10.0.0.1"}
 }
@@ -320,7 +325,9 @@ func TestLoginAs(t *testing.T) {
 	_, err = k.SignIn.LoginAs(ctx, account.LoginAsInput{ActorID: 3, TargetID: 2})
 	assert.True(t, apperr.HasReason(err, account.ReasonSessionInvalid), "an inactive actor is not signed in")
 
-	signed, err := k.SignIn.LoginAs(ctx, account.LoginAsInput{ActorID: 1, TargetID: 2, Device: "ana's laptop"})
+	signed, err := k.SignIn.LoginAs(ctx, account.LoginAsInput{
+		ActorID: 1, TargetID: 2, Device: laptop, IP: actorIP,
+	})
 	require.NoError(t, err)
 	assert.Equal(t, 2, signed.Account.ID)
 
@@ -334,11 +341,16 @@ func TestLoginAs(t *testing.T) {
 	all := k.SignIns.All()
 	require.Len(t, all, 1)
 	assert.Equal(t, account.SignInEntry{
-		ID: 1, AccountID: 2, Event: account.SignedInAs, ActorID: 1, Device: "ana's laptop", CreatedAt: identitytest.Epoch,
+		ID: 1, AccountID: 2, Event: account.SignedInAs, ActorID: 1, Device: laptop, IP: actorIP,
+		CreatedAt: identitytest.Epoch,
 	}, all[0], "the target's history says who")
 
 	require.NoError(t, k.SignIn.Logout(ctx, signed.Credentials.Access))
 	assert.Equal(t, []string{"in 1>2", "out 1>2"}, n.events)
+
+	fact := account.LoginAs{ActorID: 1, TargetID: 2, Device: laptop, IP: actorIP}
+	assert.Equal(t, []account.LoginAs{fact, fact}, n.facts,
+		"both facts carry the device and address; a sign-out those of the ended session")
 }
 
 func TestRefreshKeepsALoginAsSessionMarked(t *testing.T) {
@@ -376,7 +388,9 @@ func TestReturnGivesBackTheActorsOwnSession(t *testing.T) {
 	asSession, err := k.SignIn.Authenticate(ctx, as.Credentials.Access)
 	require.NoError(t, err)
 
-	back, err := k.SignIn.Return(ctx, account.ReturnInput{Session: asSession.Session, Device: "ana's laptop"})
+	back, err := k.SignIn.Return(ctx, account.ReturnInput{
+		Session: asSession.Session, Device: "Mozilla/5.0 (Windows NT 10.0) Firefox/130.0", IP: "10.0.0.8",
+	})
 	require.NoError(t, err)
 	assert.Equal(t, 1, back.Account.ID)
 	assert.Nil(t, back.Actor)
@@ -389,21 +403,12 @@ func TestReturnGivesBackTheActorsOwnSession(t *testing.T) {
 	assert.Zero(t, again.Session.ActorID)
 	assert.Nil(t, again.Actor)
 	assert.Equal(t, []string{"in 1>2", "out 1>2"}, n.events)
+	assert.Equal(t, account.LoginAs{ActorID: 1, TargetID: 2, Device: "Firefox · Windows", IP: "10.0.0.8"}, n.facts[1],
+		"the return is from the request that made it")
 }
 
 func TestNewNamesTheMissingDependency(t *testing.T) {
 	_, err := account.New(account.Deps{}, account.Config{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Deps.Accounts is missing")
-}
-
-func TestLimitsLargerThanGoCoresAreRefused(t *testing.T) {
-	for _, l := range []account.Limits{{Login: account.LoginMax + 1}, {Name: account.NameMax + 1}, {Email: account.EmailMax + 1}, {Phone: -1}} {
-		_, err := account.New(account.Deps{}, account.Config{Limits: l})
-		require.Error(t, err)
-	}
-
-	// the dependencies are checked first, so prove the limit check by a full set
-	kit := identitytest.New(t, nil, identitytest.WithConfig(account.Config{Limits: account.Limits{Name: 40}}))
-	assert.NotNil(t, kit.SignIn)
 }

@@ -40,6 +40,7 @@ type notices struct {
 	account.DiscardNotices
 	mu     sync.Mutex
 	events []string
+	facts  []account.LoginAs
 }
 
 func (n *notices) add(s string) {
@@ -49,11 +50,13 @@ func (n *notices) add(s string) {
 	n.events = append(n.events, s)
 }
 
-func (n *notices) SignedInAs(_ context.Context, actor, target int) {
-	n.add("in " + strconv.Itoa(actor) + ">" + strconv.Itoa(target))
+func (n *notices) SignedInAs(_ context.Context, f account.LoginAs) {
+	n.fact(f)
+	n.add("in " + strconv.Itoa(f.ActorID) + ">" + strconv.Itoa(f.TargetID))
 }
-func (n *notices) SignedOutAs(_ context.Context, actor, target int) {
-	n.add("out " + strconv.Itoa(actor) + ">" + strconv.Itoa(target))
+func (n *notices) SignedOutAs(_ context.Context, f account.LoginAs) {
+	n.fact(f)
+	n.add("out " + strconv.Itoa(f.ActorID) + ">" + strconv.Itoa(f.TargetID))
 }
 func (n *notices) SessionsRevoked(_ context.Context, id, actor, count int) {
 	n.add("revoked " + strconv.Itoa(id) + " by " + strconv.Itoa(actor) + " x" + strconv.Itoa(count))
@@ -103,4 +106,11 @@ func (n *notices) PasswordChanged(_ context.Context, id, actor int) {
 
 func (n *notices) EmailChanged(_ context.Context, id int, from, to string) {
 	n.add("email " + strconv.Itoa(id) + " " + from + ">" + to)
+}
+
+func (n *notices) fact(f account.LoginAs) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	n.facts = append(n.facts, f)
 }

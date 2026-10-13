@@ -64,12 +64,15 @@ func (l Limits) WithDefaults() Limits {
 	return l
 }
 
+// ErrLimits is what New returns for Config.Limits that are negative or larger than go-core's widths.
+var ErrLimits = errors.New("identity: Limits must be positive and no larger than go-core's widths")
+
 func (l Limits) check() error {
 	d := l.WithDefaults()
 	if l.Login < 0 || l.Name < 0 || l.Email < 0 || l.Phone < 0 ||
 		d.Login > LoginMax || d.Name > NameMax || d.Email > EmailMax || d.Phone > PhoneMax {
-		return fmt.Errorf("identity: Limits %+v must be positive and no larger than go-core's (login %d, name %d, e-mail %d, phone %d)",
-			l, LoginMax, NameMax, EmailMax, PhoneMax)
+		return fmt.Errorf("%w (login %d, name %d, e-mail %d, phone %d): %+v",
+			ErrLimits, LoginMax, NameMax, EmailMax, PhoneMax, l)
 	}
 
 	return nil
@@ -106,7 +109,8 @@ func New(d Deps, cfg Config) (Services, error) {
 		d.Notices = NoNotices
 	}
 
-	if err := cfg.Limits.check(); err != nil {
+	err := cfg.Limits.check()
+	if err != nil {
 		return Services{}, err
 	}
 

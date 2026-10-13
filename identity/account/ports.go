@@ -227,13 +227,23 @@ type Impersonation interface {
 	Covers(ctx context.Context, actor, target Account) error
 }
 
+// LoginAs is the fact of signing in as somebody, or of that session ending. Device is
+// the label (DeviceLabel of the User-Agent, "Chrome · macOS") and IP the caller's address.
+type LoginAs struct {
+	ActorID  int
+	TargetID int
+	Device   string
+	IP       string
+}
+
 // Notices hears the facts other features may care about, such as an audit
 // trail or a notification. The default does nothing.
 type Notices interface {
-	// SignedInAs: actor signed in as target.
-	SignedInAs(ctx context.Context, actorID, targetID int)
-	// SignedOutAs: the session actor opened as target ended.
-	SignedOutAs(ctx context.Context, actorID, targetID int)
+	// SignedInAs: actor signed in as target, from the request's device and address.
+	SignedInAs(ctx context.Context, fact LoginAs)
+	// SignedOutAs: the session actor opened as target ended: by returning (the request's device
+	// and address), by signing out or by an administrator ending it (those of the ended session).
+	SignedOutAs(ctx context.Context, fact LoginAs)
 	// SessionsRevoked: n sessions of accountID were ended by actorID (zero when
 	// the person did it themselves).
 	SessionsRevoked(ctx context.Context, accountID, actorID, n int)
@@ -260,10 +270,10 @@ type Notices interface {
 type DiscardNotices struct{}
 
 // SignedInAs hears the fact and does nothing.
-func (DiscardNotices) SignedInAs(context.Context, int, int) {}
+func (DiscardNotices) SignedInAs(context.Context, LoginAs) {}
 
 // SignedOutAs hears the fact and does nothing.
-func (DiscardNotices) SignedOutAs(context.Context, int, int) {}
+func (DiscardNotices) SignedOutAs(context.Context, LoginAs) {}
 
 // SessionsRevoked hears the fact and does nothing.
 func (DiscardNotices) SessionsRevoked(context.Context, int, int, int) {}

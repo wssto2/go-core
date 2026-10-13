@@ -166,7 +166,7 @@ type settings struct {
 	areas                   []account.ActivityArea
 	auditRecord             string
 	locales                 []string
-	limits                  account.Limits
+	limits                  *account.Limits
 	auditActions            map[account.ChangeAction]string
 
 	noUserAdmin bool
@@ -209,7 +209,7 @@ func WithLocales(locales ...string) Option { return func(s *settings) { s.locale
 // ceiling: a larger limit stops Install). Zero is go-core's width. A longer name, e-mail address or
 // phone is refused with 422 and the field's max error, like the input's own tag; a longer login
 // cannot exist, so signing in with one fails like any wrong sign-in.
-func WithFieldLimits(l account.Limits) Option { return func(s *settings) { s.limits = l } }
+func WithFieldLimits(l account.Limits) Option { return func(s *settings) { s.limits = &l } }
 
 // WithAccess overrides where /auth/me reads how the person holds each
 // permission. By default it asks the application's authorizer (the engine
@@ -438,8 +438,8 @@ func Install(app *gocore.App, opts ...Option) *Users {
 		s.cfg.Locales = s.locales
 	}
 
-	if s.limits != (account.Limits{}) { // after WithConfig, whatever the order of the options
-		s.cfg.Limits = s.limits
+	if s.limits != nil { // after WithConfig, whatever the order of the options
+		s.cfg.Limits = *s.limits
 	}
 
 	svc, err := account.New(account.Deps{
