@@ -55,6 +55,7 @@ package identity
 
 import (
 	"context"
+	"slices"
 
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/audit"
@@ -93,6 +94,8 @@ type (
 	ActivityArea = account.ActivityArea
 	// ChangeLog keeps the history of changes to accounts; the default is go-core's audit trail.
 	ChangeLog = account.ChangeLog
+	// ChangeAction names what a recorded change did to an account; WithAuditRecord renames them in the audit trail.
+	ChangeAction = account.ChangeAction
 	// Session is one sign-in of an account on one device.
 	Session = account.Session
 	// AccountStore keeps accounts; WithAccounts replaces the default.
@@ -115,6 +118,17 @@ type (
 	PrincipalOf = identityhttp.PrincipalOf
 	// Cookies name and place the cookies the tokens travel in.
 	Cookies = identityhttp.Cookies
+)
+
+// The change actions of an account's history, the keys of WithAuditRecord's names.
+const (
+	ChangeCreated     = account.ChangeCreated
+	ChangeUpdated     = account.ChangeUpdated
+	ChangeDeactivated = account.ChangeDeactivated
+	ChangeActivated   = account.ChangeActivated
+	ChangePassword    = account.ChangePassword
+	ChangeEmail       = account.ChangeEmail
+	ChangeProfile     = account.ChangeProfile
 )
 
 // Routes is identity's declared contract: the routes it serves, for
@@ -148,6 +162,8 @@ type settings struct {
 	policy                  account.PasswordPolicy
 	hooks                   []account.DeactivationHook
 	areas                   []account.ActivityArea
+	auditRecord             string
+	auditActions            map[account.ChangeAction]string
 }
 
 // Option adjusts Install.
@@ -275,6 +291,23 @@ func WithActivityAreas(areas ...ActivityArea) Option {
 	return func(s *settings) { s.areas = append(s.areas, areas...) }
 }
 
+// WithAuditRecord keeps the history of accounts (changes, and the identity area of
+// the activity) in audit_logs rows of the entity type, under the action names given for
+// the change actions (identity.ChangeCreated and the others; one left out keeps its own
+// name), instead of entity "account". For an application whose audit trail already has
+// rows for its people, such as entity "users" with actions "create", "update" and
+// "delete": they are read as they are, and no row is rewritten.
+//
+//	identity.WithAuditRecord("users", map[identity.ChangeAction]string{
+//		identity.ChangeCreated: "create", identity.ChangeUpdated: "update", identity.ChangeDeactivated: "delete",
+//	})
+//
+// Where several change actions share a name, a row is read back as the first of created,
+// updated, deactivated, activated, password, email, profile that has it.
+func WithAuditRecord(entityType string, actions map[account.ChangeAction]string) Option {
+	return func(s *settings) { s.auditRecord, s.auditActions = entityType, actions }
+}
+
 // The permissions of the users routes, the same ids access/admin uses for the
 // same two ideas.
 const (
@@ -389,7 +422,17 @@ func Install(app *gocore.App, opts ...Option) *Users {
 		hasher = account.Bcrypt{}
 	}
 
-	tx, changes := database.NewTransactor(db), gormstore.NewChangeLog(db)
+	var changeOpts []gormstore.ChangeLogOption
+
+	if s.auditRecord != "" {
+		changeOpts = append(changeOpts, gormstore.AuditRecord(s.auditRecord, s.auditActions))
+
+		if !slices.ContainsFunc(s.areas, func(a account.ActivityArea) bool { return a.Key() == account.IdentityArea }) {
+			s.areas = append(s.areas, account.Area(account.IdentityArea).Types(s.auditRecord)) // the people's changes are the host's record type
+		}
+	}
+
+	tx, changes := database.NewTransactor(db), gormstore.NewChangeLog(db, changeOpts...)
 
 	areas, err := account.NewActivityAreas(s.areas...)
 	if err != nil {

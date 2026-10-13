@@ -139,3 +139,53 @@ func TestSignInOverTheSQLStores(t *testing.T) {
 		assert.NotEqual(t, signed.Credentials.Access, refreshed.Credentials.Access)
 	})
 }
+
+// G3: the history of a host whose audit trail names its people "users" with the verbs
+// create/update/delete is read as it is and written in the same words.
+func TestChangeLogOverTheHostsAuditRecord(t *testing.T) {
+	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+		tables(t, db)
+		empty(t, db)
+
+		// rows the host wrote before identity: one of its own verbs, one nobody here knows
+		for _, r := range []audit.AuditLog{
+			{EntityType: "users", EntityID: 5, ActorID: 1, Action: "create"},
+			{EntityType: "users", EntityID: 5, ActorID: 1, Action: "update"},
+			{EntityType: "users", EntityID: 5, ActorID: 2, Action: "delete"},
+			{EntityType: "account", EntityID: 5, ActorID: 2, Action: "created"}, // identity's own type: not this history
+		} {
+			require.NoError(t, db.Create(&r).Error)
+		}
+
+		log := gormstore.NewChangeLog(db, gormstore.AuditRecord("users", map[account.ChangeAction]string{
+			account.ChangeCreated: "create", account.ChangeUpdated: "update", account.ChangeDeactivated: "delete",
+			account.ChangeProfile: "update", // two actions share a name
+		}))
+
+		rows, total, err := log.Changes(t.Context(), account.ChangeQuery{AccountID: 5, Limit: 10})
+		require.NoError(t, err)
+		require.Equal(t, 3, total)
+		assert.Equal(t, []account.ChangeAction{account.ChangeDeactivated, account.ChangeUpdated, account.ChangeCreated},
+			[]account.ChangeAction{rows[0].Action, rows[1].Action, rows[2].Action}, "read back as identity's actions, newest first")
+
+		only, total, err := log.Changes(t.Context(), account.ChangeQuery{AccountID: 5, Limit: 10, Only: []account.ChangeAction{account.ChangeDeactivated}})
+		require.NoError(t, err)
+		assert.Equal(t, 1, total)
+		assert.Equal(t, account.ChangeDeactivated, only[0].Action, "a filter speaks the host's verbs")
+
+		require.NoError(t, log.Record(t.Context(), account.Change{AccountID: 5, ActorID: 3, Action: account.ChangeProfile, Fields: []string{"name"}}))
+		require.NoError(t, log.Record(t.Context(), account.Change{AccountID: 5, ActorID: 3, Action: account.ChangePassword, Fields: []string{"password"}}))
+
+		var written []audit.AuditLog
+		require.NoError(t, db.Where("actor_id = ?", 3).Order("id").Find(&written).Error)
+		require.Len(t, written, 2)
+		assert.Equal(t, "users", written[0].EntityType)
+		assert.Equal(t, "update", written[0].Action, "the host's word")
+		assert.Equal(t, "password", written[1].Action, "an action without a name keeps its own")
+
+		counts, err := log.ChangeCounts(t.Context(), 5)
+		require.NoError(t, err)
+		assert.Equal(t, 2, counts[account.ChangeUpdated], "the update row and the profile row are both read as updated")
+		assert.Equal(t, 1, counts[account.ChangeCreated])
+	})
+}

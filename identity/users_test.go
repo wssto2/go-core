@@ -3,6 +3,7 @@ package identity_test
 import (
 	"context"
 	"regexp"
+	"strconv"
 	"testing"
 
 	nethttp "net/http"
@@ -272,4 +273,29 @@ func TestUsersMailIsWhereIdentitysMailGoes(t *testing.T) {
 	bare := identity.Install(newApp(t), identity.WithoutMail())
 	_, ok = bare.Mail()
 	require.False(t, ok, "WithoutMail: nothing to mail through")
+}
+
+// G3 through Install: the admin's history is written under the host's record type and verbs, and
+// read back through the changes route.
+func TestWithAuditRecordKeepsTheHistoryUnderTheHostsRecord(t *testing.T) {
+	app := newApp(t)
+	users := identity.Install(app, identity.WithoutMail(),
+		identity.WithAuditRecord("users", map[identity.ChangeAction]string{identity.ChangeCreated: "create", identity.ChangeUpdated: "update"}))
+
+	made, err := users.Admin().Create(t.Context(), account.CreateAccount{
+		Login: "root", Name: "Root", Email: "root@example.test", Locale: "en", Password: "a long password",
+	})
+	require.NoError(t, err)
+
+	var row struct{ EntityType, Action string }
+	require.NoError(t, app.Database().Table("audit_logs").Select("entity_type, action").Where("entity_id = ?", made.ID).Scan(&row).Error)
+	assert.Equal(t, "users", row.EntityType)
+	assert.Equal(t, "create", row.Action)
+
+	c := newClient(t, app)
+	login(t, c, "root", "a long password")
+
+	changes := c.do(nethttp.MethodGet, "/v1/iam/users/"+strconv.Itoa(made.ID)+"/changes", nil)
+	require.Equal(t, nethttp.StatusOK, changes.Code, changes.Body.String())
+	assert.Contains(t, changes.Body.String(), `"created"`, "read back as identity's action")
 }
