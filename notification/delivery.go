@@ -16,8 +16,10 @@ import (
 // long up to RetryMaxDelay, for as long as DeliveryTTL lasts from the moment the delivery may first be sent. After
 // that, or on a permanent error, the delivery is failed.
 const (
-	// DeliveryTTL is how long a failing e-mail is retried.
+	// DeliveryTTL is how long a failing e-mail is retried, and how long a push of a normal category lives.
 	DeliveryTTL = 24 * time.Hour
+	// HighPriorityTTL is how long a push of a HighPriority category lives: it is urgent or it is stale.
+	HighPriorityTTL = 4 * time.Hour
 	// RetryBaseDelay is the wait before the first retry; it doubles each time.
 	RetryBaseDelay = 30 * time.Second
 	// RetryMaxDelay is the longest wait between two attempts.
@@ -47,24 +49,30 @@ const (
 // dueStatuses are the statuses the worker still has to send.
 var dueStatuses = []string{statusPending, statusHeld}
 
-// newEmailDelivery is the delivery of an e-mail made at now, to go out at release or, when that is not after now,
-// at once. A held delivery's lifetime starts at the release, so a night of quiet hours does not use up the TTL.
-// The notification id is set when the notification is written.
-func newEmailDelivery(address string, now, release time.Time) deliveryRow {
+// newDelivery is the delivery of a notification made at now, to go out at release or, when that is not after now, at
+// once, retried for ttl. A held delivery's lifetime starts at the release, so a night of quiet hours does not use up
+// the TTL. The notification id is set when the notification is written.
+func newDelivery(channel string, ttl time.Duration, now, release time.Time) deliveryRow {
 	d := deliveryRow{
-		Address: &address, Channel: emailChannel, Status: statusPending,
-		NextAttemptAt: now, ExpiresAt: now.Add(DeliveryTTL), CreatedAt: now, UpdatedAt: now,
+		Channel: channel, Status: statusPending, NextAttemptAt: now, ExpiresAt: now.Add(ttl), CreatedAt: now, UpdatedAt: now,
 	}
 
 	if release.After(now) {
-		d.Status, d.NextAttemptAt, d.ExpiresAt = statusHeld, whole(release), whole(release).Add(DeliveryTTL)
+		d.Status, d.NextAttemptAt, d.ExpiresAt = statusHeld, whole(release), whole(release).Add(ttl)
 	}
 
 	return d
 }
 
-// record notes one attempt: sent; failed at once on a permanent error; or retried with backoff until
-// the delivery expires.
+func newEmailDelivery(address string, now, release time.Time) deliveryRow {
+	d := newDelivery(emailChannel, DeliveryTTL, now, release)
+	d.Address = &address
+
+	return d
+}
+
+// record notes one attempt: sent; failed at once on a permanent error; or retried with backoff until the delivery
+// expires.
 func (d *deliveryRow) record(sendErr error, now time.Time) {
 	d.Attempts++
 	d.UpdatedAt = now
@@ -118,12 +126,76 @@ func backoff(attempts int) time.Duration {
 // canStartSend reports whether a worker whose lease ends at leaseUntil may still start a send at now.
 func canStartSend(leaseUntil, now time.Time) bool { return now.Add(sendMargin).Before(leaseUntil) }
 
-// emailPlans decides who is e-mailed for a notification of category k and when (NOTIF-PREF-001, NOTIF-QUIET-001):
-// the people whose resolved e-mail setting is on and who have an address, each with the delivery that goes out
-// at once or, in their quiet hours, when those end. Nothing is planned without mail, or for an internal category.
-func (n *Notices) emailPlans(ctx context.Context, k Kind, people []account.Account, now time.Time) (map[uint32]deliveryRow, error) {
-	if n.mail == nil || k.internal {
+// plans decides who is e-mailed and pushed for a notification of category k and when (NOTIF-PREF-001, NOTIF-QUIET-001):
+// the people whose resolved setting of a channel is on, each with the deliveries that go out at once or, in their quiet
+// hours, when those end. E-mail needs an address and mail, push needs a device and WithPush. An internal category is
+// never e-mailed and never held, but is pushed to every device (to one, with onlyDevice), whatever the settings: a test
+// is there to arrive.
+func (n *Notices) plans(
+	ctx context.Context,
+	kind Kind,
+	people []account.Account,
+	now time.Time,
+	onlyDevice uint64,
+) (map[uint32][]deliveryRow, error) {
+	if n.mail == nil && n.push == nil {
 		return nil, nil
+	}
+
+	ids := make([]int, 0, len(people))
+	for _, a := range people {
+		ids = append(ids, a.ID)
+	}
+
+	quiet := map[int]QuietHours{}
+
+	if !kind.internal {
+		var err error
+
+		quiet, err = n.store.quietOf(ctx, ids)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	release := func(id int) time.Time {
+		if kind.internal {
+			return now
+		}
+
+		q, ok := quiet[id]
+		if !ok {
+			q = DefaultQuietHours()
+		}
+
+		return q.ReleaseAt(now, n.location)
+	}
+
+	plans := map[uint32][]deliveryRow{}
+
+	err := n.planEmail(ctx, kind, people, now, release, plans)
+	if err != nil {
+		return nil, err
+	}
+
+	err = n.planPush(ctx, kind, ids, now, release, onlyDevice, plans)
+	if err != nil {
+		return nil, err
+	}
+
+	return plans, nil
+}
+
+func (n *Notices) planEmail(
+	ctx context.Context,
+	kind Kind,
+	people []account.Account,
+	now time.Time,
+	release func(int) time.Time,
+	plans map[uint32][]deliveryRow,
+) error {
+	if n.mail == nil || kind.internal {
+		return nil
 	}
 
 	var ids []int
@@ -135,35 +207,94 @@ func (n *Notices) emailPlans(ctx context.Context, k Kind, people []account.Accou
 	}
 
 	if len(ids) == 0 {
-		return nil, nil
+		return nil
 	}
 
-	settings, err := n.Settings.emailFor(ctx, k, ids)
+	settings, err := n.Settings.settingsFor(ctx, kind, ids, ChannelEmail)
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	quiet, err := n.store.quietOf(ctx, ids)
-	if err != nil {
-		return nil, err
-	}
-
-	plans := map[uint32]deliveryRow{}
 
 	for _, a := range people {
 		if !settings[a.ID].Enabled {
 			continue
 		}
 
-		q, ok := quiet[a.ID]
-		if !ok {
-			q = DefaultQuietHours()
-		}
-
-		plans[uint32(a.ID)] = newEmailDelivery(strings.TrimSpace(a.Email), now, q.ReleaseAt(now, n.location)) //nolint:gosec // resolve keeps ids between 1 and MaxInt32
+		id := uint32(a.ID) //nolint:gosec // resolve keeps ids between 1 and MaxInt32
+		plans[id] = append(plans[id], newEmailDelivery(strings.TrimSpace(a.Email), now, release(a.ID)))
 	}
 
-	return plans, nil
+	return nil
+}
+
+func (n *Notices) planPush(
+	ctx context.Context,
+	kind Kind,
+	ids []int,
+	now time.Time,
+	release func(int) time.Time,
+	onlyDevice uint64,
+	plans map[uint32][]deliveryRow,
+) error {
+	if n.push == nil {
+		return nil
+	}
+
+	wanting, err := n.pushWanted(ctx, kind, ids)
+	if err != nil || len(wanting) == 0 {
+		return err
+	}
+
+	devices, err := n.store.activeDevices(ctx, wanting)
+	if err != nil {
+		return err
+	}
+
+	for _, personID := range wanting {
+		for _, dev := range devices[uint32(personID)] { //nolint:gosec // resolve keeps ids between 1 and MaxInt32
+			if onlyDevice != 0 && dev.ID != onlyDevice {
+				continue
+			}
+
+			d := newDelivery(pushChannel, kind.pushTTL(), now, release(personID))
+			d.DeviceID = dev.ID
+			plans[dev.UserID] = append(plans[dev.UserID], d)
+		}
+	}
+
+	return nil
+}
+
+// pushWanted is who is pushed to for a notification of category k: the people whose push setting is on, or everyone for
+// an internal category.
+func (n *Notices) pushWanted(ctx context.Context, k Kind, ids []int) ([]int, error) {
+	if k.internal {
+		return ids, nil
+	}
+
+	settings, err := n.Settings.settingsFor(ctx, k, ids, ChannelPush)
+	if err != nil {
+		return nil, err
+	}
+
+	var wanting []int
+
+	for _, id := range ids {
+		if settings[id].Enabled {
+			wanting = append(wanting, id)
+		}
+	}
+
+	return wanting, nil
+}
+
+// pushTTL is how long a push of the category lives (NOTIF-DELIVERY-001, rule 2).
+func (k Kind) pushTTL() time.Duration {
+	if k.high {
+		return HighPriorityTTL
+	}
+
+	return DeliveryTTL
 }
 
 // DeliverDue sends the e-mails that are due, once, and returns how many deliveries it handled and the errors of those
@@ -180,7 +311,7 @@ func (n *Notices) DeliverDue(ctx context.Context) (int, error) {
 	now := n.clock.Now()
 	leaseUntil := whole(now).Add(claimLease)
 
-	due, err := n.store.claimDue(ctx, whole(now), leaseUntil, deliveryBatch)
+	due, err := n.store.claimDue(ctx, emailChannel, whole(now), leaseUntil, deliveryBatch)
 	if err != nil {
 		return 0, err
 	}
@@ -235,9 +366,21 @@ func (n *Notices) finish(ctx context.Context, d *deliveryRow, outcome func(*deli
 	outcome(d)
 
 	if d.Status == statusFailed {
-		n.log.WarnContext(ctx, "notification: an e-mail was given up on", "delivery", d.ID, "notification", d.NotificationID, "error", deref(d.LastError))
+		n.log.WarnContext(
+			ctx,
+			"notification: a delivery was given up on",
+			"channel",
+			d.Channel,
+			"delivery",
+			d.ID,
+			"notification",
+			d.NotificationID,
+			"error",
+			deref(d.LastError),
+		)
 	} else {
-		n.log.DebugContext(ctx, "notification: e-mail delivery", "delivery", d.ID, "status", d.Status, "attempts", d.Attempts)
+		n.log.DebugContext(ctx, "notification: delivery",
+			"channel", d.Channel, "delivery", d.ID, "status", d.Status, "attempts", d.Attempts)
 	}
 
 	return n.store.saveDelivery(ctx, *d)

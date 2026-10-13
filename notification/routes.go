@@ -48,6 +48,29 @@ type SetEmailInput struct {
 	Email    *bool  `json:"email" validation:"required"`
 }
 
+// SetPushInput is "turn the push of one category on or off". Push is required: leaving it out is refused, not read as
+// "off".
+type SetPushInput struct {
+	Category string `path:"category" validation:"required|max:64"`
+	Push     *bool  `json:"push"     validation:"required"`
+}
+
+// DeviceInput addresses one of the signed-in person's push devices.
+type DeviceInput struct {
+	ID int `path:"id" validation:"min:1"`
+}
+
+// RenameDeviceInput is "rename one of my devices".
+type RenameDeviceInput struct {
+	ID    int    `path:"id"    validation:"min:1"`
+	Label string `json:"label" validation:"required|max:100"`
+}
+
+// UnsubscribeInput names the browser's subscription to remove, as sign-out does.
+type UnsubscribeInput struct {
+	Endpoint string `json:"endpoint" validation:"required|max:1024"`
+}
+
 // Declared is the routes of the module as values.
 type Declared struct {
 	// List is a page of the inbox, newest first; before_id loads the next.
@@ -68,6 +91,23 @@ type Declared struct {
 	SetEmail route.Route[SetEmailInput, CategorySettings]
 	// SetQuietHours sets the person's quiet hours, in minutes after midnight.
 	SetQuietHours route.Route[QuietHoursInput, QuietHours]
+	// SetPush turns the push of one category on or off for the person; an enforced setting answers 422.
+	SetPush route.Route[SetPushInput, CategorySettings]
+
+	// PushConfig says whether push is on and the key to subscribe the browser with.
+	PushConfig route.Route[route.None, PushConfig]
+	// Devices lists the person's push devices.
+	Devices route.Route[route.None, DeviceList]
+	// Subscribe registers this browser's subscription; the same browser again is one device, refreshed.
+	Subscribe route.Route[Subscription, Device]
+	// Unsubscribe removes the person's device with the given endpoint, as sign-out does, and answers the list.
+	Unsubscribe route.Route[UnsubscribeInput, DeviceList]
+	// RenameDevice changes the label of one device.
+	RenameDevice route.Route[RenameDeviceInput, Device]
+	// RemoveDevice removes one device and answers the list.
+	RemoveDevice route.Route[DeviceInput, DeviceList]
+	// TestDevice pushes a test notification to one device and answers the list.
+	TestDevice route.Route[DeviceInput, DeviceList]
 
 	group *route.Contract
 }
@@ -87,9 +127,24 @@ func Declare() *Declared {
 		Preferences:   route.Get[route.None, Preferences](inbox + "/preferences").Name("notification.preferences"),
 		SetEmail:      route.Put[SetEmailInput, CategorySettings](inbox + "/preferences/:category").Name("notification.preferences.set-email"),
 		SetQuietHours: route.Put[QuietHoursInput, QuietHours](inbox + "/quiet-hours").Name("notification.quiet-hours"),
+		SetPush: route.Put[SetPushInput, CategorySettings](
+			inbox + "/preferences/:category/push",
+		).Name("notification.preferences.set-push"),
+
+		PushConfig: route.Get[route.None, PushConfig](inbox + "/push").Name("notification.push"),
+		Devices:    route.Get[route.None, DeviceList](inbox + "/devices").Name("notification.devices"),
+		Subscribe:  route.Post[Subscription, Device](inbox + "/devices").Name("notification.device.subscribe"),
+		Unsubscribe: route.Post[UnsubscribeInput, DeviceList](
+			inbox + "/devices/unsubscribe",
+		).Name("notification.device.unsubscribe"),
+		RenameDevice: route.Patch[RenameDeviceInput, Device](inbox + "/devices/:id").Name("notification.device.rename"),
+		RemoveDevice: route.Delete[DeviceInput, DeviceList](inbox + "/devices/:id").Name("notification.device.remove"),
+		TestDevice:   route.Post[DeviceInput, DeviceList](inbox + "/devices/:id/test").Name("notification.device.test"),
 	}
 
-	d.group = route.Group("notification", d.List, d.Unread, d.MarkRead, d.MarkAllRead, d.Stream, d.Test, d.Preferences, d.SetEmail, d.SetQuietHours).
+	d.group = route.Group("notification", d.List, d.Unread, d.MarkRead, d.MarkAllRead, d.Stream, d.Test, d.Preferences,
+		d.SetEmail, d.SetQuietHours, d.SetPush, d.PushConfig, d.Devices, d.Subscribe, d.Unsubscribe, d.RenameDevice,
+		d.RemoveDevice, d.TestDevice).
 		Types(StreamEvent{}, StreamKinds, SourceKinds) // what the stream sends, and what a setting says: no route names them
 
 	return d
@@ -110,6 +165,14 @@ func (d *Declared) To(n *Notices) []route.Handled {
 		d.Preferences.To(n.preferences),
 		d.SetEmail.To(n.setEmail),
 		d.SetQuietHours.To(n.setQuietHours),
+		d.SetPush.To(n.setPush),
+		d.PushConfig.To(n.pushConfig),
+		d.Devices.To(n.devices),
+		d.Subscribe.To(n.subscribe),
+		d.Unsubscribe.To(n.unsubscribe),
+		d.RenameDevice.To(n.renameDevice),
+		d.RemoveDevice.To(n.removeDevice),
+		d.TestDevice.To(n.testDevice),
 	}
 }
 
@@ -133,6 +196,19 @@ func (n *Notices) setEmail(ctx context.Context, in SetEmailInput) (CategorySetti
 	}
 
 	return n.Settings.SetEmail(ctx, id, in.Category, *in.Email)
+}
+
+func (n *Notices) setPush(ctx context.Context, input SetPushInput) (CategorySettings, error) {
+	personID, err := person(ctx)
+	if err != nil {
+		return CategorySettings{}, err
+	}
+
+	if input.Push == nil {
+		return CategorySettings{}, apperr.BadRequest("push is required")
+	}
+
+	return n.Settings.SetPush(ctx, personID, input.Category, *input.Push)
 }
 
 func (n *Notices) setQuietHours(ctx context.Context, in QuietHoursInput) (QuietHours, error) {
@@ -217,4 +293,67 @@ func (n *Notices) sendTest(ctx context.Context, _ route.None) (route.Empty, erro
 	})
 
 	return route.Empty{}, err
+}
+
+func (n *Notices) pushConfig(ctx context.Context, _ route.None) (PushConfig, error) {
+	_, err := person(ctx)
+	if err != nil {
+		return PushConfig{}, err
+	}
+
+	return n.Devices.Config(), nil
+}
+
+func (n *Notices) devices(ctx context.Context, _ route.None) (DeviceList, error) {
+	id, err := person(ctx)
+	if err != nil {
+		return DeviceList{}, err
+	}
+
+	return n.Devices.List(ctx, id)
+}
+
+func (n *Notices) subscribe(ctx context.Context, sub Subscription) (Device, error) {
+	id, err := person(ctx)
+	if err != nil {
+		return Device{}, err
+	}
+
+	return n.Devices.Register(ctx, id, route.ExchangeOf(ctx).UserAgent(), sub)
+}
+
+func (n *Notices) unsubscribe(ctx context.Context, in UnsubscribeInput) (DeviceList, error) {
+	return n.thenList(ctx, func(id int) error { return n.Devices.Unregister(ctx, id, in.Endpoint) })
+}
+
+func (n *Notices) renameDevice(ctx context.Context, input RenameDeviceInput) (Device, error) {
+	id, err := person(ctx)
+	if err != nil {
+		return Device{}, err
+	}
+
+	return n.Devices.Rename(ctx, id, input.ID, input.Label)
+}
+
+func (n *Notices) removeDevice(ctx context.Context, in DeviceInput) (DeviceList, error) {
+	return n.thenList(ctx, func(id int) error { return n.Devices.Remove(ctx, id, in.ID) })
+}
+
+func (n *Notices) testDevice(ctx context.Context, in DeviceInput) (DeviceList, error) {
+	return n.thenList(ctx, func(id int) error { return n.Devices.SendTest(ctx, id, in.ID) })
+}
+
+// thenList runs a change of the person's devices and answers with the fresh list, so the app re-renders from one shape.
+func (n *Notices) thenList(ctx context.Context, change func(personID int) error) (DeviceList, error) {
+	personID, err := person(ctx)
+	if err != nil {
+		return DeviceList{}, err
+	}
+
+	err = change(personID)
+	if err != nil {
+		return DeviceList{}, err
+	}
+
+	return n.Devices.List(ctx, personID)
 }

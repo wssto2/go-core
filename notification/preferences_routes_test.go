@@ -27,15 +27,23 @@ func TestThePreferencesRoutesServeOnlyThePersonsOwnSettings(t *testing.T) {
 
 		prefs := data[notification.Preferences](t, w.do(3, "GET", "/v1/notifications/preferences", nil))
 		require.True(t, prefs.EmailAvailable)
+
+		onByDefault := notification.Setting{Enabled: true, Source: notification.SourceDefault}
+		offByDefault := notification.Setting{Enabled: false, Source: notification.SourceDefault}
+
 		require.Equal(t, []notification.CategorySettings{
-			{Category: "tickets.assigned", Email: notification.Setting{Enabled: true, Source: notification.SourceDefault}},
-			{Category: "tickets.commented", Email: notification.Setting{Enabled: false, Source: notification.SourceDefault}},
+			{Category: TicketAssigned.Code(), Email: onByDefault, Push: offByDefault},
+			{Category: TicketCommented.Code(), Email: offByDefault, Push: offByDefault},
 		}, prefs.Categories)
 		require.Equal(t, notification.DefaultQuietHours(), prefs.QuietHours)
 
 		// Eva's choice is hers.
-		set := data[notification.CategorySettings](t, w.do(3, "PUT", "/v1/notifications/preferences/tickets.commented", map[string]any{"email": true}))
-		require.Equal(t, notification.CategorySettings{Category: "tickets.commented", Email: notification.Setting{Enabled: true, Source: notification.SourcePerson}}, set)
+		set := data[notification.CategorySettings](t,
+			w.do(3, "PUT", "/v1/notifications/preferences/tickets.commented", map[string]any{chanEmail: true}))
+
+		chosen := notification.Setting{Enabled: true, Source: notification.SourcePerson}
+		want := notification.CategorySettings{Category: TicketCommented.Code(), Email: chosen, Push: offByDefault}
+		require.Equal(t, want, set)
 
 		prefs = data[notification.Preferences](t, w.do(3, "GET", "/v1/notifications/preferences", nil))
 		require.True(t, prefs.Categories[1].Email.Enabled)

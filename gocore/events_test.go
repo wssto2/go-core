@@ -151,3 +151,76 @@ func TestConsumersAreTheCollectedNamesSortedAndEachOnce(t *testing.T) {
 		t.Fatalf("want [audit notices], got %v", got)
 	}
 }
+
+// eventsLeftAfterSweep gives an application a dead letter 100 days old, sweeps the housekeeper Events added and returns
+// how many events are left.
+func eventsLeftAfterSweep(t *testing.T, opts ...Option) int64 {
+	t.Helper()
+
+	reg, cleanup := database.NewTestRegistry("local")
+
+	t.Cleanup(func() { _ = cleanup() })
+
+	all := append([]Option{WithRegistry(reg), WithLogger(slog.New(slog.DiscardHandler))}, opts...)
+	app := New(bootstrap.DefaultConfig(), all...)
+	app.Events()
+
+	conn := app.Database()
+
+	err := event.Migrate(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	old := time.Now().Add(-100 * 24 * time.Hour).UTC()
+
+	err = conn.Exec("INSERT INTO outbox_events (id, event_type, envelope, created_at, processed_at) "+
+		"VALUES (1, 'x', '{}', ?, ?)", old, old).Error
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = conn.Exec("INSERT INTO event_consumer_attempts "+
+		"(event_id, consumer, attempts, next_attempt_at, last_error, dead_at, updated_at) "+
+		"VALUES (1, 'c', 5, ?, 'down', ?, ?)", old, old, old).Error
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, w := range app.eventWorkers() {
+		if house, ok := w.(*event.Housekeeper); ok {
+			_, err = house.Sweep(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	var left int64
+
+	err = conn.Table("outbox_events").Count(&left).Error
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return left
+}
+
+// WithDeadLetterRetention configures the housekeeper Events adds: a dead letter older than it, and the event only it
+// kept, are deleted.
+func TestWithDeadLetterRetentionEndsOldDeadLettersInTheHousekeeperEventsAdds(t *testing.T) {
+	t.Parallel()
+
+	if left := eventsLeftAfterSweep(t, WithDeadLetterRetention(90*24*time.Hour)); left != 0 {
+		t.Fatalf("%d events left, want the old dead letter's event gone", left)
+	}
+}
+
+// Without the option dead letters are kept for ever.
+func TestWithoutDeadLetterRetentionDeadLettersStay(t *testing.T) {
+	t.Parallel()
+
+	if left := eventsLeftAfterSweep(t); left != 1 {
+		t.Fatalf("%d events left, want the dead letter's event kept", left)
+	}
+}

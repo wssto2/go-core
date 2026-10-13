@@ -164,11 +164,17 @@ type row struct {
 
 func (row) TableName() string { return "notifications" }
 
-// Migrate creates the module's tables (notifications, notification_deliveries, notification_preferences and
-// notification_quiet_hours) from their GORM models, for tests on SQLite and as the reference the migration
-// files are compared with.
+// Migrate creates the module's tables (notifications, notification_deliveries, notification_preferences,
+// notification_quiet_hours and notification_devices) from their GORM models, for tests on SQLite and as the
+// reference the migration files are compared with.
 func Migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&row{}, &deliveryRow{}, &preferenceRow{}, &quietRow{})
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	err := db.AutoMigrate(&row{}, &deliveryRow{}, &preferenceRow{}, &quietRow{}, &deviceRow{})
+	if err != nil {
+		return fmt.Errorf("notification: migrate the tables: %w", err)
+	}
+
+	return nil
 }
 
 func newRow(eventID uint64, userID int, category Kind, m Message, now time.Time) (row, error) {
@@ -222,10 +228,10 @@ func (s *store) conn(ctx context.Context) *gorm.DB {
 // insertNew writes the rows that do not exist yet, in one transaction, and
 // returns the ones it wrote with their ids. A row whose dedupe key exists is
 // skipped (NOTIF-EVENT-001): the unique index refuses the second insert, so two
-// deliveries racing on one event still make a single row. The e-mail delivery planned for
+// deliveries racing on one event still make a single row. The deliveries planned for
 // a person is written in the same transaction, only for a notification that was written: a
 // retried event makes no second e-mail (NOTIF-DELIVERY-001, rule 5).
-func (s *store) insertNew(ctx context.Context, rows []row, deliveries map[uint32]deliveryRow) ([]row, error) {
+func (s *store) insertNew(ctx context.Context, rows []row, deliveries map[uint32][]deliveryRow) ([]row, error) {
 	var created []row
 
 	err := s.conn(ctx).Transaction(func(tx *gorm.DB) error {
@@ -241,7 +247,7 @@ func (s *store) insertNew(ctx context.Context, rows []row, deliveries map[uint32
 
 			created = append(created, r)
 
-			if d, ok := deliveries[r.UserID]; ok {
+			for _, d := range deliveries[r.UserID] {
 				d.NotificationID = r.ID
 
 				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&d).Error; err != nil {

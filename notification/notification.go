@@ -36,6 +36,10 @@
 // quiet hours last (NOTIF-QUIET-001) and sent once by a worker that retries and gives up
 // (NOTIF-DELIVERY-001). With identity.WithoutMail() e-mail is unavailable and the settings say so.
 // The text of the e-mail is in mailtext, in English, Croatian, Bosnian and Slovenian.
+//
+// With WithPush the same goes for web push: a person registers their browsers as devices (Notices.Devices), and a
+// notification of a category whose push is on for them is pushed to each of them, held in quiet hours, retried,
+// and bundled in a burst (NOTIF-DEVICE-001). The protocol is package notification/push, standard library only.
 package notification
 
 import (
@@ -54,6 +58,7 @@ import (
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/notification/migrations"
+	"github.com/wssto2/go-core/notification/push"
 	"gorm.io/gorm"
 )
 
@@ -140,6 +145,11 @@ var (
 	ErrInvalidMessage = errors.New("notification: invalid message")
 )
 
+// errNotInstalled is the answer of a Notices that Install did not build.
+var errNotInstalled = errors.New(
+	"notification: Send on a Notices that Install did not build: see the problems Run reports",
+)
+
 // People is what the module asks of the application's users: the accounts of
 // many ids, and a person's live sessions for the stream to re-check. *identity.Users
 // is one.
@@ -156,19 +166,23 @@ type People interface {
 type Notices struct {
 	// Inbox lists, counts and reads a person's notifications.
 	Inbox *Inbox
-	// Settings is what a person chooses for their own notifications: e-mail per category, and quiet hours.
+	// Settings is what a person chooses for their own notifications: e-mail and push per category, and quiet hours.
 	Settings *Settings
+	// Devices are a person's push devices: register this browser, list, rename, remove and test them.
+	Devices *Devices
 
-	people    People
-	kinds     []Kind
-	location  *time.Location
-	mail      *account.Mail
-	appURL    string
-	db        *gorm.DB
-	store     *store
-	clock     gocore.Clock
-	log       *slog.Logger
-	heartbeat time.Duration
+	people     People
+	kinds      []Kind
+	location   *time.Location
+	mail       *account.Mail
+	push       *push.Sender
+	bundleText func(locale string, count int, titles []string) (title, body string)
+	appURL     string
+	db         *gorm.DB
+	store      *store
+	clock      gocore.Clock
+	log        *slog.Logger
+	heartbeat  time.Duration
 }
 
 // Install puts the in-app inbox into app: the notifications table (its
@@ -215,13 +229,28 @@ func Install(app *gocore.App, users People, opts ...Option) *Notices {
 	}
 
 	n.Inbox = &Inbox{store: st, clock: app.Clock(), hub: NewHub()}
-	n.Settings = &Settings{store: st, kinds: n.kinds, enforce: cfg.enforce, available: n.mail != nil, clock: app.Clock(), location: cfg.location}
+	n.push, n.bundleText = cfg.push, cfg.bundleText
+
+	if n.bundleText == nil {
+		n.bundleText = defaultBundleText
+	}
+
+	n.Settings = &Settings{
+		store: st, kinds: n.kinds, enforce: cfg.enforce, emailOK: n.mail != nil, pushOK: n.push != nil,
+		clock: app.Clock(), location: cfg.location,
+	}
+	n.Devices = &Devices{store: st, sender: n.push, clock: app.Clock(), db: db}
 
 	app.Events(n.testConsumer())
 	app.Background(housekeeper{notices: n})
 
 	if n.mail != nil {
 		app.Background(&deliveryWorker{notices: n})
+	}
+
+	if n.push != nil {
+		app.Events(n.deviceTestConsumer())
+		app.Background(&pushWorker{notices: n})
 	}
 
 	app.Routes(Declare().To(n)...)
@@ -277,37 +306,93 @@ func (n *Notices) kind(k Kind) (Kind, bool) {
 // ones Except named are skipped (NOTIF-RECIPIENT-001). Once the transaction
 // has committed, the open apps of the recipients are told (NOTIF-READ-001).
 func (n *Notices) Send(ctx context.Context, category Kind, to Recipients, render func(Recipient) Message) error {
-	if n.store == nil {
-		return errors.New("notification: Send on a Notices that Install did not build: see the problems Run reports")
+	return n.send(ctx, category, to, render, 0)
+}
+
+// send is Send, with the pushes limited to one device when onlyDevice is not 0 (the test of a device).
+func (n *Notices) send(
+	ctx context.Context,
+	category Kind,
+	recipients Recipients,
+	render func(Recipient) Message,
+	onlyDevice uint64,
+) error {
+	eventID, registered, err := n.checkSend(ctx, category, render)
+	if err != nil {
+		return err
 	}
 
-	eventID, ok := event.ID(ctx)
-	if !ok {
-		return fmt.Errorf("%w: publish an event and send from its consumer, "+
-			"app.Events(MyEvent.To(\"notifications.my-event\", func(ctx, e) error { return notices.Send(ctx, ...) }))", ErrNotInConsumer)
-	}
-
-	if _, inTx := database.TxFromContext(ctx); inTx {
-		return fmt.Errorf("%w: Send commits its own transaction, so it cannot run inside another", ErrNotInConsumer)
-	}
-
-	registered, ok := n.kind(category)
-	if !ok {
-		return fmt.Errorf("%w: %w: %q: pass it to notification.Install", event.ErrMalformed, ErrUnknownCategory, category.code)
-	}
-
-	if render == nil {
-		return fmt.Errorf("%w: %w: render is nil", event.ErrMalformed, ErrInvalidMessage)
-	}
-
-	ids := to.resolve()
+	ids := recipients.resolve()
 	if len(ids) == 0 {
 		return nil
 	}
 
+	now := n.clock.Now()
+
+	rows, notified, err := n.render(ctx, eventID, category, ids, render, now)
+	if err != nil || len(rows) == 0 {
+		return err
+	}
+
+	plans, err := n.plans(ctx, registered, notified, whole(now), onlyDevice)
+	if err != nil {
+		return err
+	}
+
+	created, err := n.store.insertNew(ctx, rows, plans)
+	if err != nil {
+		return err
+	}
+
+	n.announce(ctx, created)
+
+	return nil
+}
+
+// checkSend refuses a Send that cannot work: not from an event consumer, inside a transaction, an unregistered category
+// or no render function. It returns the event's id and the registered category.
+func (n *Notices) checkSend(ctx context.Context, category Kind, render func(Recipient) Message) (uint64, Kind, error) {
+	if n.store == nil {
+		return 0, Kind{}, errNotInstalled
+	}
+
+	eventID, ok := event.ID(ctx)
+	if !ok {
+		return 0, Kind{}, fmt.Errorf("%w: publish an event and send from its consumer, "+
+			"app.Events(MyEvent.To(\"notifications.my-event\", func(ctx, e) error { return notices.Send(ctx, ...) }))", ErrNotInConsumer)
+	}
+
+	if _, inTx := database.TxFromContext(ctx); inTx {
+		return 0, Kind{}, fmt.Errorf(
+			"%w: Send commits its own transaction, so it cannot run inside another",
+			ErrNotInConsumer,
+		)
+	}
+
+	registered, ok := n.kind(category)
+	if !ok {
+		return 0, Kind{}, fmt.Errorf(
+			"%w: %w: %q: pass it to notification.Install",
+			event.ErrMalformed,
+			ErrUnknownCategory,
+			category.code,
+		)
+	}
+
+	if render == nil {
+		return 0, Kind{}, fmt.Errorf("%w: %w: render is nil", event.ErrMalformed, ErrInvalidMessage)
+	}
+
+	return eventID, registered, nil
+}
+
+// render makes the notification of each recipient who is an active account, and returns the rows with those accounts.
+func (n *Notices) render(
+	ctx context.Context, eventID uint64, category Kind, ids []int, render func(Recipient) Message, now time.Time,
+) ([]row, []account.Account, error) {
 	accounts, err := n.people.Find(ctx, ids)
 	if err != nil {
-		return fmt.Errorf("notification: look up the recipients: %w", err)
+		return nil, nil, fmt.Errorf("notification: look up the recipients: %w", err)
 	}
 
 	byID := make(map[int]account.Account, len(accounts))
@@ -315,7 +400,6 @@ func (n *Notices) Send(ctx context.Context, category Kind, to Recipients, render
 		byID[a.ID] = a
 	}
 
-	now := n.clock.Now()
 	rows := make([]row, 0, len(ids))
 	notified := make([]account.Account, 0, len(ids))
 
@@ -332,35 +416,19 @@ func (n *Notices) Send(ctx context.Context, category Kind, to Recipients, render
 
 		msg, err := finish(render(Recipient{ID: id, Name: name, Locale: a.Locale}))
 		if err != nil {
-			return fmt.Errorf("%w: %w (recipient %d, category %q)", event.ErrMalformed, err, id, category.code)
+			return nil, nil, fmt.Errorf("%w: %w (recipient %d, category %q)", event.ErrMalformed, err, id, category.code)
 		}
 
 		r, err := newRow(eventID, id, category, msg, now)
 		if err != nil {
-			return fmt.Errorf("%w: %w (recipient %d, category %q)", event.ErrMalformed, err, id, category.code)
+			return nil, nil, fmt.Errorf("%w: %w (recipient %d, category %q)", event.ErrMalformed, err, id, category.code)
 		}
 
 		rows = append(rows, r)
 		notified = append(notified, a)
 	}
 
-	if len(rows) == 0 {
-		return nil
-	}
-
-	plans, err := n.emailPlans(ctx, registered, notified, whole(now))
-	if err != nil {
-		return err
-	}
-
-	created, err := n.store.insertNew(ctx, rows, plans)
-	if err != nil {
-		return err
-	}
-
-	n.announce(ctx, created)
-
-	return nil
+	return rows, notified, nil
 }
 
 // finish applies the content rules to a rendered message: the title is

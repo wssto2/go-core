@@ -31,11 +31,12 @@ type Setting struct {
 // Enforced reports whether the person cannot change the setting.
 func (s Setting) Enforced() bool { return s.Source == SourceEnforced }
 
-// CategorySettings is one category with the person's settings for it. Only e-mail is configurable: the in-app
+// CategorySettings is one category with the person's settings for it. Only e-mail and push are configurable: the in-app
 // notification is always on.
 type CategorySettings struct {
 	Category string  `json:"category"`
 	Email    Setting `json:"email"`
+	Push     Setting `json:"push"`
 }
 
 // Preferences is a person's notification settings: what the settings screen shows.
@@ -43,6 +44,9 @@ type Preferences struct {
 	// EmailAvailable is false when the application cannot send e-mail (identity runs WithoutMail): every
 	// setting then reads off and cannot be turned on, and no e-mail is ever made.
 	EmailAvailable bool `json:"email_available"`
+	// PushAvailable is false when the application was not given WithPush: every push setting then reads off and
+	// cannot be turned on, and no push is ever made.
+	PushAvailable bool `json:"push_available"` //nolint:tagliatelle // snake_case wire
 	// Categories are the application's categories a person may configure, in the order they were registered:
 	// the module's internal test category is not among them.
 	Categories []CategorySettings `json:"categories"`
@@ -58,32 +62,60 @@ const (
 	ReasonEnforced apperr.Reason = "notification.setting.enforced"
 	// ReasonEmailUnavailable: the application sends no e-mail, so there is nothing to turn on (422).
 	ReasonEmailUnavailable apperr.Reason = "notification.email.unavailable"
+	// ReasonPushUnavailable: the application sends no push, so there is nothing to turn on (422).
+	ReasonPushUnavailable apperr.Reason = "notification.push.unavailable"
 	// ReasonQuietHoursInvalid: the quiet hours are out of range, or start where they end (422).
 	ReasonQuietHoursInvalid apperr.Reason = "notification.quiet_hours.invalid"
 	// ReasonCategoryUnknown: there is no such category to configure (404).
 	ReasonCategoryUnknown apperr.Reason = "notification.category.unknown"
 )
 
-// emailChannel is the channel column's value of a person's e-mail choice.
-const emailChannel = "email"
+// The channel column's values.
+const (
+	emailChannel = "email"
+	pushChannel  = "push"
+)
+
+// defaultOn is whether the channel is on for the category until a person chooses.
+func (k Kind) defaultOn(ch Channel) bool {
+	if ch == ChannelPush {
+		return k.push
+	}
+
+	return k.email
+}
+
+func (ch Channel) unavailable() apperr.Reason {
+	if ch == ChannelPush {
+		return ReasonPushUnavailable
+	}
+
+	return ReasonEmailUnavailable
+}
 
 // Settings is what a person does with their own notification settings: see them, choose whether a category is
-// e-mailed, and set their quiet hours. Every method acts on one person, whose id the caller takes from the
+// e-mailed or pushed, and set their quiet hours. Every method acts on one person, whose id the caller takes from the
 // session, never from the request. Precedence is NOTIF-PREF-001: Enforce, then the person's choice, then the
 // category's default; only a choice that differs from the default is stored, so a person who never touched
 // a setting follows the default if it changes.
 type Settings struct {
-	store     *store
-	kinds     []Kind
-	enforce   Enforcer
-	available bool
-	clock     gocore.Clock
-	location  *time.Location
+	store    *store
+	kinds    []Kind
+	enforce  Enforcer
+	emailOK  bool
+	pushOK   bool
+	clock    gocore.Clock
+	location *time.Location
 }
 
 // Get returns the person's settings (NOTIF-PREF-001, NOTIF-QUIET-001).
 func (s *Settings) Get(ctx context.Context, userID int) (Preferences, error) {
-	chosen, err := s.store.choicesOf(ctx, userID)
+	chosenEmail, err := s.store.choicesOf(ctx, userID, emailChannel)
+	if err != nil {
+		return Preferences{}, apperr.Internal(err)
+	}
+
+	chosenPush, err := s.store.choicesOf(ctx, userID, pushChannel)
 	if err != nil {
 		return Preferences{}, apperr.Internal(err)
 	}
@@ -93,39 +125,88 @@ func (s *Settings) Get(ctx context.Context, userID int) (Preferences, error) {
 		return Preferences{}, err
 	}
 
-	out := Preferences{EmailAvailable: s.available, QuietHours: quiet, TimeZone: s.location.String()}
+	out := Preferences{ //nolint:exhaustruct,exhaustruct_v5 // zero by design
+		EmailAvailable: s.emailOK, PushAvailable: s.pushOK, QuietHours: quiet, TimeZone: s.location.String(),
+	}
 
 	for _, k := range s.kinds {
 		if k.internal {
 			continue
 		}
 
-		setting, err := s.resolve(ctx, k, userID, chosen)
+		email, err := s.resolve(ctx, k, userID, ChannelEmail, chosenEmail)
 		if err != nil {
 			return Preferences{}, err
 		}
 
-		out.Categories = append(out.Categories, CategorySettings{Category: k.code, Email: setting})
+		pushed, err := s.resolve(ctx, k, userID, ChannelPush, chosenPush)
+		if err != nil {
+			return Preferences{}, err
+		}
+
+		out.Categories = append(out.Categories, CategorySettings{Category: k.code, Email: email, Push: pushed})
 	}
 
 	return out, nil
 }
 
-// SetEmail turns the e-mail of the category on or off for the person and returns the setting as it is now. A setting the
-// application enforces is refused (ReasonEnforced), and so is turning e-mail on when the application sends none
-// (ReasonEmailUnavailable). An unknown or internal category is not found. Only a choice that differs from the
+// SetEmail turns the e-mail of the category on or off for the person and returns the settings as they are now. A
+// setting the application enforces is refused (ReasonEnforced), and so is turning e-mail on when the application sends
+// none (ReasonEmailUnavailable). An unknown or internal category is not found. Only a choice that differs from the
 // category's default is kept.
 func (s *Settings) SetEmail(ctx context.Context, userID int, category string, on bool) (CategorySettings, error) {
+	return s.set(ctx, userID, category, ChannelEmail, on)
+}
+
+// SetPush is SetEmail for web push: ReasonPushUnavailable when the application was not given WithPush.
+func (s *Settings) SetPush(ctx context.Context, userID int, category string, on bool) (CategorySettings, error) {
+	return s.set(ctx, userID, category, ChannelPush, on)
+}
+
+// SetQuietHours sets the person's quiet hours and returns them. Invalid ones (out of range, or start equal to end) are
+// refused with ReasonQuietHoursInvalid.
+func (s *Settings) SetQuietHours(ctx context.Context, userID int, hours QuietHours) (QuietHours, error) {
+	if hours.Validate() != nil {
+		return QuietHours{}, apperr.New(ErrInvalidQuietHours, string(ReasonQuietHoursInvalid), apperr.CodeValidationError).
+			WithReason(ReasonQuietHoursInvalid)
+	}
+
+	err := s.store.saveQuiet(ctx, userID, hours, whole(s.clock.Now()))
+	if err != nil {
+		return QuietHours{}, apperr.Internal(err)
+	}
+
+	return hours, nil
+}
+
+// available says whether the application sends on the channel at all.
+func (s *Settings) available(ch Channel) bool {
+	if ch == ChannelPush {
+		return s.pushOK
+	}
+
+	return s.emailOK
+}
+
+func (s *Settings) set(
+	ctx context.Context,
+	userID int,
+	category string,
+	channel Channel,
+	enabled bool,
+) (CategorySettings, error) {
 	k, ok := s.configurable(category)
 	if !ok {
 		return CategorySettings{}, apperr.NotFound("notification category not found").WithReason(ReasonCategoryUnknown)
 	}
 
-	if !s.available {
-		return CategorySettings{}, apperr.New(nil, string(ReasonEmailUnavailable), apperr.CodeInvalidArgument).WithReason(ReasonEmailUnavailable)
+	if !s.available(channel) {
+		reason := channel.unavailable()
+
+		return CategorySettings{}, apperr.New(nil, string(reason), apperr.CodeInvalidArgument).WithReason(reason)
 	}
 
-	current, err := s.resolve(ctx, k, userID, map[string]bool{}) // only the enforcer matters here
+	current, err := s.resolve(ctx, k, userID, channel, map[string]bool{}) // only the enforcer matters here
 	if err != nil {
 		return CategorySettings{}, err
 	}
@@ -134,36 +215,33 @@ func (s *Settings) SetEmail(ctx context.Context, userID int, category string, on
 		return CategorySettings{}, apperr.New(nil, string(ReasonEnforced), apperr.CodeInvalidArgument).WithReason(ReasonEnforced)
 	}
 
-	if on == k.email {
-		err = s.store.clearChoice(ctx, userID, k.code, emailChannel)
+	if enabled == k.defaultOn(channel) {
+		err = s.store.clearChoice(ctx, userID, k.code, string(channel))
 	} else {
-		err = s.store.setChoice(ctx, userID, k.code, emailChannel, on, whole(s.clock.Now()))
+		err = s.store.setChoice(ctx, userID, k.code, string(channel), enabled, whole(s.clock.Now()))
 	}
 
 	if err != nil {
 		return CategorySettings{}, apperr.Internal(err)
 	}
 
-	setting := Setting{Enabled: on, Source: SourcePerson}
-	if on == k.email {
-		setting.Source = SourceDefault
-	}
-
-	return CategorySettings{Category: k.code, Email: setting}, nil
+	return s.categoryOf(ctx, userID, k)
 }
 
-// SetQuietHours sets the person's quiet hours and returns them. Invalid ones (out of range, or start equal to end)
-// are refused with ReasonQuietHoursInvalid.
-func (s *Settings) SetQuietHours(ctx context.Context, userID int, q QuietHours) (QuietHours, error) {
-	if q.Validate() != nil {
-		return QuietHours{}, apperr.New(ErrInvalidQuietHours, string(ReasonQuietHoursInvalid), apperr.CodeValidationError).WithReason(ReasonQuietHoursInvalid)
+// categoryOf reads the settings of one category as they are now.
+func (s *Settings) categoryOf(ctx context.Context, userID int, k Kind) (CategorySettings, error) {
+	out := CategorySettings{Category: k.code} //nolint:exhaustruct,exhaustruct_v5 // zero by design
+
+	for ch, into := range map[Channel]*Setting{ChannelEmail: &out.Email, ChannelPush: &out.Push} {
+		setting, err := s.resolve(ctx, k, userID, ch, nil)
+		if err != nil {
+			return CategorySettings{}, err
+		}
+
+		*into = setting
 	}
 
-	if err := s.store.saveQuiet(ctx, userID, q, whole(s.clock.Now())); err != nil {
-		return QuietHours{}, apperr.Internal(err)
-	}
-
-	return q, nil
+	return out, nil
 }
 
 func (s *Settings) configurable(code string) (Kind, bool) {
@@ -189,62 +267,68 @@ func (s *Settings) quietOf(ctx context.Context, userID int) (QuietHours, error) 
 	return DefaultQuietHours(), nil
 }
 
-// resolve is NOTIF-PREF-001 for one person and one category: the enforced setting, else the person's choice (chosen,
-// read from the store when nil), else the default. Nothing is e-mailed without mail, and an internal category is
-// never e-mailed.
-func (s *Settings) resolve(ctx context.Context, k Kind, userID int, chosen map[string]bool) (Setting, error) {
-	if !s.available || k.internal {
+// resolve is NOTIF-PREF-001 for one person, category and channel: the enforced setting, else the person's choice
+// (chosen, read from the store when nil), else the default. Nothing is sent on a channel the application does not have,
+// and an internal category is never configurable.
+func (s *Settings) resolve(
+	ctx context.Context,
+	kind Kind,
+	userID int,
+	channel Channel,
+	chosen map[string]bool,
+) (Setting, error) {
+	if !s.available(channel) || kind.internal {
 		return Setting{Enabled: false, Source: SourceDefault}, nil
 	}
 
 	if s.enforce != nil {
-		on, enforced, err := s.enforce(ctx, userID, k)
+		enabled, enforced, err := s.enforce(ctx, userID, kind, channel)
 		if err != nil {
 			return Setting{}, apperr.Internal(fmt.Errorf("notification: the enforcer failed: %w", err))
 		}
 
 		if enforced {
-			return Setting{Enabled: on, Source: SourceEnforced}, nil
+			return Setting{Enabled: enabled, Source: SourceEnforced}, nil
 		}
 	}
 
 	if chosen == nil {
 		var err error
-		if chosen, err = s.store.choicesOf(ctx, userID); err != nil {
+
+		chosen, err = s.store.choicesOf(ctx, userID, string(channel))
+		if err != nil {
 			return Setting{}, apperr.Internal(err)
 		}
 	}
 
-	if on, ok := chosen[k.code]; ok {
-		return Setting{Enabled: on, Source: SourcePerson}, nil
+	if enabled, ok := chosen[kind.code]; ok {
+		return Setting{Enabled: enabled, Source: SourcePerson}, nil
 	}
 
-	return Setting{Enabled: k.email, Source: SourceDefault}, nil
+	return Setting{Enabled: kind.defaultOn(channel), Source: SourceDefault}, nil
 }
 
-// emailFor resolves the e-mail setting of one category for several people, with one read of their choices and
-// one of their quiet hours, for Send.
-func (s *Settings) emailFor(ctx context.Context, k Kind, ids []int) (map[int]Setting, error) {
+// settingsFor resolves the setting of one category and channel for several people, with one read of their choices, for
+// Send.
+func (s *Settings) settingsFor(ctx context.Context, kind Kind, ids []int, channel Channel) (map[int]Setting, error) {
 	out := make(map[int]Setting, len(ids))
 
-	if !s.available || k.internal {
+	if !s.available(channel) || kind.internal {
 		return out, nil
 	}
 
-	chosen, err := s.store.choicesFor(ctx, ids, k.code, emailChannel)
+	chosen, err := s.store.choicesFor(ctx, ids, kind.code, string(channel))
 	if err != nil {
 		return nil, err
 	}
 
 	for _, id := range ids {
-		var mine map[string]bool
+		mine := map[string]bool{}
 		if on, ok := chosen[id]; ok {
-			mine = map[string]bool{k.code: on}
-		} else {
-			mine = map[string]bool{}
+			mine[kind.code] = on
 		}
 
-		setting, err := s.resolve(ctx, k, id, mine)
+		setting, err := s.resolve(ctx, kind, id, channel, mine)
 		if err != nil {
 			return nil, err
 		}

@@ -8,11 +8,12 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// choicesOf returns the person's own choices of e-mail, by category code.
-func (s *store) choicesOf(ctx context.Context, userID int) (map[string]bool, error) {
+// choicesOf returns the person's own choices on a channel, by category code.
+func (s *store) choicesOf(ctx context.Context, userID int, channel string) (map[string]bool, error) {
 	var rows []preferenceRow
 
-	if err := s.conn(ctx).Where("user_id = ? AND channel = ?", userID, emailChannel).Find(&rows).Error; err != nil {
+	err := s.conn(ctx).Where("user_id = ? AND channel = ?", userID, channel).Find(&rows).Error
+	if err != nil {
 		return nil, fmt.Errorf("notification: read the person's choices: %w", err)
 	}
 
