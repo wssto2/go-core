@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.8.3
+
+Module routes see the signed-in person's tenant, so an application's hooks read tenant-scoped data as the person does.
+
+### Added
+
+- `identity.WithTenant(func(ctx, account.Account) (tenantID int, all bool, err error))`: the application says which tenant a signed-in account belongs to (or that it sees all of them), and identity puts it on every route, the modules' and the application's, right after authentication (`tenancy.WithTenantID` / `WithAllTenants`; an error aborts the request). Without it no tenant is set, as before. identity's accounts are not `TenantAware`, so this is how an application that signs in through identity gives its hooks (`access.WithSubjectReach`, `WithBindingCheck`) the tenant.
+- `notification.TestMessage(func(Recipient) Message)`: the application words the test notification (`POST /v1/notifications/test` and a device's test push) per recipient, with its own link. Default: the English text, no link.
+- `web.PathInt(ctx, key) (int, bool)`: a path id that is not a positive integer answers 422 with the standard validation body (`must_be_number` / `must_be_positive_number` on the parameter), as a route-bound input does, and aborts; the handler returns on false.
+
+### Changed
+
+- App routes run `tenancy.FromAuthenticatedUser` after authentication, for applications whose authenticated users are `TenantAware` (`gocore.WithAuthentication`).
+- `access`: `GET /v1/iam/users/:id/scopes` offers only the places where the `WithBindingCheck` accepts a binding of that subject (asked once per place and for the root; a 4xx refusal leaves the place out, any other error fails the request). Before, every place the actor could assign was offered and the bind was refused afterwards.
+- `event`: one worker, `event.consumers`, fetches every consumer's due events in one query per tick and hands each consumer its own, which it leases and handles as before (order and batch size per consumer unchanged; no `SKIP LOCKED`). **Breaking:** `Queue.Workers()` returns that one worker instead of one per consumer.
+
+### Deprecated
+
+- `web.GetParamInt`: it answers 0 for a missing or malformed id without an error. Use `web.PathInt`.
+
 ## v1.8.2
 
 A host that caches verified tokens next to identity no longer serves a signed-out token.
