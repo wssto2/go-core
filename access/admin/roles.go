@@ -201,26 +201,26 @@ func (r *Roles) Delete(ctx context.Context, ref string) error {
 	return nil
 }
 
-// Compare says how a custom role differs from a predefined one, by permission
-// and qualifier.
+// Compare says how a role differs from another, by permission and qualifier.
+// Any two roles the actor may view are compared, predefined or custom.
 func (r *Roles) Compare(ctx context.Context, ref, with string) (Comparison, error) {
 	if err := r.cfg.Engine.Require(ctx, ViewRoles); err != nil {
 		return Comparison{}, err
 	}
 
-	custom, err := r.custom(ctx, ref)
+	role, err := r.role(ctx, ref)
 	if err != nil {
 		return Comparison{}, err
 	}
 
-	other, err := r.predefined(with)
+	other, err := r.role(ctx, with)
 	if err != nil {
 		return Comparison{}, err
 	}
 
 	cat := r.cfg.Engine.Catalogue()
 
-	return compare(custom.Resolve(cat), other.Resolve(cat)), nil
+	return compare(role.Resolve(cat), other.Resolve(cat)), nil
 }
 
 func compare(role, other []authz.Grant) Comparison {
