@@ -37,7 +37,7 @@ func (a *App) checked(extra []Problem) error {
 	problems = append(problems, extra...)
 
 	for _, l := range a.laters {
-		if !l.isSet() {
+		if !l.isSet() && !l.keptByContainer() {
 			problems = append(problems, Problem{
 				What: "gocore.Later[" + l.typeName() + "] was never set",
 				Fix:  "call Set on it once every feature that needs it is installed",
@@ -115,16 +115,18 @@ func (a *App) routeProblems() []Problem {
 	return problems
 }
 
+var errRefused = errors.New("was refused by the router")
+
 // dryMount mounts r on a scratch router, turning the router's panic on a
 // path it refuses into an error.
-func (a *App) dryMount(scratch *gin.Engine, r mounted) (err error) {
+func (a *App) dryMount(scratch *gin.Engine, entry mounted) (err error) {
 	defer func() {
 		if p := recover(); p != nil {
-			err = fmt.Errorf("route %s was refused by the router: %v", r.Spec(), p)
+			err = fmt.Errorf("route %s %w: %v", entry.Spec(), errRefused, p)
 		}
 	}()
 
-	return r.mount(scratch.Group(a.prefix), a.security())
+	return entry.mount(scratch.Group(a.prefix), a.security())
 }
 
 func (a *App) catalogued(permission string) bool {
@@ -231,8 +233,18 @@ func (m *featuresModule) Register(c *bootstrap.Container) error {
 		return fmt.Errorf("gocore: routes need the HTTP engine: %w", err)
 	}
 
+	for _, l := range m.app.laters {
+		if l.keptByContainer() {
+			err := l.fill(c)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	for _, r := range m.app.routes {
-		if err := r.mount(engine.Group(m.app.prefix), m.app.security()); err != nil {
+		err := r.mount(engine.Group(m.app.prefix), m.app.security())
+		if err != nil {
 			return err
 		}
 	}
@@ -302,7 +314,8 @@ func (a *App) Handler() (http.Handler, error) {
 	engine.Use(middlewares.ErrorHandler(a.log, nil, true))
 
 	for _, r := range a.routes {
-		if err := r.mount(engine.Group(a.prefix), a.security()); err != nil {
+		err := r.mount(engine.Group(a.prefix), a.security())
+		if err != nil {
 			return nil, err
 		}
 	}
