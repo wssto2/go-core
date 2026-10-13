@@ -182,7 +182,7 @@ func (h handlers) listRoles(ctx context.Context, _ route.None) (RoleList, error)
 
 	out := RoleList{Roles: make([]RoleSummary, len(views))}
 	for i, v := range views {
-		out.Roles[i] = summaryOf(v)
+		out.Roles[i] = RoleSummaryOf(v)
 	}
 
 	return out, nil
@@ -194,7 +194,7 @@ func (h handlers) showRole(ctx context.Context, in RoleInput) (Role, error) {
 		return Role{}, err
 	}
 
-	return roleOf(view), nil
+	return RoleOf(view), nil
 }
 
 func (h handlers) roleHolders(ctx context.Context, in RoleInput) (RoleHolders, error) {
@@ -226,7 +226,7 @@ func (h handlers) createRole(ctx context.Context, in CreateRoleInput) (Role, err
 		return Role{}, err
 	}
 
-	return roleOf(view), nil
+	return RoleOf(view), nil
 }
 
 func (h handlers) updateRole(ctx context.Context, in UpdateRoleInput) (Role, error) {
@@ -240,7 +240,7 @@ func (h handlers) updateRole(ctx context.Context, in UpdateRoleInput) (Role, err
 		return Role{}, err
 	}
 
-	return roleOf(view), nil
+	return RoleOf(view), nil
 }
 
 func (h handlers) deleteRole(ctx context.Context, in RoleInput) (route.Empty, error) {
@@ -264,7 +264,7 @@ func (h handlers) bindableRoles(ctx context.Context, in BindableInput) (Bindable
 
 	out := BindableRoles{Roles: make([]Role, len(views))}
 	for i, v := range views {
-		out.Roles[i] = roleOf(v)
+		out.Roles[i] = RoleOf(v)
 	}
 
 	return out, nil
@@ -278,7 +278,7 @@ func (h handlers) subjectAccess(ctx context.Context, in SubjectInput) (SubjectAc
 		return SubjectAccess{}, err
 	}
 
-	return accessOf(a), nil
+	return SubjectAccessOf(a), nil
 }
 
 func (h handlers) subjectScopes(ctx context.Context, in SubjectInput) (ScopeOptions, error) {
@@ -301,7 +301,7 @@ func (h handlers) bind(ctx context.Context, in BindInput) (Binding, error) {
 		return Binding{}, err
 	}
 
-	return bindingOf(b), nil
+	return BindingOf(b), nil
 }
 
 func (h handlers) unbind(ctx context.Context, in UnbindInput) (route.Empty, error) {

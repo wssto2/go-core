@@ -171,14 +171,16 @@ type ScopeOptions struct {
 	Places    []ScopeOption `json:"places"`
 }
 
-func scopeOf(p admin.Place) Scope {
-	out := Scope{Level: p.Scope.Level}
-	if p.Scope.ID > 0 {
-		out.ID = &p.Scope.ID
+// ScopeOf is where a binding or grant applies, in the access wire.
+// An app that serves its own subject kind answers in the same wire with these.
+func ScopeOf(place admin.Place) Scope {
+	out := Scope{Level: place.Scope.Level, ID: nil, Name: nil}
+	if place.Scope.ID > 0 {
+		out.ID = &place.Scope.ID
 	}
 
-	if p.Name != "" {
-		out.Name = &p.Name
+	if place.Name != "" {
+		out.Name = &place.Name
 	}
 
 	return out
@@ -202,21 +204,25 @@ func attrsOf(a map[string][]string) []Constraint {
 	return out
 }
 
-func summaryOf(v admin.RoleView) RoleSummary {
+// RoleSummaryOf is a role as the roles list shows it.
+// An app that serves its own subject kind answers in the same wire with these.
+func RoleSummaryOf(view admin.RoleView) RoleSummary {
 	return RoleSummary{
-		Ref: v.Ref, ID: idOf(v), Key: present(v.Key), Name: v.Name, Description: v.Description,
-		Predefined: v.Predefined, Computed: v.Computed, Attrs: attrsOf(v.Attrs),
-		Holders: v.Holders, PermissionCount: v.PermissionCount,
+		Ref: view.Ref, ID: idOf(view), Key: present(view.Key), Name: view.Name, Description: view.Description,
+		Predefined: view.Predefined, Computed: view.Computed, Attrs: attrsOf(view.Attrs),
+		Holders: view.Holders, PermissionCount: view.PermissionCount,
 	}
 }
 
-func roleOf(v admin.RoleView) Role {
-	s := summaryOf(v)
+// RoleOf is a role with its grants.
+// An app that serves its own subject kind answers in the same wire with these.
+func RoleOf(view admin.RoleView) Role {
+	s := RoleSummaryOf(view)
 
 	return Role{
 		Ref: s.Ref, ID: s.ID, Key: s.Key, Name: s.Name, Description: s.Description, Predefined: s.Predefined,
 		Computed: s.Computed, Attrs: s.Attrs, Holders: s.Holders, PermissionCount: s.PermissionCount,
-		Grants: grantsOf(v.Grants),
+		Grants: grantsOf(view.Grants),
 	}
 }
 
@@ -239,8 +245,10 @@ func grantsOf(grants []authz.Grant) []Grant {
 
 func subjectOf(s authz.Subject) SubjectRef { return SubjectRef{Kind: s.Kind, ID: s.ID} }
 
-func bindingOf(b admin.Binding) Binding {
-	out := Binding{ID: b.ID, Role: summaryOf(b.Role), Scope: scopeOf(b.Place), CreatedAt: b.CreatedAt}
+// BindingOf is one role a person holds, where, and who gave it.
+// An app that serves its own subject kind answers in the same wire with these.
+func BindingOf(b admin.Binding) Binding {
+	out := Binding{ID: b.ID, Role: RoleSummaryOf(b.Role), Scope: ScopeOf(b.Place), CreatedAt: b.CreatedAt, CreatedBy: nil}
 	if b.CreatedBy > 0 {
 		out.CreatedBy = &PersonRef{ID: b.CreatedBy, Name: b.CreatedByName}
 	}
@@ -248,26 +256,28 @@ func bindingOf(b admin.Binding) Binding {
 	return out
 }
 
-func accessOf(a admin.SubjectAccess) SubjectAccess {
+// SubjectAccessOf is everything a subject holds and what it adds up to.
+// An app that serves its own subject kind answers in the same wire with these.
+func SubjectAccessOf(access admin.SubjectAccess) SubjectAccess {
 	out := SubjectAccess{
-		Subject: subjectOf(a.Subject), CanManage: a.CanManage,
-		Bindings: make([]Binding, len(a.Bindings)), Effective: make([]EffectivePermission, len(a.Effective)),
+		Subject: subjectOf(access.Subject), CanManage: access.CanManage,
+		Bindings: make([]Binding, len(access.Bindings)), Effective: make([]EffectivePermission, len(access.Effective)),
 	}
 
-	for i, b := range a.Bindings {
-		out.Bindings[i] = bindingOf(b)
+	for i, b := range access.Bindings {
+		out.Bindings[i] = BindingOf(b)
 	}
 
-	for i, p := range a.Effective {
+	for idx, p := range access.Effective {
 		perm := EffectivePermission{Permission: p.Permission, Unavailable: p.Unavailable, Grants: make([]EffectiveGrant, len(p.Grants))}
 		for j, g := range p.Grants {
 			perm.Grants[j] = EffectiveGrant{
-				Qualifier: g.Qualifier.String(), Scope: scopeOf(g.Place), Attrs: attrsOf(g.Attrs),
+				Qualifier: g.Qualifier.String(), Scope: ScopeOf(g.Place), Attrs: attrsOf(g.Attrs),
 				BindingID: g.BindingID, RoleKey: g.RoleKey, RoleName: g.RoleName,
 			}
 		}
 
-		out.Effective[i] = perm
+		out.Effective[idx] = perm
 	}
 
 	return out
@@ -276,7 +286,7 @@ func accessOf(a admin.SubjectAccess) SubjectAccess {
 func holdersOf(holders []admin.Holder) RoleHolders {
 	out := RoleHolders{Holders: make([]RoleHolder, len(holders))}
 	for i, h := range holders {
-		out.Holders[i] = RoleHolder{Subject: subjectOf(h.Subject), Name: h.Name, Scope: scopeOf(h.Place)}
+		out.Holders[i] = RoleHolder{Subject: subjectOf(h.Subject), Name: h.Name, Scope: ScopeOf(h.Place)}
 	}
 
 	return out

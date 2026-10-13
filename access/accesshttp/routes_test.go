@@ -39,10 +39,11 @@ func (people) SubjectNames(_ context.Context, subjects []authz.Subject) (map[aut
 }
 
 type server struct {
-	t      *testing.T
-	handle http.Handler
-	store  *gormstore.Store
-	engine *authz.Engine
+	t        *testing.T
+	handle   http.Handler
+	store    *gormstore.Store
+	engine   *authz.Engine
+	bindings *admin.Bindings
 }
 
 // newServer mounts the routes under prefix on an application that signs in the
@@ -107,7 +108,7 @@ func newServer(t *testing.T, prefix string) *server {
 	handle, err := app.Handler()
 	require.NoError(t, err)
 
-	return &server{t: t, handle: handle, store: store, engine: engine}
+	return &server{t: t, handle: handle, store: store, engine: engine, bindings: bindings}
 }
 
 type catalogueOf struct{ *authztest.Places }
@@ -293,6 +294,23 @@ func TestBindingsOverHTTP(t *testing.T) {
 	assert.Equal(t, accesshttp.Scope{Level: "dealer", ID: new(10), Name: new("Dealer 10")}, binding.Scope)
 	assert.Equal(t, &accesshttp.PersonRef{ID: 2, Name: "Person 2"}, binding.CreatedBy)
 
+	t.Run("the exported builders answer as the routes do", func(t *testing.T) { //nolint:paralleltest // shared server
+		ctx := authz.WithPrincipal(context.Background(), authz.User(2, 0))
+		stored, err := s.bindings.Access(ctx, authz.Subject{Kind: authz.KindUser, ID: 5})
+		require.NoError(t, err)
+		require.Len(t, stored.Bindings, 1)
+
+		wire := decode[accesshttp.SubjectAccess](t, s.do(2, "GET", "/v1/iam/users/5/access", nil))
+		require.Len(t, wire.Bindings, 1)
+
+		built := accesshttp.BindingOf(stored.Bindings[0])
+		assert.Equal(t, mustJSON(t, wire.Bindings[0]), mustJSON(t, built))
+		assert.Equal(t, mustJSON(t, binding), mustJSON(t, built))
+		assert.Equal(t, binding.Scope, accesshttp.ScopeOf(stored.Bindings[0].Place))
+		assert.Equal(t, binding.Role, accesshttp.RoleSummaryOf(stored.Bindings[0].Role))
+		assert.Equal(t, mustJSON(t, wire), mustJSON(t, accesshttp.SubjectAccessOf(stored)))
+	})
+
 	t.Run("refusals carry their reason", func(t *testing.T) {
 		other := s.do(2, "POST", "/v1/iam/users/5/bindings", accesshttp.BindInput{RoleRef: "seller", Level: "dealer", ScopeID: new(20)})
 		assert.Equal(t, http.StatusForbidden, other.Status)
@@ -378,4 +396,13 @@ func TestNonNumericPathIDsAreRefusedByTheRoute(t *testing.T) {
 		got := srv.do(1, route.method, route.path, map[string]any{"role_ref": "seller", "level": "organization"})
 		assert.Equal(t, http.StatusUnprocessableEntity, got.Status, route.method+" "+route.path)
 	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+
+	return string(b)
 }
