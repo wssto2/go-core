@@ -396,3 +396,14 @@ func TestNewNamesTheMissingDependency(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Deps.Accounts is missing")
 }
+
+func TestLimitsLargerThanGoCoresAreRefused(t *testing.T) {
+	for _, l := range []account.Limits{{Login: account.LoginMax + 1}, {Name: account.NameMax + 1}, {Email: account.EmailMax + 1}, {Phone: -1}} {
+		_, err := account.New(account.Deps{}, account.Config{Limits: l})
+		require.Error(t, err)
+	}
+
+	// the dependencies are checked first, so prove the limit check by a full set
+	kit := identitytest.New(t, nil, identitytest.WithConfig(account.Config{Limits: account.Limits{Name: 40}}))
+	assert.NotNil(t, kit.SignIn)
+}

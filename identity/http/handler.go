@@ -4,12 +4,14 @@ import (
 	"context"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/navigation"
 	"github.com/wssto2/go-core/route"
+	"github.com/wssto2/go-core/validation"
 )
 
 // Handler serves the routes. Build it with NewHandler.
@@ -24,6 +26,7 @@ type Handler struct {
 	principal  PrincipalOf
 	access     AccessProvider
 	navigation NavigationProvider
+	limits     account.Limits
 }
 
 // Config is what the handler is built from. Services, Profile and Clock
@@ -43,6 +46,9 @@ type Config struct {
 	Access AccessProvider
 	// Navigation, when nil, leaves the payload without a menu.
 	Navigation NavigationProvider
+	// Limits are the widths the store keeps (the same as account.Config.Limits): a longer
+	// login, name, e-mail address or phone is refused with 422 like a tag's max.
+	Limits account.Limits
 }
 
 // NewHandler returns the handler for the configuration.
@@ -50,7 +56,7 @@ func NewHandler(cfg Config) *Handler {
 	h := &Handler{
 		signIn: cfg.Services.SignIn, users: cfg.Services.Users, admin: cfg.Admin, profile: cfg.Profile, clock: cfg.Clock,
 		cookies: cfg.Cookies.withDefaults(), project: cfg.Project, principal: cfg.Principal,
-		access: cfg.Access, navigation: cfg.Navigation,
+		access: cfg.Access, navigation: cfg.Navigation, limits: cfg.Limits.WithDefaults(),
 	}
 
 	if h.project == nil {
@@ -269,4 +275,29 @@ func tokenOf(authorization, cookie string) string {
 	}
 
 	return cookie
+}
+
+// field is an input value and the widest the store keeps of it.
+type field struct {
+	name, value string
+	max         int
+}
+
+// fit refuses the values wider than the store keeps with the validation error a
+// tag's max gives (422, the field and {"max": n}), so a client handles both alike.
+func fit(fields ...field) error {
+	failures, debug := map[string][]validation.Failure{}, map[string][]string{}
+
+	for _, f := range fields {
+		if utf8.RuneCountInString(f.value) > f.max {
+			failures[f.name] = []validation.Failure{validation.FailWith(validation.CodeMax, map[string]any{"max": f.max})}
+			debug[f.name] = []string{string(validation.CodeMax)}
+		}
+	}
+
+	if len(failures) == 0 {
+		return nil
+	}
+
+	return validation.NewValidationError("validation failed", failures, debug)
 }

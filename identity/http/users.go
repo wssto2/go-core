@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/wssto2/go-core/apperr"
@@ -382,6 +383,10 @@ func (h *Handler) createUser(ctx context.Context, in CreateUserInput) (UserDetai
 		return UserDetail{}, err
 	}
 
+	if err := h.fitAccount(in.Login, in.Name, in.Email, in.Phone); err != nil {
+		return UserDetail{}, err
+	}
+
 	acc, err := h.admin.Create(ctx, account.CreateAccount{
 		Login: in.Login, Name: in.Name, Email: in.Email, Phone: in.Phone, Locale: in.Locale, Password: in.Password, ActorID: who.Account.ID,
 	})
@@ -395,6 +400,10 @@ func (h *Handler) createUser(ctx context.Context, in CreateUserInput) (UserDetai
 func (h *Handler) updateUser(ctx context.Context, in UpdateUserInput) (UserDetail, error) {
 	who, err := h.actor(ctx)
 	if err != nil {
+		return UserDetail{}, err
+	}
+
+	if err := h.fitAccount(in.Login, in.Name, in.Email, in.Phone); err != nil {
 		return UserDetail{}, err
 	}
 
@@ -647,4 +656,12 @@ func (h *Handler) userActivity(ctx context.Context, in ActivityInput) (datatable
 	}
 
 	return pageOf(out, total, max(in.Page, 1), resolvedPerPage(in.PerPage)).WithViews(views...), nil
+}
+
+// fitAccount refuses the account fields wider than the store keeps, as the service will store them.
+func (h *Handler) fitAccount(login, name, email, phone string) error {
+	return fit(
+		field{"login", account.NormalizeLogin(login), h.limits.Login}, field{"name", strings.TrimSpace(name), h.limits.Name},
+		field{"email", account.NormalizeEmail(email), h.limits.Email}, field{"phone", strings.TrimSpace(phone), h.limits.Phone},
+	)
 }

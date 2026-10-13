@@ -49,6 +49,13 @@ func (s *SignIn) Login(ctx context.Context, in LoginInput) (Signed, error) {
 		return Signed{}, signInLocked(until)
 	}
 
+	// A login longer than the store keeps cannot exist: it is an unknown login, so a stranger learns nothing.
+	if utf8.RuneCountInString(login) > s.cfg.Limits.Login {
+		s.deps.Hasher.Matches(s.placeholder, in.Password)
+
+		return Signed{}, signInFailed()
+	}
+
 	acc, err := s.deps.Accounts.FindByLogin(ctx, login)
 	if errors.Is(err, ErrNotFound) {
 		s.deps.Hasher.Matches(s.placeholder, in.Password)

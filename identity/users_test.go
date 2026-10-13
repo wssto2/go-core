@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	nethttp "net/http"
+	"strings"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -368,4 +370,39 @@ func TestWithoutUserAdminLeavesThePathsToTheHost(t *testing.T) {
 	assert.Equal(t, nethttp.StatusNotFound, web.do(nethttp.MethodPost, "/v1/iam/users", map[string]string{}).Code)
 	assert.Equal(t, nethttp.StatusUnauthorized, get("/v1/iam/users/3/"+"sign"+"ins"), "the host's route answers")
 	assert.Equal(t, nethttp.StatusUnauthorized, get("/v1/iam/profile"), "the person's own profile stays")
+}
+
+// WithFieldLimits narrows what the routes take, whatever the order of WithConfig.
+func TestWithFieldLimitsHoldsOverInstall(t *testing.T) {
+	t.Parallel()
+
+	app := newApp(t)
+	identity.Install(app, identity.WithoutMail(),
+		identity.WithFieldLimits(account.Limits{Login: 6, Name: 10, Email: 40, Phone: 8}), identity.WithConfig(account.Config{TokenTTL: time.Hour}))
+	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
+
+	web := newClient(t, app)
+	login(t, web, "ana", "secret")
+
+	put := func(name, phone string) *httptest.ResponseRecorder {
+		return web.do(nethttp.MethodPut, "/v1/iam/profile", map[string]string{"name": name, "phone": phone})
+	}
+
+	assert.Equal(t, nethttp.StatusOK, put(strings.Repeat("n", 10), strings.Repeat("1", 8)).Code, "at the limits")
+	assert.Equal(t, nethttp.StatusUnprocessableEntity, put(strings.Repeat("n", 11), "1").Code)
+	assert.Equal(t, nethttp.StatusUnprocessableEntity, put("Ana", strings.Repeat("1", 9)).Code)
+
+	seed(t, app.Database(), identitytest.Account(8, "sevenee", "secret")) // kept before the limit was narrowed
+	long := newClient(t, app).do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "sevenee", "password": "secret"})
+	assert.Contains(t, long.Body.String(), "identity.signin.failed", "a login over the limit is a wrong sign-in")
+}
+
+func TestWithFieldLimitsLargerThanGoCoresStopsInstall(t *testing.T) {
+	t.Parallel()
+
+	app := newApp(t)
+	identity.Install(app, identity.WithoutMail(), identity.WithFieldLimits(account.Limits{Name: account.NameMax + 1}))
+
+	_, err := app.Handler()
+	assert.ErrorContains(t, err, "Limits")
 }

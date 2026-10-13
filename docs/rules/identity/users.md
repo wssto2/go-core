@@ -11,7 +11,12 @@ Module: `identity` (`identity/account` `Admin`, `identity/http` routes under `/v
 `identity.WithoutUserAdmin()` mounts none of these routes (no `Admin`, no `Searcher`), for an application with its own
 users module; the rules below then are that module's. The locale of a created or edited account must be one of
 `identity.WithLocales` when given (`422 identity.locale.unsupported`, `fields.locale`). `identity.WithAuditRecord`
-keeps the changes under the host's audit record type and verbs.
+keeps the changes under the host's audit record type and verbs. `identity.WithFieldLimits(account.Limits{Login, Name,
+Email, Phone})` narrows the widths for a store with narrower columns (zero is go-core's 100, 150, 255 and 30, which stay
+the ceiling; a larger limit stops Install). A longer name, phone or e-mail address is refused `422` with the same
+validation error as the input's `max` tag, on create, update, profile and e-mail change; a longer login cannot exist, so
+signing in with one fails like a wrong sign-in (`identity.signin.failed`). Calling `Admin` from code is not checked
+against the host limits: the store refuses it.
 
 An administrator creates, edits, deactivates and finds people, unlocks them, reads their sign-in history and the
 changes made to them, and ends their sessions. Who may is the routes' permission (`iam.user:view` reads,

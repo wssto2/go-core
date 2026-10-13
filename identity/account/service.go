@@ -39,6 +39,40 @@ type Config struct {
 	// a locale outside them is refused with identity.locale.unsupported (422). Empty accepts any
 	// BCP-47 tag. Compared as given: the store maps them to its own codes.
 	Locales []string
+	// Limits are the widths the host's store keeps, at most go-core's own (LoginMax ..).
+	Limits Limits
+}
+
+// Limits are the longest values, in characters, the host's store keeps. Zero is
+// go-core's own width (LoginMax, NameMax, EmailMax, PhoneMax, the ceiling of the
+// input tags): a host limit may only be smaller, so New refuses a larger one.
+type Limits struct {
+	Login, Name, Email, Phone int
+}
+
+// WithDefaults fills the zero limits with go-core's widths.
+func (l Limits) WithDefaults() Limits {
+	for _, f := range []struct {
+		v *int
+		d int
+	}{{&l.Login, LoginMax}, {&l.Name, NameMax}, {&l.Email, EmailMax}, {&l.Phone, PhoneMax}} {
+		if *f.v == 0 {
+			*f.v = f.d
+		}
+	}
+
+	return l
+}
+
+func (l Limits) check() error {
+	d := l.WithDefaults()
+	if l.Login < 0 || l.Name < 0 || l.Email < 0 || l.Phone < 0 ||
+		d.Login > LoginMax || d.Name > NameMax || d.Email > EmailMax || d.Phone > PhoneMax {
+		return fmt.Errorf("identity: Limits %+v must be positive and no larger than go-core's (login %d, name %d, e-mail %d, phone %d)",
+			l, LoginMax, NameMax, EmailMax, PhoneMax)
+	}
+
+	return nil
 }
 
 // Services is what New builds.
@@ -71,6 +105,12 @@ func New(d Deps, cfg Config) (Services, error) {
 	if d.Notices == nil {
 		d.Notices = NoNotices
 	}
+
+	if err := cfg.Limits.check(); err != nil {
+		return Services{}, err
+	}
+
+	cfg.Limits = cfg.Limits.WithDefaults()
 
 	if cfg.TokenTTL <= 0 {
 		cfg.TokenTTL = 24 * time.Hour

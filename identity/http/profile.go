@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/wssto2/go-core/datatable"
@@ -124,6 +125,10 @@ func (h *Handler) updateProfile(ctx context.Context, in UpdateProfileInput) (Pro
 		return ProfileResponse{}, err
 	}
 
+	if err := fit(field{"name", strings.TrimSpace(in.Name), h.limits.Name}, field{"phone", strings.TrimSpace(in.Phone), h.limits.Phone}); err != nil {
+		return ProfileResponse{}, err
+	}
+
 	view, err := h.profile.UpdateDetails(ctx, account.ProfileDetails{AccountID: who.Account.ID, Name: in.Name, Phone: in.Phone})
 
 	return profileOf(view), err
@@ -146,6 +151,10 @@ func (h *Handler) changeOwnPassword(ctx context.Context, in ChangePasswordInput)
 func (h *Handler) requestEmailChange(ctx context.Context, in RequestEmailInput) (PendingEmail, error) {
 	who, err := h.actor(ctx)
 	if err != nil {
+		return PendingEmail{}, err
+	}
+
+	if err := fit(field{"email", account.NormalizeEmail(in.Email), h.limits.Email}); err != nil {
 		return PendingEmail{}, err
 	}
 
