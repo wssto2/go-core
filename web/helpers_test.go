@@ -2,8 +2,11 @@ package web
 
 import (
 	"context"
+	"github.com/wssto2/go-core/middlewares"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -93,5 +96,40 @@ func TestGetPathID_DelegatesToNamed(t *testing.T) {
 
 	if !ok || id != 7 {
 		t.Fatalf("want (7, true), got (%d, %v)", id, ok)
+	}
+}
+
+func TestPathInt(t *testing.T) {
+	t.Parallel()
+
+	gin.SetMode(gin.TestMode)
+
+	bad := http.StatusUnprocessableEntity
+	cases := map[string]int{"7": http.StatusOK, "abc": bad, "0": bad, "-3": bad}
+
+	for value, want := range cases {
+		ran := false
+		router := gin.New()
+		router.Use(middlewares.ErrorHandler(slog.New(slog.DiscardHandler), nil, true))
+		router.GET("/x/:id", func(ctx *gin.Context) {
+			if _, ok := PathInt(ctx, "id"); !ok {
+				return
+			}
+
+			ran = true
+
+			ctx.Status(http.StatusOK)
+		})
+
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/x/"+value, nil))
+
+		if rec.Code != want || ran != (want == http.StatusOK) {
+			t.Fatalf("%s: want %d, handler ran %v, got %d %s", value, want, ran, rec.Code, rec.Body)
+		}
+
+		if want != http.StatusOK && !strings.Contains(rec.Body.String(), `"id":[`) {
+			t.Fatalf("%s: the field error belongs on id: %s", value, rec.Body)
+		}
 	}
 }

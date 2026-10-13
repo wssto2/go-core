@@ -3,12 +3,38 @@ package web
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/validation"
 	"strconv"
 )
 
+// PathInt reads a path parameter that must be a positive integer. Anything else (missing, not a number, zero or
+// negative) is answered 422 in the standard validation envelope with the error on the parameter's name, as a
+// route-bound input answers it (must_be_number, must_be_positive_number), and the request is aborted: the handler
+// must return on false.
+func PathInt(ctx *gin.Context, key string) (int, bool) {
+	code := validation.CodeMustBeNumber
+
+	n, err := strconv.Atoi(ctx.Param(key))
+	if err == nil {
+		if n > 0 {
+			return n, true
+		}
+
+		code = validation.CodeMustBePositiveNumber
+	}
+
+	_ = ctx.Error(validation.NewValidationError("validation failed",
+		map[string][]validation.Failure{key: {validation.Fail(code)}}, map[string][]string{key: {"path"}}))
+	ctx.Abort()
+
+	return 0, false
+}
+
 // GetParamInt reads a URL path parameter by name and returns (int, bool).
 // Returns (0, false) if the parameter is missing or cannot be parsed as an integer.
-
+//
+// Deprecated: it writes nothing on false, so a handler that ignores the flag runs on 0 and answers 200. Use PathInt,
+// which answers 422 itself.
 func GetParamInt(ctx *gin.Context, key string) (int, bool) {
 	val := ctx.Param(key)
 	if val == "" {
