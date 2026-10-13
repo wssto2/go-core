@@ -14,6 +14,7 @@ import (
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/logger"
 	"github.com/wssto2/go-core/route"
+	"github.com/wssto2/go-core/tenancy"
 	"github.com/wssto2/go-core/worker"
 	"gorm.io/gorm"
 )
@@ -109,6 +110,10 @@ func WithAuthorizer(a authz.Authorizer) Option {
 //
 //	gocore.WithAuthentication(auth.Authenticated(provider), authzhttp.Principals(resolve))
 //
+// The App then puts the signed-in person's tenant in the request context, as
+// tenancy.FromAuthenticatedUser does (always on: a person who is not
+// tenancy.TenantAware gets nothing, and Public routes are not touched).
+//
 // An unauthenticated request must be rejected with apperr.Unauthorized, as
 // those do. Without this option, any route that is not Public stops start-up.
 func WithAuthentication(middleware ...gin.HandlerFunc) Option {
@@ -202,7 +207,13 @@ func New(cfg bootstrap.Config, opts ...Option) *App {
 
 // security is what routes are mounted behind.
 func (a *App) security() route.Security {
-	return route.Security{Authenticate: a.authenticate, Authorizer: a.authorizer}
+	var chain []gin.HandlerFunc
+	if len(a.authenticate) > 0 {
+		// The tenant follows the sign-in, so hooks and handlers of every route read tenant-scoped data as the person does.
+		chain = append(append(chain, a.authenticate...), tenancy.FromAuthenticatedUser())
+	}
+
+	return route.Security{Authenticate: chain, Authorizer: a.authorizer}
 }
 
 func (a *App) fail(what, fix string) {
