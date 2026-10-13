@@ -16,11 +16,15 @@ import (
 // (NOTIF-CATEGORY-001). The in-app notification is always on; e-mail is off unless
 // the category asks for it:
 //
-//	var TicketAssigned  = notification.Category("tickets.assigned").EmailByDefault() // e-mail on until the person turns it off
-//	var TicketCommented = notification.Category("tickets.commented")                  // in-app only until the person turns e-mail on
+// var TicketAssigned = notification.Category("tickets.assigned").EmailByDefault() // e-mail on until the person turns
+// it off var TicketCommented = notification.Category("tickets.commented") // in-app only until the person turns e-mail
+// on
 //
-// Push is off the same way, and on with PushByDefault. HighPriority marks a category a person should hear about at once:
-// its pushes are urgent and live four hours instead of a day (NOTIF-DELIVERY-001).
+// it off var TicketCommented = notification.Category("tickets.commented") // in-app only until the person turns e-mail
+// on
+//
+// Push is off the same way, and on with PushByDefault. HighPriority marks a category a person should hear about at
+// once: its pushes are urgent and live four hours instead of a day (NOTIF-DELIVERY-001).
 //
 // A Kind is a comparable value; Send takes one, and Install takes them in the same list as its options.
 type Kind struct {
@@ -44,8 +48,8 @@ func (k Kind) EmailByDefault() Kind {
 	return k
 }
 
-// PushByDefault makes web push on for the category until a person turns it off (NOTIF-PREF-001, step 3). Without it push
-// is off until the person turns it on. It matters only when Install was given WithPush.
+// PushByDefault makes web push on for the category until a person turns it off (NOTIF-PREF-001, step 3). Without it
+// push is off until the person turns it on. It matters only when Install was given WithPush.
 func (k Kind) PushByDefault() Kind {
 	k.push = true
 
@@ -95,16 +99,15 @@ const (
 	ChannelPush  Channel = pushChannel
 )
 
-// Enforcer is an outside authority over a person's setting of a channel, such as a dealer's policy: it says whether
-// the channel of category k is on for the person and whether the person may not change it. When enforced is false the
+// Enforcer is an outside authority over a person's setting of a channel, such as a dealer's policy: it says whether the
+// channel of category k is on for the person and whether the person may not change it. When enforced is false the
 // person's own choice, then the category's default, decides (NOTIF-PREF-001). An error stops the write that asked, and
 // an event handler retries.
 type Enforcer func(ctx context.Context, userID int, k Kind, ch Channel) (on, enforced bool, err error)
 
-// AppURL is where the application is served, such as "https://tickets.example.com": the e-mail of a
-// notification links to AppURL plus the message's in-app Link. It is required once e-mail is on (identity was
-// given WithMail); Check reports its absence with the fix. A path is kept ("https://example.com/app"),
-// a trailing slash is not.
+// AppURL is where the application is served, such as "https://tickets.example.com": the e-mail of a notification links
+// to AppURL plus the message's in-app Link. It is required once e-mail is on (identity was given WithMail); Check
+// reports its absence with the fix. A path is kept ("https://example.com/app"), a trailing slash is not.
 func AppURL(base string) Option {
 	return optionFunc(func(c *config) {
 		if c.appURLSet {
@@ -153,7 +156,10 @@ func Enforce(e Enforcer) Option {
 	return optionFunc(func(c *config) {
 		switch {
 		case e == nil:
-			c.problem("notification.Enforce was given no function", "pass a func(ctx, userID, kind, channel) (on, enforced bool, err error)")
+			c.problem(
+				"notification.Enforce was given no function",
+				"pass a func(ctx, userID, kind, channel) (on, enforced bool, err error)",
+			)
 		case c.enforce != nil:
 			c.problem("notification.Enforce was given twice", "keep one")
 		default:
@@ -162,11 +168,11 @@ func Enforce(e Enforcer) Option {
 	})
 }
 
-// WithPush turns on web push (NOTIF-DEVICE-001): people register their browsers as devices, and a notification is pushed
-// to the devices of a person whose push setting for its category is on, held in their quiet hours, retried, and bundled
-// in a burst. Without it the device routes answer that push is not configured and no push is made. The key pair is made
-// once with push.GenerateKeys and kept stable: a new one invalidates every subscription.
-func WithPush(c push.Config) Option {
+// WithPush turns on web push (NOTIF-DEVICE-001): people register their browsers as devices, and a notification is
+// pushed to the devices of a person whose push setting for its category is on, held in their quiet hours, retried, and
+// bundled in a burst. Without it the device routes answer that push is not configured and no push is made. The key pair
+// is made once with push.GenerateKeys and kept stable: a new one invalidates every subscription.
+func WithPush(pushConf push.Config) Option { //nolint:ireturn // Option is the type of every option of Install
 	return optionFunc(func(cfg *config) {
 		if cfg.push != nil {
 			cfg.problem("notification.WithPush was given twice", "keep one")
@@ -174,10 +180,13 @@ func WithPush(c push.Config) Option {
 			return
 		}
 
-		sender, err := push.NewSender(c)
+		sender, err := push.NewSender(pushConf)
 		if err != nil {
-			cfg.problem("notification.WithPush was given a configuration that cannot push: "+err.Error(),
-				"give the key pair from push.GenerateKeys (public and private, base64url) and a subject, an https URL or an e-mail address")
+			cfg.problem(
+				"notification.WithPush was given a configuration that cannot push: "+err.Error(),
+				"give the key pair from push.GenerateKeys (public and private, base64url) and a subject, "+
+					"an https URL or an e-mail address",
+			)
 
 			return
 		}
@@ -189,15 +198,20 @@ func WithPush(c push.Config) Option {
 // PushBundleText writes the title and body of a bundled push (NOTIF-QUIET-001, rule 4): locale is the person's, count
 // the notifications bundled and titles their titles, oldest first. The default says "N new notifications" in English,
 // Croatian, Bosnian and Slovenian, and lists the newest three titles as the body.
-func PushBundleText(f func(locale string, count int, titles []string) (title, body string)) Option {
+//
+//nolint:ireturn // Option is the type of every option of Install
+func PushBundleText(text func(locale string, count int, titles []string) (title, body string)) Option {
 	return optionFunc(func(cfg *config) {
 		switch {
-		case f == nil:
-			cfg.problem("notification.PushBundleText was given no function", "pass a func(locale, count, titles) (title, body string)")
+		case text == nil:
+			cfg.problem(
+				"notification.PushBundleText was given no function",
+				"pass a func(locale, count, titles) (title, body string)",
+			)
 		case cfg.bundleText != nil:
 			cfg.problem("notification.PushBundleText was given twice", "keep one")
 		default:
-			cfg.bundleText = f
+			cfg.bundleText = text
 		}
 	})
 }

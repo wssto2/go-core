@@ -1,3 +1,4 @@
+//nolint:testpackage // the test reads the RFC 8291 vector through the unexported encrypt, with its fixed key and salt
 package push
 
 import (
@@ -9,8 +10,9 @@ import (
 	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/asn1"
+	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"io"
 	"math/big"
 	"net/http"
@@ -22,10 +24,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// The subject and the key that is too short, which several tests use.
+const (
+	testSubject = "ops@example.test"
+	shortKey    = "AAAA"
+)
+
 func unb64(t *testing.T, s string) []byte {
 	t.Helper()
 
-	out, err := b64.DecodeString(s)
+	out, err := base64.RawURLEncoding.DecodeString(s)
 	require.NoError(t, err)
 
 	return out
@@ -34,22 +42,34 @@ func unb64(t *testing.T, s string) []byte {
 // The example of RFC 8291, section 5 and appendix A: the same inputs must give the RFC's body byte for byte. Padding is
 // none there, so this is the single record with its delimiter.
 func TestEncryptionMatchesTheRFC8291TestVector(t *testing.T) {
+	t.Parallel()
+
 	asPrivate, err := ecdh.P256().NewPrivateKey(unb64(t, "yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw"))
 	require.NoError(t, err)
-	require.Equal(t, unb64(t, "BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8"), asPrivate.PublicKey().Bytes())
+	require.Equal(
+		t,
+		unb64(t, "BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8"),
+		asPrivate.PublicKey().Bytes(),
+	)
 
 	body, err := encrypt([]byte("When I grow up, I want to be a watermelon"), 0,
 		unb64(t, "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4"),
 		unb64(t, "BTBZMqHH6r4Tts7J_aSIgg"), asPrivate, unb64(t, "DGv6ra1nlYgDCS1FRnbzlw"))
 	require.NoError(t, err)
 
-	want := "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A" +
-		"_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN"
-	require.Equal(t, want, b64.EncodeToString(body))
-	require.Len(t, body, 86+41+1+16, "header, plaintext, delimiter, tag (the RFC prints Content-Length 145: an erratum)")
+	want := "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocI" +
+		"nmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN"
+	require.Equal(t, want, base64.RawURLEncoding.EncodeToString(body))
+	require.Len(
+		t,
+		body,
+		86+41+1+16,
+		"header, plaintext, delimiter, tag (the RFC prints Content-Length 145: an erratum)",
+	)
 }
 
-// decrypt is what a user agent does (RFC 8291, section 3.4), written apart from encrypt so a test proves one against the other.
+// decrypt is what a user agent does (RFC 8291, section 3.4), written apart from encrypt so a test proves one against
+// the other.
 func decrypt(t *testing.T, body []byte, uaPrivate *ecdh.PrivateKey, authSecret []byte) []byte {
 	t.Helper()
 
@@ -105,51 +125,77 @@ func newDevice(t *testing.T, endpoint string) device {
 
 	auth := []byte("0123456789abcdef")
 
-	return device{private: key, auth: auth, sub: Subscription{Endpoint: endpoint, P256DH: b64.EncodeToString(key.PublicKey().Bytes()), Auth: b64.EncodeToString(auth)}}
+	return device{
+		private: key,
+		auth:    auth,
+		sub: Subscription{
+			Endpoint: endpoint,
+			P256DH:   base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes()),
+			Auth:     base64.RawURLEncoding.EncodeToString(auth),
+		},
+	}
 }
 
 func TestAMessageIsPaddedAndReadableByTheDevice(t *testing.T) {
-	d := newDevice(t, "https://push.example.test/x")
+	t.Parallel()
+
+	dev := newDevice(t, "https://push.example.test/x")
 
 	for _, text := range []string{"", "a", strings.Repeat("é", 200), strings.Repeat("x", MaxPayload)} {
-		body, err := Encrypt([]byte(text), d.private.PublicKey().Bytes(), d.auth)
+		body, err := Encrypt([]byte(text), dev.private.PublicKey().Bytes(), dev.auth)
 		require.NoError(t, err)
-		require.Equal(t, text, string(decrypt(t, body, d.private, d.auth)))
+		require.Equal(t, text, string(decrypt(t, body, dev.private, dev.auth)))
 		require.LessOrEqual(t, len(body), recordSize, "within what every push service takes")
 	}
 
-	short, err := Encrypt([]byte("a"), d.private.PublicKey().Bytes(), d.auth)
+	short, err := Encrypt([]byte("a"), dev.private.PublicKey().Bytes(), dev.auth)
 	require.NoError(t, err)
 
-	other, err := Encrypt([]byte(strings.Repeat("b", 100)), d.private.PublicKey().Bytes(), d.auth)
+	other, err := Encrypt([]byte(strings.Repeat("b", 100)), dev.private.PublicKey().Bytes(), dev.auth)
 	require.NoError(t, err)
 	require.Len(t, other, len(short), "the push service cannot read the length")
 }
 
 func TestAPayloadThatDoesNotFitAndAKeyThatIsNoPointAreRefused(t *testing.T) {
-	d := newDevice(t, "https://push.example.test/x")
+	t.Parallel()
 
-	_, err := Encrypt(make([]byte, MaxPayload+1), d.private.PublicKey().Bytes(), d.auth)
+	dev := newDevice(t, "https://push.example.test/x")
+
+	_, err := Encrypt(make([]byte, MaxPayload+1), dev.private.PublicKey().Bytes(), dev.auth)
 	require.ErrorIs(t, err, ErrPayloadTooLarge)
 
-	_, err = Encrypt([]byte("x"), make([]byte, 65), d.auth)
+	_, err = Encrypt([]byte("x"), make([]byte, 65), dev.auth)
 	require.ErrorIs(t, err, ErrSubscriptionUnusable)
 
-	_, err = Encrypt([]byte("x"), d.private.PublicKey().Bytes(), []byte("short"))
+	_, err = Encrypt([]byte("x"), dev.private.PublicKey().Bytes(), []byte("short"))
 	require.ErrorIs(t, err, ErrSubscriptionUnusable)
 }
 
 func TestSubscriptionsAreValidated(t *testing.T) {
+	t.Parallel()
+
 	good := newDevice(t, "https://push.example.test/x").sub
 	require.NoError(t, good.Validate())
 
 	bad := map[string]Subscription{
-		"http":       {Endpoint: "http://push.example.test/x", P256DH: good.P256DH, Auth: good.Auth},
-		"no host":    {Endpoint: "https:///x", P256DH: good.P256DH, Auth: good.Auth},
-		"too long":   {Endpoint: "https://push.example.test/" + strings.Repeat("a", EndpointMax), P256DH: good.P256DH, Auth: good.Auth},
-		"bad key":    {Endpoint: good.Endpoint, P256DH: b64.EncodeToString(make([]byte, 65)), Auth: good.Auth},
-		"not b64":    {Endpoint: good.Endpoint, P256DH: "!!", Auth: good.Auth},
-		"short auth": {Endpoint: good.Endpoint, P256DH: good.P256DH, Auth: b64.EncodeToString(make([]byte, 8))},
+		"http":    {Endpoint: "http://push.example.test/x", P256DH: good.P256DH, Auth: good.Auth},
+		"no host": {Endpoint: "https:///x", P256DH: good.P256DH, Auth: good.Auth},
+		"too long": {
+			Endpoint: "https://push.example.test/" + strings.Repeat("a", EndpointMax),
+			P256DH:   good.P256DH,
+			Auth:     good.Auth,
+		},
+		"bad key": {
+			Endpoint: good.Endpoint,
+			P256DH:   base64.RawURLEncoding.EncodeToString(make([]byte, 65)),
+			Auth:     good.Auth,
+		},
+		"not b64": {Endpoint: good.Endpoint, P256DH: "!!", Auth: good.Auth},
+		"short auth": {
+			Endpoint: good.Endpoint,
+			P256DH:   good.P256DH,
+			Auth:     base64.RawURLEncoding.EncodeToString(make([]byte, 8)),
+		},
 	}
 	for name, sub := range bad {
 		require.ErrorIs(t, sub.Validate(), ErrSubscriptionUnusable, name)
@@ -162,27 +208,36 @@ func TestSubscriptionsAreValidated(t *testing.T) {
 }
 
 func TestTheKeyPairIsChecked(t *testing.T) {
+	t.Parallel()
+
 	public, private, err := GenerateKeys()
 	require.NoError(t, err)
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	_, err = NewSender(Config{PublicKey: public, PrivateKey: private, Subject: "mailto:ops@example.test"})
 	require.NoError(t, err)
 
 	otherPublic, _, err := GenerateKeys()
 	require.NoError(t, err)
 
-	for name, c := range map[string]Config{
-		"mismatch":    {PublicKey: otherPublic, PrivateKey: private, Subject: "ops@example.test"},
-		"no private":  {PublicKey: public, Subject: "ops@example.test"},
-		"short pub":   {PublicKey: "AAAA", PrivateKey: private, Subject: "ops@example.test"},
-		"no subject":  {PublicKey: public, PrivateKey: private},
+	for name, conf := range map[string]Config{
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
+		"mismatch": {PublicKey: otherPublic, PrivateKey: private, Subject: testSubject},
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
+		"no private": {PublicKey: public, Subject: testSubject},
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
+		"short pub": {PublicKey: shortKey, PrivateKey: private, Subject: testSubject},
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
+		"no subject": {PublicKey: public, PrivateKey: private},
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
 		"bad subject": {PublicKey: public, PrivateKey: private, Subject: "ops"},
 	} {
-		_, err := NewSender(c)
+		_, err := NewSender(conf)
 		require.ErrorIs(t, err, ErrInvalidKeys, name)
 	}
 
-	for _, subject := range []string{"ops@example.test", "mailto:ops@example.test", "https://example.test/contact"} {
+	for _, subject := range []string{testSubject, "mailto:ops@example.test", "https://example.test/contact"} {
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
 		_, err := NewSender(Config{PublicKey: public, PrivateKey: private, Subject: subject})
 		require.NoError(t, err, subject)
 	}
@@ -190,7 +245,11 @@ func TestTheKeyPairIsChecked(t *testing.T) {
 
 // A push service as the test sees it: it checks the headers, the VAPID token's signature against the public key the
 // sender announced and decrypts the body as the device would.
+//
+//nolint:funlen // one request, checked header by header
 func TestASendIsEncryptedSignedAndCarriesItsHeaders(t *testing.T) {
+	t.Parallel()
+
 	var (
 		got  *http.Request
 		body []byte
@@ -198,6 +257,7 @@ func TestASendIsEncryptedSignedAndCarriesItsHeaders(t *testing.T) {
 
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got, body = r, must(io.ReadAll(r.Body))
+
 		w.Header().Set("Retry-After", "120")
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte("slow down"))
@@ -208,15 +268,22 @@ func TestASendIsEncryptedSignedAndCarriesItsHeaders(t *testing.T) {
 	require.NoError(t, err)
 
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	sender, err := NewSender(Config{PublicKey: public, PrivateKey: private, Subject: "ops@example.test", Client: srv.Client()})
+	sender, err := NewSender(
+		Config{PublicKey: public, PrivateKey: private, Subject: testSubject, Client: srv.Client()},
+	)
 	require.NoError(t, err)
 
 	sender.now = func() time.Time { return now }
 	require.Equal(t, public, sender.PublicKey())
 
-	d := newDevice(t, srv.URL+"/push/abc")
+	dev := newDevice(t, srv.URL+"/push/abc")
 
-	res, err := sender.Send(t.Context(), d.sub, []byte(`{"title":"Hi"}`), Options{TTL: 90 * time.Minute, Urgency: UrgencyHigh})
+	res, err := sender.Send(
+		t.Context(),
+		dev.sub,
+		[]byte(`{"title":"Hi"}`),
+		Options{TTL: 90 * time.Minute, Urgency: UrgencyHigh},
+	)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusTooManyRequests, res.Status)
 	require.Equal(t, 2*time.Minute, res.RetryAfter)
@@ -227,7 +294,7 @@ func TestASendIsEncryptedSignedAndCarriesItsHeaders(t *testing.T) {
 	require.Equal(t, "aes128gcm", got.Header.Get("Content-Encoding"))
 	require.Equal(t, "5400", got.Header.Get("TTL"))
 	require.Equal(t, "high", got.Header.Get("Urgency"))
-	require.Equal(t, `{"title":"Hi"}`, string(decrypt(t, body, d.private, d.auth)))
+	require.JSONEq(t, `{"title":"Hi"}`, string(decrypt(t, body, dev.private, dev.auth)))
 
 	// Authorization: vapid t=<jwt>, k=<public key>
 	auth := got.Header.Get("Authorization")
@@ -240,13 +307,14 @@ func TestASendIsEncryptedSignedAndCarriesItsHeaders(t *testing.T) {
 	require.JSONEq(t, `{"typ":"JWT","alg":"ES256"}`, string(unb64(t, parts[0])))
 
 	var claims struct {
-		Aud, Sub string
-		Exp      int64
+		Aud string `json:"aud"`
+		Sub string `json:"sub"`
+		Exp int64  `json:"exp"`
 	}
 	require.NoError(t, json.Unmarshal(unb64(t, parts[1]), &claims))
 	require.Equal(t, "https://"+got.Host, claims.Aud, "the origin of the endpoint")
 	require.Equal(t, "mailto:ops@example.test", claims.Sub)
-	require.Equal(t, now.Add(vapidLifetime).Unix(), claims.Exp)
+	require.Equal(t, claims.Exp, now.Add(vapidLifetime).Unix())
 
 	sig := unb64(t, parts[2])
 	require.Len(t, sig, 64)
@@ -254,11 +322,17 @@ func TestASendIsEncryptedSignedAndCarriesItsHeaders(t *testing.T) {
 	pub, err := ecdh.P256().NewPublicKey(unb64(t, key))
 	require.NoError(t, err)
 
-	x, y := elliptic.Unmarshal(elliptic.P256(), pub.Bytes()) //nolint:staticcheck // the test builds a verification key from the raw point
+	verifying, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), pub.Bytes())
+	require.NoError(t, err)
+
+	der, err := asn1.Marshal(struct{ R, S *big.Int }{new(big.Int).SetBytes(sig[:32]), new(big.Int).SetBytes(sig[32:])})
+	require.NoError(t, err)
+
 	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
-	require.True(t, ecdsa.Verify(&ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, digest[:], new(big.Int).SetBytes(sig[:32]), new(big.Int).SetBytes(sig[32:])))
+	require.True(t, ecdsa.VerifyASN1(verifying, digest[:], der))
 }
 
+//nolint:ireturn // a generic helper returns its type parameter
 func must[T any](v T, err error) T {
 	if err != nil {
 		panic(err)
@@ -268,6 +342,8 @@ func must[T any](v T, err error) T {
 }
 
 func TestTheDefaultClientNeverConnectsToAPrivateAddress(t *testing.T) {
+	t.Parallel()
+
 	hit := false
 
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit = true }))
@@ -276,26 +352,38 @@ func TestTheDefaultClientNeverConnectsToAPrivateAddress(t *testing.T) {
 	public, private, err := GenerateKeys()
 	require.NoError(t, err)
 
-	sender, err := NewSender(Config{PublicKey: public, PrivateKey: private, Subject: "ops@example.test"})
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	sender, err := NewSender(Config{PublicKey: public, PrivateKey: private, Subject: testSubject})
 	require.NoError(t, err)
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	_, err = sender.Send(t.Context(), newDevice(t, srv.URL).sub, []byte("x"), Options{})
 	require.ErrorIs(t, err, errNotPublic)
 	require.False(t, hit, "a loopback server is not reached")
 }
 
 func TestASubscriptionThatCannotEncryptIsNotSent(t *testing.T) {
+	t.Parallel()
+
 	public, private, err := GenerateKeys()
 	require.NoError(t, err)
 
-	sender, err := NewSender(Config{PublicKey: public, PrivateKey: private, Subject: "ops@example.test"})
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	sender, err := NewSender(Config{PublicKey: public, PrivateKey: private, Subject: testSubject})
 	require.NoError(t, err)
 
-	_, err = sender.Send(t.Context(), Subscription{Endpoint: "https://push.example.test/x", P256DH: "AAAA", Auth: "AAAA"}, []byte("x"), Options{})
-	require.True(t, errors.Is(err, ErrSubscriptionUnusable))
+	_, err = sender.Send(
+		t.Context(),
+		Subscription{Endpoint: "https://push.example.test/x", P256DH: shortKey, Auth: shortKey},
+		[]byte("x"),
+		Options{}, //nolint:exhaustruct,exhaustruct_v5 // zero by design
+	)
+	require.ErrorIs(t, err, ErrSubscriptionUnusable)
 }
 
 func TestRetryAfterIsSecondsOrADate(t *testing.T) {
+	t.Parallel()
+
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
 	require.Equal(t, 30*time.Second, retryAfter("30", now))

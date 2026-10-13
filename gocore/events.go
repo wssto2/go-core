@@ -15,7 +15,7 @@ import (
 // the events of its name, retrying a failing one with a backoff and setting it
 // aside as a dead letter after its attempts; shutdown stops them with the other
 // background work. A housekeeper runs beside them and deletes the events every
-// consumer finished more than 30 days ago, dead letters excepted.
+// consumer finished more than 30 days ago, dead letters excepted unless WithDeadLetterRetention ends them.
 //
 //	app.Events(Assigned.To("notifications.assignee", notices.Assigned))
 //
@@ -69,7 +69,7 @@ func (a *App) eventWorkers() []worker.Worker {
 	}
 
 	if a.eventsUsed {
-		out = append(out, event.NewHousekeeper(a.Database(), a.clock, a.log))
+		out = append(out, event.NewHousekeeper(a.Database(), a.clock, a.log).KeepDeadLetters(a.deadLetterRetention))
 	}
 
 	return out

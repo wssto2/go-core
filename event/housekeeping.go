@@ -52,10 +52,10 @@ func NewHousekeeper(db *gorm.DB, clock Clock, log *slog.Logger) *Housekeeper {
 
 // KeepDeadLetters makes the housekeeper delete dead letters, and the events only they kept, d after the consumer gave
 // up on them, instead of keeping them for ever: a letter nobody retried in that time is not going to be. Zero or less
-// keeps them for ever, which is the default. gocore's own housekeeper keeps them for ever, so an application that wants
-// an end gives its own to its background work:
+// keeps them for ever, which is the default. An application built on gocore gives gocore.New the option
+// WithDeadLetterRetention, which sets this on the housekeeper App.Events adds; one that builds its own calls it:
 //
-//	app.Background(event.NewHousekeeper(db, clock, log).KeepDeadLetters(90 * 24 * time.Hour))
+//	event.NewHousekeeper(db, clock, log).KeepDeadLetters(90 * 24 * time.Hour)
 //
 // It returns the housekeeper, so it chains.
 func (h *Housekeeper) KeepDeadLetters(d time.Duration) *Housekeeper {
@@ -95,7 +95,8 @@ func (h *Housekeeper) Run(ctx context.Context) error {
 // dead letter is kept, unless KeepDeadLetters ended the letter: the letters older
 // than that go first, and their events follow when nothing else keeps them.
 func (h *Housekeeper) Sweep(ctx context.Context) (int, error) {
-	if err := h.expireDeadLetters(ctx); err != nil {
+	err := h.expireDeadLetters(ctx)
+	if err != nil {
 		return 0, err
 	}
 
@@ -183,8 +184,8 @@ func (h *Housekeeper) prune(ctx context.Context, ids []uint64, cutoff time.Time)
 }
 
 // expireDeadLetters deletes the dead letters older than the time KeepDeadLetters set, in batches of events. The outbox
-// rows of a batch are locked first, by primary key, as Retry locks them: a letter being retried is no longer dead
-// when the delete looks at it, and stays.
+// rows of a batch are locked first, by primary key, as Retry locks them: a letter being retried is no longer dead when
+// the delete looks at it, and stays.
 func (h *Housekeeper) expireDeadLetters(ctx context.Context) error {
 	if h.deadFor <= 0 {
 		return nil
@@ -197,9 +198,10 @@ func (h *Housekeeper) expireDeadLetters(ctx context.Context) error {
 	for {
 		var ids []uint64
 
-		if err := h.db.WithContext(ctx).Table(attemptsTable).
+		err := h.db.WithContext(ctx).Table(attemptsTable).
 			Where("event_id > ? AND dead_at IS NOT NULL AND dead_at < ?", after, cutoff).
-			Distinct().Order("event_id ASC").Limit(pruneBatch).Pluck("event_id", &ids).Error; err != nil {
+			Distinct().Order("event_id ASC").Limit(pruneBatch).Pluck("event_id", &ids).Error
+		if err != nil {
 			return fmt.Errorf("event housekeeping: select dead letters: %w", err)
 		}
 
@@ -224,16 +226,21 @@ func (h *Housekeeper) expireDeadLetters(ctx context.Context) error {
 }
 
 func (h *Housekeeper) deleteLetters(ctx context.Context, ids []uint64, cutoff time.Time) (int, error) {
-	n := 0
+	deleted := 0
 
-	err := h.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := h.db.WithContext(ctx).Transaction(func(conn *gorm.DB) error {
 		var locked []uint64
-		if err := tx.Table(outboxTable).Where("id IN ?", ids).Clauses(clause.Locking{Strength: "UPDATE"}).Pluck("id", &locked).Error; err != nil {
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
+		err := conn.Table(outboxTable).Where("id IN ?", ids).
+			Clauses(clause.Locking{Strength: "UPDATE"}).Pluck("id", &locked).Error
+		if err != nil {
 			return fmt.Errorf("lock events: %w", err)
 		}
 
-		res := tx.Table(attemptsTable).Where("event_id IN ? AND dead_at IS NOT NULL AND dead_at < ?", ids, cutoff).Delete(&attemptRow{})
-		n = int(res.RowsAffected)
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
+		res := conn.Table(attemptsTable).
+			Where("event_id IN ? AND dead_at IS NOT NULL AND dead_at < ?", ids, cutoff).Delete(&attemptRow{})
+		deleted = int(res.RowsAffected)
 
 		return res.Error
 	})
@@ -241,5 +248,5 @@ func (h *Housekeeper) deleteLetters(ctx context.Context, ids []uint64, cutoff ti
 		return 0, fmt.Errorf("event housekeeping: delete dead letters: %w", err)
 	}
 
-	return n, nil
+	return deleted, nil
 }

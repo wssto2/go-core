@@ -45,8 +45,8 @@ category, held in quiet hours, retried and bundled in a burst.
    unprocessed again. A second retry of the same letter is 404; a letter whose event was pruned cannot be retried (409).
 7. **Housekeeping.** An event every consumer finished is deleted with its attempts 30 days after it was processed
    (`event.Retention`), by a worker `App.Events` adds. **Dead letters are not deleted by it**: their events are kept for
-   as long as the letters are, because a retry needs them. An application that wants an end gives its background work
-   `event.NewHousekeeper(db, clock, log).KeepDeadLetters(90 * 24 * time.Hour)`: a letter older than that, and the event only it
+   as long as the letters are, because a retry needs them. An application that wants an end gives `gocore.New` the option
+   `gocore.WithDeadLetterRetention(90 * 24 * time.Hour)` (`event.Housekeeper.KeepDeadLetters`): a letter older than that, and the event only it
    kept, are deleted (a letter being retried is not dead and stays).
 
 ## NOTIF-CATEGORY-001 — Categories are declared in code
@@ -242,8 +242,8 @@ category, held in quiet hours, retried and bundled in a burst.
   `20261016000030_notifications.sql` creates exactly arv-next's table).
 - Retries: the module's default is the queue's 5 attempts; arv-next gave 15 failures. A consumer that wants more says
   `.Retry(event.Attempts(15))`. Dead letters are generic over every consumer (permissions `events.deadletter:view|retry`
-  replace `notification.deadletter:*`) and the module keeps them for ever unless the application gives its background work
-  `event.NewHousekeeper(...).KeepDeadLetters(90 * 24 * time.Hour)`, arv-next's 90 days.
+  replace `notification.deadletter:*`) and the module keeps them for ever unless the application gives `gocore.New`
+  `gocore.WithDeadLetterRetention(90 * 24 * time.Hour)`, arv-next's 90 days.
 - The "notifies the actor" flag of a category is `.Except(actor)` at the call site.
 - E-mail (P6): the tables `notification_deliveries`, `notification_preferences` and `notification_quiet_hours` are arv-next's as
   they are (migrations `20261016000031` and `20261016000032`; the delivery table includes arv-next's retention index

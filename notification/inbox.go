@@ -168,7 +168,13 @@ func (row) TableName() string { return "notifications" }
 // notification_quiet_hours and notification_devices) from their GORM models, for tests on SQLite and as the
 // reference the migration files are compared with.
 func Migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&row{}, &deliveryRow{}, &preferenceRow{}, &quietRow{}, &deviceRow{})
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	err := db.AutoMigrate(&row{}, &deliveryRow{}, &preferenceRow{}, &quietRow{}, &deviceRow{})
+	if err != nil {
+		return fmt.Errorf("notification: migrate the tables: %w", err)
+	}
+
+	return nil
 }
 
 func newRow(eventID uint64, userID int, category Kind, m Message, now time.Time) (row, error) {

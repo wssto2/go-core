@@ -13,8 +13,8 @@ import (
 	"github.com/wssto2/go-core/notification/push"
 )
 
-// Bundling (NOTIF-QUIET-001, rule 4; NOTIF-DELIVERY-001, rule 4): this many pushes due for one device at once become one
-// push, or fewer when any of them waited for quiet hours to end, since two held pushes already buzz twice at seven.
+// Bundling (NOTIF-QUIET-001, rule 4; NOTIF-DELIVERY-001, rule 4): this many pushes due for one device at once become
+// one push, or fewer when any of them waited for quiet hours to end, since two held pushes already buzz twice at seven.
 const (
 	bundleMinimum           = 3
 	bundleMinimumAfterQuiet = 2
@@ -36,7 +36,7 @@ const bundleTag = "notification-bundle"
 // pushPayload is the JSON the service worker reads. It carries no secrets and no customer contact data, only what it
 // shows and needs to open the record (NOTIF-CONTENT-001). NotificationID is 0 for a bundle.
 type pushPayload struct {
-	NotificationID uint64 `json:"notification_id"`
+	NotificationID uint64 `json:"notification_id"` //nolint:tagliatelle // snake_case wire
 	Category       string `json:"category"`
 	Title          string `json:"title"`
 	Body           string `json:"body"`
@@ -44,7 +44,7 @@ type pushPayload struct {
 	// Tag groups notifications on the device: one tag per notification.
 	Tag string `json:"tag"`
 	// UnreadCount is for the badge on the app icon.
-	UnreadCount int `json:"unread_count"`
+	UnreadCount int `json:"unread_count"` //nolint:tagliatelle // snake_case wire
 }
 
 // pushOutcome classifies a push service answer (NOTIF-DEVICE-001, rule 5).
@@ -70,7 +70,8 @@ func classify(status int) pushOutcome {
 		return pushAccepted
 	case status == http.StatusNotFound || status == http.StatusGone:
 		return pushGone
-	case status == 0 || status == http.StatusTooManyRequests || status >= http.StatusInternalServerError || credentialsRejected(status):
+	case status == 0 || status == http.StatusTooManyRequests ||
+		status >= http.StatusInternalServerError || credentialsRejected(status):
 		return pushRetry
 	default:
 		return pushRejected
@@ -129,11 +130,11 @@ func (d *deliveryRow) recordPush(status int, retryAfter time.Duration, errText s
 	return outcome
 }
 
-// DeliverPushDue sends the pushes that are due, once, and returns how many deliveries it handled and the errors of those
-// that could not be recorded; a push that failed is not an error here, it is retried or failed on its row
+// DeliverPushDue sends the pushes that are due, once, and returns how many deliveries it handled and the errors of
+// those that could not be recorded; a push that failed is not an error here, it is retried or failed on its row
 // (NOTIF-DELIVERY-001). The worker Install starts calls it every second when the application has WithPush; a test, or a
-// command, calls it to deliver now. Like DeliverDue it claims what it sends with a lease, so a push goes out once however
-// many instances run the worker, and it never touches an e-mail row.
+// command, calls it to deliver now. Like DeliverDue it claims what it sends with a lease, so a push goes out once
+// however many instances run the worker, and it never touches an e-mail row.
 //
 // The pushes due for one device are handled together, so a burst can be bundled into one.
 func (n *Notices) DeliverPushDue(ctx context.Context) (int, error) {
@@ -163,13 +164,14 @@ func (n *Notices) DeliverPushDue(ctx context.Context) (int, error) {
 		byDevice[d.DeviceID] = append(byDevice[d.DeviceID], d)
 	}
 
-	for _, id := range order {
+	for _, deviceID := range order {
 		if ctx.Err() != nil || !canStartSend(leaseUntil, n.clock.Now()) {
 			break // what is left is due again when the lease ends
 		}
 
-		if err := n.deliverToDevice(ctx, id, byDevice[id]); err != nil {
-			errs = append(errs, fmt.Errorf("device %d: %w", id, err))
+		err := n.deliverToDevice(ctx, deviceID, byDevice[deviceID])
+		if err != nil {
+			errs = append(errs, fmt.Errorf("device %d: %w", deviceID, err))
 		}
 	}
 
@@ -195,38 +197,9 @@ func (n *Notices) deliverToDevice(ctx context.Context, deviceID uint64, items []
 		return n.cancelAll(ctx, items, "device removed")
 	}
 
-	var (
-		entries []pending
-		anyHeld bool
-	)
-
-	for _, d := range items {
-		note, found, err := n.store.byID(ctx, d.NotificationID)
-		if err != nil {
-			return err
-		}
-
-		switch {
-		case !found:
-			err = n.finish(ctx, &d, func(d *deliveryRow) { d.cancel("notification deleted", n.clock.Now()) })
-		case note.ReadAt != nil:
-			err = n.finish(ctx, &d, func(d *deliveryRow) { d.cancel("read before delivery", n.clock.Now()) })
-		case dev.UserID != note.UserID || dev.DisabledAt != nil:
-			err = n.finish(ctx, &d, func(d *deliveryRow) { d.cancel("device no longer receives this person's pushes", n.clock.Now()) })
-		default:
-			anyHeld = anyHeld || d.Status == statusHeld
-			entries = append(entries, pending{delivery: d, note: note})
-
-			continue
-		}
-
-		if err != nil {
-			return err
-		}
-	}
-
-	if len(entries) == 0 {
-		return nil
+	entries, anyHeld, err := n.triageAll(ctx, dev, items)
+	if err != nil || len(entries) == 0 {
+		return err
 	}
 
 	if shouldBundle(len(entries), anyHeld) {
@@ -234,17 +207,68 @@ func (n *Notices) deliverToDevice(ctx context.Context, deviceID uint64, items []
 	}
 
 	for _, e := range entries {
-		if err := n.sendPush(ctx, dev, []pending{e}, false); err != nil {
+		err := n.sendPush(ctx, dev, []pending{e}, false)
+		if err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// triageAll triages the due pushes of a device: the ones that can be sent, and whether any of them was held.
+func (n *Notices) triageAll(ctx context.Context, dev deviceRow, items []deliveryRow) ([]pending, bool, error) {
+	var (
+		entries []pending
+		anyHeld bool
+	)
+
+	for _, due := range items {
+		entry, sendable, err := n.triage(ctx, dev, due)
+		if err != nil {
+			return nil, false, err
+		}
+
+		if sendable {
+			anyHeld = anyHeld || due.Status == statusHeld
+
+			entries = append(entries, entry)
+		}
+	}
+
+	return entries, anyHeld, nil
+}
+
+// triage loads a due push's notification and cancels the push when it must not go out; it reports whether it can be
+// sent.
+func (n *Notices) triage(ctx context.Context, dev deviceRow, due deliveryRow) (pending, bool, error) {
+	note, found, err := n.store.byID(ctx, due.NotificationID)
+	if err != nil {
+		return pending{}, false, err
+	}
+
+	reason := ""
+
+	switch {
+	case !found:
+		reason = "notification deleted"
+	case note.ReadAt != nil:
+		reason = "read before delivery"
+	case dev.UserID != note.UserID || dev.DisabledAt != nil:
+		reason = "device no longer receives this person's pushes"
+	}
+
+	if reason != "" {
+		return pending{}, false, n.finish(ctx, &due, func(due *deliveryRow) { due.cancel(reason, n.clock.Now()) })
+	}
+
+	return pending{delivery: due, note: note}, true, nil
 }
 
 func (n *Notices) cancelAll(ctx context.Context, items []deliveryRow, reason string) error {
 	for _, d := range items {
-		if err := n.finish(ctx, &d, func(d *deliveryRow) { d.cancel(reason, n.clock.Now()) }); err != nil {
+		err := n.finish(ctx, &d, func(d *deliveryRow) { d.cancel(reason, n.clock.Now()) })
+		if err != nil {
 			return err
 		}
 	}
@@ -252,8 +276,8 @@ func (n *Notices) cancelAll(ctx context.Context, items []deliveryRow, reason str
 	return nil
 }
 
-// sendPush sends one push for the entries, a bundle when there are several, and records the same answer on each delivery
-// and on the device (NOTIF-DEVICE-001, rule 5).
+// sendPush sends one push for the entries, a bundle when there are several, and records the same answer on each
+// delivery and on the device (NOTIF-DEVICE-001, rule 5).
 func (n *Notices) sendPush(ctx context.Context, dev deviceRow, entries []pending, bundle bool) error {
 	unread, err := n.store.countUnread(ctx, int(dev.UserID))
 	if err != nil {
@@ -273,7 +297,7 @@ func (n *Notices) sendPush(ctx context.Context, dev deviceRow, entries []pending
 	for _, e := range entries {
 		options.TTL = min(options.TTL, e.delivery.ExpiresAt.Sub(now))
 
-		if k, ok := n.kind(Kind{code: e.note.Category}); ok && k.high {
+		if k, ok := n.kind(Kind{code: e.note.Category}); ok && k.high { //nolint:exhaustruct,exhaustruct_v5 // zero by design
 			options.Urgency = push.UrgencyHigh
 		}
 	}
@@ -285,6 +309,7 @@ func (n *Notices) sendPush(ctx context.Context, dev deviceRow, entries []pending
 		}
 
 		title, body := n.bundleText(n.localeOf(ctx, int(dev.UserID)), len(entries), titles)
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
 		payload = pushPayload{Title: title, Body: body, Link: "/", Tag: bundleTag, UnreadCount: unread}
 	}
 
@@ -298,14 +323,21 @@ func (n *Notices) sendPush(ctx context.Context, dev deviceRow, entries []pending
 		outcome = d.recordPush(result.Status, result.RetryAfter, result.Detail, now)
 
 		// Not written when the delivery was cancelled while the push was in flight: the cancellation stands.
-		if err := n.store.saveDelivery(ctx, d); err != nil {
+		err := n.store.saveDelivery(ctx, d)
+		if err != nil {
 			return err
 		}
 	}
 
 	if credentialsRejected(result.Status) {
-		n.log.ErrorContext(ctx, "notification: the push service rejected the VAPID credentials: check the key pair and the subject",
-			"status", result.Status, "detail", result.Detail)
+		n.log.ErrorContext(
+			ctx,
+			"notification: the push service rejected the VAPID credentials: check the key pair and the subject",
+			"status",
+			result.Status,
+			"detail",
+			result.Detail,
+		)
 	}
 
 	return n.noteOnDevice(ctx, dev, outcome, result.Status, now)
@@ -313,21 +345,23 @@ func (n *Notices) sendPush(ctx context.Context, dev deviceRow, entries []pending
 
 // transmit sends one encoded payload and turns every way it can fail into a Result the outcome rules classify: a
 // subscription that cannot encrypt is gone (410), a payload too large is the 413 of a bug, no answer is status 0.
-func (n *Notices) transmit(ctx context.Context, dev deviceRow, payload pushPayload, o push.Options) push.Result {
+func (n *Notices) transmit(ctx context.Context, dev deviceRow, payload pushPayload, opts push.Options) push.Result {
 	raw, err := json.Marshal(payload)
 	if err != nil {
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
 		return push.Result{Status: http.StatusRequestEntityTooLarge, Detail: err.Error()}
 	}
 
-	res, err := n.push.Send(ctx, dev.subscription(), raw, o)
+	res, err := n.push.Send(ctx, dev.subscription(), raw, opts)
 
 	switch {
 	case errors.Is(err, push.ErrSubscriptionUnusable):
-		return push.Result{Status: http.StatusGone, Detail: err.Error()}
+		return push.Result{Status: http.StatusGone, Detail: err.Error()} //nolint:exhaustruct,exhaustruct_v5 // zero by design
 	case errors.Is(err, push.ErrPayloadTooLarge):
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
 		return push.Result{Status: http.StatusRequestEntityTooLarge, Detail: err.Error()}
 	case err != nil:
-		return push.Result{Detail: err.Error()}
+		return push.Result{Detail: err.Error()} //nolint:exhaustruct,exhaustruct_v5 // zero by design
 	}
 
 	return res
@@ -335,7 +369,13 @@ func (n *Notices) transmit(ctx context.Context, dev deviceRow, payload pushPaylo
 
 // noteOnDevice applies NOTIF-DEVICE-001, rule 5: gone removes the device at once; a failure that is the device's fault
 // counts towards disabling it, one that is ours or the push service's does not.
-func (n *Notices) noteOnDevice(ctx context.Context, dev deviceRow, outcome pushOutcome, status int, now time.Time) error {
+func (n *Notices) noteOnDevice(
+	ctx context.Context,
+	dev deviceRow,
+	outcome pushOutcome,
+	status int,
+	now time.Time,
+) error {
 	switch outcome {
 	case pushAccepted:
 		return n.store.pushSucceeded(ctx, dev.ID, now)

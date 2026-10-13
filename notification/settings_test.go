@@ -16,7 +16,12 @@ import (
 )
 
 // forceAssigned enforces the e-mail (not the push) of tickets.assigned on for person 1 and off for person 2.
-func forceAssigned(_ context.Context, userID int, k notification.Kind, ch notification.Channel) (on, enforced bool, err error) {
+func forceAssigned(
+	_ context.Context,
+	userID int,
+	k notification.Kind,
+	ch notification.Channel,
+) (bool, bool, error) {
 	if k.Code() != TicketAssigned.Code() || ch != notification.ChannelEmail {
 		return false, false, nil
 	}
@@ -30,6 +35,8 @@ func forceAssigned(_ context.Context, userID int, k notification.Kind, ch notifi
 
 	return false, false, nil
 }
+
+var errPolicyStoreAway = errors.New("the policy store is away")
 
 func settingsOf(t *testing.T, w *world, person int) map[string]notification.Setting {
 	t.Helper()
@@ -93,11 +100,15 @@ func TestAnEnforcedSettingCannotBeChanged(t *testing.T) {
 }
 
 func TestTheEnforcersErrorIsAnErrorNotAGuess(t *testing.T) {
-	w := newMailWorld(t, mustSQLite(t), notification.Enforce(func(context.Context, int, notification.Kind, notification.Channel) (bool, bool, error) {
-		return false, false, errors.New("the policy store is away")
-	}))
+	env := newMailWorld(
+		t,
+		mustSQLite(t),
+		notification.Enforce(func(context.Context, int, notification.Kind, notification.Channel) (bool, bool, error) {
+			return false, false, errPolicyStoreAway
+		}),
+	)
 
-	_, err := w.notices.Settings.Get(t.Context(), 1)
+	_, err := env.notices.Settings.Get(t.Context(), 1)
 	require.ErrorContains(t, err, "the policy store is away")
 }
 

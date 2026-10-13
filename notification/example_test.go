@@ -175,10 +175,16 @@ func ExampleEnforce() {
 	users := identitytest.Users(t, identitytest.Account(1, "ana", "x"))
 
 	// An outside authority, such as a dealer's policy: always on, and the person cannot change it.
-	notification.Install(app, users, TicketAssigned,
-		notification.Enforce(func(_ context.Context, _ int, k notification.Kind, _ notification.Channel) (on, enforced bool, err error) {
-			return true, k.Code() == "tickets.assigned", nil
-		}))
+	notification.Install(
+		app,
+		users,
+		TicketAssigned,
+		notification.Enforce(
+			func(_ context.Context, _ int, k notification.Kind, _ notification.Channel) (bool, bool, error) {
+				return true, k.Code() == TicketAssigned.Code(), nil
+			},
+		),
+	)
 
 	_, err := app.Handler()
 	fmt.Println(err)

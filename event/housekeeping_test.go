@@ -13,6 +13,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// errDown is the failure of the consumers that give up.
+var errDown = errors.New("down")
+
 func count(t *testing.T, db *gorm.DB, table string) int64 {
 	t.Helper()
 
@@ -32,7 +35,7 @@ func TestTheHousekeeperDeletesWhatWasProcessedMoreThanThirtyDaysAgo(t *testing.T
 
 		c := Assigned.To("notifications.assignee", func(_ context.Context, p TicketAssigned) error {
 			if p.TicketID == 3 {
-				return errors.New("down")
+				return errDown
 			}
 
 			return nil
@@ -97,60 +100,65 @@ func TestTheHousekeeperWorksInBatches(t *testing.T) {
 // G21: told how long to keep dead letters, the housekeeper deletes a letter and the event only it kept once it is that
 // old; a letter retried in time, or younger, stays. Without the option nothing changes: they are kept for ever.
 func TestTheHousekeeperCanEndDeadLettersAfterTheTimeItWasToldToKeepThem(t *testing.T) {
-	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
-		publish := setup(t, db)
+	t.Parallel()
+
+	dbtest.Run(t, func(t *testing.T, conn *gorm.DB) {
+		t.Helper()
+
+		publish := setup(t, conn)
 		clock := newClock()
 		ctx := context.Background()
 
-		c := Assigned.To("notifications.assignee", func(_ context.Context, p TicketAssigned) error {
+		consumer := Assigned.To("notifications.assignee", func(_ context.Context, p TicketAssigned) error {
 			if p.TicketID <= 3 {
-				return errors.New("down")
+				return errDown
 			}
 
 			return nil
 		}).Retry(event.Attempts(1))
-		q := event.NewQueue(db, clock, quiet(), c)
+		queue := event.NewQueue(conn, clock, quiet(), consumer)
 
-		forever := event.NewHousekeeper(db, clock, quiet())
-		ninety := event.NewHousekeeper(db, clock, quiet()).KeepDeadLetters(90 * 24 * time.Hour)
+		forever := event.NewHousekeeper(conn, clock, quiet())
+		ninety := event.NewHousekeeper(conn, clock, quiet()).KeepDeadLetters(90 * 24 * time.Hour)
 
-		publish(TicketAssigned{TicketID: 1})
-		publish(TicketAssigned{TicketID: 2})
-		require.Error(t, q.Drain(ctx)) // events 1 and 2 are dead letters
+		publish(TicketAssigned{TicketID: 1}) //nolint:exhaustruct,exhaustruct_v5 // zero by design
+		publish(TicketAssigned{TicketID: 2}) //nolint:exhaustruct,exhaustruct_v5 // zero by design
+		require.Error(t, queue.Drain(ctx))   // events 1 and 2 are dead letters
 
 		clock.Advance(50 * 24 * time.Hour)
-		publish(TicketAssigned{TicketID: 3})
-		publish(TicketAssigned{TicketID: 4})
-		require.Error(t, q.Drain(ctx)) // event 3 is a dead letter 50 days younger; event 4 was handled
+		publish(TicketAssigned{TicketID: 3}) //nolint:exhaustruct,exhaustruct_v5 // zero by design
+		publish(TicketAssigned{TicketID: 4}) //nolint:exhaustruct,exhaustruct_v5 // zero by design
+		require.Error(t, queue.Drain(ctx))   // event 3 is a dead letter 50 days younger; event 4 was handled
 
 		// Event 1's letter is retried in time: it is not dead any more, so its age no longer counts.
-		require.NoError(t, event.NewDeadLetters(db, clock).Retry(ctx, 1, "notifications.assignee"))
+		require.NoError(t, event.NewDeadLetters(conn, clock).Retry(ctx, 1, "notifications.assignee"))
 
 		clock.Advance(41 * 24 * time.Hour) // event 2's letter is 91 days old, event 3's 41
 
-		n, err := forever.Sweep(ctx)
+		swept, err := forever.Sweep(ctx)
 		require.NoError(t, err)
-		require.Equal(t, 1, n, "only event 4, processed 41 days ago; the letters are kept for ever without the option")
-		require.EqualValues(t, 3, count(t, db, "outbox_events"))
+		require.Equal(t, 1, swept, "only event 4, processed 41 days ago; the letters are kept for ever without the option")
+		require.EqualValues(t, 3, count(t, conn, "outbox_events"))
 
-		n, err = ninety.Sweep(ctx)
+		swept, err = ninety.Sweep(ctx)
 		require.NoError(t, err)
-		require.Equal(t, 1, n, "event 2, whose only reason to stay was a letter 91 days old")
+		require.Equal(t, 1, swept, "event 2, whose only reason to stay was a letter 91 days old")
 
 		var left []uint64
-		require.NoError(t, db.Model(&event.OutboxEvent{}).Order("id").Pluck("id", &left).Error)
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
+		require.NoError(t, conn.Model(&event.OutboxEvent{}).Order("id").Pluck("id", &left).Error)
 		require.Equal(t, []uint64{1, 3}, left, "the retried one and the letter younger than 90 days")
-		require.EqualValues(t, 1, count(t, db, "event_consumer_attempts WHERE dead_at IS NOT NULL"))
+		require.EqualValues(t, 1, count(t, conn, "event_consumer_attempts WHERE dead_at IS NOT NULL"))
 
 		clock.Advance(50 * 24 * time.Hour) // event 3's letter is 91 days old now
 
-		n, err = ninety.Sweep(ctx)
+		swept, err = ninety.Sweep(ctx)
 		require.NoError(t, err)
-		require.Equal(t, 1, n)
-		require.EqualValues(t, 1, count(t, db, "outbox_events"), "event 1 waits to be handled")
+		require.Equal(t, 1, swept)
+		require.EqualValues(t, 1, count(t, conn, "outbox_events"), "event 1 waits to be handled")
 
-		n, err = event.NewHousekeeper(db, clock, quiet()).KeepDeadLetters(0).Sweep(ctx)
+		swept, err = event.NewHousekeeper(conn, clock, quiet()).KeepDeadLetters(0).Sweep(ctx)
 		require.NoError(t, err)
-		require.Zero(t, n, "zero keeps letters for ever")
+		require.Zero(t, swept, "zero keeps letters for ever")
 	})
 }

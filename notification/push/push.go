@@ -3,7 +3,10 @@
 // notifications; package notification uses it through notification.WithPush.
 //
 //	public, private, _ := push.GenerateKeys() // once per environment; keep both stable
-//	sender, err := push.NewSender(push.Config{PublicKey: public, PrivateKey: private, Subject: "mailto:ops@example.com"})
+//	sender, err := push.NewSender(push.Config{PublicKey: public, PrivateKey: private, Subject:
+//
+// "mailto:ops@example.com"})
+//
 //	result, err := sender.Send(ctx, sub, payload, push.Options{TTL: time.Hour, Urgency: push.UrgencyHigh})
 //
 // The endpoint of a subscription is chosen by the person who subscribes, so the default HTTP client refuses to connect
@@ -35,6 +38,8 @@ const (
 	requestTimeout = 15 * time.Second
 	// detailMax bounds how much of a push service's error answer is kept.
 	detailMax = 300
+	// drainMax bounds how much of an answer is read to let the connection be reused.
+	drainMax = 1 << 16
 )
 
 // Urgency is the Urgency header of RFC 8030: how soon the push service should wake the device.
@@ -74,27 +79,31 @@ func (s Subscription) Validate() error {
 			ErrSubscriptionUnusable, EndpointMax)
 	}
 
-	_, _, err = s.keys()
+	_, err = s.keys()
 
 	return err
 }
 
-func (s Subscription) keys() (userKey, authSecret []byte, err error) {
-	userKey, err = decode(s.P256DH)
+// secrets are a subscription's decoded key and auth secret.
+type secrets struct{ userKey, auth []byte }
+
+func (s Subscription) keys() (secrets, error) {
+	userKey, err := decode(s.P256DH)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: the key is not base64", ErrSubscriptionUnusable)
+		return secrets{}, fmt.Errorf("%w: the key is not base64", ErrSubscriptionUnusable)
 	}
 
-	if _, err := ecdh.P256().NewPublicKey(userKey); err != nil {
-		return nil, nil, fmt.Errorf("%w: %w", ErrSubscriptionUnusable, err)
+	_, err = ecdh.P256().NewPublicKey(userKey)
+	if err != nil {
+		return secrets{}, fmt.Errorf("%w: %w", ErrSubscriptionUnusable, err)
 	}
 
-	authSecret, err = decode(s.Auth)
-	if err != nil || len(authSecret) != 16 {
-		return nil, nil, fmt.Errorf("%w: the auth secret is not 16 bytes of base64", ErrSubscriptionUnusable)
+	auth, err := decode(s.Auth)
+	if err != nil || len(auth) != authSize {
+		return secrets{}, fmt.Errorf("%w: the auth secret is not %d bytes of base64", ErrSubscriptionUnusable, authSize)
 	}
 
-	return userKey, authSecret, nil
+	return secrets{userKey: userKey, auth: auth}, nil
 }
 
 // Options are the headers of one push.
@@ -121,18 +130,18 @@ type Sender struct {
 }
 
 // NewSender checks the key pair and the subject and returns a sender.
-func NewSender(c Config) (*Sender, error) {
-	sg, err := newSigner(c.PublicKey, c.PrivateKey, c.Subject)
+func NewSender(cfg Config) (*Sender, error) {
+	sign, err := newSigner(cfg.PublicKey, cfg.PrivateKey, cfg.Subject)
 	if err != nil {
 		return nil, err
 	}
 
-	client := c.Client
+	client := cfg.Client
 	if client == nil {
 		client = publicOnlyClient()
 	}
 
-	return &Sender{signer: sg, client: client, now: time.Now}, nil
+	return &Sender{signer: sign, client: client, now: time.Now}, nil
 }
 
 // PublicKey is the application server key a browser subscribes with, base64url.
@@ -141,13 +150,13 @@ func (s *Sender) PublicKey() string { return s.signer.public }
 // Send encrypts payload for the subscription and posts it. An answer of any status comes back as a Result; an error
 // means no answer arrived (the network, a timeout) or, wrapping ErrSubscriptionUnusable or ErrPayloadTooLarge, that the
 // message can never be sent.
-func (s *Sender) Send(ctx context.Context, sub Subscription, payload []byte, o Options) (Result, error) {
-	userKey, authSecret, err := sub.keys()
+func (s *Sender) Send(ctx context.Context, sub Subscription, payload []byte, opts Options) (Result, error) {
+	keys, err := sub.keys()
 	if err != nil {
 		return Result{}, err
 	}
 
-	body, err := Encrypt(payload, userKey, authSecret)
+	body, err := Encrypt(payload, keys.userKey, keys.auth)
 	if err != nil {
 		return Result{}, err
 	}
@@ -162,7 +171,7 @@ func (s *Sender) Send(ctx context.Context, sub Subscription, payload []byte, o O
 		return Result{}, fmt.Errorf("%w: %w", ErrSubscriptionUnusable, err)
 	}
 
-	urgency := o.Urgency
+	urgency := opts.Urgency
 	if urgency == "" {
 		urgency = UrgencyNormal
 	}
@@ -170,7 +179,7 @@ func (s *Sender) Send(ctx context.Context, sub Subscription, payload []byte, o O
 	req.Header.Set("Authorization", auth)
 	req.Header.Set("Content-Encoding", "aes128gcm")
 	req.Header.Set("Content-Type", "application/octet-stream")
-	req.Header.Set("TTL", strconv.Itoa(max(int(o.TTL.Seconds()), 0)))
+	req.Header.Set("TTL", strconv.Itoa(max(int(opts.TTL.Seconds()), 0)))
 	req.Header.Set("Urgency", string(urgency))
 
 	resp, err := s.client.Do(req)
@@ -180,6 +189,7 @@ func (s *Sender) Send(ctx context.Context, sub Subscription, payload []byte, o O
 
 	defer func() { _ = resp.Body.Close() }() // the answer is read; a failed close changes nothing
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	res := Result{Status: resp.StatusCode, RetryAfter: retryAfter(resp.Header.Get("Retry-After"), s.now())}
 
 	if resp.StatusCode >= http.StatusMultipleChoices {
@@ -187,7 +197,7 @@ func (s *Sender) Send(ctx context.Context, sub Subscription, payload []byte, o O
 		res.Detail = strings.TrimSpace(resp.Status + " " + string(detail))
 	}
 
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16)) // lets the connection be reused
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, drainMax)) // lets the connection be reused
 
 	return res, nil
 }
@@ -199,11 +209,13 @@ func retryAfter(value string, now time.Time) time.Duration {
 		return 0
 	}
 
-	if seconds, err := strconv.Atoi(value); err == nil {
+	seconds, err := strconv.Atoi(value)
+	if err == nil {
 		return time.Duration(max(seconds, 0)) * time.Second
 	}
 
-	if at, err := http.ParseTime(value); err == nil {
+	at, err := http.ParseTime(value)
+	if err == nil {
 		return max(at.Sub(now), 0)
 	}
 
@@ -215,7 +227,7 @@ var errNotPublic = errors.New("push: the address is not a public one")
 // publicOnlyClient is the default client: it connects only to public addresses, checked on the resolved address so a
 // name that points inside does not pass, follows no redirect and gives up after requestTimeout.
 func publicOnlyClient() *http.Client {
-	dialer := &net.Dialer{
+	dialer := &net.Dialer{ //nolint:exhaustruct,exhaustruct_v5 // zero by design
 		Timeout: requestTimeout,
 		Control: func(_, address string, _ syscall.RawConn) error {
 			host, _, err := net.SplitHostPort(address)
@@ -237,7 +249,7 @@ func publicOnlyClient() *http.Client {
 	transport.DialContext = dialer.DialContext
 	transport.Proxy = nil // a proxy would be dialled instead of the endpoint; give Config.Client for one
 
-	return &http.Client{
+	return &http.Client{ //nolint:exhaustruct,exhaustruct_v5 // zero by design
 		Timeout:       requestTimeout,
 		Transport:     transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },

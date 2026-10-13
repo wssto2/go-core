@@ -12,7 +12,8 @@ import (
 func (s *store) choicesOf(ctx context.Context, userID int, channel string) (map[string]bool, error) {
 	var rows []preferenceRow
 
-	if err := s.conn(ctx).Where("user_id = ? AND channel = ?", userID, channel).Find(&rows).Error; err != nil {
+	err := s.conn(ctx).Where("user_id = ? AND channel = ?", userID, channel).Find(&rows).Error
+	if err != nil {
 		return nil, fmt.Errorf("notification: read the person's choices: %w", err)
 	}
 

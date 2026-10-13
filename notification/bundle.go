@@ -7,7 +7,7 @@ import (
 
 // defaultBundleText is the text of a bundled push in English, Croatian, Bosnian, Serbian and Slovenian: "3 nove
 // obavijesti", with the newest titles as the body. Another language is English; PushBundleText replaces all of it.
-func defaultBundleText(locale string, count int, titles []string) (title, body string) {
+func defaultBundleText(locale string, count int, titles []string) (string, string) {
 	shown := titles
 	if len(shown) > bundleTitlesShown {
 		shown = shown[len(shown)-bundleTitlesShown:]
@@ -33,21 +33,31 @@ func defaultBundleText(locale string, count int, titles []string) (title, body s
 	return fmt.Sprintf("%d %s", count, phrase), strings.Join(shown, " · ")
 }
 
+// The counts the plural forms turn on.
+const (
+	decade  = 10
+	century = 100
+	dual    = 2
+	few     = 4
+	teens   = 12 // 12 to 14 take the plural of many
+)
+
 // slavic picks the plural form: 2 to 4, except 12 to 14, take few; the rest take many.
-func slavic(count int, few, many string) string {
-	if last := count % 10; last >= 2 && last <= 4 && (count%100 < 12 || count%100 > 14) {
-		return few
+func slavic(count int, fewForm, manyForm string) string {
+	last := count % decade
+	if last >= dual && last <= few && (count%century < teens || count%century > teens+2) {
+		return fewForm
 	}
 
-	return many
+	return manyForm
 }
 
 // slovenian has a dual: 2 is "novi obvestili", 3 and 4 "nova obvestila", the rest "novih obvestil".
 func slovenian(count int) string {
-	switch count % 100 {
-	case 2:
+	switch count % century {
+	case dual:
 		return "novi obvestili"
-	case 3, 4:
+	case dual + 1, few:
 		return "nova obvestila"
 	default:
 		return "novih obvestil"

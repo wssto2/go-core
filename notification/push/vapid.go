@@ -23,18 +23,27 @@ var ErrInvalidKeys = errors.New("push: invalid VAPID keys")
 // vapidLifetime is how long a signed token is valid: RFC 8292 allows at most 24 hours.
 const vapidLifetime = 12 * time.Hour
 
-var b64 = base64.RawURLEncoding
+// The sizes of a P-256 key pair and of a JWS ES256 signature.
+const (
+	scalarSize = 32
+	pointSize  = 65
+	sigSize    = 64
+)
 
 // GenerateKeys makes a VAPID key pair, as base64url without padding: the public key is the 65-byte uncompressed point
 // the browser subscribes with, the private key the 32-byte scalar. Keep the private key secret and stable: a new pair
-// invalidates every subscription made with the old public key.
-func GenerateKeys() (public, private string, err error) {
+// invalidates every subscription made with the old public key. It returns the public key, the private key and an error.
+func GenerateKeys() (string, string, error) {
 	key, err := ecdh.P256().GenerateKey(rand.Reader)
 	if err != nil {
 		return "", "", fmt.Errorf("push: generate the VAPID keys: %w", err)
 	}
 
-	return b64.EncodeToString(key.PublicKey().Bytes()), b64.EncodeToString(key.Bytes()), nil
+	return base64.RawURLEncoding.EncodeToString(
+			key.PublicKey().Bytes(),
+		), base64.RawURLEncoding.EncodeToString(
+			key.Bytes(),
+		), nil
 }
 
 // signer signs the VAPID tokens of one key pair.
@@ -47,7 +56,7 @@ type signer struct {
 // newSigner checks the pair, so a mismatch fails at start-up and not on every push.
 func newSigner(public, private, subject string) (*signer, error) {
 	scalar, err := decode(private)
-	if err != nil || len(scalar) != 32 {
+	if err != nil || len(scalar) != scalarSize {
 		return nil, fmt.Errorf("%w: the private key must be 32 bytes, base64url", ErrInvalidKeys)
 	}
 
@@ -57,11 +66,15 @@ func newSigner(public, private, subject string) (*signer, error) {
 	}
 
 	pub, err := decode(public)
-	if err != nil || len(pub) != 65 {
-		return nil, fmt.Errorf("%w: the public key must be a 65-byte uncompressed P-256 point, base64url", ErrInvalidKeys)
+	if err != nil || len(pub) != pointSize {
+		return nil, fmt.Errorf(
+			"%w: the public key must be a 65-byte uncompressed P-256 point, base64url",
+			ErrInvalidKeys,
+		)
 	}
 
-	if own, err := key.PublicKey.Bytes(); err != nil || string(own) != string(pub) {
+	own, err := key.PublicKey.Bytes()
+	if err != nil || string(own) != string(pub) {
 		return nil, fmt.Errorf("%w: the public key does not belong to the private key", ErrInvalidKeys)
 	}
 
@@ -70,14 +83,15 @@ func newSigner(public, private, subject string) (*signer, error) {
 		return nil, err
 	}
 
-	return &signer{key: key, public: b64.EncodeToString(pub), subject: sub}, nil
+	return &signer{key: key, public: base64.RawURLEncoding.EncodeToString(pub), subject: sub}, nil
 }
 
 // normalizeSubject keeps an https URL and makes an e-mail address a mailto: URI, as RFC 8292 wants.
 func normalizeSubject(subject string) (string, error) {
 	subject = strings.TrimSpace(subject)
 
-	if u, err := url.Parse(subject); err == nil && u.Scheme == "https" && u.Host != "" {
+	u, err := url.Parse(subject)
+	if err == nil && u.Scheme == "https" && u.Host != "" {
 		return subject, nil
 	}
 
@@ -104,7 +118,11 @@ func (s *signer) authorization(endpoint string, now time.Time) (string, error) {
 		return "", fmt.Errorf("push: encode the VAPID claims: %w", err)
 	}
 
-	signing := b64.EncodeToString([]byte(`{"typ":"JWT","alg":"ES256"}`)) + "." + b64.EncodeToString(claims)
+	signing := base64.RawURLEncoding.EncodeToString(
+		[]byte(`{"typ":"JWT","alg":"ES256"}`),
+	) + "." + base64.RawURLEncoding.EncodeToString(
+		claims,
+	)
 	digest := sha256.Sum256([]byte(signing))
 
 	der, err := ecdsa.SignASN1(rand.Reader, s.key, digest[:])
@@ -112,24 +130,26 @@ func (s *signer) authorization(endpoint string, now time.Time) (string, error) {
 		return "", fmt.Errorf("push: sign the VAPID token: %w", err)
 	}
 
-	var rs struct{ R, S *big.Int }
-	if _, err := asn1.Unmarshal(der, &rs); err != nil {
+	var parts struct{ R, S *big.Int }
+
+	_, err = asn1.Unmarshal(der, &parts)
+	if err != nil {
 		return "", fmt.Errorf("push: read the signature: %w", err)
 	}
 
 	// JWS wants r and s as two fixed 32-byte numbers, not DER.
-	sig := make([]byte, 64)
-	rs.R.FillBytes(sig[:32])
-	rs.S.FillBytes(sig[32:])
+	sig := make([]byte, sigSize)
+	parts.R.FillBytes(sig[:sigSize/2])
+	parts.S.FillBytes(sig[sigSize/2:])
 
-	return "vapid t=" + signing + "." + b64.EncodeToString(sig) + ", k=" + s.public, nil
+	return "vapid t=" + signing + "." + base64.RawURLEncoding.EncodeToString(sig) + ", k=" + s.public, nil
 }
 
 // decode reads base64url, or standard base64, padded or not: what a browser or an operator may paste.
 func decode(value string) ([]byte, error) {
 	value = strings.TrimRight(strings.TrimSpace(value), "=")
 
-	out, err := b64.DecodeString(value)
+	out, err := base64.RawURLEncoding.DecodeString(value)
 	if err != nil {
 		out, err = base64.RawStdEncoding.DecodeString(value)
 	}

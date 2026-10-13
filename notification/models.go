@@ -53,7 +53,7 @@ type deviceRow struct {
 	ID            uint64     `gorm:"column:id;primaryKey;autoIncrement"`
 	UserID        uint32     `gorm:"column:user_id;not null;type:int unsigned;index:notification_devices_user"`
 	Endpoint      string     `gorm:"column:endpoint;size:1024;not null"`
-	EndpointHash  string     `gorm:"column:endpoint_hash;type:char(64);not null;uniqueIndex:notification_devices_endpoint_hash"`
+	EndpointHash  string     `gorm:"column:endpoint_hash;type:char(64);not null;uniqueIndex:notification_devices_endpoint_hash"` //nolint:lll // one struct tag
 	P256DH        string     `gorm:"column:p256dh;size:128;not null"`
 	Auth          string     `gorm:"column:auth;size:64;not null"`
 	Label         string     `gorm:"column:label;size:100;not null"`

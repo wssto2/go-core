@@ -76,6 +76,9 @@ type App struct {
 	consumers  []event.Consumer
 	// eventsUsed is set once a feature called Events, with or without consumers.
 	eventsUsed bool
+	// deadLetterRetention is how long the event housekeeper keeps dead letters; zero is for ever.
+	deadLetterRetention time.Duration
+
 	migrations []migrationSource
 	// autoMigrate, when set, applies migrations as they are collected.
 	autoMigrate context.Context //nolint:containedctx // test option: the context of the test
@@ -118,6 +121,13 @@ func WithAuthentication(middleware ...gin.HandlerFunc) Option {
 // routes declare theirs. Modules never take a prefix of their own.
 func WithPrefix(prefix string) Option {
 	return func(app *App) { app.prefix = "/" + strings.Trim(prefix, "/") }
+}
+
+// WithDeadLetterRetention makes the event housekeeper, which Events adds, delete dead letters (and the events only they
+// kept) d after the consumer gave up on them, instead of keeping them for ever. It is an option of New, like WithClock,
+// so the host configures the one housekeeper the application has; see event.Housekeeper.KeepDeadLetters.
+func WithDeadLetterRetention(d time.Duration) Option {
+	return func(app *App) { app.deadLetterRetention = d }
 }
 
 // WithClock replaces the system clock.

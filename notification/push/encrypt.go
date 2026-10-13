@@ -19,6 +19,14 @@ const (
 	headerSize = 21 + 65 // salt, record size, key id length, and the 65-byte application server key
 	tagSize    = 16
 
+	// The sizes RFC 8291 and RFC 8188 fix.
+	saltSize  = 16
+	authSize  = 16
+	ikmSize   = 32
+	cekSize   = 16
+	nonceSize = 12
+	delimiter = 0x02
+
 	// MaxPayload is the longest plaintext a message may carry.
 	MaxPayload = recordSize - headerSize - 1 - tagSize
 
@@ -45,8 +53,10 @@ func Encrypt(payload, userKey, authSecret []byte) ([]byte, error) {
 		return nil, fmt.Errorf("push: generate the message key: %w", err)
 	}
 
-	salt := make([]byte, 16)
-	if _, err := rand.Read(salt); err != nil {
+	salt := make([]byte, saltSize)
+
+	_, err = rand.Read(salt)
+	if err != nil {
 		return nil, fmt.Errorf("push: generate the salt: %w", err)
 	}
 
@@ -57,8 +67,13 @@ func Encrypt(payload, userKey, authSecret []byte) ([]byte, error) {
 
 // encrypt is Encrypt with the key pair and salt given, which the RFC's test vector fixes.
 func encrypt(payload []byte, pad int, userKey, authSecret []byte, own *ecdh.PrivateKey, salt []byte) ([]byte, error) {
-	if len(authSecret) != 16 {
-		return nil, fmt.Errorf("%w: the auth secret is %d bytes, not 16", ErrSubscriptionUnusable, len(authSecret))
+	if len(authSecret) != authSize {
+		return nil, fmt.Errorf(
+			"%w: the auth secret is %d bytes, not %d",
+			ErrSubscriptionUnusable,
+			len(authSecret),
+			authSize,
+		)
 	}
 
 	peer, err := ecdh.P256().NewPublicKey(userKey) // rejects a point that is not on the curve
@@ -73,25 +88,12 @@ func encrypt(payload []byte, pad int, userKey, authSecret []byte, own *ecdh.Priv
 
 	ownKey := own.PublicKey().Bytes()
 
-	// RFC 8291, section 3.4: combine the ECDH secret and the auth secret, then derive RFC 8188's key and nonce.
-	keyInfo := append(append([]byte("WebPush: info\x00"), userKey...), ownKey...)
-
-	ikm, err := hkdf.Key(sha256.New, secret, authSecret, string(keyInfo), 32)
+	keys, err := deriveKeys(secret, authSecret, salt, userKey, ownKey)
 	if err != nil {
-		return nil, fmt.Errorf("push: derive the input key: %w", err)
+		return nil, err
 	}
 
-	cek, err := hkdf.Key(sha256.New, ikm, salt, "Content-Encoding: aes128gcm\x00", 16)
-	if err != nil {
-		return nil, fmt.Errorf("push: derive the content key: %w", err)
-	}
-
-	nonce, err := hkdf.Key(sha256.New, ikm, salt, "Content-Encoding: nonce\x00", 12)
-	if err != nil {
-		return nil, fmt.Errorf("push: derive the nonce: %w", err)
-	}
-
-	block, err := aes.NewCipher(cek)
+	block, err := aes.NewCipher(keys.cek)
 	if err != nil {
 		return nil, fmt.Errorf("push: %w", err)
 	}
@@ -108,7 +110,35 @@ func encrypt(payload []byte, pad int, userKey, authSecret []byte, own *ecdh.Priv
 	body = append(body, byte(len(ownKey))) //nolint:gosec // 65
 	body = append(body, ownKey...)
 
-	record := append(append(append([]byte{}, payload...), 0x02), make([]byte, pad)...) // delimiter, then zero padding
+	record := append(
+		append(append([]byte{}, payload...), delimiter),
+		make([]byte, pad)...) // delimiter, then zero padding
 
-	return gcm.Seal(body, nonce, record, nil), nil
+	return gcm.Seal(body, keys.nonce, record, nil), nil
+}
+
+// contentKeys are the AES key and the nonce of one message.
+type contentKeys struct{ cek, nonce []byte }
+
+// deriveKeys is RFC 8291, section 3.4: the ECDH secret and the auth secret make the input key, from which RFC 8188
+// derives the content encryption key and the nonce.
+func deriveKeys(secret, authSecret, salt, userKey, ownKey []byte) (contentKeys, error) {
+	keyInfo := append(append([]byte("WebPush: info\x00"), userKey...), ownKey...)
+
+	ikm, err := hkdf.Key(sha256.New, secret, authSecret, string(keyInfo), ikmSize)
+	if err != nil {
+		return contentKeys{}, fmt.Errorf("push: derive the input key: %w", err)
+	}
+
+	cek, err := hkdf.Key(sha256.New, ikm, salt, "Content-Encoding: aes128gcm\x00", cekSize)
+	if err != nil {
+		return contentKeys{}, fmt.Errorf("push: derive the content key: %w", err)
+	}
+
+	nonce, err := hkdf.Key(sha256.New, ikm, salt, "Content-Encoding: nonce\x00", nonceSize)
+	if err != nil {
+		return contentKeys{}, fmt.Errorf("push: derive the nonce: %w", err)
+	}
+
+	return contentKeys{cek: cek, nonce: nonce}, nil
 }

@@ -145,6 +145,11 @@ var (
 	ErrInvalidMessage = errors.New("notification: invalid message")
 )
 
+// errNotInstalled is the answer of a Notices that Install did not build.
+var errNotInstalled = errors.New(
+	"notification: Send on a Notices that Install did not build: see the problems Run reports",
+)
+
 // People is what the module asks of the application's users: the accounts of
 // many ids, and a person's live sessions for the stream to re-check. *identity.Users
 // is one.
@@ -231,7 +236,8 @@ func Install(app *gocore.App, users People, opts ...Option) *Notices {
 	}
 
 	n.Settings = &Settings{
-		store: st, kinds: n.kinds, enforce: cfg.enforce, emailOK: n.mail != nil, pushOK: n.push != nil, clock: app.Clock(), location: cfg.location,
+		store: st, kinds: n.kinds, enforce: cfg.enforce, emailOK: n.mail != nil, pushOK: n.push != nil,
+		clock: app.Clock(), location: cfg.location,
 	}
 	n.Devices = &Devices{store: st, sender: n.push, clock: app.Clock(), db: db}
 
@@ -304,38 +310,89 @@ func (n *Notices) Send(ctx context.Context, category Kind, to Recipients, render
 }
 
 // send is Send, with the pushes limited to one device when onlyDevice is not 0 (the test of a device).
-func (n *Notices) send(ctx context.Context, category Kind, to Recipients, render func(Recipient) Message, onlyDevice uint64) error {
-	if n.store == nil {
-		return errors.New("notification: Send on a Notices that Install did not build: see the problems Run reports")
+func (n *Notices) send(
+	ctx context.Context,
+	category Kind,
+	recipients Recipients,
+	render func(Recipient) Message,
+	onlyDevice uint64,
+) error {
+	eventID, registered, err := n.checkSend(ctx, category, render)
+	if err != nil {
+		return err
 	}
 
-	eventID, ok := event.ID(ctx)
-	if !ok {
-		return fmt.Errorf("%w: publish an event and send from its consumer, "+
-			"app.Events(MyEvent.To(\"notifications.my-event\", func(ctx, e) error { return notices.Send(ctx, ...) }))", ErrNotInConsumer)
-	}
-
-	if _, inTx := database.TxFromContext(ctx); inTx {
-		return fmt.Errorf("%w: Send commits its own transaction, so it cannot run inside another", ErrNotInConsumer)
-	}
-
-	registered, ok := n.kind(category)
-	if !ok {
-		return fmt.Errorf("%w: %w: %q: pass it to notification.Install", event.ErrMalformed, ErrUnknownCategory, category.code)
-	}
-
-	if render == nil {
-		return fmt.Errorf("%w: %w: render is nil", event.ErrMalformed, ErrInvalidMessage)
-	}
-
-	ids := to.resolve()
+	ids := recipients.resolve()
 	if len(ids) == 0 {
 		return nil
 	}
 
+	now := n.clock.Now()
+
+	rows, notified, err := n.render(ctx, eventID, category, ids, render, now)
+	if err != nil || len(rows) == 0 {
+		return err
+	}
+
+	plans, err := n.plans(ctx, registered, notified, whole(now), onlyDevice)
+	if err != nil {
+		return err
+	}
+
+	created, err := n.store.insertNew(ctx, rows, plans)
+	if err != nil {
+		return err
+	}
+
+	n.announce(ctx, created)
+
+	return nil
+}
+
+// checkSend refuses a Send that cannot work: not from an event consumer, inside a transaction, an unregistered category
+// or no render function. It returns the event's id and the registered category.
+func (n *Notices) checkSend(ctx context.Context, category Kind, render func(Recipient) Message) (uint64, Kind, error) {
+	if n.store == nil {
+		return 0, Kind{}, errNotInstalled
+	}
+
+	eventID, ok := event.ID(ctx)
+	if !ok {
+		return 0, Kind{}, fmt.Errorf("%w: publish an event and send from its consumer, "+
+			"app.Events(MyEvent.To(\"notifications.my-event\", func(ctx, e) error { return notices.Send(ctx, ...) }))", ErrNotInConsumer)
+	}
+
+	if _, inTx := database.TxFromContext(ctx); inTx {
+		return 0, Kind{}, fmt.Errorf(
+			"%w: Send commits its own transaction, so it cannot run inside another",
+			ErrNotInConsumer,
+		)
+	}
+
+	registered, ok := n.kind(category)
+	if !ok {
+		return 0, Kind{}, fmt.Errorf(
+			"%w: %w: %q: pass it to notification.Install",
+			event.ErrMalformed,
+			ErrUnknownCategory,
+			category.code,
+		)
+	}
+
+	if render == nil {
+		return 0, Kind{}, fmt.Errorf("%w: %w: render is nil", event.ErrMalformed, ErrInvalidMessage)
+	}
+
+	return eventID, registered, nil
+}
+
+// render makes the notification of each recipient who is an active account, and returns the rows with those accounts.
+func (n *Notices) render(
+	ctx context.Context, eventID uint64, category Kind, ids []int, render func(Recipient) Message, now time.Time,
+) ([]row, []account.Account, error) {
 	accounts, err := n.people.Find(ctx, ids)
 	if err != nil {
-		return fmt.Errorf("notification: look up the recipients: %w", err)
+		return nil, nil, fmt.Errorf("notification: look up the recipients: %w", err)
 	}
 
 	byID := make(map[int]account.Account, len(accounts))
@@ -343,7 +400,6 @@ func (n *Notices) send(ctx context.Context, category Kind, to Recipients, render
 		byID[a.ID] = a
 	}
 
-	now := n.clock.Now()
 	rows := make([]row, 0, len(ids))
 	notified := make([]account.Account, 0, len(ids))
 
@@ -360,35 +416,19 @@ func (n *Notices) send(ctx context.Context, category Kind, to Recipients, render
 
 		msg, err := finish(render(Recipient{ID: id, Name: name, Locale: a.Locale}))
 		if err != nil {
-			return fmt.Errorf("%w: %w (recipient %d, category %q)", event.ErrMalformed, err, id, category.code)
+			return nil, nil, fmt.Errorf("%w: %w (recipient %d, category %q)", event.ErrMalformed, err, id, category.code)
 		}
 
 		r, err := newRow(eventID, id, category, msg, now)
 		if err != nil {
-			return fmt.Errorf("%w: %w (recipient %d, category %q)", event.ErrMalformed, err, id, category.code)
+			return nil, nil, fmt.Errorf("%w: %w (recipient %d, category %q)", event.ErrMalformed, err, id, category.code)
 		}
 
 		rows = append(rows, r)
 		notified = append(notified, a)
 	}
 
-	if len(rows) == 0 {
-		return nil
-	}
-
-	plans, err := n.plans(ctx, registered, notified, whole(now), onlyDevice)
-	if err != nil {
-		return err
-	}
-
-	created, err := n.store.insertNew(ctx, rows, plans)
-	if err != nil {
-		return err
-	}
-
-	n.announce(ctx, created)
-
-	return nil
+	return rows, notified, nil
 }
 
 // finish applies the content rules to a rendered message: the title is

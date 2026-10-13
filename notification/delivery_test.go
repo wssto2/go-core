@@ -576,33 +576,37 @@ func TestNoSendStartsInTheLastMinuteOfTheLease(t *testing.T) {
 // G16: a delivery carries its channel and the e-mail worker claims only e-mail rows. A due push row stays exactly as it
 // was, however often the e-mail worker runs, and the e-mail next to it is sent.
 func TestTheEmailWorkerClaimsOnlyEmailDeliveries(t *testing.T) {
+	t.Parallel()
+
 	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
-		w := newMailWorld(t, db, notification.TimeZone(zagreb(t)))
-		atNoon(w, zagreb(t))
-		w.consumeAssigned()
-		w.start()
+		t.Helper()
 
-		w.publish(assignedEvent{TicketID: 7, To: []int{1}})
-		require.NoError(t, w.drain())
+		env := newMailWorld(t, db, notification.TimeZone(zagreb(t)))
+		atNoon(env, zagreb(t))
+		env.consumeAssigned()
+		env.start()
 
-		email := w.deliveries()
+		env.publish(assignedEvent{TicketID: 7, To: []int{1}}) //nolint:exhaustruct,exhaustruct_v5 // zero by design
+		require.NoError(t, env.drain())
+
+		email := env.deliveries()
 		require.Len(t, email, 1)
 
-		now := w.clock.Now().UTC()
-		require.NoError(t, w.db.Exec(`INSERT INTO notification_deliveries
+		now := env.clock.Now().UTC()
+		require.NoError(t, env.db.Exec(`INSERT INTO notification_deliveries
 			(notification_id, device_id, channel, status, attempts, next_attempt_at, expires_at, created_at, updated_at)
 			VALUES (?, 9, 'push', 'pending', 0, ?, ?, ?, ?)`, email[0].NotificationID, now, now.Add(time.Hour), now, now).Error)
 
-		require.Equal(t, 1, w.deliverDue(), "only the e-mail is claimed")
-		require.Equal(t, 0, w.deliverDue())
+		require.Equal(t, 1, env.deliverDue(), "only the e-mail is claimed")
+		require.Equal(t, 0, env.deliverDue())
 
-		ds := w.deliveries()
-		require.Len(t, ds, 2)
-		require.Equal(t, "sent", ds[0].Status)
-		require.Equal(t, "push", ds[1].Channel)
-		require.Equal(t, "pending", ds[1].Status)
-		require.Zero(t, ds[1].Attempts)
-		require.True(t, ds[1].NextAttemptAt.Equal(now), "the push row was not leased: %s", ds[1].NextAttemptAt)
-		require.Len(t, w.sink.Sent(), 1)
+		rows := env.deliveries()
+		require.Len(t, rows, 2)
+		require.Equal(t, "sent", rows[0].Status)
+		require.Equal(t, "push", rows[1].Channel)
+		require.Equal(t, "pending", rows[1].Status)
+		require.Zero(t, rows[1].Attempts)
+		require.True(t, rows[1].NextAttemptAt.Equal(now), "the push row was not leased: %s", rows[1].NextAttemptAt)
+		require.Len(t, env.sink.Sent(), 1)
 	})
 }

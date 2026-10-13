@@ -49,9 +49,9 @@ const (
 // dueStatuses are the statuses the worker still has to send.
 var dueStatuses = []string{statusPending, statusHeld}
 
-// newDelivery is the delivery of a notification made at now, to go out at release or, when that is not after now, at once,
-// retried for ttl. A held delivery's lifetime starts at the release, so a night of quiet hours does not use up the TTL.
-// The notification id is set when the notification is written.
+// newDelivery is the delivery of a notification made at now, to go out at release or, when that is not after now, at
+// once, retried for ttl. A held delivery's lifetime starts at the release, so a night of quiet hours does not use up
+// the TTL. The notification id is set when the notification is written.
 func newDelivery(channel string, ttl time.Duration, now, release time.Time) deliveryRow {
 	d := deliveryRow{
 		Channel: channel, Status: statusPending, NextAttemptAt: now, ExpiresAt: now.Add(ttl), CreatedAt: now, UpdatedAt: now,
@@ -71,8 +71,8 @@ func newEmailDelivery(address string, now, release time.Time) deliveryRow {
 	return d
 }
 
-// record notes one attempt: sent; failed at once on a permanent error; or retried with backoff until
-// the delivery expires.
+// record notes one attempt: sent; failed at once on a permanent error; or retried with backoff until the delivery
+// expires.
 func (d *deliveryRow) record(sendErr error, now time.Time) {
 	d.Attempts++
 	d.UpdatedAt = now
@@ -129,9 +129,15 @@ func canStartSend(leaseUntil, now time.Time) bool { return now.Add(sendMargin).B
 // plans decides who is e-mailed and pushed for a notification of category k and when (NOTIF-PREF-001, NOTIF-QUIET-001):
 // the people whose resolved setting of a channel is on, each with the deliveries that go out at once or, in their quiet
 // hours, when those end. E-mail needs an address and mail, push needs a device and WithPush. An internal category is
-// never e-mailed and never held, but is pushed to every device (to one, with onlyDevice), whatever the settings: a
-// test is there to arrive.
-func (n *Notices) plans(ctx context.Context, k Kind, people []account.Account, now time.Time, onlyDevice uint64) (map[uint32][]deliveryRow, error) {
+// never e-mailed and never held, but is pushed to every device (to one, with onlyDevice), whatever the settings: a test
+// is there to arrive.
+func (n *Notices) plans(
+	ctx context.Context,
+	kind Kind,
+	people []account.Account,
+	now time.Time,
+	onlyDevice uint64,
+) (map[uint32][]deliveryRow, error) {
 	if n.mail == nil && n.push == nil {
 		return nil, nil
 	}
@@ -143,15 +149,17 @@ func (n *Notices) plans(ctx context.Context, k Kind, people []account.Account, n
 
 	quiet := map[int]QuietHours{}
 
-	if !k.internal {
+	if !kind.internal {
 		var err error
-		if quiet, err = n.store.quietOf(ctx, ids); err != nil {
+
+		quiet, err = n.store.quietOf(ctx, ids)
+		if err != nil {
 			return nil, err
 		}
 	}
 
 	release := func(id int) time.Time {
-		if k.internal {
+		if kind.internal {
 			return now
 		}
 
@@ -165,19 +173,28 @@ func (n *Notices) plans(ctx context.Context, k Kind, people []account.Account, n
 
 	plans := map[uint32][]deliveryRow{}
 
-	if err := n.planEmail(ctx, k, people, now, release, plans); err != nil {
+	err := n.planEmail(ctx, kind, people, now, release, plans)
+	if err != nil {
 		return nil, err
 	}
 
-	if err := n.planPush(ctx, k, ids, now, release, onlyDevice, plans); err != nil {
+	err = n.planPush(ctx, kind, ids, now, release, onlyDevice, plans)
+	if err != nil {
 		return nil, err
 	}
 
 	return plans, nil
 }
 
-func (n *Notices) planEmail(ctx context.Context, k Kind, people []account.Account, now time.Time, release func(int) time.Time, plans map[uint32][]deliveryRow) error {
-	if n.mail == nil || k.internal {
+func (n *Notices) planEmail(
+	ctx context.Context,
+	kind Kind,
+	people []account.Account,
+	now time.Time,
+	release func(int) time.Time,
+	plans map[uint32][]deliveryRow,
+) error {
+	if n.mail == nil || kind.internal {
 		return nil
 	}
 
@@ -193,7 +210,7 @@ func (n *Notices) planEmail(ctx context.Context, k Kind, people []account.Accoun
 		return nil
 	}
 
-	settings, err := n.Settings.settingsFor(ctx, k, ids, ChannelEmail)
+	settings, err := n.Settings.settingsFor(ctx, kind, ids, ChannelEmail)
 	if err != nil {
 		return err
 	}
@@ -210,30 +227,22 @@ func (n *Notices) planEmail(ctx context.Context, k Kind, people []account.Accoun
 	return nil
 }
 
-func (n *Notices) planPush(ctx context.Context, k Kind, ids []int, now time.Time, release func(int) time.Time, onlyDevice uint64, plans map[uint32][]deliveryRow) error {
+func (n *Notices) planPush(
+	ctx context.Context,
+	kind Kind,
+	ids []int,
+	now time.Time,
+	release func(int) time.Time,
+	onlyDevice uint64,
+	plans map[uint32][]deliveryRow,
+) error {
 	if n.push == nil {
 		return nil
 	}
 
-	settings := map[int]Setting{}
-
-	if !k.internal {
-		var err error
-		if settings, err = n.Settings.settingsFor(ctx, k, ids, ChannelPush); err != nil {
-			return err
-		}
-	}
-
-	var wanting []int
-
-	for _, id := range ids {
-		if k.internal || settings[id].Enabled {
-			wanting = append(wanting, id)
-		}
-	}
-
-	if len(wanting) == 0 {
-		return nil
+	wanting, err := n.pushWanted(ctx, kind, ids)
+	if err != nil || len(wanting) == 0 {
+		return err
 	}
 
 	devices, err := n.store.activeDevices(ctx, wanting)
@@ -241,19 +250,42 @@ func (n *Notices) planPush(ctx context.Context, k Kind, ids []int, now time.Time
 		return err
 	}
 
-	for _, id := range wanting {
-		for _, dev := range devices[uint32(id)] { //nolint:gosec // resolve keeps ids between 1 and MaxInt32
+	for _, personID := range wanting {
+		for _, dev := range devices[uint32(personID)] { //nolint:gosec // resolve keeps ids between 1 and MaxInt32
 			if onlyDevice != 0 && dev.ID != onlyDevice {
 				continue
 			}
 
-			d := newDelivery(pushChannel, k.pushTTL(), now, release(id))
+			d := newDelivery(pushChannel, kind.pushTTL(), now, release(personID))
 			d.DeviceID = dev.ID
 			plans[dev.UserID] = append(plans[dev.UserID], d)
 		}
 	}
 
 	return nil
+}
+
+// pushWanted is who is pushed to for a notification of category k: the people whose push setting is on, or everyone for
+// an internal category.
+func (n *Notices) pushWanted(ctx context.Context, k Kind, ids []int) ([]int, error) {
+	if k.internal {
+		return ids, nil
+	}
+
+	settings, err := n.Settings.settingsFor(ctx, k, ids, ChannelPush)
+	if err != nil {
+		return nil, err
+	}
+
+	var wanting []int
+
+	for _, id := range ids {
+		if settings[id].Enabled {
+			wanting = append(wanting, id)
+		}
+	}
+
+	return wanting, nil
 }
 
 // pushTTL is how long a push of the category lives (NOTIF-DELIVERY-001, rule 2).
@@ -334,9 +366,21 @@ func (n *Notices) finish(ctx context.Context, d *deliveryRow, outcome func(*deli
 	outcome(d)
 
 	if d.Status == statusFailed {
-		n.log.WarnContext(ctx, "notification: a delivery was given up on", "channel", d.Channel, "delivery", d.ID, "notification", d.NotificationID, "error", deref(d.LastError))
+		n.log.WarnContext(
+			ctx,
+			"notification: a delivery was given up on",
+			"channel",
+			d.Channel,
+			"delivery",
+			d.ID,
+			"notification",
+			d.NotificationID,
+			"error",
+			deref(d.LastError),
+		)
 	} else {
-		n.log.DebugContext(ctx, "notification: delivery", "channel", d.Channel, "delivery", d.ID, "status", d.Status, "attempts", d.Attempts)
+		n.log.DebugContext(ctx, "notification: delivery",
+			"channel", d.Channel, "delivery", d.ID, "status", d.Status, "attempts", d.Attempts)
 	}
 
 	return n.store.saveDelivery(ctx, *d)

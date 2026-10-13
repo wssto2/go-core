@@ -3,7 +3,10 @@
 //
 //	svc := pushtest.NewService(t)
 //	phone := svc.NewDevice(t)                       // a subscription on the service, with the keys to read it
-//	sender, _ := push.NewSender(push.Config{PublicKey: pub, PrivateKey: priv, Subject: "ops@example.test", Client: svc.Client()})
+//	sender, _ := push.NewSender(push.Config{PublicKey: pub, PrivateKey: priv, Subject: "ops@example.test", Client:
+//
+// svc.Client()})
+//
 //	// ... send to phone.Subscription ...
 //	svc.Requests()[0].Payload                        // the decrypted JSON
 //	svc.Answer(http.StatusGone)                      // the next pushes are refused: the subscription is gone
@@ -17,6 +20,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,8 +31,6 @@ import (
 
 	"github.com/wssto2/go-core/notification/push"
 )
-
-var b64 = base64.RawURLEncoding
 
 // Device is a browser's side of a subscription: the subscription to give the application, and the keys that read what
 // is pushed to it.
@@ -48,16 +50,42 @@ func NewDevice(tb testing.TB, endpoint string) Device {
 		tb.Fatalf("pushtest: %v", err)
 	}
 
-	auth := make([]byte, 16)
-	if _, err := rand.Read(auth); err != nil {
+	auth := make([]byte, authSize)
+
+	_, err = rand.Read(auth)
+	if err != nil {
 		tb.Fatalf("pushtest: %v", err)
 	}
 
+	enc := base64.RawURLEncoding
+
 	return Device{
-		Subscription: push.Subscription{Endpoint: endpoint, P256DH: b64.EncodeToString(key.PublicKey().Bytes()), Auth: b64.EncodeToString(auth)},
-		private:      key, auth: auth,
+		Subscription: push.Subscription{
+			Endpoint: endpoint,
+			P256DH:   enc.EncodeToString(key.PublicKey().Bytes()),
+			Auth:     enc.EncodeToString(auth),
+		},
+		private: key,
+		auth:    auth,
 	}
 }
+
+// The sizes RFC 8291 fixes, written out here apart from package push, so the test side does not share its mistakes.
+const (
+	headerSize = 21 // salt, record size and key id length
+	pointSize  = 65
+	saltSize   = 16
+	authSize   = 16
+	ikmSize    = 32
+	cekSize    = 16
+	nonceSize  = 12
+	delimiter  = 0x02
+)
+
+var (
+	errShort     = errors.New("the push body is too short")
+	errDelimiter = errors.New("the padding delimiter is not 0x02")
+)
 
 // Decrypt reads a push body as the browser does (RFC 8291, section 3.4) and returns the plaintext without its padding.
 func (d Device) Decrypt(tb testing.TB, body []byte) []byte {
@@ -72,50 +100,16 @@ func (d Device) Decrypt(tb testing.TB, body []byte) []byte {
 }
 
 func (d Device) decrypt(body []byte) ([]byte, error) {
-	const header = 21 // salt, record size and key id length
-
-	if len(body) < header+65 {
-		return nil, fmt.Errorf("a push body of %d bytes is too short", len(body))
+	if len(body) < headerSize+pointSize {
+		return nil, fmt.Errorf("%w: %d bytes", errShort, len(body))
 	}
 
-	salt, keyLen := body[:16], int(body[20])
-	asPublic, record := body[header:header+keyLen], body[header+keyLen:]
+	salt, keyLen := body[:saltSize], int(body[headerSize-1])
+	asPublic, record := body[headerSize:headerSize+keyLen], body[headerSize+keyLen:]
 
-	peer, err := ecdh.P256().NewPublicKey(asPublic)
+	gcm, nonce, err := d.cipherFor(salt, asPublic)
 	if err != nil {
-		return nil, fmt.Errorf("the sender's key: %w", err)
-	}
-
-	secret, err := d.private.ECDH(peer)
-	if err != nil {
-		return nil, fmt.Errorf("ECDH: %w", err)
-	}
-
-	info := append(append([]byte("WebPush: info\x00"), d.private.PublicKey().Bytes()...), asPublic...)
-
-	ikm, err := hkdf.Key(sha256.New, secret, d.auth, string(info), 32)
-	if err != nil {
-		return nil, fmt.Errorf("HKDF: %w", err)
-	}
-
-	cek, err := hkdf.Key(sha256.New, ikm, salt, "Content-Encoding: aes128gcm\x00", 16)
-	if err != nil {
-		return nil, fmt.Errorf("HKDF: %w", err)
-	}
-
-	nonce, err := hkdf.Key(sha256.New, ikm, salt, "Content-Encoding: nonce\x00", 12)
-	if err != nil {
-		return nil, fmt.Errorf("HKDF: %w", err)
-	}
-
-	block, err := aes.NewCipher(cek)
-	if err != nil {
-		return nil, fmt.Errorf("AES: %w", err)
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("GCM: %w", err)
+		return nil, err
 	}
 
 	plain, err := gcm.Open(nil, nonce, record, nil)
@@ -128,11 +122,53 @@ func (d Device) decrypt(body []byte) ([]byte, error) {
 		end--
 	}
 
-	if plain[end] != 0x02 {
-		return nil, fmt.Errorf("the padding delimiter is %#x, not 0x02", plain[end])
+	if plain[end] != delimiter {
+		return nil, fmt.Errorf("%w: it is %#x", errDelimiter, plain[end])
 	}
 
 	return plain[:end], nil
+}
+
+// cipherFor derives the content key and the nonce from the sender's public key and the salt.
+func (d Device) cipherFor(salt, asPublic []byte) (cipher.AEAD, []byte, error) {
+	peer, err := ecdh.P256().NewPublicKey(asPublic)
+	if err != nil {
+		return nil, nil, fmt.Errorf("the sender's key: %w", err)
+	}
+
+	secret, err := d.private.ECDH(peer)
+	if err != nil {
+		return nil, nil, fmt.Errorf("ECDH: %w", err)
+	}
+
+	info := append(append([]byte("WebPush: info\x00"), d.private.PublicKey().Bytes()...), asPublic...)
+
+	ikm, err := hkdf.Key(sha256.New, secret, d.auth, string(info), ikmSize)
+	if err != nil {
+		return nil, nil, fmt.Errorf("HKDF: %w", err)
+	}
+
+	cek, err := hkdf.Key(sha256.New, ikm, salt, "Content-Encoding: aes128gcm\x00", cekSize)
+	if err != nil {
+		return nil, nil, fmt.Errorf("HKDF: %w", err)
+	}
+
+	nonce, err := hkdf.Key(sha256.New, ikm, salt, "Content-Encoding: nonce\x00", nonceSize)
+	if err != nil {
+		return nil, nil, fmt.Errorf("HKDF: %w", err)
+	}
+
+	block, err := aes.NewCipher(cek)
+	if err != nil {
+		return nil, nil, fmt.Errorf("AES: %w", err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, nil, fmt.Errorf("GCM: %w", err)
+	}
+
+	return gcm, nonce, nil
 }
 
 // Request is one push the service received.
@@ -161,6 +197,7 @@ type Service struct {
 func NewService(tb testing.TB) *Service {
 	tb.Helper()
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	s := &Service{tb: tb, status: http.StatusCreated, devices: map[string]Device{}}
 	s.srv = httptest.NewTLSServer(http.HandlerFunc(s.serve))
 	tb.Cleanup(s.srv.Close)
@@ -218,25 +255,28 @@ func (s *Service) Reset() {
 	s.requests = nil
 }
 
-func (s *Service) serve(w http.ResponseWriter, r *http.Request) {
-	body, _ := io.ReadAll(r.Body) // a truncated body fails the test's decryption, with its own message
+func (s *Service) serve(resp http.ResponseWriter, incoming *http.Request) {
+	body, _ := io.ReadAll(incoming.Body) // a truncated body fails the test's decryption, with its own message
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	req := Request{Path: r.URL.Path, Header: r.Header.Clone()}
-	if d, ok := s.devices[r.URL.Path]; ok {
+	req := Request{Path: incoming.URL.Path, Header: incoming.Header.Clone(), Payload: nil}
+
+	if d, ok := s.devices[incoming.URL.Path]; ok {
 		var err error
-		if req.Payload, err = d.decrypt(body); err != nil {
-			s.tb.Errorf("pushtest: %s: %v", r.URL.Path, err)
+
+		req.Payload, err = d.decrypt(body)
+		if err != nil {
+			s.tb.Errorf("pushtest: %s: %v", incoming.URL.Path, err)
 		}
 	}
 
 	s.requests = append(s.requests, req)
 
 	if s.retryAfter > 0 {
-		w.Header().Set("Retry-After", strconv.Itoa(s.retryAfter))
+		resp.Header().Set("Retry-After", strconv.Itoa(s.retryAfter))
 	}
 
-	w.WriteHeader(s.status)
+	resp.WriteHeader(s.status)
 }
