@@ -149,6 +149,18 @@ func (r *Roles) Update(ctx context.Context, ref string, draft RoleDraft) (RoleVi
 }
 
 func (r *Roles) save(ctx context.Context, role authz.Role) (RoleView, error) {
+	if err := r.cfg.Engine.Require(ctx, ManageRoles); err != nil {
+		return RoleView{}, err
+	}
+
+	if err := role.Validate(r.cfg.Engine.Catalogue()); err != nil {
+		return RoleView{}, apperr.BadRequestErr(err)
+	}
+
+	if problems := r.cfg.RoleCheck(ctx, role); len(problems) > 0 {
+		return RoleView{}, apperr.BadRequestErr(&authz.ValidationError{Problems: problems})
+	}
+
 	saved, err := r.delegation.SaveRole(ctx, role)
 	if err != nil {
 		return RoleView{}, err
@@ -293,6 +305,10 @@ func (r *Roles) Replace(ctx context.Context, ref, with string) (int, error) {
 
 	err = r.cfg.Transactor.WithinTransaction(ctx, func(ctx context.Context) error {
 		for _, b := range bindings {
+			if err := r.checkRebind(ctx, b, other.Ref()); err != nil {
+				return err
+			}
+
 			_, err := r.delegation.Bind(ctx, authz.Binding{Subject: b.Subject, Role: other.Ref(), Scope: b.Scope})
 			if err != nil && !errors.Is(err, authz.ErrDuplicateBinding) {
 				return err
@@ -319,6 +335,15 @@ func (r *Roles) Replace(ctx context.Context, ref, with string) (int, error) {
 	}
 
 	return rebound, nil
+}
+
+// checkRebind asks the application's binding rule about both halves of a re-binding.
+func (r *Roles) checkRebind(ctx context.Context, old authz.Binding, to authz.RoleRef) error {
+	if err := r.cfg.BindingCheck(ctx, old.Subject, authz.Binding{Subject: old.Subject, Role: to, Scope: old.Scope}); err != nil {
+		return err
+	}
+
+	return r.cfg.BindingCheck(ctx, old.Subject, old)
 }
 
 func (r *Roles) describe(ctx context.Context, role authz.Role) (RoleView, error) {

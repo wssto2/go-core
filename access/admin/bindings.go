@@ -198,7 +198,12 @@ func (b *Bindings) Bind(ctx context.Context, subject authz.Subject, draft Bindin
 		return Binding{}, err
 	}
 
-	saved, err := b.delegation.Bind(ctx, authz.Binding{Subject: subject, Role: ref, Scope: draft.Scope})
+	binding := authz.Binding{Subject: subject, Role: ref, Scope: draft.Scope}
+	if err := b.cfg.BindingCheck(ctx, subject, binding); err != nil {
+		return Binding{}, err
+	}
+
+	saved, err := b.delegation.Bind(ctx, binding)
 	if err != nil {
 		return Binding{}, err
 	}
@@ -238,6 +243,10 @@ func (b *Bindings) Unbind(ctx context.Context, subject authz.Subject, bindingID 
 
 	if found.Subject != subject {
 		return apperr.NotFoundErr(authz.ErrBindingNotFound)
+	}
+
+	if err := b.cfg.BindingCheck(ctx, subject, found); err != nil {
+		return err
 	}
 
 	return b.delegation.Unbind(ctx, bindingID)
