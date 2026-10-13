@@ -11,13 +11,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// canonical is the order in which a host action name that several change actions map to
-// is read back as one of them: the first listed.
-var canonical = []account.ChangeAction{
-	account.ChangeCreated, account.ChangeUpdated, account.ChangeDeactivated, account.ChangeActivated,
-	account.ChangePassword, account.ChangeEmail, account.ChangeProfile,
-}
-
 // ChangeLog implements account.ChangeLog over go-core's audit trail: a change
 // is a row of audit_logs (entity "account" unless AuditRecord says otherwise), written in
 // the transaction the context carries, so it commits with the change it records.
@@ -57,44 +50,13 @@ func NewChangeLog(db *gorm.DB, opts ...ChangeLogOption) *ChangeLog {
 
 	l.read = make(map[string]account.ChangeAction, len(l.written))
 
-	for _, a := range slices.Backward(canonical) { // the first canonical action wins
+	for _, a := range slices.Backward(canonicalActions()) { // the first canonical action wins
 		if name, ok := l.written[a]; ok {
 			l.read[name] = a
 		}
 	}
 
 	return l
-}
-
-// name is the action name rows of the change action carry.
-func (l *ChangeLog) name(a account.ChangeAction) string {
-	if n, ok := l.written[a]; ok {
-		return n
-	}
-
-	return string(a)
-}
-
-// action is the change action a row's action name is read as.
-func (l *ChangeLog) action(name string) account.ChangeAction {
-	if a, ok := l.read[name]; ok {
-		return a
-	}
-
-	return account.ChangeAction(name)
-}
-
-// names are the row action names that are read as one of the actions.
-func (l *ChangeLog) names(actions []account.ChangeAction) []string {
-	out := make([]string, 0, len(actions))
-
-	for _, a := range actions {
-		if n := l.name(a); l.action(n) == a {
-			out = append(out, n)
-		}
-	}
-
-	return out
 }
 
 // Record implements account.ChangeLog.
@@ -187,4 +149,44 @@ func valuesOf(raw json.RawMessage) map[string]string {
 	}
 
 	return values
+}
+
+// name is the action name rows of the change action carry.
+func (l *ChangeLog) name(a account.ChangeAction) string {
+	if n, ok := l.written[a]; ok {
+		return n
+	}
+
+	return string(a)
+}
+
+// action is the change action a row's action name is read as.
+func (l *ChangeLog) action(name string) account.ChangeAction {
+	if a, ok := l.read[name]; ok {
+		return a
+	}
+
+	return account.ChangeAction(name)
+}
+
+// names are the row action names that are read as one of the actions.
+func (l *ChangeLog) names(actions []account.ChangeAction) []string {
+	out := make([]string, 0, len(actions))
+
+	for _, a := range actions {
+		if n := l.name(a); l.action(n) == a {
+			out = append(out, n)
+		}
+	}
+
+	return out
+}
+
+// canonicalActions is the order in which a row name that several change actions share is read
+// back as one of them: the first listed.
+func canonicalActions() []account.ChangeAction {
+	return []account.ChangeAction{
+		account.ChangeCreated, account.ChangeUpdated, account.ChangeDeactivated, account.ChangeActivated,
+		account.ChangePassword, account.ChangeEmail, account.ChangeProfile,
+	}
 }
