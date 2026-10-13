@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/apperr"
@@ -336,4 +338,64 @@ func TestWithAccountsCreatesNoAccountsTable(t *testing.T) {
 
 		assert.False(t, db.Migrator().HasTable("accounts"))
 	})
+}
+
+// G4: identity authenticates only the routes the application mounts behind it. A host's own
+// routes, public to go-core and guarded by the host's chain over the same tokens table, keep
+// working, and a session either side opened is good for both.
+func TestAHostsOwnChainCoexistsWithIdentitysAuthentication(t *testing.T) {
+	app := newApp(t)
+	identity.Install(app, identity.WithoutMail())
+	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
+
+	hostChain := func(c *gin.Context) {
+		token, _ := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer ")
+
+		var row auth.Token
+		if err := app.Database().Where("token_value = ?", token).Take(&row).Error; err != nil || token == "" {
+			c.JSON(nethttp.StatusUnauthorized, gin.H{"host": "denied"}) // the host's own refusal, not identity's
+
+			return
+		}
+
+		c.JSON(nethttp.StatusOK, gin.H{"host": "ok", "user": row.UserID})
+	}
+
+	app.Routes(route.Raw(nethttp.MethodGet, "/host/ping").Public().To(hostChain))
+	require.NoError(t, app.Check())
+
+	c := newClient(t, app)
+	assert.JSONEq(t, `{"host":"denied"}`, c.do(nethttp.MethodGet, "/host/ping", nil).Body.String(), "identity does not authenticate the host's route")
+
+	// a session identity opens works on the host's chain
+	login := c.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "ana", "password": "secret"})
+	require.Equal(t, nethttp.StatusOK, login.Code)
+
+	var access string
+
+	for _, ck := range login.Result().Cookies() {
+		if ck.Name == "access_token" {
+			access = ck.Value
+		}
+	}
+
+	require.NotEmpty(t, access)
+
+	req := httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/host/ping", nil)
+	req.Header.Set("Authorization", "Bearer "+access)
+
+	rec := httptest.NewRecorder()
+	c.handler.ServeHTTP(rec, req)
+	assert.JSONEq(t, `{"host":"ok","user":7}`, rec.Body.String())
+
+	// and a session the host's side wrote to tokens works on identity's
+	creds, err := gormstore.New(app.Database()).Sessions.Open(t.Context(), account.NewSession{AccountID: 7, At: time.Now(), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+
+	me := httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/v1/auth/me", nil)
+	me.Header.Set("Authorization", "Bearer "+creds.Access)
+
+	rec = httptest.NewRecorder()
+	c.handler.ServeHTTP(rec, me)
+	assert.Equal(t, nethttp.StatusOK, rec.Code, rec.Body.String())
 }
