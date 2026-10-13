@@ -18,6 +18,7 @@ type cachedEntry struct {
 type tokenCache struct {
 	mu      sync.RWMutex
 	entries map[string]cachedEntry
+	gen     uint64 // bumped by every invalidation; a lookup that began before one is not cached
 	ttl     time.Duration
 
 	stopOnce sync.Once
@@ -46,22 +47,10 @@ func (c *tokenCache) get(token string) (cachedEntry, bool) {
 	return e, true
 }
 
-// set inserts or replaces the entry for token.
-// expiresAt is clamped to min(now+ttl, tokenExpiry) so we never serve a user
-// whose underlying DB token has already expired.
-func (c *tokenCache) set(token string, tokenID int, user Identifiable, tokenExpiry time.Time) {
-	cacheExpiry := time.Now().Add(c.ttl)
-	if tokenExpiry.Before(cacheExpiry) {
-		cacheExpiry = tokenExpiry
-	}
-	c.mu.Lock()
-	c.entries[token] = cachedEntry{user: user, tokenID: tokenID, expiresAt: cacheExpiry}
-	c.mu.Unlock()
-}
-
 // delete removes a single entry — called on explicit token revocation (logout).
 func (c *tokenCache) delete(token string) {
 	c.mu.Lock()
+	c.gen++
 	delete(c.entries, token)
 	c.mu.Unlock()
 }
@@ -107,15 +96,48 @@ func (c *tokenCache) Stop() {
 }
 
 // deleteWhere removes every entry match accepts.
-// shortcut: a scan under the write lock, not an index by user; the cache holds at most
+// shortcut: one global generation, not one per user: any invalidation makes lookups in flight skip
+// caching (they still answer), which costs a cache miss, never a stale hit; and a scan under the
+// write lock, not an index by user; the cache holds at most
 // one entry per live token for ttl (seconds), so the scan is short. Index it if a host
 // caches millions of tokens.
 func (c *tokenCache) deleteWhere(match func(cachedEntry) bool) {
 	c.mu.Lock()
+	c.gen++
+
 	for k, e := range c.entries {
 		if match(e) {
 			delete(c.entries, k)
 		}
 	}
 	c.mu.Unlock()
+}
+
+// set inserts or replaces the entry for token.
+// expiresAt is clamped to min(now+ttl, tokenExpiry) so we never serve a user
+// whose underlying DB token has already expired.
+// gen is the generation read before the store lookup: if an invalidation came since, the entry
+// is not stored (the caller still gets the identity for its own request).
+func (c *tokenCache) set(token string, tokenID int, user Identifiable, tokenExpiry time.Time, gen uint64) {
+	cacheExpiry := time.Now().Add(c.ttl)
+	if tokenExpiry.Before(cacheExpiry) {
+		cacheExpiry = tokenExpiry
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if gen != c.gen {
+		return
+	}
+
+	c.entries[token] = cachedEntry{user: user, tokenID: tokenID, expiresAt: cacheExpiry}
+}
+
+// generation is read before a store lookup, and handed to set.
+func (c *tokenCache) generation() uint64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.gen
 }

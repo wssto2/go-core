@@ -119,3 +119,58 @@ func TestDBTokenProvider_InvalidateUserAndSession(t *testing.T) {
 		t.Fatal("b1 is still served after InvalidateSession(3)")
 	}
 }
+
+// blockingStore holds the first FindValidToken until the test lets it go.
+type blockingStore struct {
+	*mapStore
+
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *blockingStore) FindValidToken(ctx context.Context, v string) (*auth.Token, error) {
+	t, err := s.mapStore.FindValidToken(ctx, v) // read first: the row is still live
+
+	s.once.Do(func() {
+		close(s.entered)
+		<-s.release
+	})
+
+	return t, err
+}
+
+// A lookup that began before an invalidation must not put its (now stale) result in the cache.
+func TestDBTokenProvider_InvalidateUserDuringALookupIsNotUndone(t *testing.T) {
+	t.Parallel()
+
+	base := &mapStore{tokens: map[string]*auth.Token{
+		"a1": {ID: 1, UserID: 1, ExpiresAt: time.Now().Add(time.Hour)},
+	}}
+	store := &blockingStore{mapStore: base, entered: make(chan struct{}), release: make(chan struct{})}
+
+	provider := auth.NewDBTokenProvider(store, func(_ context.Context, _ string) (auth.Identifiable, error) {
+		return uid(1), nil
+	}, nil, auth.WithVerifyCache(time.Minute))
+	defer provider.Stop()
+
+	first := make(chan error, 1)
+
+	go func() {
+		_, err := provider.Verify(t.Context(), "a1")
+		first <- err
+	}()
+
+	<-store.entered            // the lookup has read the live row
+	base.revoke("a1")          // logout commits
+	provider.InvalidateUser(1) // identity tells the host
+	close(store.release)
+
+	if err := <-first; err != nil {
+		t.Fatal("the request in flight is answered from what it read:", err)
+	}
+
+	if _, err := provider.Verify(t.Context(), "a1"); err == nil {
+		t.Fatal("the stale lookup was cached after the invalidation")
+	}
+}

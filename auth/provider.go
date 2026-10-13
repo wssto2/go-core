@@ -151,6 +151,11 @@ func (p *DBTokenProvider) Verify(ctx context.Context, token string) (Identifiabl
 		}
 	}
 
+	var gen uint64
+	if p.cache != nil {
+		gen = p.cache.generation() // before the lookup: see tokenCache.set
+	}
+
 	ut, err := p.store.FindValidToken(ctx, token)
 	if err != nil {
 		return nil, errors.New("unauthorized: invalid or expired token")
@@ -164,7 +169,7 @@ func (p *DBTokenProvider) Verify(ctx context.Context, token string) (Identifiabl
 	}
 
 	if p.cache != nil {
-		p.cache.set(token, ut.ID, user, ut.ExpiresAt)
+		p.cache.set(token, ut.ID, user, ut.ExpiresAt, gen)
 	}
 
 	return user, nil
