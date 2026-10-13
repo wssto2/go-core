@@ -54,6 +54,7 @@ import (
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/notification/migrations"
+	"github.com/wssto2/go-core/notification/push"
 	"gorm.io/gorm"
 )
 
@@ -156,19 +157,23 @@ type People interface {
 type Notices struct {
 	// Inbox lists, counts and reads a person's notifications.
 	Inbox *Inbox
-	// Settings is what a person chooses for their own notifications: e-mail per category, and quiet hours.
+	// Settings is what a person chooses for their own notifications: e-mail and push per category, and quiet hours.
 	Settings *Settings
+	// Devices are a person's push devices: register this browser, list, rename, remove and test them.
+	Devices *Devices
 
-	people    People
-	kinds     []Kind
-	location  *time.Location
-	mail      *account.Mail
-	appURL    string
-	db        *gorm.DB
-	store     *store
-	clock     gocore.Clock
-	log       *slog.Logger
-	heartbeat time.Duration
+	people     People
+	kinds      []Kind
+	location   *time.Location
+	mail       *account.Mail
+	push       *push.Sender
+	bundleText func(locale string, count int, titles []string) (title, body string)
+	appURL     string
+	db         *gorm.DB
+	store      *store
+	clock      gocore.Clock
+	log        *slog.Logger
+	heartbeat  time.Duration
 }
 
 // Install puts the in-app inbox into app: the notifications table (its
@@ -215,13 +220,27 @@ func Install(app *gocore.App, users People, opts ...Option) *Notices {
 	}
 
 	n.Inbox = &Inbox{store: st, clock: app.Clock(), hub: NewHub()}
-	n.Settings = &Settings{store: st, kinds: n.kinds, enforce: cfg.enforce, available: n.mail != nil, clock: app.Clock(), location: cfg.location}
+	n.push, n.bundleText = cfg.push, cfg.bundleText
+
+	if n.bundleText == nil {
+		n.bundleText = defaultBundleText
+	}
+
+	n.Settings = &Settings{
+		store: st, kinds: n.kinds, enforce: cfg.enforce, emailOK: n.mail != nil, pushOK: n.push != nil, clock: app.Clock(), location: cfg.location,
+	}
+	n.Devices = &Devices{store: st, sender: n.push, clock: app.Clock(), db: db}
 
 	app.Events(n.testConsumer())
 	app.Background(housekeeper{notices: n})
 
 	if n.mail != nil {
 		app.Background(&deliveryWorker{notices: n})
+	}
+
+	if n.push != nil {
+		app.Events(n.deviceTestConsumer())
+		app.Background(&pushWorker{notices: n})
 	}
 
 	app.Routes(Declare().To(n)...)
@@ -277,6 +296,11 @@ func (n *Notices) kind(k Kind) (Kind, bool) {
 // ones Except named are skipped (NOTIF-RECIPIENT-001). Once the transaction
 // has committed, the open apps of the recipients are told (NOTIF-READ-001).
 func (n *Notices) Send(ctx context.Context, category Kind, to Recipients, render func(Recipient) Message) error {
+	return n.send(ctx, category, to, render, 0)
+}
+
+// send is Send, with the pushes limited to one device when onlyDevice is not 0 (the test of a device).
+func (n *Notices) send(ctx context.Context, category Kind, to Recipients, render func(Recipient) Message, onlyDevice uint64) error {
 	if n.store == nil {
 		return errors.New("notification: Send on a Notices that Install did not build: see the problems Run reports")
 	}
@@ -348,7 +372,7 @@ func (n *Notices) Send(ctx context.Context, category Kind, to Recipients, render
 		return nil
 	}
 
-	plans, err := n.emailPlans(ctx, registered, notified, whole(now))
+	plans, err := n.plans(ctx, registered, notified, whole(now), onlyDevice)
 	if err != nil {
 		return err
 	}

@@ -176,7 +176,7 @@ func ExampleEnforce() {
 
 	// An outside authority, such as a dealer's policy: always on, and the person cannot change it.
 	notification.Install(app, users, TicketAssigned,
-		notification.Enforce(func(_ context.Context, _ int, k notification.Kind) (on, enforced bool, err error) {
+		notification.Enforce(func(_ context.Context, _ int, k notification.Kind, _ notification.Channel) (on, enforced bool, err error) {
 			return true, k.Code() == "tickets.assigned", nil
 		}))
 
@@ -372,6 +372,14 @@ func ExampleRoutes() {
 	// GET /v1/notifications/preferences
 	// PUT /v1/notifications/preferences/:category
 	// PUT /v1/notifications/quiet-hours
+	// PUT /v1/notifications/preferences/:category/push
+	// GET /v1/notifications/push
+	// GET /v1/notifications/devices
+	// POST /v1/notifications/devices
+	// POST /v1/notifications/devices/unsubscribe
+	// PATCH /v1/notifications/devices/:id
+	// DELETE /v1/notifications/devices/:id
+	// POST /v1/notifications/devices/:id/test
 }
 
 // A signed-in person sends themselves a test notification through the event queue and reads it over

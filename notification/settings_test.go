@@ -15,9 +15,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// forceAssigned enforces the e-mail of tickets.assigned on for person 1 and off for person 2.
-func forceAssigned(_ context.Context, userID int, k notification.Kind) (on, enforced bool, err error) {
-	if k.Code() != TicketAssigned.Code() {
+// forceAssigned enforces the e-mail (not the push) of tickets.assigned on for person 1 and off for person 2.
+func forceAssigned(_ context.Context, userID int, k notification.Kind, ch notification.Channel) (on, enforced bool, err error) {
+	if k.Code() != TicketAssigned.Code() || ch != notification.ChannelEmail {
 		return false, false, nil
 	}
 
@@ -93,7 +93,7 @@ func TestAnEnforcedSettingCannotBeChanged(t *testing.T) {
 }
 
 func TestTheEnforcersErrorIsAnErrorNotAGuess(t *testing.T) {
-	w := newMailWorld(t, mustSQLite(t), notification.Enforce(func(context.Context, int, notification.Kind) (bool, bool, error) {
+	w := newMailWorld(t, mustSQLite(t), notification.Enforce(func(context.Context, int, notification.Kind, notification.Channel) (bool, bool, error) {
 		return false, false, errors.New("the policy store is away")
 	}))
 

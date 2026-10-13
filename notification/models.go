@@ -47,3 +47,23 @@ type quietRow struct {
 }
 
 func (quietRow) TableName() string { return "notification_quiet_hours" }
+
+// deviceRow is a notification_devices row: one browser or app that enabled web push.
+type deviceRow struct {
+	ID            uint64     `gorm:"column:id;primaryKey;autoIncrement"`
+	UserID        uint32     `gorm:"column:user_id;not null;type:int unsigned;index:notification_devices_user"`
+	Endpoint      string     `gorm:"column:endpoint;size:1024;not null"`
+	EndpointHash  string     `gorm:"column:endpoint_hash;type:char(64);not null;uniqueIndex:notification_devices_endpoint_hash"`
+	P256DH        string     `gorm:"column:p256dh;size:128;not null"`
+	Auth          string     `gorm:"column:auth;size:64;not null"`
+	Label         string     `gorm:"column:label;size:100;not null"`
+	Platform      string     `gorm:"column:platform;size:32;not null;default:''"`
+	CreatedAt     time.Time  `gorm:"column:created_at;type:datetime;not null"`
+	LastSeenAt    time.Time  `gorm:"column:last_seen_at;type:datetime;not null"`
+	LastSuccessAt *time.Time `gorm:"column:last_success_at;type:datetime"`
+	FailureCount  uint32     `gorm:"column:failure_count;not null;type:int unsigned;default:0"`
+	DisabledAt    *time.Time `gorm:"column:disabled_at;type:datetime"`
+	UpdatedAt     time.Time  `gorm:"column:updated_at;type:datetime;not null"`
+}
+
+func (deviceRow) TableName() string { return "notification_devices" }

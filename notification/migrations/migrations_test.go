@@ -29,6 +29,7 @@ func ExampleFiles() {
 	// 20261016000030_notifications.sql
 	// 20261016000031_notification_deliveries.sql
 	// 20261016000032_notification_settings.sql
+	// 20261016000033_notification_devices.sql
 }
 
 type column struct {
@@ -69,7 +70,7 @@ func up(t *testing.T, db *gorm.DB) {
 	require.NoError(t, migrate.New(reg, nil, slog.New(slog.DiscardHandler)).Add("scratch", migrations.Files).Up(context.Background()))
 }
 
-var tables = []string{"notifications", "notification_deliveries", "notification_preferences", "notification_quiet_hours"}
+var tables = []string{"notifications", "notification_deliveries", "notification_preferences", "notification_quiet_hours", "notification_devices"}
 
 // The files create the tables notification.Migrate creates from the models: the same columns in the same
 // order with the same types, nullability and defaults, and the same indexes.
@@ -124,6 +125,14 @@ func TestTheFilesAreArvNextsTables(t *testing.T) {
 		"notification_quiet_hours": {
 			[]string{"user_id int unsigned/NO", "enabled tinyint(1)/NO", "start_minute smallint unsigned/NO", "end_minute smallint unsigned/NO", "updated_at datetime/NO"},
 			[]string{"PRIMARY:0:user_id"},
+		},
+		"notification_devices": {
+			[]string{
+				"id bigint unsigned/NO", "user_id int unsigned/NO", "endpoint varchar(1024)/NO", "endpoint_hash char(64)/NO", "p256dh varchar(128)/NO",
+				"auth varchar(64)/NO", "label varchar(100)/NO", "platform varchar(32)/NO", "created_at datetime/NO", "last_seen_at datetime/NO",
+				"last_success_at datetime/YES", "failure_count int unsigned/NO", "disabled_at datetime/YES", "updated_at datetime/NO",
+			},
+			[]string{"PRIMARY:0:id", "notification_devices_endpoint_hash:0:endpoint_hash", "notification_devices_user:1:user_id"},
 		},
 	}
 
