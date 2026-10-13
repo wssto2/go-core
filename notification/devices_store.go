@@ -10,6 +10,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+var errDeviceVanished = errors.New("notification: the device vanished while it was being saved")
+
 // deviceByID reads one device, and false when it does not exist (any more).
 func (s *store) deviceByID(ctx context.Context, id uint64) (deviceRow, bool, error) {
 	return s.oneDevice(ctx, "id = ?", id)
@@ -81,8 +83,12 @@ func (s *store) registerDevice(ctx context.Context, next deviceRow, now time.Tim
 			return next, nil
 		}
 
-		if cur, found, err = s.deviceByHash(ctx, next.EndpointHash); err != nil || !found {
-			return deviceRow{}, errors.Join(err, errors.New("notification: the device vanished while it was being saved")) //nolint:err113 // not a condition callers branch on
+		if cur, found, err = s.deviceByHash(ctx, next.EndpointHash); err != nil {
+			return deviceRow{}, err
+		}
+
+		if !found {
+			return deviceRow{}, errDeviceVanished
 		}
 	}
 

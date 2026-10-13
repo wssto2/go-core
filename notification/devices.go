@@ -70,7 +70,7 @@ type Subscription struct {
 	Auth     string `json:"auth" validation:"required|max:64"`
 }
 
-// Devices is what a person does with their own push devices: register this browser, list, rename, remove and test
+// Devices is what a person does with their own push devices (NOTIF-DEVICE-001): register this browser, list, rename, remove and test
 // them. Every method acts on one person's devices, whose id the caller takes from the session, never from the request.
 type Devices struct {
 	store  *store

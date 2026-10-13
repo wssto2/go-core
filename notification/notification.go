@@ -36,6 +36,10 @@
 // quiet hours last (NOTIF-QUIET-001) and sent once by a worker that retries and gives up
 // (NOTIF-DELIVERY-001). With identity.WithoutMail() e-mail is unavailable and the settings say so.
 // The text of the e-mail is in mailtext, in English, Croatian, Bosnian and Slovenian.
+//
+// With WithPush the same goes for web push: a person registers their browsers as devices (Notices.Devices), and a
+// notification of a category whose push is on for them is pushed to each of them, held in quiet hours, retried,
+// and bundled in a burst (NOTIF-DEVICE-001). The protocol is package notification/push, standard library only.
 package notification
 
 import (
