@@ -1,6 +1,8 @@
 # Changelog
 
-## v1.8.3
+## v1.8.4
+
+`v1.8.3` is retracted: it was tagged on v1.8.2's commit and carries none of this. Use v1.8.4.
 
 Module routes see the signed-in person's tenant, so an application's hooks read tenant-scoped data as the person does.
 

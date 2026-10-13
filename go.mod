@@ -4,6 +4,9 @@ go 1.26.0
 
 toolchain go1.26.6
 
+// v1.8.3 was tagged on the wrong commit: it is v1.8.2's code. Its changes are v1.8.4.
+retract v1.8.3
+
 require (
 	github.com/goccy/go-json v0.10.5
 	github.com/google/uuid v1.6.0
