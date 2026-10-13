@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"time"
 
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
@@ -252,92 +253,140 @@ type pendingNotices struct {
 	signedOut []LoginAs
 }
 
-func (p pendingNotices) announce(ctx context.Context, n Notices) {
+func (p pendingNotices) announce(ctx context.Context, hear Notices) {
 	for _, e := range p.ended {
-		n.SessionsEnded(ctx, e)
+		hear.SessionsEnded(ctx, e)
 	}
 
 	for _, f := range p.signedOut {
-		n.SignedOutAs(ctx, f)
+		hear.SignedOutAs(ctx, f)
 	}
 }
 
+// endedSession is the fact that one session ended, by the person or the system.
+func endedSession(session Session, why EndReason) SessionsEnded {
+	return SessionsEnded{AccountID: session.AccountID, SessionIDs: []int{session.ID}, Reason: why, ActorID: 0}
+}
+
+// keptSession is the id of the live session KeepToken names, when it is the account's; else zero.
+func (u *Users) keptSession(ctx context.Context, req RevokeSessionsInput) int {
+	if req.KeepToken == "" {
+		return 0
+	}
+
+	found, err := u.deps.Sessions.Get(ctx, req.KeepToken, u.deps.Clock.Now())
+	if err != nil || found.AccountID != req.AccountID {
+		return 0
+	}
+
+	return found.ID
+}
+
 // revokeSessions does RevokeSessions and returns the facts instead of telling them.
-func (u *Users) revokeSessions(ctx context.Context, in RevokeSessionsInput) (pendingNotices, error) {
+func (u *Users) revokeSessions(ctx context.Context, req RevokeSessionsInput) (pendingNotices, error) {
 	var out pendingNotices
 
-	if in.ActorID == in.AccountID {
-		in.ActorID = 0
+	if req.ActorID == req.AccountID {
+		req.ActorID = 0
 	}
 
-	if in.Reason == "" {
-		in.Reason = EndedRevoked
+	if req.Reason == "" {
+		req.Reason = EndedRevoked
 	}
 
-	keep := 0
+	keep, now := u.keptSession(ctx, req), u.deps.Clock.Now()
 
-	if in.KeepToken != "" {
-		if s, err := u.deps.Sessions.Get(ctx, in.KeepToken, u.deps.Clock.Now()); err == nil && s.AccountID == in.AccountID {
-			keep = s.ID
-		}
-	}
-
-	now := u.deps.Clock.Now()
-
-	// The ids are read just before they are ended: a session opened in between is ended
+	// The ids are read just before they are ended: a session opened req between is ended
 	// but missing from the fact, which names the account all the same.
-	live, err := u.deps.Sessions.Live(ctx, in.AccountID, now)
+	ids, err := u.liveExcept(ctx, req.AccountID, keep, now)
+	if err != nil {
+		return out, err
+	}
+
+	_, err = u.deps.Sessions.End(ctx, req.AccountID, nil, keep, now)
 	if err != nil {
 		return out, apperr.Internal(err)
 	}
 
+	err = u.record(ctx, req.AccountID, SignedOutEverywhere, req.ActorID)
+	if err != nil {
+		return out, err
+	}
+
+	out.ended = append(out.ended, SessionsEnded{
+		AccountID: req.AccountID, SessionIDs: ids, Reason: req.Reason, ActorID: req.ActorID,
+	})
+
+	return u.endOpenedBy(ctx, req, now, out)
+}
+
+// endOpenedBy ends the sessions the account opened by signing req as somebody else, which belong to those
+// people, and adds their facts to out.
+func (u *Users) endOpenedBy(
+	ctx context.Context, req RevokeSessionsInput, now time.Time, out pendingNotices,
+) (pendingNotices, error) {
+	opened, err := u.deps.Sessions.EndOpenedBy(ctx, req.AccountID, now)
+	if err != nil {
+		return out, apperr.Internal(err)
+	}
+
+	for _, theirs := range opened {
+		// The actor of the target's history is who ended it, not the target.
+		err = u.record(ctx, theirs.AccountID, SessionRevoked, req.ActorID)
+		if err != nil {
+			return out, err
+		}
+
+		out.signedOut = append(out.signedOut, LoginAs{
+			ActorID: req.AccountID, TargetID: theirs.AccountID, Device: theirs.Label(), IP: theirs.IP,
+		})
+	}
+
+	out.ended = append(out.ended, endedOpenedBy(opened, req.ActorID)...)
+
+	return out, nil
+}
+
+// liveExcept is the ids of the account's live sessions but keep, in order.
+func (u *Users) liveExcept(ctx context.Context, accountID, keep int, now time.Time) ([]int, error) {
+	live, err := u.deps.Sessions.Live(ctx, accountID, now)
+	if err != nil {
+		return nil, apperr.Internal(err)
+	}
+
 	var ids []int
 
-	for _, s := range live {
-		if s.ID != keep {
-			ids = append(ids, s.ID)
+	for _, live := range live {
+		if live.ID != keep {
+			ids = append(ids, live.ID)
 		}
 	}
 
 	slices.Sort(ids)
 
-	if _, err := u.deps.Sessions.End(ctx, in.AccountID, nil, keep, now); err != nil {
-		return out, apperr.Internal(err)
-	}
+	return ids, nil
+}
 
-	if err := u.record(ctx, in.AccountID, SignedOutEverywhere, in.ActorID); err != nil {
-		return out, err
-	}
+// endedOpenedBy is one fact for each account whose sessions, opened by somebody, ended.
+func endedOpenedBy(opened []Session, actorID int) []SessionsEnded {
+	var out []SessionsEnded
 
-	// An empty list still goes out: a session opened after the read was ended too.
-	out.ended = append(out.ended, SessionsEnded{AccountID: in.AccountID, SessionIDs: ids, Reason: in.Reason, ActorID: in.ActorID})
+	index := map[int]int{} // account -> its place in out
 
-	opened, err := u.deps.Sessions.EndOpenedBy(ctx, in.AccountID, now)
-	if err != nil {
-		return out, apperr.Internal(err)
-	}
+	for _, theirs := range opened {
+		if i, ok := index[theirs.AccountID]; ok {
+			out[i].SessionIDs = append(out[i].SessionIDs, theirs.ID)
 
-	byTarget := map[int]int{} // target account -> index in out.ended
-
-	for _, s := range opened {
-		// The actor of the target's history is who ended it, not the target.
-		if err := u.record(ctx, s.AccountID, SessionRevoked, in.ActorID); err != nil {
-			return out, err
+			continue
 		}
 
-		out.signedOut = append(out.signedOut, LoginAs{
-			ActorID: in.AccountID, TargetID: s.AccountID, Device: s.Label(), IP: s.IP,
+		index[theirs.AccountID] = len(out)
+		out = append(out, SessionsEnded{
+			AccountID: theirs.AccountID, SessionIDs: []int{theirs.ID}, Reason: EndedOpenedBy, ActorID: actorID,
 		})
-
-		if i, ok := byTarget[s.AccountID]; ok {
-			out.ended[i].SessionIDs = append(out.ended[i].SessionIDs, s.ID)
-		} else {
-			byTarget[s.AccountID] = len(out.ended)
-			out.ended = append(out.ended, SessionsEnded{AccountID: s.AccountID, SessionIDs: []int{s.ID}, Reason: EndedOpenedBy, ActorID: in.ActorID})
-		}
 	}
 
-	return out, nil
+	return out
 }
 
 // record writes the event; the actor is kept only when it is somebody else than the person.

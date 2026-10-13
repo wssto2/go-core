@@ -1,3 +1,4 @@
+//nolint:goconst,varnamelen // the names of the people the tests seed
 package identity_test
 
 import (
@@ -21,6 +22,7 @@ import (
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/dbtest"
 	"github.com/wssto2/go-core/gocore"
+	"github.com/wssto2/go-core/gocoretest"
 	"github.com/wssto2/go-core/identity"
 	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/identity/identitytest"
@@ -37,6 +39,7 @@ func (u hostUser) GetID() int { return int(u) }
 // ends a person's sessions or changes the person, the host forgets what it cached.
 type forgetting struct {
 	account.DiscardNotices
+
 	tokens *auth.DBTokenProvider
 }
 
@@ -46,10 +49,10 @@ func (f forgetting) SessionsEnded(_ context.Context, e account.SessionsEnded) {
 
 func (f forgetting) AccountChanged(_ context.Context, id int) { f.tokens.InvalidateUser(id) }
 
-// withHostRoute installs identity on app, with the cache wired to it when wired, and mounts
+// withHostRoute installs identity on app (with extra options), with the cache wired to it when wired, and mounts
 // /host/ping behind a DBTokenProvider that caches verified tokens for 30 s over the same tokens table.
-func withHostRoute(t testing.TB, app *gocore.App, db *gorm.DB, wired bool) {
-	t.Helper()
+func withHostRoute(tb testing.TB, app *gocore.App, db *gorm.DB, wired bool, extra ...identity.Option) {
+	tb.Helper()
 
 	provider := auth.NewDBTokenProvider(authgorm.NewGormTokenStore(db),
 		func(_ context.Context, id string) (auth.Identifiable, error) {
@@ -57,11 +60,11 @@ func withHostRoute(t testing.TB, app *gocore.App, db *gorm.DB, wired bool) {
 
 			return hostUser(n), err
 		}, nil, auth.WithVerifyCache(30*time.Second))
-	t.Cleanup(provider.Stop)
+	tb.Cleanup(provider.Stop)
 
-	opts := []identity.Option{identity.WithoutMail(), identity.On("local")}
+	opts := append([]identity.Option{identity.WithoutMail()}, extra...)
 	if wired {
-		opts = append(opts, identity.WithNotices(forgetting{tokens: provider}))
+		opts = append(opts, identity.WithNotices(forgetting{DiscardNotices: account.DiscardNotices{}, tokens: provider}))
 	}
 
 	identity.Install(app, opts...)
@@ -72,23 +75,24 @@ func withHostRoute(t testing.TB, app *gocore.App, db *gorm.DB, wired bool) {
 			ctx.JSON(nethttp.StatusOK, gin.H{"user": auth.MustGetUser[hostUser](ctx).GetID()})
 		}
 	}
+
 	app.Routes(route.Raw(nethttp.MethodGet, "/host/ping").Public().To(ping))
 }
 
-func hostPing(t testing.TB, c *client, access string) int {
-	t.Helper()
+func hostPing(tb testing.TB, web *client, access string) int {
+	tb.Helper()
 
-	req := httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/host/ping", nil)
+	req := httptest.NewRequestWithContext(tb.Context(), nethttp.MethodGet, "/host/ping", nil)
 	req.Header.Set("Authorization", "Bearer "+access)
 
 	rec := httptest.NewRecorder()
-	c.handler.ServeHTTP(rec, req)
+	web.handler.ServeHTTP(rec, req)
 
 	return rec.Code
 }
 
-func accessOf(c *client) string {
-	for _, ck := range c.cookies {
+func accessOf(web *client) string {
+	for _, ck := range web.cookies {
 		if ck.Name == "access_token" {
 			return ck.Value
 		}
@@ -97,79 +101,101 @@ func accessOf(c *client) string {
 	return ""
 }
 
+// hostAppOn starts an application with identity on db and the host's route.
+func hostAppOn(t *testing.T, conn *gorm.DB, wired bool) *gocore.App {
+	t.Helper()
+
+	quiet := slog.New(slog.DiscardHandler)
+	reg := database.NewRegistry(quiet, database.RegistryConfig{}) //nolint:exhaustruct,exhaustruct_v5 // the defaults
+	reg.AddConnection("local", conn)
+
+	opts := []gocore.Option{
+		gocore.WithRegistry(reg), gocore.WithLogger(quiet), gocore.WithAuthorizer(authztest.AllowAll()),
+	}
+	if conn.Name() == dbtest.SQLite.Name {
+		opts = append(opts, gocore.WithAutoMigrate(t.Context()))
+	}
+
+	app := gocore.New(bootstrap.DefaultConfig(), opts...)
+	cat := authz.NewCatalogue()
+	require.NoError(t, identity.DefinePermissions(cat))
+	app.Permissions(cat)
+
+	withHostRoute(t, app, conn, wired, identity.On("local"))
+
+	if conn.Name() != dbtest.SQLite.Name {
+		require.NoError(t, app.Migrate(t.Context()))
+	}
+
+	return app
+}
+
 // A host that caches verified tokens hears identity: after logout or a refresh the old
 // access token is refused by the host's route on the very next request. Without the
 // wiring the cache keeps answering, which is the hole this closes.
 func TestAHostsTokenCacheForgetsWhatIdentityEnds(t *testing.T) {
+	t.Parallel()
+
 	for _, wired := range []bool{false, true} {
 		t.Run(fmt.Sprintf("wired=%v", wired), func(t *testing.T) {
-			dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
-				reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
-				reg.AddConnection("local", db)
+			t.Parallel()
 
-				opts := []gocore.Option{gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthorizer(authztest.AllowAll())}
-				if db.Name() == "sqlite" {
-					opts = append(opts, gocore.WithAutoMigrate(t.Context()))
-				}
+			dbtest.Run(t, func(t *testing.T, conn *gorm.DB) {
+				t.Helper()
 
-				app := gocore.New(bootstrap.DefaultConfig(), opts...)
-				cat := authz.NewCatalogue()
-				require.NoError(t, identity.DefinePermissions(cat))
-				app.Permissions(cat)
+				app := hostAppOn(t, conn, wired)
+				seed(t, conn, identitytest.Account(1, "ana", "secret"))
 
-				withHostRoute(t, app, db, wired)
-
-				if db.Name() != "sqlite" {
-					require.NoError(t, app.Migrate(t.Context()))
-				}
-
-				seed(t, db, identitytest.Account(1, "ana", "secret"))
-
-				c := newClient(t, app)
-				login(t, c, "ana", "secret")
+				web := newClient(t, app)
+				login(t, web, "ana", "secret")
 
 				// after a refresh
-				old := accessOf(c)
+				old := accessOf(web)
 				require.NotEmpty(t, old)
-				require.Equal(t, nethttp.StatusOK, hostPing(t, c, old), "the host accepts it, and caches it")
-				require.Equal(t, nethttp.StatusOK, c.do(nethttp.MethodPost, "/v1/auth/refresh", nil).Code)
+				require.Equal(t, nethttp.StatusOK, hostPing(t, web, old), "the host accepts it, and caches it")
+				require.Equal(t, nethttp.StatusOK, web.do(nethttp.MethodPost, "/v1/auth/refresh", nil).Code)
 
-				fresh := accessOf(c)
+				fresh := accessOf(web)
 				require.NotEqual(t, old, fresh)
-				assert.Equal(t, nethttp.StatusOK, hostPing(t, c, fresh))
-
-				if wired {
-					assert.Equal(t, nethttp.StatusUnauthorized, hostPing(t, c, old), "the replaced access token dies on the host's route at once")
-				} else {
-					assert.Equal(t, nethttp.StatusOK, hostPing(t, c, old), "without the wiring the cache serves it")
-				}
+				assert.Equal(t, nethttp.StatusOK, hostPing(t, web, fresh))
+				assert.Equal(t, answer(wired), hostPing(t, web, old), "the replaced access token on the host's route")
 
 				// after logout
-				require.Equal(t, nethttp.StatusNoContent, c.do(nethttp.MethodPost, "/v1/auth/logout", nil).Code)
-
-				if wired {
-					assert.Equal(t, nethttp.StatusUnauthorized, hostPing(t, c, fresh), "a signed-out token dies on the host's route at once")
-				} else {
-					assert.Equal(t, nethttp.StatusOK, hostPing(t, c, fresh), "without the wiring the cache serves it")
-				}
+				require.Equal(t, nethttp.StatusNoContent, web.do(nethttp.MethodPost, "/v1/auth/logout", nil).Code)
+				assert.Equal(t, answer(wired), hostPing(t, web, fresh), "the signed-out token on the host's route")
 			})
 		})
 	}
 }
 
+// answer is what the host's route says to a token identity ended: refused at once when the
+// cache hears identity, served from the cache (the hole) when it does not.
+func answer(wired bool) int {
+	if wired {
+		return nethttp.StatusUnauthorized
+	}
+
+	return nethttp.StatusOK
+}
+
 // ExampleWithNotices_tokenCache shows the wiring: a host that caches verified tokens hands
-// identity a Notices that calls the provider's InvalidateUser (see forgetting above).
-// It has no Output line, so it is compiled and not run; the test above runs it.
+// identity a Notices that calls the provider's InvalidateUser (forgetting, above).
 func ExampleWithNotices_tokenCache() {
-	var db *gorm.DB // the host's connection
+	t := &exampleT{} //nolint:exhaustruct,exhaustruct_v5 // as the other examples
+	defer t.done()
 
-	tokens := auth.NewDBTokenProvider(authgorm.NewGormTokenStore(db), func(_ context.Context, id string) (auth.Identifiable, error) {
-		n, err := strconv.Atoi(id)
+	app := newApp(t, gocoretest.At(time.Now())) // the host's provider reads the real clock
+	withHostRoute(t, app, app.Database(), true)
+	seed(t, app.Database(), identitytest.Account(1, "ana", "secret"))
 
-		return hostUser(n), err
-	}, nil, auth.WithVerifyCache(30*time.Second))
+	web := newClient(t, app)
+	web.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "ana", "password": "secret"})
 
-	var app *gocore.App
-
-	identity.Install(app, identity.WithoutMail(), identity.WithNotices(forgetting{tokens: tokens}))
+	token := accessOf(web)
+	fmt.Println(hostPing(t, web, token))
+	web.do(nethttp.MethodPost, "/v1/auth/logout", nil)
+	fmt.Println(hostPing(t, web, token))
+	// Output:
+	// 200
+	// 401
 }

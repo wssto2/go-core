@@ -346,7 +346,7 @@ func TestLoginAs(t *testing.T) {
 	}, all[0], "the target's history says who")
 
 	require.NoError(t, k.SignIn.Logout(ctx, signed.Credentials.Access))
-	assert.Equal(t, []string{"in 1>2", "ended 2 by 0 x1 logout", "out 1>2"}, n.events)
+	assert.Equal(t, []string{"in 1>2", "ended 2 by 0 x1 logout", outOneTwo}, n.events)
 
 	fact := account.LoginAs{ActorID: 1, TargetID: 2, Device: laptop, IP: actorIP}
 	assert.Equal(t, []account.LoginAs{fact, fact}, n.facts,
@@ -402,7 +402,7 @@ func TestReturnGivesBackTheActorsOwnSession(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, again.Session.ActorID)
 	assert.Nil(t, again.Actor)
-	assert.Equal(t, []string{"in 1>2", "ended 2 by 0 x1 login_as_return", "out 1>2"}, n.events)
+	assert.Equal(t, []string{"in 1>2", "ended 2 by 0 x1 login_as_return", outOneTwo}, n.events)
 	assert.Equal(t, account.LoginAs{ActorID: 1, TargetID: 2, Device: "Firefox · Windows", IP: "10.0.0.8"}, n.facts[1],
 		"the return is from the request that made it")
 }

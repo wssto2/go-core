@@ -2,6 +2,7 @@ package account_test
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strconv"
 	"sync"
@@ -58,8 +59,12 @@ func (n *notices) SignedOutAs(_ context.Context, f account.LoginAs) {
 	n.fact(f)
 	n.add("out " + strconv.Itoa(f.ActorID) + ">" + strconv.Itoa(f.TargetID))
 }
+
+// outOneTwo is what the notices record for a session of 2 that 1 had opened ending.
+const outOneTwo = "out 1>2"
+
 func (n *notices) SessionsEnded(_ context.Context, f account.SessionsEnded) {
-	n.add("ended " + strconv.Itoa(f.AccountID) + " by " + strconv.Itoa(f.ActorID) + " x" + strconv.Itoa(len(f.SessionIDs)) + " " + string(f.Reason))
+	n.add(fmt.Sprintf("ended %d by %d x%d %s", f.AccountID, f.ActorID, len(f.SessionIDs), f.Reason))
 }
 
 func (n *notices) AccountChanged(_ context.Context, id int) {

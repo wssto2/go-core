@@ -340,7 +340,9 @@ func (a *Admin) SetPassword(ctx context.Context, in SetPassword) error {
 
 		var err error
 
-		pending, err = a.d.Users.revokeSessions(ctx, RevokeSessionsInput{AccountID: in.ID, ActorID: in.ActorID, Reason: EndedPasswordChanged})
+		pending, err = a.d.Users.revokeSessions(ctx, RevokeSessionsInput{
+			AccountID: in.ID, KeepToken: "", ActorID: in.ActorID, Reason: EndedPasswordChanged,
+		})
 
 		return err
 	})
@@ -396,7 +398,9 @@ func (a *Admin) Deactivate(ctx context.Context, in DeactivateInput) error {
 
 		var err error
 
-		pending, err = a.d.Users.revokeSessions(ctx, RevokeSessionsInput{AccountID: acc.ID, ActorID: in.ActorID, Reason: EndedDeactivated})
+		pending, err = a.d.Users.revokeSessions(ctx, RevokeSessionsInput{
+			AccountID: acc.ID, KeepToken: "", ActorID: in.ActorID, Reason: EndedDeactivated,
+		})
 		if err != nil {
 			return err
 		}

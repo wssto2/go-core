@@ -221,7 +221,9 @@ func (p *Profile) ChangePassword(ctx context.Context, in PasswordChange) error {
 
 		var err error
 
-		pending, err = p.d.Users.revokeSessions(ctx, RevokeSessionsInput{AccountID: acc.ID, KeepToken: in.KeepToken, Reason: EndedPasswordChanged})
+		pending, err = p.d.Users.revokeSessions(ctx, RevokeSessionsInput{
+			AccountID: acc.ID, KeepToken: in.KeepToken, ActorID: 0, Reason: EndedPasswordChanged,
+		})
 
 		return err
 	})

@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,varnamelen,goconst,funlen,gosec // one long scenario over HTTP
 package identity_test
 
 import (
@@ -21,17 +22,24 @@ import (
 // facts hears only the two facts a host's token cache cares about.
 type facts struct {
 	account.DiscardNotices
+
 	mu  sync.Mutex
 	got []string
 }
-
-func (f *facts) add(s string) { f.mu.Lock(); f.got = append(f.got, s); f.mu.Unlock() }
 
 func (f *facts) SessionsEnded(_ context.Context, e account.SessionsEnded) {
 	f.add(fmt.Sprintf("ended %d %v %s by %d", e.AccountID, e.SessionIDs, e.Reason, e.ActorID))
 }
 
-func (f *facts) AccountChanged(_ context.Context, id int) { f.add("changed " + strconv.Itoa(id)) }
+func (f *facts) AccountChanged(_ context.Context, id int) {
+	f.add("changed " + strconv.Itoa(id))
+}
+
+func (f *facts) add(s string) {
+	f.mu.Lock()
+	f.got = append(f.got, s)
+	f.mu.Unlock()
+}
 
 func (f *facts) take() []string {
 	f.mu.Lock()
@@ -46,6 +54,8 @@ func (f *facts) take() []string {
 // Each action that ends a session or changes an account tells the Notices once, with
 // the ids that ended, and a refused action tells nothing.
 func TestNoticesHearSessionsEndedAndAccountChangedOverHTTP(t *testing.T) {
+	t.Parallel()
+
 	app := newApp(t)
 	f := &facts{}
 	sink := mail.NewSink()
@@ -60,25 +70,30 @@ func TestNoticesHearSessionsEndedAndAccountChangedOverHTTP(t *testing.T) {
 
 	ids := func(user int) []int {
 		var out []int
-		require.NoError(t, app.Database().Model(new(auth.Token)).Where("user_id = ? AND revoked = ?", user, false).Order("id").Pluck("id", &out).Error)
+
+		live := app.Database().Model(new(auth.Token)).Where("user_id = ? AND revoked = ?", user, false)
+		require.NoError(t, live.Order("id").Pluck("id", &out).Error)
 
 		return out
 	}
-	sid := func(n int) string { return strconv.Itoa(n) }
 
 	c := newClient(t, app)
 	login(t, c, "ana", "secret")
+
 	first := ids(1)[0]
-	other := openSession(t, app, 1) // a second session of ana, for others to end
-	_ = other
+
+	openSession(t, app, 1) // a second session of ana, for others to end
+
 	f.take()
 
 	do := func(method, path string, body any, want int) {
 		t.Helper()
+
 		r := c.do(method, path, body)
 		if want == nethttp.StatusOK && r.Code == nethttp.StatusNoContent { // an empty answer
 			want = r.Code
 		}
+
 		require.Equal(t, want, r.Code, method+" "+path+" "+r.Body.String())
 	}
 
@@ -101,15 +116,19 @@ func TestNoticesHearSessionsEndedAndAccountChangedOverHTTP(t *testing.T) {
 	assert.Empty(t, f.take(), "nothing differed, nothing changed")
 
 	// e-mail confirm
-	do(nethttp.MethodPost, "/v1/iam/profile/email", map[string]string{"email": "ana@new.example", "current_password": "secret"}, nethttp.StatusOK)
+	asked := map[string]string{"email": "ana@new.example", "current_password": "secret"}
+	do(nethttp.MethodPost, "/v1/iam/profile/email", asked, nethttp.StatusOK)
+
 	code := regexp.MustCompile(`\b\d{6}\b`).FindString(sink.To("ana@new.example")[0].Text)
+
 	assert.Empty(t, f.take(), "the request alone changes nothing")
 	do(nethttp.MethodPost, "/v1/iam/profile/email/confirm", map[string]string{"code": code}, nethttp.StatusOK)
 	assert.Equal(t, []string{"changed 1"}, f.take())
 
 	// ending another session of one's own
+
 	second := ids(1)[1]
-	do(nethttp.MethodDelete, "/v1/iam/profile/sessions/"+sid(second), nil, nethttp.StatusOK)
+	do(nethttp.MethodDelete, "/v1/iam/profile/sessions/"+strconv.Itoa(second), nil, nethttp.StatusOK)
 	assert.Equal(t, []string{fmt.Sprintf("ended 1 [%d] revoke by 0", second)}, f.take())
 
 	// refresh: the old access token is replaced
@@ -117,28 +136,35 @@ func TestNoticesHearSessionsEndedAndAccountChangedOverHTTP(t *testing.T) {
 	assert.Equal(t, []string{fmt.Sprintf("ended 1 [%d] rotation by 0", first)}, f.take())
 
 	// administrator on boris
-	boris := openSession(t, app, 2)
-	_ = boris
+	openSession(t, app, 2)
+
 	b1 := ids(2)[0]
-	do(nethttp.MethodDelete, "/v1/iam/users/2/sessions/"+sid(b1), nil, nethttp.StatusOK)
+	do(nethttp.MethodDelete, "/v1/iam/users/2/sessions/"+strconv.Itoa(b1), nil, nethttp.StatusOK)
 	assert.Equal(t, []string{fmt.Sprintf("ended 2 [%d] revoke by 1", b1)}, f.take())
 
 	openSession(t, app, 2)
 	openSession(t, app, 2)
+
 	b2 := ids(2)
+
 	do(nethttp.MethodDelete, "/v1/iam/users/2/sessions", nil, nethttp.StatusOK)
 	assert.Equal(t, []string{fmt.Sprintf("ended 2 %v revoke by 1", b2)}, f.take())
 
-	do(nethttp.MethodPut, "/v1/iam/users/2", map[string]string{"login": "boris", "name": "Boris B", "email": "boris@x.example", "locale": "en"}, nethttp.StatusOK)
+	edit := map[string]string{"login": "boris", "name": "Boris B", "email": "boris@x.example", "locale": "en"}
+	do(nethttp.MethodPut, "/v1/iam/users/2", edit, nethttp.StatusOK)
 	assert.Equal(t, []string{"changed 2"}, f.take())
 
 	openSession(t, app, 2)
+
 	b3 := ids(2)
+
 	do(nethttp.MethodPut, "/v1/iam/users/2/password", map[string]string{"password": "N3w-secret-pw!"}, nethttp.StatusOK)
 	assert.Equal(t, []string{fmt.Sprintf("ended 2 %v password_changed by 1", b3), "changed 2"}, f.take())
 
 	openSession(t, app, 2)
+
 	b4 := ids(2)
+
 	do(nethttp.MethodPost, "/v1/iam/users/2/deactivate", nil, nethttp.StatusOK)
 	assert.Equal(t, []string{fmt.Sprintf("ended 2 %v deactivated by 1", b4), "changed 2"}, f.take())
 
@@ -148,21 +174,26 @@ func TestNoticesHearSessionsEndedAndAccountChangedOverHTTP(t *testing.T) {
 	// login as boris, return
 	do(nethttp.MethodPost, "/v1/auth/login-as", map[string]int{"user_id": 2}, nethttp.StatusOK)
 	f.take()
+
 	asBoris := ids(2)[0]
+
 	do(nethttp.MethodPost, "/v1/auth/login-as/return", nil, nethttp.StatusOK)
 	assert.Equal(t, []string{fmt.Sprintf("ended 2 [%d] login_as_return by 0", asBoris)}, f.take())
 
 	// own password change ends the others and keeps this one
 	do(nethttp.MethodPost, "/v1/auth/login-as", map[string]int{"user_id": 2}, nethttp.StatusOK)
 	f.take()
+
 	c2 := newClient(t, app)
 	login(t, c2, "boris", "N3w-secret-pw!")
 	f.take()
+
 	live := ids(2)
 	r := c2.do(nethttp.MethodPut, "/v1/iam/profile/password", map[string]string{
 		"current_password": "N3w-secret-pw!", "new_password": "An0ther-pw-99!", "new_password_confirmation": "An0ther-pw-99!",
 	})
 	require.Equal(t, nethttp.StatusNoContent, r.Code, r.Body.String())
+
 	got := f.take()
 	require.Len(t, got, 2)
 	assert.Contains(t, got[0], "password_changed by 0")
@@ -173,6 +204,7 @@ func TestNoticesHearSessionsEndedAndAccountChangedOverHTTP(t *testing.T) {
 	c3 := newClient(t, app)
 	login(t, c3, "ana", "secret")
 	f.take()
+
 	mine := ids(1)
 	r = c3.do(nethttp.MethodPost, "/v1/auth/logout", nil)
 	require.Equal(t, nethttp.StatusNoContent, r.Code, r.Body.String())

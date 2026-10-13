@@ -71,6 +71,8 @@ func TestSessionsAreListedAndRevoked(t *testing.T) {
 }
 
 // IAM-USER-004 items 4 to 6: ending all keeps the caller's own and ends what the person opened as somebody else.
+//
+//nolint:exhaustruct,exhaustruct_v5,varnamelen // the recorder and permitAll start empty
 func TestRevokeSessionsKeepsTheCallersAndEndsWhatWasOpenedAsSomebodyElse(t *testing.T) {
 	n := &notices{}
 	k := seeded(t, identitytest.WithImpersonation(permitAll{}), identitytest.WithNotices(n))
@@ -87,7 +89,7 @@ func TestRevokeSessionsKeepsTheCallersAndEndsWhatWasOpenedAsSomebodyElse(t *test
 
 	n.events = nil
 	require.NoError(t, k.Users.RevokeSessions(ctx, account.RevokeSessionsInput{AccountID: 1, KeepToken: here.Credentials.Access}))
-	assert.Equal(t, []string{"ended 1 by 0 x1 revoke", "ended 2 by 0 x1 opened_by_ended", "out 1>2"}, n.events,
+	assert.Equal(t, []string{"ended 1 by 0 x1 revoke", "ended 2 by 0 x1 opened_by_ended", outOneTwo}, n.events,
 		"the person's others (not the kept one), then the target's session it had opened")
 
 	_, err = k.SignIn.Authenticate(ctx, here.Credentials.Access)

@@ -48,18 +48,18 @@ func whoami(ctx context.Context, _ route.None) (int, error) {
 }
 
 type client struct {
-	t       *testing.T
+	t       testing.TB
 	handler nethttp.Handler
 	cookies []*nethttp.Cookie
 }
 
-func newClient(t *testing.T, app *gocore.App) *client {
-	t.Helper()
+func newClient(tb testing.TB, app *gocore.App) *client {
+	tb.Helper()
 
 	handler, err := app.Handler()
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
-	return &client{t: t, handler: handler}
+	return &client{t: tb, handler: handler, cookies: nil}
 }
 
 func (c *client) do(method, path string, body any) *httptest.ResponseRecorder {
@@ -105,12 +105,12 @@ func (c *client) do(method, path string, body any) *httptest.ResponseRecorder {
 	return rec
 }
 
-func seed(t *testing.T, db *gorm.DB, a account.Account) {
-	t.Helper()
+func seed(tb testing.TB, db *gorm.DB, a account.Account) {
+	tb.Helper()
 
 	a.CreatedAt = gocoretest.Epoch
-	_, err := gormstore.New(db).Accounts.Create(t.Context(), a)
-	require.NoError(t, err)
+	_, err := gormstore.New(db).Accounts.Create(tb.Context(), a)
+	require.NoError(tb, err)
 }
 
 // The whole thing, as a test of a feature uses it: install, sign in, call a route.
@@ -530,7 +530,7 @@ func (b bareRefusal) Covers(context.Context, account.Account, account.Account) e
 func TestLoginAsRefusedForLackOfPermissionCarriesItsReason(t *testing.T) {
 	t.Parallel()
 
-	for name, imp := range map[string]bareRefusal{"permitted": {}, "covers": {covers: true}} {
+	for name, imp := range map[string]bareRefusal{"permitted": {covers: false}, "covers": {covers: true}} {
 		app := newApp(t)
 		identity.Install(app, identity.WithoutMail(), identity.WithImpersonation(imp))
 		seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
