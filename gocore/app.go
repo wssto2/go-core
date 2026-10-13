@@ -112,7 +112,8 @@ func WithAuthorizer(a authz.Authorizer) Option {
 //
 // The App then puts the signed-in person's tenant in the request context, as
 // tenancy.FromAuthenticatedUser does (always on: a person who is not
-// tenancy.TenantAware gets nothing, and Public routes are not touched).
+// tenancy.TenantAware gets nothing, and Public routes are not touched). An application that signs in through
+// identity, whose accounts are not TenantAware, gives the tenant with identity.WithTenant.
 //
 // An unauthenticated request must be rejected with apperr.Unauthorized, as
 // those do. Without this option, any route that is not Public stops start-up.

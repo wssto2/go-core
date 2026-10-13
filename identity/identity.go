@@ -55,6 +55,7 @@ package identity
 
 import (
 	"context"
+	"github.com/gin-gonic/gin"
 	"slices"
 
 	"github.com/wssto2/go-core/apperr"
@@ -155,6 +156,7 @@ type settings struct {
 	access                  Access
 	project                 UserProjector
 	principal               PrincipalOf
+	tenant                  identityhttp.TenantOf
 	navigation              NavigationProvider
 	cookies                 Cookies
 	mail                    mail.Sender
@@ -242,6 +244,13 @@ func WithUserProjector(p UserProjector) Option { return func(s *settings) { s.pr
 // WithPrincipal says which authz principal an account acts as, for an
 // application whose people have a location of their own.
 func WithPrincipal(p PrincipalOf) Option { return func(s *settings) { s.principal = p } }
+
+// WithTenant says which tenant an account works in, for an application whose data is scoped by tenant: after the
+// sign-in, every route (identity's, the other modules' and the application's) runs with that tenant in its
+// context, or with "all tenants" for an account that has none, such as a super-administrator. identity cannot know
+// the tenant of an account, which is the application's own data, so the application answers; it is the same
+// question WithPrincipal answers for the authz principal. Without it no tenant is set.
+func WithTenant(of identityhttp.TenantOf) Option { return func(s *settings) { s.tenant = of } }
 
 // WithNavigation sets the menu /auth/me carries, cut down to the permissions the
 // person holds. The tree is yours; identity only filters it.
@@ -526,7 +535,12 @@ func Install(app *gocore.App, opts ...Option) *Users {
 
 	cfg.Access = s.accessOf(app)
 
-	app.Authenticate(identityhttp.Authentication(svc.SignIn, s.cookies, s.principal))
+	chain := []gin.HandlerFunc{identityhttp.Authentication(svc.SignIn, s.cookies, s.principal)}
+	if s.tenant != nil {
+		chain = append(chain, identityhttp.Tenant(s.tenant))
+	}
+
+	app.Authenticate(chain...)
 	app.Routes(identityhttp.NewHandler(cfg).Routes()...)
 
 	if s.mail != nil {

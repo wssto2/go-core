@@ -8,6 +8,7 @@ import (
 	nethttp "net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,7 @@ import (
 	"github.com/wssto2/go-core/identity/identitytest"
 	"github.com/wssto2/go-core/navigation"
 	"github.com/wssto2/go-core/route"
+	"github.com/wssto2/go-core/tenancy"
 	"gorm.io/gorm"
 )
 
@@ -140,6 +142,57 @@ func TestInstallGivesTheApplicationItsAuthentication(t *testing.T) {
 
 	require.Equal(t, nethttp.StatusNoContent, c.do(nethttp.MethodPost, "/v1/auth/logout", nil).Code)
 	assert.Equal(t, nethttp.StatusUnauthorized, c.do(nethttp.MethodGet, "/whoami", nil).Code)
+}
+
+const rootLogin = "root"
+
+func tenantSeen(ctx context.Context, _ route.None) (string, error) {
+	if id, ok := tenancy.TenantIDFromContext(ctx); ok {
+		return "tenant:" + strconv.Itoa(id), nil
+	}
+
+	if tenancy.AllTenantsFromContext(ctx) {
+		return "all", nil
+	}
+
+	return "none", nil
+}
+
+// WithTenant puts the tenant of the signed-in account in the context of every route, from a real session.
+func TestWithTenantSetsTheTenantOfTheSignedInAccount(t *testing.T) {
+	t.Parallel()
+
+	tenantOf := func(_ context.Context, a account.Account) (int, bool, error) {
+		if a.ID == 7 {
+			return 3, false, nil
+		}
+
+		return 0, true, nil
+	}
+
+	for name, opts := range map[string][]identity.Option{
+		"with":    {identity.WithoutMail(), identity.WithTenant(tenantOf)},
+		"without": {identity.WithoutMail()},
+	} {
+		app := newApp(t)
+		identity.Install(app, opts...)
+		app.Routes(route.Get[route.None, string]("/tenant").To(tenantSeen))
+		seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
+		seed(t, app.Database(), identitytest.Account(8, rootLogin, "secret"))
+		require.NoError(t, app.Check())
+
+		for login, want := range map[string]string{"ana": "tenant:3", rootLogin: "all"} {
+			if name == "without" {
+				want = "none"
+			}
+
+			web := newClient(t, app)
+			require.Equal(t, nethttp.StatusOK,
+				web.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": login, "password": "secret"}).Code)
+			got := web.do(nethttp.MethodGet, "/tenant", nil).Body.String()
+			assert.JSONEq(t, `{"success":true,"data":"`+want+`"}`, got, name+" "+login)
+		}
+	}
 }
 
 func TestTheOptionsShapeThePayload(t *testing.T) {
