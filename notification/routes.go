@@ -275,10 +275,20 @@ var tested = event.Define[testPayload]("notification.test")
 // is to notify yourself.
 func (n *Notices) testConsumer() event.Consumer {
 	return tested.To("notification.test", func(ctx context.Context, p testPayload) error {
-		return n.Send(ctx, systemTest, To(p.UserID), func(Recipient) Message {
-			return Message{Title: "Test notification", Body: "If you see this, notifications reach this app."}
-		})
+		return n.Send(ctx, systemTest, To(p.UserID), n.testMessage("If you see this, notifications reach this app."))
 	})
+}
+
+// testMessage is the app's wording of the test notification, or the default with this body.
+func (n *Notices) testMessage(body string) func(Recipient) Message {
+	if n.testText != nil {
+		return n.testText
+	}
+
+	return func(Recipient) Message {
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
+		return Message{Title: "Test notification", Body: body}
+	}
 }
 
 // sendTest queues the test event in a transaction of its own; the consumer makes the notification.

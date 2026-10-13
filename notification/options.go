@@ -130,6 +130,25 @@ func AppURL(base string) Option {
 	})
 }
 
+// TestMessage words the test notification (POST /v1/notifications/test, and the test of one device) per recipient, so
+// it is in the person's language (Recipient.Locale) and can link to the application's notification settings with
+// Message.Link. Without it the message is English text and has no link: the module does not know where the
+// application keeps its settings.
+//
+//nolint:ireturn // Option is the type of every option of Install
+func TestMessage(text func(Recipient) Message) Option {
+	return optionFunc(func(cfg *config) {
+		switch {
+		case text == nil:
+			cfg.problem("notification.TestMessage was given no function", "pass one that returns the Message for a Recipient")
+		case cfg.testText != nil:
+			cfg.problem("notification.TestMessage was given twice", "keep one")
+		default:
+			cfg.testText = text
+		}
+	})
+}
+
 // TimeZone is the zone quiet hours are read in, on the wall clock, so a night with a daylight-saving
 // change still ends at the hour the person chose (NOTIF-QUIET-001). The default is time.Local.
 func TimeZone(loc *time.Location) Option {
@@ -225,6 +244,7 @@ type config struct {
 	enforce    Enforcer
 	push       *push.Sender
 	bundleText func(locale string, count int, titles []string) (title, body string)
+	testText   func(Recipient) Message
 	problems   []problem
 }
 

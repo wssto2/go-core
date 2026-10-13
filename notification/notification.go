@@ -177,12 +177,14 @@ type Notices struct {
 	mail       *account.Mail
 	push       *push.Sender
 	bundleText func(locale string, count int, titles []string) (title, body string)
-	appURL     string
-	db         *gorm.DB
-	store      *store
-	clock      gocore.Clock
-	log        *slog.Logger
-	heartbeat  time.Duration
+	// testText words the test notification; nil is the default English text.
+	testText  func(Recipient) Message
+	appURL    string
+	db        *gorm.DB
+	store     *store
+	clock     gocore.Clock
+	log       *slog.Logger
+	heartbeat time.Duration
 }
 
 // Install puts the in-app inbox into app: the notifications table (its
@@ -229,7 +231,7 @@ func Install(app *gocore.App, users People, opts ...Option) *Notices {
 	}
 
 	n.Inbox = &Inbox{store: st, clock: app.Clock(), hub: NewHub()}
-	n.push, n.bundleText = cfg.push, cfg.bundleText
+	n.push, n.bundleText, n.testText = cfg.push, cfg.bundleText, cfg.testText
 
 	if n.bundleText == nil {
 		n.bundleText = defaultBundleText

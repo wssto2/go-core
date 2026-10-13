@@ -15,6 +15,7 @@ import (
 	"github.com/wssto2/go-core/database/dbtest"
 	"github.com/wssto2/go-core/datatable"
 	"github.com/wssto2/go-core/event"
+	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/notification"
 	"gorm.io/gorm"
 )
@@ -69,6 +70,31 @@ func TestTheTestNotificationTravelsThroughTheQueueToTheSignedInPerson(t *testing
 		require.Equal(t, 1, next(t, stream).UnreadCount)
 
 		require.Equal(t, http.StatusUnauthorized, w.do(0, "POST", "/v1/notifications/test", nil).Code)
+	})
+}
+
+func TestTheTestNotificationIsWordedByTheApplicationPerRecipient(t *testing.T) {
+	t.Parallel()
+
+	dbtest.Run(t, func(t *testing.T, conn *gorm.DB) {
+		t.Helper()
+
+		word := notification.TestMessage(func(r notification.Recipient) notification.Message {
+			return notification.Message{
+				Title: "Test " + r.Locale, Body: "Hi " + r.Name, Link: "/settings/notifications", Data: nil,
+			}
+		})
+		wld := buildWorld(t, conn, authztest.DenyAll(), nil, account.Mail{Sender: nil, Renderer: nil}, word).start()
+
+		require.Equal(t, http.StatusNoContent, wld.do(1, "POST", "/v1/notifications/test", nil).Code)
+		require.Equal(t, http.StatusNoContent, wld.do(2, "POST", "/v1/notifications/test", nil).Code)
+		require.NoError(t, wld.drain())
+
+		ana, ivo := wld.inbox(1).Items[0], wld.inbox(2).Items[0]
+		require.Equal(t, "Test hr", ana.Title)
+		require.Equal(t, "Hi Ana Horvat", ana.Body)
+		require.Equal(t, "/settings/notifications", ana.Link)
+		require.Equal(t, "Test en", ivo.Title, "the recipient's own locale")
 	})
 }
 

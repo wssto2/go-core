@@ -324,9 +324,8 @@ var deviceTested = event.Define[deviceTestPayload]("notification.device-test")
 // deviceTestConsumer sends the test notification to the one device the person asked about.
 func (n *Notices) deviceTestConsumer() event.Consumer {
 	return deviceTested.To("notification.device-test", func(ctx context.Context, p deviceTestPayload) error {
-		return n.send(ctx, systemTest, To(p.UserID), func(Recipient) Message {
-			//nolint:exhaustruct,exhaustruct_v5 // zero by design
-			return Message{Title: "Test notification", Body: "If you see this, notifications reach this device."}
-		}, uint64(p.DeviceID)) //nolint:gosec // a device id the route checked
+		body := n.testMessage("If you see this, notifications reach this device.")
+
+		return n.send(ctx, systemTest, To(p.UserID), body, uint64(p.DeviceID)) //nolint:gosec // route-checked id
 	})
 }
