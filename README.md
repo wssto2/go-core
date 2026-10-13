@@ -160,6 +160,31 @@ crm := crm.Install(app, vehicles)
 reads.Set(crm.VehicleReads) // inside vehicles: reads.Get()
 ```
 
+**A feature with its own chain: `RoutesWith`** (tested in `gocore/routeswith_test.go`). identity sets the application's one authentication chain (a session). An application whose own routes are signed in another way (API keys, an app token, a per-user rate limit) mounts them behind that chain; the module routes keep identity's:
+
+```go
+arv := route.Security{Authenticate: []gin.HandlerFunc{auth.Authenticated(provider)}} // Authorizer: the application's, unless set
+app.RoutesWith(arv, pricerule.Routes(svc)...)                                     // 401 and rate limit are the chain's own
+```
+
+Public routes stay public, `Requires` is checked, and an undefined permission still stops start-up. A `Security` without `Authenticate` does not fall back to the application's chain. The tenant is not put in the context for you: the chain does that if it wants to.
+
+**Moving an old module to `Install`: `FromContainer`.** While the collaborators of a moved feature (repositories, a cached config, a service) are still built by `bootstrap.Module`s passed to `app.Modules`, the feature takes a promise that `Run` keeps from the container after every module registered and before the routes serve; a type nobody bound stops start-up and is named:
+
+```go
+vehicles := gocore.FromContainer[vehicles.Service](app)
+pricerule.Install(app, vehicles) // handlers call vehicles.MustGet() at request time, never in Install
+```
+
+Checklist for one module:
+
+1. Declare typed routes and a `route.Group`; put the path ids in the input as `path:"…"` fields (`json:"-"` when the body is the same struct; embedded structs are read; the generated TypeScript has them in the route input, not in the body schema).
+2. Write `Install(app, deps)`: build the service from `deps`, collect `app.Routes` (or `app.RoutesWith` for the application's own chain), `app.Permissions`, `app.Background`.
+3. Take what is still built by old modules with `gocore.FromContainer[T](app)` and read it at request time; hoist the collaborator out of its module as soon as it can be built from `app.Database()`.
+4. Keep a module only for what other old modules still resolve (`Bind` the service there) and delete it with its last user.
+5. `contract.Generate` the feature's TypeScript and compare it with the wire golden before removing the old handlers.
+6. For an application's own subject kind (service accounts), answer access screens with `accesshttp.BindingOf`, `RoleSummaryOf`, `RoleOf`, `ScopeOf` and `SubjectAccessOf`.
+
 **`Run` checks first and says what to fix.** Every problem is collected, each with its fix (`ExampleApp_Check`):
 
 ```
