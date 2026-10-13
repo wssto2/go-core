@@ -174,8 +174,21 @@ func TestCompareAgainstAPredefinedRole(t *testing.T) {
 	assert.Empty(t, got.OnlyInOther)
 	assert.Equal(t, []admin.Difference{{Permission: "crm.lead:view", Role: authz.QualifierAll, Other: authz.QualifierOwn}}, got.Different)
 
-	_, err = f.Roles.Compare(as(1), "seller", "seller")
-	assert.True(t, apperr.HasCode(err, apperr.CodePermissionDenied), "only a custom role is compared")
+	// R11: any two roles the actor can view, standard or custom, in either position
+	std, err := f.Roles.Compare(as(1), "seller", "salesmanager")
+	require.NoError(t, err)
+	assert.Equal(t,
+		[]admin.Difference{{Permission: "crm.lead:view", Role: authz.QualifierOwn, Other: authz.QualifierAll}}, std.Different)
+
+	_, err = f.Roles.Compare(as(1), "seller", "webmaster")
+	require.NoError(t, err, "a computed role compares too")
+	rev, err := f.Roles.Compare(as(1), "seller", custom.Ref)
+	require.NoError(t, err)
+	assert.Equal(t, []authz.Grant{{Permission: "report.group:view", Qualifier: authz.QualifierAll}}, rev.OnlyInOther)
+
+	f.seed(2, "dealeradmin", authztest.Org())
+	_, err = f.Roles.Compare(as(2), "seller", "salesmanager")
+	require.ErrorIs(t, err, authz.ErrForbidden, "viewing roles is still required")
 	_, err = f.Roles.Compare(as(1), custom.Ref, "nonesuch")
 	assert.True(t, apperr.HasCode(err, apperr.CodeNotFound))
 }

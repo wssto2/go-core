@@ -26,6 +26,11 @@ type Config struct {
 	Scopes     ScopeCatalog
 	Subjects   SubjectDirectory
 	Transactor Transactor
+
+	// The three hooks are optional; a nil one allows everything.
+	RoleCheck    RoleCheck
+	BindingCheck BindingCheck
+	Reach        SubjectReach
 }
 
 // New builds the role and binding services around one authz.Admin.
@@ -41,6 +46,18 @@ func New(cfg Config) (*Roles, *Bindings, error) {
 		return nil, nil, errors.New("access: a SubjectDirectory is required: it names the people and service accounts that hold roles")
 	case cfg.Transactor == nil:
 		return nil, nil, errors.New("access: a Transactor is required: database.NewTransactor(db)")
+	}
+
+	if cfg.RoleCheck == nil {
+		cfg.RoleCheck = func(context.Context, authz.Role) []authz.Problem { return nil }
+	}
+
+	if cfg.BindingCheck == nil {
+		cfg.BindingCheck = func(context.Context, authz.Subject, authz.Binding) error { return nil }
+	}
+
+	if cfg.Reach == nil {
+		cfg.Reach = func(context.Context, authz.Subject) (bool, error) { return true, nil }
 	}
 
 	for _, id := range PermissionIDs() {
@@ -115,6 +132,15 @@ func (b base) requireSubject(ctx context.Context, s authz.Subject) error {
 	}
 
 	if _, ok := names[s]; !ok {
+		return apperr.NotFound("subject not found")
+	}
+
+	reach, err := b.cfg.Reach(ctx, s)
+	if err != nil {
+		return err
+	}
+
+	if !reach {
 		return apperr.NotFound("subject not found")
 	}
 

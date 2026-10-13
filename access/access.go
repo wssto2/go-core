@@ -41,6 +41,12 @@ type (
 	ScopeOption = admin.ScopeOption
 	// SubjectDirectory names the people and service accounts that hold roles.
 	SubjectDirectory = admin.SubjectDirectory
+	// RoleCheck is the application's rule for a custom role (WithRoleCheck).
+	RoleCheck = admin.RoleCheck
+	// BindingCheck is the application's rule for a binding (WithBindingCheck).
+	BindingCheck = admin.BindingCheck
+	// SubjectReach is the application's rule for whom an actor sees (WithSubjectReach).
+	SubjectReach = admin.SubjectReach
 )
 
 // The permissions administration is guarded by: iam.role:{view,manage,delete}
@@ -111,7 +117,7 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory
 
 	engine, err := authz.NewEngine(authz.Config{
 		Catalogue: catalogue, Hierarchy: s.hierarchy(), Roles: s.roles, Store: store,
-		Resolver: s.scopes, Features: s.features, Logger: app.Logger(),
+		Resolver: s.scopes, Features: s.features, Logger: app.Logger(), Cache: s.cache,
 	})
 	if err != nil {
 		app.Fail("access cannot build the engine: "+err.Error(),
@@ -123,6 +129,7 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory
 	roles, bindings, err := admin.New(admin.Config{
 		Engine: engine, Store: store, Scopes: s.scopes, Subjects: users,
 		Transactor: database.NewTransactor(db),
+		RoleCheck:  s.roleCheck, BindingCheck: s.bindingCheck, Reach: s.reach,
 	})
 	if err != nil {
 		app.Fail(err.Error(), "see the message")
@@ -174,6 +181,11 @@ type settings struct {
 	features   authz.FeatureResolver
 	audit      audit.Repository
 	connection database.Connection
+
+	cache        *authz.Cache
+	roleCheck    RoleCheck
+	bindingCheck BindingCheck
+	reach        SubjectReach
 }
 
 // WithRoles declares the application's predefined roles: defined in code,
@@ -198,6 +210,25 @@ func WithFeatures(f authz.FeatureResolver) Option { return func(s *settings) { s
 // audit.NewRepository(database.NewTransactor(db)); the audit_logs table is the
 // application's (audit.Migrate).
 func WithAudit(repo audit.Repository) Option { return func(s *settings) { s.audit = repo } }
+
+// WithRoleCheck adds the application's rule for a custom role: its problems refuse
+// the save of a new or edited role as authz.invalid, after the catalogue's own
+// validation (see RoleCheck).
+func WithRoleCheck(check RoleCheck) Option { return func(s *settings) { s.roleCheck = check } }
+
+// WithBindingCheck adds the application's rule for giving and taking away a role: it
+// is asked on bind, on unbind and for each holder of a role replacement (see
+// BindingCheck).
+func WithBindingCheck(check BindingCheck) Option { return func(s *settings) { s.bindingCheck = check } }
+
+// WithSubjectReach limits whom the actor may see: a subject out of reach answers
+// not-found on a person's access, scopes, bind and unbind (see SubjectReach).
+func WithSubjectReach(reach SubjectReach) Option { return func(s *settings) { s.reach = reach } }
+
+// WithCache sets the cache of effective access, to choose its time to live
+// (authz.NewCache(ttl); the default is authz.DefaultCacheTTL). Evict through
+// the cache or Access.Engine, which uses this very cache.
+func WithCache(cache *authz.Cache) Option { return func(s *settings) { s.cache = cache } }
 
 // On puts the module's tables, and so its migrations, on another connection
 // than the application's primary one.

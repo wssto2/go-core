@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
@@ -149,6 +150,20 @@ func (r *Roles) Update(ctx context.Context, ref string, draft RoleDraft) (RoleVi
 }
 
 func (r *Roles) save(ctx context.Context, role authz.Role) (RoleView, error) {
+	err := r.cfg.Engine.Require(ctx, ManageRoles)
+	if err != nil {
+		return RoleView{}, fmt.Errorf("access: save role: %w", err)
+	}
+
+	err = role.Validate(r.cfg.Engine.Catalogue())
+	if err != nil {
+		return RoleView{}, apperr.BadRequestErr(err)
+	}
+
+	if problems := r.cfg.RoleCheck(ctx, role); len(problems) > 0 {
+		return RoleView{}, apperr.BadRequestErr(&authz.ValidationError{Problems: problems})
+	}
+
 	saved, err := r.delegation.SaveRole(ctx, role)
 	if err != nil {
 		return RoleView{}, err
@@ -201,26 +216,26 @@ func (r *Roles) Delete(ctx context.Context, ref string) error {
 	return nil
 }
 
-// Compare says how a custom role differs from a predefined one, by permission
-// and qualifier.
+// Compare says how a role differs from another, by permission and qualifier.
+// Any two roles the actor may view are compared, predefined or custom.
 func (r *Roles) Compare(ctx context.Context, ref, with string) (Comparison, error) {
 	if err := r.cfg.Engine.Require(ctx, ViewRoles); err != nil {
 		return Comparison{}, err
 	}
 
-	custom, err := r.custom(ctx, ref)
+	role, err := r.role(ctx, ref)
 	if err != nil {
 		return Comparison{}, err
 	}
 
-	other, err := r.predefined(with)
+	other, err := r.role(ctx, with)
 	if err != nil {
 		return Comparison{}, err
 	}
 
 	cat := r.cfg.Engine.Catalogue()
 
-	return compare(custom.Resolve(cat), other.Resolve(cat)), nil
+	return compare(role.Resolve(cat), other.Resolve(cat)), nil
 }
 
 func compare(role, other []authz.Grant) Comparison {
@@ -293,7 +308,14 @@ func (r *Roles) Replace(ctx context.Context, ref, with string) (int, error) {
 
 	err = r.cfg.Transactor.WithinTransaction(ctx, func(ctx context.Context) error {
 		for _, b := range bindings {
-			_, err := r.delegation.Bind(ctx, authz.Binding{Subject: b.Subject, Role: other.Ref(), Scope: b.Scope})
+			err := r.checkRebind(ctx, b, other.Ref())
+			if err != nil {
+				return err
+			}
+
+			_, err = r.delegation.Bind(ctx, authz.Binding{
+				ID: 0, Subject: b.Subject, Role: other.Ref(), Scope: b.Scope, CreatedBy: 0, CreatedAt: time.Time{},
+			})
 			if err != nil && !errors.Is(err, authz.ErrDuplicateBinding) {
 				return err
 			}
@@ -319,6 +341,18 @@ func (r *Roles) Replace(ctx context.Context, ref, with string) (int, error) {
 	}
 
 	return rebound, nil
+}
+
+// checkRebind asks the application's binding rule about both halves of a re-binding.
+func (r *Roles) checkRebind(ctx context.Context, old authz.Binding, to authz.RoleRef) error {
+	moved := authz.Binding{ID: 0, Subject: old.Subject, Role: to, Scope: old.Scope, CreatedBy: 0, CreatedAt: time.Time{}}
+
+	err := r.cfg.BindingCheck(ctx, old.Subject, moved)
+	if err != nil {
+		return err
+	}
+
+	return r.cfg.BindingCheck(ctx, old.Subject, old)
 }
 
 func (r *Roles) describe(ctx context.Context, role authz.Role) (RoleView, error) {

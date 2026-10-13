@@ -88,3 +88,21 @@ const (
 func PermissionIDs() []string {
 	return []string{ViewRoles, ManageRoles, DeleteRoles, ViewAccess, ManageBindings}
 }
+
+// RoleCheck judges a custom role the application has rules for beyond the catalogue's
+// (a role is for one kind of vehicle, never for both). It runs on create and update,
+// after the actor's right to manage roles and the role's own validation, and before the
+// role is stored. Any problem it returns refuses the save as authz.invalid with the
+// problems' codes, the answer the catalogue's own validation gives.
+type RoleCheck func(ctx context.Context, role authz.Role) []authz.Problem
+
+// BindingCheck judges a binding the application has rules for beyond delegation (a
+// dealer's person is bound within that dealer). It runs before every bind, unbind and
+// the re-binding of a role replacement, after the actor's rights are known; the error it
+// returns is the answer, so build it with apperr.
+type BindingCheck func(ctx context.Context, subject authz.Subject, binding authz.Binding) error
+
+// SubjectReach says whether the actor may see a subject at all (a dealer administrator
+// sees the people of their dealer). A subject out of reach answers not-found, like one
+// that does not exist, on every route that names a subject. An error is the answer.
+type SubjectReach func(ctx context.Context, subject authz.Subject) (bool, error)

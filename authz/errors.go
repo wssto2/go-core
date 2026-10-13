@@ -1,9 +1,10 @@
 package authz
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/wssto2/go-core/apperr"
@@ -134,14 +135,30 @@ func (e *ValidationError) Has(code ProblemCode) bool {
 	return false
 }
 
-// ErrorReason implements apperr.Reasoner.
+// ErrorReason implements apperr.Reasoner. The params hold problems as objects
+// {code, permission?, detail?}, empty fields omitted, sorted by code then permission.
 func (e *ValidationError) ErrorReason() (string, map[string]any) {
-	codes := make([]string, 0, len(e.Problems))
-	for _, p := range e.Problems {
-		codes = append(codes, string(p.Code))
+	sorted := slices.Clone(e.Problems)
+	slices.SortStableFunc(sorted, func(a, b Problem) int {
+		return cmp.Or(cmp.Compare(a.Code, b.Code), cmp.Compare(a.Permission, b.Permission))
+	})
+
+	list := make([]map[string]string, 0, len(sorted))
+
+	for _, prob := range sorted {
+		entry := map[string]string{"code": string(prob.Code)}
+		if prob.Permission != "" {
+			entry["permission"] = prob.Permission
+		}
+
+		if prob.Detail != "" {
+			entry["detail"] = prob.Detail
+		}
+
+		list = append(list, entry)
 	}
-	sort.Strings(codes)
-	return string(ReasonInvalid), map[string]any{"problems": codes}
+
+	return string(ReasonInvalid), map[string]any{"problems": list}
 }
 
 // asValidation returns nil when there are no problems.

@@ -359,3 +359,23 @@ func TestMyAccessStaysAndRoutesFollowThePrefix(t *testing.T) {
 	assert.True(t, mine.Root)
 	assert.Contains(t, mine.Permissions, "iam.role:manage")
 }
+
+// R13: a path id that is not a number is refused by the typed route itself, before any handler
+// or permission check that needs the id, as the route package's input error (422, not 400).
+func TestNonNumericPathIDsAreRefusedByTheRoute(t *testing.T) {
+	t.Parallel()
+
+	srv := newServer(t, "")
+	srv.seed(1, "webmaster", authztest.Org())
+
+	for _, route := range []struct{ method, path string }{
+		{"GET", "/v1/iam/users/abc/access"},
+		{"GET", "/v1/iam/users/abc/scopes"},
+		{"POST", "/v1/iam/users/abc/bindings"},
+		{"DELETE", "/v1/iam/users/abc/bindings/1"},
+		{"DELETE", "/v1/iam/users/1/bindings/abc"},
+	} {
+		got := srv.do(1, route.method, route.path, map[string]any{"role_ref": "seller", "level": "organization"})
+		assert.Equal(t, http.StatusUnprocessableEntity, got.Status, route.method+" "+route.path)
+	}
+}
