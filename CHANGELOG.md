@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.8.1
+
+### Added
+
+- `identity.WithFieldLimits(account.Limits{Login, Name, Email, Phone})` (also `account.Config.Limits`, `identityhttp.Config.Limits`): how long the host's store keeps each field. Zero is go-core's width (100, 150, 255, 30); a host limit may only be smaller, and a larger or negative one stops `Install` (`account.ErrLimits`). A name, phone, e-mail address or login longer than the limit is refused with 422 and the same `max` field error as the input's tag, on admin create and update, profile update and e-mail change. A login longer than the limit signs in as a wrong sign-in (`identity.signin.failed`), so a stranger learns nothing. Service callers outside HTTP (`users.Admin()` from code) still meet only go-core's width.
+- `account.LoginAs{ActorID, TargetID, Device, IP}`: what a login-as fact carries. `Device` is the `DeviceLabel` of the User-Agent. A login-as and its return carry the request's device and ip; a sign-out or an administrator ending the session carries those of the ended session.
+
+### Changed
+
+- **Breaking:** `account.Notices.SignedInAs` and `SignedOutAs` take `(ctx, account.LoginAs)` instead of `(ctx, actorID, targetID int)`. A `Notices` that defines them changes its signatures; one that embeds `DiscardNotices` and does not override them needs nothing.
+
 ## v1.8.0
 
 ### Added
