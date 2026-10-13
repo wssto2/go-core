@@ -8,6 +8,11 @@ Module: `identity` (`identity/account` `Admin`, `identity/http` routes under `/v
 
 ## Summary
 
+`identity.WithoutUserAdmin()` mounts none of these routes (no `Admin`, no `Searcher`), for an application with its own
+users module; the rules below then are that module's. The locale of a created or edited account must be one of
+`identity.WithLocales` when given (`422 identity.locale.unsupported`, `fields.locale`). `identity.WithAuditRecord`
+keeps the changes under the host's audit record type and verbs.
+
 An administrator creates, edits, deactivates and finds people, unlocks them, reads their sign-in history and the
 changes made to them, and ends their sessions. Who may is the routes' permission (`iam.user:view` reads,
 `iam.user:manage` writes); the services trust their caller. What stays an application's: the records a person owns
@@ -18,7 +23,7 @@ the names of the areas a person's activity is grouped in.
 
 1. **Create** (`POST /v1/iam/users`, `iam.user:manage`) makes an **active** account. The login (at most 100
    characters, no white space, stored lower-case) and the address (one address, no display name, at most 255,
-   stored lower-case) are normalised; the name is required (150), the phone optional (30), the locale a BCP-47 tag.
+   stored lower-case) are normalised; the name is required (150), the phone optional (30), the locale a BCP-47 tag (and one of `WithLocales`, when set).
    A login in use is `409 identity.login.taken`, an address in use `409 identity.email.taken` (compared without
    case): **one account per address**, backed by a unique index (`uq_accounts_email`; an account without an address is NULL, so any number may have none), so a race past the check is also `identity.email.taken`, not a 500. The password must satisfy the `PasswordPolicy` (default: 8 characters, at most 72
    bytes, bcrypt's limit; `identity.WithPasswordPolicy` replaces it) or the answer is `identity.password.weak` with
