@@ -135,6 +135,9 @@ func (s *SignIn) Refresh(ctx context.Context, in RefreshInput) (Signed, error) {
 		return Signed{}, apperr.Internal(err)
 	}
 
+	// The old access token is dead from here on, whatever follows.
+	s.deps.Notices.SessionsEnded(ctx, SessionsEnded{AccountID: session.AccountID, SessionIDs: []int{session.ID}, Reason: EndedRotation})
+
 	acc, err := s.deps.Accounts.Find(ctx, session.AccountID)
 	if errors.Is(err, ErrNotFound) || (err == nil && !acc.Active) {
 		return Signed{}, sessionInvalid()
@@ -167,6 +170,8 @@ func (s *SignIn) Logout(ctx context.Context, accessToken string) error {
 	if _, err := s.deps.Sessions.End(ctx, session.AccountID, []int{session.ID}, 0, s.deps.Clock.Now()); err != nil {
 		return apperr.Internal(err)
 	}
+
+	s.deps.Notices.SessionsEnded(ctx, SessionsEnded{AccountID: session.AccountID, SessionIDs: []int{session.ID}, Reason: EndedLogout})
 
 	if session.ActorID > 0 {
 		s.deps.Notices.SignedOutAs(ctx, LoginAs{
@@ -268,6 +273,7 @@ func (s *SignIn) Return(ctx context.Context, in ReturnInput) (Signed, error) {
 		return Signed{}, apperr.Internal(err)
 	}
 
+	s.deps.Notices.SessionsEnded(ctx, SessionsEnded{AccountID: in.Session.AccountID, SessionIDs: []int{in.Session.ID}, Reason: EndedLoginAsReturn})
 	s.deps.Notices.SignedOutAs(ctx, LoginAs{
 		ActorID: actor.ID, TargetID: in.Session.AccountID, Device: DeviceLabel(in.Device), IP: in.IP,
 	})

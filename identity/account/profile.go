@@ -130,7 +130,8 @@ func (p *Profile) UpdateDetails(ctx context.Context, in ProfileDetails) (Profile
 		return ProfileView{}, err
 	}
 
-	if current.Name != name || current.Phone != phone {
+	changed := current.Name != name || current.Phone != phone
+	if changed {
 		var fields []string
 
 		before, after := map[string]string{}, map[string]string{}
@@ -152,6 +153,10 @@ func (p *Profile) UpdateDetails(ctx context.Context, in ProfileDetails) (Profile
 		if err != nil {
 			return ProfileView{}, err
 		}
+	}
+
+	if changed {
+		p.deps().Notices.AccountChanged(ctx, in.AccountID)
 	}
 
 	return p.Get(ctx, in.AccountID)
@@ -201,6 +206,8 @@ func (p *Profile) ChangePassword(ctx context.Context, in PasswordChange) error {
 		return apperr.Internal(err)
 	}
 
+	var pending pendingNotices
+
 	err = p.within(ctx, func(ctx context.Context) error {
 		// The history first: what is most likely to fail is written before anything that matters,
 		// and a database rolls the rest back. The hash is never recorded, only the fact of the change.
@@ -212,13 +219,19 @@ func (p *Profile) ChangePassword(ctx context.Context, in PasswordChange) error {
 			return stored(err)
 		}
 
-		return p.d.Users.RevokeSessions(ctx, RevokeSessionsInput{AccountID: acc.ID, KeepToken: in.KeepToken})
+		var err error
+
+		pending, err = p.d.Users.revokeSessions(ctx, RevokeSessionsInput{AccountID: acc.ID, KeepToken: in.KeepToken, Reason: EndedPasswordChanged})
+
+		return err
 	})
 	if err != nil {
 		return err
 	}
 
+	pending.announce(ctx, p.deps().Notices)
 	p.deps().Notices.PasswordChanged(ctx, acc.ID, 0)
+	p.deps().Notices.AccountChanged(ctx, acc.ID)
 
 	return nil
 }
@@ -350,6 +363,7 @@ func (p *Profile) ConfirmEmailChange(ctx context.Context, in ConfirmEmail) (Prof
 	}
 
 	p.deps().Notices.EmailChanged(ctx, acc.ID, acc.Email, email)
+	p.deps().Notices.AccountChanged(ctx, acc.ID)
 
 	return p.Get(ctx, acc.ID)
 }

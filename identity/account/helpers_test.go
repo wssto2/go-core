@@ -58,8 +58,12 @@ func (n *notices) SignedOutAs(_ context.Context, f account.LoginAs) {
 	n.fact(f)
 	n.add("out " + strconv.Itoa(f.ActorID) + ">" + strconv.Itoa(f.TargetID))
 }
-func (n *notices) SessionsRevoked(_ context.Context, id, actor, count int) {
-	n.add("revoked " + strconv.Itoa(id) + " by " + strconv.Itoa(actor) + " x" + strconv.Itoa(count))
+func (n *notices) SessionsEnded(_ context.Context, f account.SessionsEnded) {
+	n.add("ended " + strconv.Itoa(f.AccountID) + " by " + strconv.Itoa(f.ActorID) + " x" + strconv.Itoa(len(f.SessionIDs)) + " " + string(f.Reason))
+}
+
+func (n *notices) AccountChanged(_ context.Context, id int) {
+	n.add("changed " + strconv.Itoa(id))
 }
 
 // permitAll is an Impersonation that lets everybody sign in as anybody.

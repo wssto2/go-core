@@ -292,6 +292,8 @@ func (a *Admin) Update(ctx context.Context, in UpdateAccount) (Account, error) {
 		a.deps().Notices.EmailChanged(ctx, current.ID, current.Email, next.Email)
 	}
 
+	a.deps().Notices.AccountChanged(ctx, current.ID)
+
 	return a.d.Users.Get(ctx, current.ID)
 }
 
@@ -320,6 +322,8 @@ func (a *Admin) SetPassword(ctx context.Context, in SetPassword) error {
 		return apperr.Internal(err)
 	}
 
+	var pending pendingNotices
+
 	err = a.within(ctx, func(ctx context.Context) error {
 		// The history first, so a failure there writes nothing; a database rolls back the rest.
 		if err := a.d.Changes.Record(ctx, Change{AccountID: in.ID, ActorID: in.ActorID, Action: ChangePassword, Fields: []string{"password"}}); err != nil {
@@ -334,13 +338,19 @@ func (a *Admin) SetPassword(ctx context.Context, in SetPassword) error {
 			return err
 		}
 
-		return a.d.Users.RevokeSessions(ctx, RevokeSessionsInput{AccountID: in.ID, ActorID: in.ActorID})
+		var err error
+
+		pending, err = a.d.Users.revokeSessions(ctx, RevokeSessionsInput{AccountID: in.ID, ActorID: in.ActorID, Reason: EndedPasswordChanged})
+
+		return err
 	})
 	if err != nil {
 		return err
 	}
 
+	pending.announce(ctx, a.deps().Notices)
 	a.deps().Notices.PasswordChanged(ctx, in.ID, in.ActorID)
+	a.deps().Notices.AccountChanged(ctx, in.ID)
 
 	return nil
 }
@@ -371,6 +381,8 @@ func (a *Admin) Deactivate(ctx context.Context, in DeactivateInput) error {
 		return apperr.New(nil, string(ReasonAlreadyInactive), apperr.CodeAlreadyExists).WithReason(ReasonAlreadyInactive)
 	}
 
+	var pending pendingNotices
+
 	err = a.within(ctx, func(ctx context.Context) error {
 		for _, hook := range a.d.Hooks {
 			if err := hook.Deactivating(ctx, acc, in.ActorID); err != nil {
@@ -382,7 +394,10 @@ func (a *Admin) Deactivate(ctx context.Context, in DeactivateInput) error {
 			return stored(err)
 		}
 
-		if err := a.d.Users.RevokeSessions(ctx, RevokeSessionsInput{AccountID: acc.ID, ActorID: in.ActorID}); err != nil {
+		var err error
+
+		pending, err = a.d.Users.revokeSessions(ctx, RevokeSessionsInput{AccountID: acc.ID, ActorID: in.ActorID, Reason: EndedDeactivated})
+		if err != nil {
 			return err
 		}
 
@@ -395,7 +410,9 @@ func (a *Admin) Deactivate(ctx context.Context, in DeactivateInput) error {
 		return err
 	}
 
+	pending.announce(ctx, a.deps().Notices)
 	a.deps().Notices.AccountDeactivated(ctx, acc.ID, in.ActorID)
+	a.deps().Notices.AccountChanged(ctx, acc.ID)
 
 	return nil
 }
@@ -427,6 +444,7 @@ func (a *Admin) Activate(ctx context.Context, in DeactivateInput) error {
 	}
 
 	a.deps().Notices.AccountActivated(ctx, acc.ID, in.ActorID)
+	a.deps().Notices.AccountChanged(ctx, acc.ID)
 
 	return nil
 }

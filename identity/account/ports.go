@@ -236,6 +236,38 @@ type LoginAs struct {
 	IP       string
 }
 
+// EndReason says why sessions ended.
+type EndReason string
+
+// Why sessions end.
+const (
+	// EndedLogout: the person signed out of the session.
+	EndedLogout EndReason = "logout"
+	// EndedRotation: a refresh replaced the session's access token; the old one is dead.
+	EndedRotation EndReason = "rotation"
+	// EndedRevoked: the person (own session list, "sign out everywhere") or an administrator ended them.
+	EndedRevoked EndReason = "revoke"
+	// EndedPasswordChanged: a password change ended the other sessions.
+	EndedPasswordChanged EndReason = "password_changed"
+	// EndedDeactivated: the account was deactivated.
+	EndedDeactivated EndReason = "deactivated"
+	// EndedLoginAsReturn: the person returned from signing in as somebody.
+	EndedLoginAsReturn EndReason = "login_as_return"
+	// EndedOpenedBy: the sessions an account had opened as somebody ended with the account's own.
+	EndedOpenedBy EndReason = "opened_by_ended"
+)
+
+// SessionsEnded is the fact that sessions of one account stopped working. SessionIDs are the
+// ones ended; for ending all of an account's sessions they are the ones that were live a
+// moment before. ActorID is the administrator who did it, zero for the person themselves
+// or when the system did.
+type SessionsEnded struct {
+	AccountID  int
+	SessionIDs []int
+	Reason     EndReason
+	ActorID    int
+}
+
 // Notices hears the facts other features may care about, such as an audit
 // trail or a notification. The default does nothing.
 type Notices interface {
@@ -244,9 +276,13 @@ type Notices interface {
 	// SignedOutAs: the session actor opened as target ended: by returning (the request's device
 	// and address), by signing out or by an administrator ending it (those of the ended session).
 	SignedOutAs(ctx context.Context, fact LoginAs)
-	// SessionsRevoked: n sessions of accountID were ended by actorID (zero when
-	// the person did it themselves).
-	SessionsRevoked(ctx context.Context, accountID, actorID, n int)
+	// SessionsEnded: sessions of one account stopped working, after the change is
+	// committed. A host that caches verified tokens drops the account's entries here.
+	SessionsEnded(ctx context.Context, fact SessionsEnded)
+	// AccountChanged: the account's data (locale, name, phone, e-mail address, password or
+	// active flag) changed, after the change is committed. A host that caches the
+	// resolved user drops it here.
+	AccountChanged(ctx context.Context, accountID int)
 	// AccountCreated: actorID made the account.
 	AccountCreated(ctx context.Context, accountID, actorID int)
 	// AccountDeactivated: actorID deactivated the account.
@@ -275,8 +311,11 @@ func (DiscardNotices) SignedInAs(context.Context, LoginAs) {}
 // SignedOutAs hears the fact and does nothing.
 func (DiscardNotices) SignedOutAs(context.Context, LoginAs) {}
 
-// SessionsRevoked hears the fact and does nothing.
-func (DiscardNotices) SessionsRevoked(context.Context, int, int, int) {}
+// SessionsEnded hears the fact and does nothing.
+func (DiscardNotices) SessionsEnded(context.Context, SessionsEnded) {}
+
+// AccountChanged hears the fact and does nothing.
+func (DiscardNotices) AccountChanged(context.Context, int) {}
 
 // AccountCreated hears the fact and does nothing.
 func (DiscardNotices) AccountCreated(context.Context, int, int) {}

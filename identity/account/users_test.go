@@ -67,12 +67,13 @@ func TestSessionsAreListedAndRevoked(t *testing.T) {
 
 	last := k.SignIns.All()[len(k.SignIns.All())-1]
 	assert.Equal(t, account.SignInEntry{ID: last.ID, AccountID: 1, Event: account.SessionRevoked, ActorID: 2, CreatedAt: k.Clock.Now()}, last)
-	assert.Equal(t, []string{"revoked 1 by 2 x1"}, n.events)
+	assert.Equal(t, []string{"ended 1 by 2 x1 revoke"}, n.events)
 }
 
 // IAM-USER-004 items 4 to 6: ending all keeps the caller's own and ends what the person opened as somebody else.
 func TestRevokeSessionsKeepsTheCallersAndEndsWhatWasOpenedAsSomebodyElse(t *testing.T) {
-	k := seeded(t, identitytest.WithImpersonation(permitAll{}))
+	n := &notices{}
+	k := seeded(t, identitytest.WithImpersonation(permitAll{}), identitytest.WithNotices(n))
 	ctx := t.Context()
 
 	here, err := k.SignIn.Login(ctx, login("ana", "secret"))
@@ -84,7 +85,10 @@ func TestRevokeSessionsKeepsTheCallersAndEndsWhatWasOpenedAsSomebodyElse(t *test
 	asBoris, err := k.SignIn.LoginAs(ctx, account.LoginAsInput{ActorID: 1, TargetID: 2})
 	require.NoError(t, err)
 
+	n.events = nil
 	require.NoError(t, k.Users.RevokeSessions(ctx, account.RevokeSessionsInput{AccountID: 1, KeepToken: here.Credentials.Access}))
+	assert.Equal(t, []string{"ended 1 by 0 x1 revoke", "ended 2 by 0 x1 opened_by_ended", "out 1>2"}, n.events,
+		"the person's others (not the kept one), then the target's session it had opened")
 
 	_, err = k.SignIn.Authenticate(ctx, here.Credentials.Access)
 	require.NoError(t, err, "the session it was done from stays")
