@@ -180,7 +180,7 @@ func (n *Notices) DeliverDue(ctx context.Context) (int, error) {
 	now := n.clock.Now()
 	leaseUntil := whole(now).Add(claimLease)
 
-	due, err := n.store.claimDue(ctx, whole(now), leaseUntil, deliveryBatch)
+	due, err := n.store.claimDue(ctx, emailChannel, whole(now), leaseUntil, deliveryBatch)
 	if err != nil {
 		return 0, err
 	}

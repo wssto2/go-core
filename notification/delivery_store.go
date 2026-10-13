@@ -10,15 +10,18 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// claimDue leases the due deliveries to one worker (NOTIF-DELIVERY-001, rule 4) in one short transaction: a plain
+// claimDue leases the due deliveries of one channel to one worker (NOTIF-DELIVERY-001, rule 4), never another
+// channel's rows, in one short transaction: a plain
 // read picks the candidates, a locking read by primary key takes them and re-checks that they are still due, and their
 // next_attempt_at moves to leaseUntil. A worker claiming at the same moment waits on the rows this one locked; once this
 // commits, its locking read sees the lease (a locking read reads the latest committed row, not the snapshot) and skips
 // them. No SKIP LOCKED, FOR SHARE or FOR UPDATE OF: MariaDB 10.3 has none of them.
-func (s *store) claimDue(ctx context.Context, now, leaseUntil time.Time, limit int) ([]deliveryRow, error) {
+func (s *store) claimDue(ctx context.Context, channel string, now, leaseUntil time.Time, limit int) ([]deliveryRow, error) { //nolint:lll // signature
 	var rows []deliveryRow
 
-	due := func(q *gorm.DB) *gorm.DB { return q.Where("status IN ? AND next_attempt_at <= ?", dueStatuses, now) }
+	due := func(q *gorm.DB) *gorm.DB {
+		return q.Where("channel = ? AND status IN ? AND next_attempt_at <= ?", channel, dueStatuses, now)
+	}
 
 	err := s.conn(ctx).Transaction(func(tx *gorm.DB) error {
 		var candidates []uint64
