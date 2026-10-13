@@ -20,37 +20,10 @@ func BindStrings[T any](v *T, tag string, values map[string][]string) error {
 		return nil
 	}
 
-	rt := rv.Type()
 	failures := make(map[string][]validation.Failure)
 	debug := make(map[string][]string)
 
-	for i := range rt.NumField() {
-		key := rt.Field(i).Tag.Get(tag)
-		if key == "" || key == "-" {
-			continue
-		}
-
-		vals := values[key]
-		if len(vals) == 0 {
-			continue
-		}
-
-		field := rv.Field(i)
-
-		var raw any = vals[0]
-		if isList(field.Type()) {
-			list := make([]any, len(vals))
-			for j, s := range vals {
-				list[j] = s
-			}
-			raw = list
-		}
-
-		if f := coerceValue(field, raw, true); f != nil {
-			failures[key] = append(failures[key], *f)
-			debug[key] = append(debug[key], "coerce")
-		}
-	}
+	bindFields(rv, tag, values, failures, debug)
 
 	if len(failures) > 0 {
 		return validation.NewValidationError("validation failed", failures, debug)
@@ -65,4 +38,51 @@ func isList(t reflect.Type) bool {
 	}
 
 	return t.Kind() == reflect.Slice
+}
+
+// bindFields fills the tagged fields of value, going into embedded structs as the
+// route's path check does.
+func bindFields(
+	value reflect.Value, tag string, values map[string][]string,
+	failures map[string][]validation.Failure, debug map[string][]string,
+) {
+	rt := value.Type()
+
+	for idx := range rt.NumField() {
+		field := rt.Field(idx)
+
+		if field.Anonymous && field.Type.Kind() == reflect.Struct && field.Tag.Get(tag) == "" {
+			bindFields(value.Field(idx), tag, values, failures, debug)
+
+			continue
+		}
+
+		bindField(value.Field(idx), field.Tag.Get(tag), values, failures, debug)
+	}
+}
+
+// bindField fills one field from the values under key.
+func bindField(
+	field reflect.Value, key string, values map[string][]string,
+	failures map[string][]validation.Failure, debug map[string][]string,
+) {
+	vals := values[key]
+	if key == "" || key == "-" || len(vals) == 0 {
+		return
+	}
+
+	var raw any = vals[0]
+	if isList(field.Type()) {
+		list := make([]any, len(vals))
+		for j, s := range vals {
+			list[j] = s
+		}
+
+		raw = list
+	}
+
+	if f := coerceValue(field, raw, true); f != nil {
+		failures[key] = append(failures[key], *f)
+		debug[key] = append(debug[key], "coerce")
+	}
 }

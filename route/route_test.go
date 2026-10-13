@@ -209,3 +209,46 @@ func TestMountWithoutAuthenticationSaysHowToFix(t *testing.T) {
 		t.Fatalf("a public route cannot require a permission, got %v", err)
 	}
 }
+
+type scopeInput struct {
+	ID   int `json:"-"     path:"id"`
+	Page int `query:"page"`
+}
+
+type partInput struct {
+	scopeInput
+
+	Title string `json:"title"`
+}
+
+func TestBindsPathAndQueryThroughEmbeddedStructs(t *testing.T) {
+	t.Parallel()
+
+	var got partInput
+
+	bound := route.Post[partInput, route.Empty]("/t/:id").To(func(_ context.Context, in partInput) (route.Empty, error) {
+		got = in
+
+		return route.Empty{}, nil
+	})
+
+	engine := newEngine()
+
+	err := bound.Mount(engine, open())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := do(engine, http.MethodPost, "/t/7?page=3", `{"title":"hi"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+
+	if got.ID != 7 || got.Page != 3 || got.Title != "hi" {
+		t.Fatalf("bound %+v", got)
+	}
+
+	rec := do(engine, http.MethodPost, "/t/abc", `{"title":"hi"}`)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "id") {
+		t.Fatalf("want 422 naming id, got %d: %s", rec.Code, rec.Body)
+	}
+}
