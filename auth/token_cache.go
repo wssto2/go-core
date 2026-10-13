@@ -66,6 +66,20 @@ func (c *tokenCache) delete(token string) {
 	c.mu.Unlock()
 }
 
+// deleteWhere removes every entry match accepts.
+// shortcut: a scan under the write lock, not an index by user; the cache holds at most
+// one entry per live token for ttl (seconds), so the scan is short. Index it if a host
+// caches millions of tokens.
+func (c *tokenCache) deleteWhere(match func(cachedEntry) bool) {
+	c.mu.Lock()
+	for k, e := range c.entries {
+		if match(e) {
+			delete(c.entries, k)
+		}
+	}
+	c.mu.Unlock()
+}
+
 // sweep removes expired entries on each tick. It runs until Stop is called.
 func (c *tokenCache) sweep() {
 	ticker := time.NewTicker(c.ttl)

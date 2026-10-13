@@ -178,6 +178,23 @@ func (p *DBTokenProvider) InvalidateToken(token string) {
 	}
 }
 
+// InvalidateUser drops every cached entry of the person, whatever token it was
+// cached under. Call it when something else (an identity module's Notices) ends
+// the person's sessions or changes the person, so the cache does not outlive it.
+func (p *DBTokenProvider) InvalidateUser(userID int) {
+	if p.cache != nil {
+		p.cache.deleteWhere(func(e cachedEntry) bool { return e.user.GetID() == userID })
+	}
+}
+
+// InvalidateSession drops the cached entry of the token with this id (the tokens
+// row), for a host that learns of one session ending but not its token value.
+func (p *DBTokenProvider) InvalidateSession(tokenID int) {
+	if p.cache != nil {
+		p.cache.deleteWhere(func(e cachedEntry) bool { return e.tokenID == tokenID })
+	}
+}
+
 // Stop shuts down the cache's background sweep goroutine, if any.
 func (p *DBTokenProvider) Stop() {
 	if p.cache != nil {
