@@ -201,3 +201,43 @@ func TestGenerateRefusesWhatItCannotDo(t *testing.T) {
 		}
 	}
 }
+
+type PartInput struct {
+	ID    int    `json:"-"     path:"id"`
+	Title string `json:"title" validation:"max:50"`
+}
+
+type Part struct {
+	ID int `json:"id"`
+}
+
+func TestPathFieldsKeptOutOfTheBodyAreInTheRouteInput(t *testing.T) { //nolint:paralleltest // swaps a variable
+	fixedVersion(t)
+
+	dir := t.TempDir()
+	add := route.Post[PartInput, Part]("/things/:id/parts").Name("things.add-part")
+
+	err := Generate(dir, route.Group("things", add))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	read := func(name string) string {
+		b, err := os.ReadFile(filepath.Join(dir, "things", name)) //nolint:gosec // test temp dir
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return string(b)
+	}
+
+	want := `route<PartInput & { id: number }, Part>("POST", "/things/:id/parts")`
+	if got := read("routes.ts"); !strings.Contains(got, want) {
+		t.Errorf("the route input lacks id:\n%s", got)
+	}
+
+	schemas := read("schemas.ts")
+	if !strings.Contains(schemas, "title:") || strings.Contains(schemas, "id:") {
+		t.Errorf("the body schema must hold title and no id:\n%s", schemas)
+	}
+}

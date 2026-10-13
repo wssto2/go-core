@@ -160,6 +160,16 @@ func planOf(g *route.Contract) (*plan, error) {
 			line.in = spec.In.Name()
 			line.usesIn = []string{spec.In.Name()}
 
+			// A path field kept out of the body (json:"-") is still part of what the caller gives the route.
+			hidden, err := hiddenPathFields(spec, spec.In, &p.lists)
+			if err != nil {
+				return nil, err
+			}
+
+			if len(hidden) > 0 {
+				line.in += " & { " + strings.Join(hidden, "; ") + " }"
+			}
+
 			if !p.inSet[spec.In.Name()] {
 				p.inSet[spec.In.Name()] = true
 				p.ins = append(p.ins, reflect.New(spec.In).Elem().Interface())
@@ -225,6 +235,40 @@ func planOf(g *route.Contract) (*plan, error) {
 	}
 
 	return p, nil
+}
+
+// hiddenPathFields renders the path:"…" fields of t that json:"-" keeps out of its schema as
+// "name: type", through embedded structs, so the route's input has the URL parameters while
+// the body schema stays the body.
+func hiddenPathFields(spec route.Spec, t reflect.Type, lists *bool) ([]string, error) {
+	var out []string
+
+	for field := range t.Fields() {
+		if field.Anonymous && field.Type.Kind() == reflect.Struct {
+			inner, err := hiddenPathFields(spec, field.Type, lists)
+			if err != nil {
+				return nil, err
+			}
+
+			out = append(out, inner...)
+
+			continue
+		}
+
+		name := field.Tag.Get("path")
+		if name == "" || name == "-" || field.Tag.Get("json") != "-" || !field.IsExported() {
+			continue
+		}
+
+		expr, _, err := tsType(spec, field.Type, lists)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, name+": "+expr)
+	}
+
+	return out, nil
 }
 
 // isListResult reports whether t is datatable.DatatableResult[Row]: the one
