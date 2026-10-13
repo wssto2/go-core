@@ -117,7 +117,7 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory
 
 	engine, err := authz.NewEngine(authz.Config{
 		Catalogue: catalogue, Hierarchy: s.hierarchy(), Roles: s.roles, Store: store,
-		Resolver: s.scopes, Features: s.features, Logger: app.Logger(),
+		Resolver: s.scopes, Features: s.features, Logger: app.Logger(), Cache: s.cache,
 	})
 	if err != nil {
 		app.Fail("access cannot build the engine: "+err.Error(),
@@ -182,6 +182,7 @@ type settings struct {
 	audit      audit.Repository
 	connection database.Connection
 
+	cache        *authz.Cache
 	roleCheck    RoleCheck
 	bindingCheck BindingCheck
 	reach        SubjectReach
@@ -223,6 +224,11 @@ func WithBindingCheck(check BindingCheck) Option { return func(s *settings) { s.
 // WithSubjectReach limits whom the actor may see: a subject out of reach answers
 // not-found on a person's access, scopes, bind and unbind (see SubjectReach).
 func WithSubjectReach(reach SubjectReach) Option { return func(s *settings) { s.reach = reach } }
+
+// WithCache sets the cache of effective access, to choose its time to live
+// (authz.NewCache(ttl); the default is authz.DefaultCacheTTL). Evict through
+// the cache or Access.Engine, which uses this very cache.
+func WithCache(cache *authz.Cache) Option { return func(s *settings) { s.cache = cache } }
 
 // On puts the module's tables, and so its migrations, on another connection
 // than the application's primary one.

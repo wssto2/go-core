@@ -114,12 +114,14 @@ type fixture struct {
 
 // newFixture builds the services on a SQLite database whose tables come from the
 // store's GORM models (test only; the real SQL is tested on MySQL and MariaDB).
-func newFixture(t testing.TB, tweak ...func(*admin.Config)) *fixture {
-	t.Helper()
+func newFixture(tb testing.TB, tweak ...func(*admin.Config)) *fixture {
+	tb.Helper()
+
 	f, cleanup, err := buildFixture(tweak...)
-	require.NoError(t, err)
-	t.Cleanup(cleanup)
-	f.t = t
+	require.NoError(tb, err)
+	tb.Cleanup(cleanup)
+
+	f.t = tb
 	return f
 }
 
@@ -129,6 +131,7 @@ func buildFixture(tweak ...func(*admin.Config)) (*fixture, func(), error) {
 		cleanup()
 		return nil, nil, err
 	}
+
 	f, err := fixtureOn(db, tweak...)
 	if err != nil {
 		cleanup()
@@ -157,8 +160,8 @@ func onEveryDatabase(t *testing.T, fn func(t *testing.T, f *fixture)) {
 	})
 }
 
-func fixtureOn(db *gorm.DB, tweak ...func(*admin.Config)) (*fixture, error) {
-	store := gormstore.New(db)
+func fixtureOn(conn *gorm.DB, tweak ...func(*admin.Config)) (*fixture, error) {
+	store := gormstore.New(conn)
 	dir := newDirectory()
 
 	engine, err := authz.NewEngine(authz.Config{
@@ -170,7 +173,8 @@ func fixtureOn(db *gorm.DB, tweak ...func(*admin.Config)) (*fixture, error) {
 
 	cfg := admin.Config{
 		Engine: engine, Store: store, Scopes: dir, Subjects: dir,
-		Transactor: database.NewTransactor(db),
+		Transactor: database.NewTransactor(conn),
+		RoleCheck:  nil, BindingCheck: nil, Reach: nil,
 	}
 	for _, t := range tweak {
 		t(&cfg)

@@ -345,3 +345,30 @@ func TestNewAdminValidatesPermissions(t *testing.T) {
 	_, err = authz.NewAdmin(authz.AdminConfig{ManageRoles: manageRoles, ManageBindings: manageBindings})
 	assert.Error(t, err)
 }
+
+func TestValidationErrorReasonListsProblemsAsSortedObjects(t *testing.T) {
+	t.Parallel()
+
+	const (
+		first   = "a_code"
+		codeKey = "code"
+		permKey = "permission"
+	)
+
+	err := &authz.ValidationError{Problems: []authz.Problem{
+		{Code: "b_code", Permission: "x:view", Detail: ""},
+		{Code: first, Permission: "z:view", Detail: "why"},
+		{Code: first, Permission: "y:view", Detail: ""},
+		{Code: "c_code", Permission: "", Detail: ""},
+	}}
+
+	reason, params := err.ErrorReason()
+
+	assert.Equal(t, "authz.invalid", reason)
+	assert.Equal(t, []map[string]string{
+		{codeKey: first, permKey: "y:view"},
+		{codeKey: first, permKey: "z:view", "detail": "why"},
+		{codeKey: "b_code", permKey: "x:view"},
+		{codeKey: "c_code"},
+	}, params["problems"])
+}

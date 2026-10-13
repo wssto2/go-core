@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -317,8 +318,12 @@ func TestChangesAreAuditedWhenAskedFor(t *testing.T) {
 
 // The application's rules reach the routes through Install's options, on every database.
 func TestInstallOptionsPutTheApplicationsRulesOnTheRoutes(t *testing.T) {
-	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
-		app, acc := newApp(db, func(app *gocore.App) *access.Access {
+	t.Parallel()
+
+	dbtest.Run(t, func(t *testing.T, conn *gorm.DB) {
+		t.Helper()
+
+		app, acc := newApp(conn, func(app *gocore.App) *access.Access {
 			return access.Install(app, permissions(), team{}, access.WithRoles(roles()...), access.On(local),
 				access.WithRoleCheck(func(_ context.Context, role authz.Role) []authz.Problem {
 					if role.Name == "Forbidden" {
@@ -338,16 +343,20 @@ func TestInstallOptionsPutTheApplicationsRulesOnTheRoutes(t *testing.T) {
 			)
 		})
 
-		if db.Name() != "sqlite" {
+		if conn.Name() != "sqlite" {
 			require.NoError(t, app.Migrate(t.Context()))
 		}
 
 		require.NoError(t, acc.Seed(t.Context(), authz.Subject{Kind: authz.KindUser, ID: 1}, "webmaster"))
 
-		status, _ := call(t, app, 1, "POST", "/api/v1/iam/roles", accesshttp.CreateRoleInput{Name: "Forbidden"})
+		status, _ := call(t, app, 1, "POST", "/api/v1/iam/roles", accesshttp.CreateRoleInput{
+			Name: "Forbidden", Description: "", Grants: nil, Attrs: nil,
+		})
 		assert.Equal(t, http.StatusBadRequest, status, "the role check refuses the save")
 
-		status, _ = call(t, app, 1, "POST", "/api/v1/iam/users/5/bindings", accesshttp.BindInput{RoleRef: "seller", Level: "organization"})
+		status, _ = call(t, app, 1, "POST", "/api/v1/iam/users/5/bindings", accesshttp.BindInput{
+			ID: 0, RoleRef: "seller", Level: "organization", ScopeID: nil,
+		})
 		assert.Equal(t, http.StatusForbidden, status, "the binding check refuses the bind")
 
 		status, _ = call(t, app, 1, "GET", "/api/v1/iam/users/9/access", nil)
@@ -356,4 +365,26 @@ func TestInstallOptionsPutTheApplicationsRulesOnTheRoutes(t *testing.T) {
 		status, _ = call(t, app, 1, "GET", "/api/v1/iam/users/5/access", nil)
 		assert.Equal(t, http.StatusOK, status)
 	})
+}
+
+func TestWithCacheIsTheCacheTheEngineUses(t *testing.T) {
+	t.Parallel()
+
+	db, cleanup := database.MustPrepareTestDB()
+	t.Cleanup(cleanup)
+
+	cache := authz.NewCache(30 * time.Second)
+	_, acc := newApp(db, func(app *gocore.App) *access.Access {
+		return access.Install(app, permissions(), team{},
+			access.WithRoles(roles()...), access.On(local), access.WithCache(cache))
+	})
+	person := authz.Subject{Kind: authz.KindUser, ID: 1}
+	require.NoError(t, acc.Seed(t.Context(), person, "webmaster"))
+
+	_, err := acc.Engine.Effective(t.Context(), person)
+	require.NoError(t, err)
+	assert.Equal(t, 1, cache.Len(), "the engine filled the host's cache")
+
+	acc.Engine.Evict(person)
+	assert.Equal(t, 0, cache.Len())
 }

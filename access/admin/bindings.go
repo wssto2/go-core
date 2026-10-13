@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
@@ -198,8 +199,10 @@ func (b *Bindings) Bind(ctx context.Context, subject authz.Subject, draft Bindin
 		return Binding{}, err
 	}
 
-	binding := authz.Binding{Subject: subject, Role: ref, Scope: draft.Scope}
-	if err := b.cfg.BindingCheck(ctx, subject, binding); err != nil {
+	binding := authz.Binding{ID: 0, Subject: subject, Role: ref, Scope: draft.Scope, CreatedBy: 0, CreatedAt: time.Time{}}
+
+	err = b.cfg.BindingCheck(ctx, subject, binding)
+	if err != nil {
 		return Binding{}, err
 	}
 
@@ -245,7 +248,8 @@ func (b *Bindings) Unbind(ctx context.Context, subject authz.Subject, bindingID 
 		return apperr.NotFoundErr(authz.ErrBindingNotFound)
 	}
 
-	if err := b.cfg.BindingCheck(ctx, subject, found); err != nil {
+	err = b.cfg.BindingCheck(ctx, subject, found)
+	if err != nil {
 		return err
 	}
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
@@ -149,11 +150,13 @@ func (r *Roles) Update(ctx context.Context, ref string, draft RoleDraft) (RoleVi
 }
 
 func (r *Roles) save(ctx context.Context, role authz.Role) (RoleView, error) {
-	if err := r.cfg.Engine.Require(ctx, ManageRoles); err != nil {
-		return RoleView{}, err
+	err := r.cfg.Engine.Require(ctx, ManageRoles)
+	if err != nil {
+		return RoleView{}, fmt.Errorf("access: save role: %w", err)
 	}
 
-	if err := role.Validate(r.cfg.Engine.Catalogue()); err != nil {
+	err = role.Validate(r.cfg.Engine.Catalogue())
+	if err != nil {
 		return RoleView{}, apperr.BadRequestErr(err)
 	}
 
@@ -305,11 +308,14 @@ func (r *Roles) Replace(ctx context.Context, ref, with string) (int, error) {
 
 	err = r.cfg.Transactor.WithinTransaction(ctx, func(ctx context.Context) error {
 		for _, b := range bindings {
-			if err := r.checkRebind(ctx, b, other.Ref()); err != nil {
+			err := r.checkRebind(ctx, b, other.Ref())
+			if err != nil {
 				return err
 			}
 
-			_, err := r.delegation.Bind(ctx, authz.Binding{Subject: b.Subject, Role: other.Ref(), Scope: b.Scope})
+			_, err = r.delegation.Bind(ctx, authz.Binding{
+				ID: 0, Subject: b.Subject, Role: other.Ref(), Scope: b.Scope, CreatedBy: 0, CreatedAt: time.Time{},
+			})
 			if err != nil && !errors.Is(err, authz.ErrDuplicateBinding) {
 				return err
 			}
@@ -339,7 +345,10 @@ func (r *Roles) Replace(ctx context.Context, ref, with string) (int, error) {
 
 // checkRebind asks the application's binding rule about both halves of a re-binding.
 func (r *Roles) checkRebind(ctx context.Context, old authz.Binding, to authz.RoleRef) error {
-	if err := r.cfg.BindingCheck(ctx, old.Subject, authz.Binding{Subject: old.Subject, Role: to, Scope: old.Scope}); err != nil {
+	moved := authz.Binding{ID: 0, Subject: old.Subject, Role: to, Scope: old.Scope, CreatedBy: 0, CreatedAt: time.Time{}}
+
+	err := r.cfg.BindingCheck(ctx, old.Subject, moved)
+	if err != nil {
 		return err
 	}
 
