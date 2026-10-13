@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -449,5 +450,102 @@ func TestRowsFromInsertOutboxEventAreConsumedUnderTheirOldName(t *testing.T) {
 		require.NoError(t, q.Drain(context.Background()))
 		require.Equal(t, []int{9}, got)
 		require.True(t, processed(t, db, 1))
+	})
+}
+
+type TicketClosed struct {
+	TicketID int `json:"ticket_id"` //nolint:tagliatelle // snake_case wire, like TicketAssigned
+}
+
+//nolint:gochecknoglobals // an event is declared once, like Assigned
+var Closed = event.Define[TicketClosed]("tickets.closed")
+
+func publishClosed(t *testing.T, db *gorm.DB, ticket int) {
+	t.Helper()
+
+	require.NoError(t, database.NewTransactor(db).WithinTransaction(context.Background(), func(ctx context.Context) error {
+		return Closed.Publish(ctx, TicketClosed{TicketID: ticket})
+	}))
+}
+
+// One poll asks the database once for every consumer, whatever the number of event types, and each consumer
+// is offered exactly its own events.
+func TestOnePollFetchesTheDueEventsOfAllConsumersInOneQuery(t *testing.T) {
+	t.Parallel()
+
+	dbtest.Run(t, func(t *testing.T, conn *gorm.DB) {
+		t.Helper()
+
+		publish := setup(t, conn)
+		publish(TicketAssigned{TicketID: 1, UserID: 0})
+		publishClosed(t, conn, 2)
+		publish(TicketAssigned{TicketID: 3, UserID: 0})
+
+		noop := func(context.Context, TicketAssigned) error { return nil }
+		queue := event.NewQueue(conn, newClock(), quiet(),
+			Assigned.To("a", noop), Assigned.To("b", noop),
+			Closed.To("c", func(context.Context, TicketClosed) error { return nil }))
+
+		var fetches atomic.Int32
+
+		count := func(tx *gorm.DB) {
+			if strings.Contains(tx.Statement.SQL.String(), "LEFT JOIN event_consumer_attempts") {
+				fetches.Add(1)
+			}
+		}
+		require.NoError(t, conn.Callback().Query().After("gorm:query").Register("test:count-query", count))
+		require.NoError(t, conn.Callback().Row().After("gorm:row").Register("test:count-row", count))
+		t.Cleanup(func() {
+			_ = conn.Callback().Query().Remove("test:count-query")
+			_ = conn.Callback().Row().Remove("test:count-row")
+		})
+
+		due, err := queue.DueIDs(context.Background(), newClock().Now())
+		require.NoError(t, err)
+		require.Equal(t, map[string][]uint64{"a": {1, 3}, "b": {1, 3}, "c": {2}}, due)
+		require.EqualValues(t, 1, fetches.Load(), "three consumers, two types, one fetch")
+	})
+}
+
+// The queue's one worker delivers events of two types due together, once each.
+func TestTheQueuesWorkerDeliversEveryTypeOnce(t *testing.T) {
+	t.Parallel()
+
+	dbtest.Run(t, func(t *testing.T, conn *gorm.DB) {
+		t.Helper()
+
+		publish := setup(t, conn)
+		publish(TicketAssigned{TicketID: 1, UserID: 0})
+		publishClosed(t, conn, 2)
+
+		var assigned, closed atomic.Int32
+
+		queue := event.NewQueue(conn, nil, quiet(),
+			Assigned.To("a", func(context.Context, TicketAssigned) error {
+				assigned.Add(1)
+
+				return nil
+			}),
+			Closed.To("c", func(context.Context, TicketClosed) error {
+				closed.Add(1)
+
+				return nil
+			}))
+
+		workers := queue.Workers()
+		require.Len(t, workers, 1)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+
+		go func() { done <- workers[0].Run(ctx) }()
+
+		delivered := func() bool { return assigned.Load() == 1 && closed.Load() == 1 }
+		require.Eventually(t, delivered, 10*time.Second, 20*time.Millisecond)
+		time.Sleep(1500 * time.Millisecond) // a second poll must not deliver again
+		cancel()
+		require.NoError(t, <-done)
+		require.EqualValues(t, 1, assigned.Load())
+		require.EqualValues(t, 1, closed.Load())
 	})
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/wssto2/go-core/worker"
@@ -62,14 +63,15 @@ func (q *Queue) siblings(eventName string) []string {
 	return names
 }
 
-// Workers returns one background worker per consumer.
+// Workers returns the background worker of the queue, none without consumers. One worker polls for every
+// consumer in a single query per tick and hands each consumer its due events; each consumer handles them on its
+// own goroutine, so a slow consumer holds back no other.
 func (q *Queue) Workers() []worker.Worker {
-	out := make([]worker.Worker, 0, len(q.consumers))
-	for _, c := range q.consumers {
-		out = append(out, &consumerWorker{queue: q, consumer: c})
+	if len(q.consumers) == 0 {
+		return nil
 	}
 
-	return out
+	return []worker.Worker{&poller{queue: q}}
 }
 
 // Drain handles every event that is due, for every consumer, once and then
@@ -105,28 +107,73 @@ type consumerWorker struct {
 	consumer Consumer
 }
 
-// Name identifies the worker in logs.
-func (w *consumerWorker) Name() string { return "event.consumer." + w.consumer.name }
+// poller is the queue's one background worker: it asks the database what is due for all consumers at once.
+type poller struct{ queue *Queue }
 
-// Run polls until ctx is cancelled; a full batch is followed by another at once.
-func (w *consumerWorker) Run(ctx context.Context) error {
+// Name identifies the worker in logs.
+func (p *poller) Name() string { return "event.consumers" }
+
+// Run polls until ctx is cancelled. Each consumer has a lane, a goroutine that claims and handles what the poll
+// offered it; a lane still busy misses the offer and finds its events due on a later poll. A full batch is
+// followed by another at once.
+func (p *poller) Run(ctx context.Context) error {
+	queue := p.queue
+	lanes := make([]chan []uint64, len(queue.consumers))
+
+	var group sync.WaitGroup
+
+	for idx, cons := range queue.consumers {
+		lanes[idx] = make(chan []uint64, 1)
+		worker := &consumerWorker{queue: queue, consumer: cons}
+
+		group.Go(func() { worker.lane(ctx, lanes[idx]) })
+	}
+
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	for {
-		n, _, err := w.tick(ctx)
+		due, err := dueFor(ctx, queue.db, queue.consumers, whole(queue.clock.Now()), batchSize)
 		if err != nil && ctx.Err() == nil {
-			w.queue.log.ErrorContext(ctx, "event: claiming failed", "consumer", w.consumer.name, "error", err)
+			queue.log.ErrorContext(ctx, "event: polling failed", "error", err)
 		}
 
-		if n >= batchSize && err == nil && ctx.Err() == nil {
-			continue
+		for idx, ids := range due {
+			select {
+			case lanes[idx] <- ids:
+			default: // the lane is busy and already holds an offer
+			}
 		}
 
 		select {
 		case <-ctx.Done():
+			group.Wait()
+
 			return nil
 		case <-ticker.C:
+		}
+	}
+}
+
+// lane claims and handles the events the poll offered, then keeps claiming while batches are full.
+func (w *consumerWorker) lane(ctx context.Context, offers <-chan []uint64) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ids := <-offers:
+			now := whole(w.queue.clock.Now())
+
+			due, err := lease(ctx, w.queue.db, w.consumer.name, ids, now, now.Add(claimLease))
+			n, _, herr := w.handleAll(ctx, due, err)
+
+			for herr == nil && n >= batchSize && ctx.Err() == nil {
+				n, _, herr = w.tick(ctx)
+			}
+
+			if herr != nil && ctx.Err() == nil {
+				w.queue.log.ErrorContext(ctx, "event: claiming failed", "consumer", w.consumer.name, "error", herr)
+			}
 		}
 	}
 }
@@ -138,8 +185,14 @@ func (w *consumerWorker) tick(ctx context.Context) (int, []error, error) {
 	now := whole(q.clock.Now())
 
 	due, err := claim(ctx, q.db, c.name, c.event, now, now.Add(claimLease), batchSize)
-	if err != nil {
-		return 0, nil, err
+
+	return w.handleAll(ctx, due, err)
+}
+
+// handleAll hands the claimed events to the handler in order; claimErr is the claim's failure, passed through.
+func (w *consumerWorker) handleAll(ctx context.Context, due []claimedEvent, claimErr error) (int, []error, error) {
+	if claimErr != nil {
+		return 0, nil, claimErr
 	}
 
 	var errs []error

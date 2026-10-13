@@ -3,6 +3,8 @@ package event
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -104,16 +106,73 @@ func claim(ctx context.Context, db *gorm.DB, consumer, eventName string, now, le
 		return nil, fmt.Errorf("select due events: %w", err)
 	}
 
+	return lease(ctx, db, consumer, candidates, now, leaseUntil)
+}
+
+// dueFor returns, for every consumer at once and in one statement, the ids of
+// the events due for it: what claim's first step picks for one. Each consumer's
+// part is its own ordered, limited select, so its order and batch are the same;
+// the parts are joined by UNION ALL (derived tables, so the same SQL runs on
+// SQLite, MySQL and MariaDB 10.3). The result is keyed by the consumer's index.
+func dueFor(
+	ctx context.Context, conn *gorm.DB, consumers []Consumer, now time.Time, limit int,
+) (map[int][]uint64, error) {
+	if len(consumers) == 0 {
+		return map[int][]uint64{}, nil
+	}
+
+	var (
+		parts []string
+		args  []any
+	)
+
+	for i, cons := range consumers {
+		parts = append(parts, fmt.Sprintf("SELECT t.id AS id, %d AS k FROM ("+
+			"SELECT o.id FROM "+outboxTable+" AS o LEFT JOIN "+attemptsTable+" AS a ON a.event_id = o.id AND a.consumer = ? "+
+			"WHERE o.processed_at IS NULL AND o.event_type = ? "+
+			"AND (a.event_id IS NULL OR (a.done_at IS NULL AND a.dead_at IS NULL AND a.next_attempt_at <= ?)) "+
+			"ORDER BY o.id ASC LIMIT ?) AS t", i))
+		args = append(args, cons.name, cons.event, now, limit)
+	}
+
+	var rows []struct {
+		ID uint64
+		K  int
+	}
+
+	err := conn.WithContext(ctx).Raw(strings.Join(parts, " UNION ALL "), args...).Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("select due events: %w", err)
+	}
+
+	out := make(map[int][]uint64, len(consumers))
+	for _, r := range rows {
+		out[r.K] = append(out[r.K], r.ID)
+	}
+
+	for k := range out {
+		slices.Sort(out[k]) // UNION ALL promises no order across its parts; ids ascend within one consumer
+	}
+
+	return out, nil
+}
+
+// lease is claim's second half: it locks the candidates and leases the ones still due.
+//
+//nolint:cyclop,funlen,noinlineerr,exhaustruct,exhaustruct_v5 // claim's body from before the split, only renamed
+func lease(
+	ctx context.Context, conn *gorm.DB, consumer string, candidates []uint64, now, leaseUntil time.Time,
+) ([]claimedEvent, error) {
 	if len(candidates) == 0 {
 		return nil, nil
 	}
 
 	var claimed []claimedEvent
 
-	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := conn.WithContext(ctx).Transaction(func(txn *gorm.DB) error {
 		var locked []claimedEvent
 
-		if err := tx.Table(outboxTable).
+		if err := txn.Table(outboxTable).
 			Select("id, event_type, envelope").
 			Where("id IN ? AND processed_at IS NULL", candidates).
 			Order("id ASC").
@@ -132,7 +191,7 @@ func claim(ctx context.Context, db *gorm.DB, consumer, eventName string, now, le
 		}
 
 		var current []attemptRow
-		if err := tx.Where("consumer = ? AND event_id IN ?", consumer, ids).Find(&current).Error; err != nil {
+		if err := txn.Where("consumer = ? AND event_id IN ?", consumer, ids).Find(&current).Error; err != nil {
 			return fmt.Errorf("read attempts: %w", err)
 		}
 
@@ -158,7 +217,7 @@ func claim(ctx context.Context, db *gorm.DB, consumer, eventName string, now, le
 			return nil
 		}
 
-		if err := tx.Clauses(clause.OnConflict{
+		if err := txn.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "event_id"}, {Name: "consumer"}},
 			DoUpdates: clause.AssignmentColumns([]string{"next_attempt_at", "updated_at"}),
 		}).Create(&leases).Error; err != nil {
