@@ -511,3 +511,36 @@ func TestRefusalsHaveOneShapeAndLoginAsSaysInactive(t *testing.T) {
 	assert.Equal(t, nethttp.StatusNotFound, rec.Code)
 	assert.Contains(t, rec.Body.String(), "identity.account.not_found")
 }
+
+// a host's own Impersonation that refuses with a bare forbidden (no reason) still answers with go-core's.
+type bareRefusal struct{ covers bool }
+
+func (b bareRefusal) Permitted(context.Context, account.Account) error {
+	if b.covers {
+		return nil
+	}
+
+	return apperr.Forbidden("user does not have permission to login as another user")
+}
+
+func (b bareRefusal) Covers(context.Context, account.Account, account.Account) error {
+	return apperr.Forbidden("target holds more than you")
+}
+
+func TestLoginAsRefusedForLackOfPermissionCarriesItsReason(t *testing.T) {
+	t.Parallel()
+
+	for name, imp := range map[string]bareRefusal{"permitted": {}, "covers": {covers: true}} {
+		app := newApp(t)
+		identity.Install(app, identity.WithoutMail(), identity.WithImpersonation(imp))
+		seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
+		seed(t, app.Database(), identitytest.Account(8, "bob", "secret"))
+
+		c := newClient(t, app)
+		login(t, c, "ana", "secret")
+
+		rec := c.do(nethttp.MethodPost, "/v1/auth/login-as", map[string]int{"user_id": 8})
+		assert.Equal(t, nethttp.StatusForbidden, rec.Code, name)
+		assert.Contains(t, rec.Body.String(), `"code":"authz.forbidden"`, name)
+	}
+}

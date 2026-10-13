@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/authz"
 )
 
 // SignIn signs people in and out, and knows who a token belongs to.
@@ -205,7 +206,7 @@ func (s *SignIn) LoginAs(ctx context.Context, in LoginAsInput) (Signed, error) {
 	}
 
 	if err := s.deps.Impersonation.Permitted(ctx, actor); err != nil {
-		return Signed{}, err
+		return Signed{}, reasoned(err)
 	}
 
 	target, err := s.deps.Accounts.Find(ctx, in.TargetID)
@@ -222,7 +223,7 @@ func (s *SignIn) LoginAs(ctx context.Context, in LoginAsInput) (Signed, error) {
 	}
 
 	if err := s.deps.Impersonation.Covers(ctx, actor, target); err != nil {
-		return Signed{}, err
+		return Signed{}, reasoned(err)
 	}
 
 	creds, err := s.open(ctx, NewSession{AccountID: target.ID, ActorID: actor.ID, Device: in.Device, IP: in.IP})
@@ -399,3 +400,17 @@ func (noImpersonation) Permitted(context.Context, Account) error {
 }
 
 func (noImpersonation) Covers(context.Context, Account, Account) error { return nil }
+
+// reasoned gives a forbidden refusal that carries no reason go-core's usual one
+// (authz.forbidden), so a host's own Impersonation answers with the standard body.
+func reasoned(err error) error {
+	var ae *apperr.AppError
+
+	if errors.As(err, &ae) && ae.Code == apperr.CodePermissionDenied && ae.Reason == "" {
+		c := *ae
+
+		return c.WithReason(authz.ReasonForbidden)
+	}
+
+	return err
+}
