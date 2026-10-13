@@ -115,6 +115,8 @@ Code: `identity/account/users.go` (`Users.Sessions`, `RevokeSession`, `RevokeSes
    because the new session is theirs. The Notices hear `SignedOutAs(account.LoginAs{ActorID, TargetID, Device, IP})`, as when the session is signed
    out; `SignedInAs` carries the same struct: the device label (`DeviceLabel` of the User-Agent) and address of the
    request that did it (of the ended session, for a sign-out or an administrator ending it). The actor's history gets no row: returning is not a sign-in.
+5. Every place that ends or rotates a session tells the Notices `SessionsEnded{AccountID, SessionIDs, Reason, ActorID}` once, after the change is committed (reasons: `logout`, `rotation`, `revoke`, `password_changed`, `deactivated`, `login_as_return`, `opened_by_ended`); a change to an account tells `AccountChanged(accountID)`. A host's token cache forgets the person there (README, "A host that caches verified tokens").
+6. A refusal by the application's `Impersonation` that is a forbidden without a reason answers with `authz.forbidden` (`LoginAs` adds it), so the body has its `code`.
 
 Code: `identity/account/signin_service.go` (`SignIn.Return`, `actorOf`), `identity/http/handler.go` (`returnToOwn`,
 `payload`).

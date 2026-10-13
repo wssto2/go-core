@@ -331,6 +331,17 @@ The routes are declared under `/v1/auth` (an app with `gocore.WithPrefix("/api")
 
 When the session was opened by signing in as somebody (`login-as`), the payload also has `"impersonator": {"id": 1, "name": "Ana Anić"}`, the person really signed in; for a person's own session the key is absent. `user` is what the projector makes of the account (the default has `id`, `login`, `name`, `email`, `locale`, never the password hash), `access` is the authz engine's answer and `navigation` your menu filtered by it. Refusals are `apperr` reasons with params, never sentences: `identity.signin.failed` (an unknown login and a wrong password answer alike, 422), `identity.signin.locked` (`params.locked_until`), `identity.signin.inactive`, `identity.session.invalid`. Five wrong passwords lock sign-in for fifteen minutes, ten attempts a minute per login are let through; the rules, with their Logic IDs (IAM-USER-001 to 004 and 008), are in `docs/rules/identity/signin.md`.
 
+**A host that caches verified tokens.** `auth.DBTokenProvider` with `WithVerifyCache(ttl)` serves a token from memory for up to `ttl`, so a session identity ends (logout, a refresh that replaces the access token, a revoke, a password change, a deactivation, a return from login-as) would still answer on the host's own routes. Identity says so through `account.Notices`: `SessionsEnded(ctx, account.SessionsEnded{AccountID, SessionIDs, Reason, ActorID})` after the change is committed, and `AccountChanged(ctx, accountID)` after a locale, name, phone, e-mail, password, activate or deactivate. Wire them to the provider, one line each (embed `account.DiscardNotices` to hear only these):
+
+```go
+func (f forgetting) SessionsEnded(_ context.Context, e account.SessionsEnded) { f.tokens.InvalidateUser(e.AccountID) }
+func (f forgetting) AccountChanged(_ context.Context, id int)                 { f.tokens.InvalidateUser(id) }
+
+identity.Install(app, identity.WithNotices(forgetting{tokens: provider}))
+```
+
+`provider.InvalidateUser(id)` drops every cached entry of that person (`InvalidateSession(tokenID)` one session's). A host route behind the provider then refuses the old token on the very next request (`identity/tokencache_test.go` runs it on SQLite, MySQL and MariaDB).
+
 #### Users and profile
 
 The same `Install` serves user administration under `/v1/iam/users` and every signed-in person's own profile under `/v1/iam/profile`; both are in `identity.Routes` (`WithoutUserAdmin()` leaves the first out). Administrators need `iam.user:view` (read) and `iam.user:manage` (write), the ids `access` uses for the same two ideas, and `iam.user.activity:view` (a `System` permission) for a person's activity (`access.Install` defines them in your catalogue; an application without access calls `identity.DefinePermissions(catalogue)`). A profile needs a signed-in person and nothing else.
