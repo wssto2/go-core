@@ -399,3 +399,36 @@ func TestAHostsOwnChainCoexistsWithIdentitysAuthentication(t *testing.T) {
 	c.handler.ServeHTTP(rec, me)
 	assert.Equal(t, nethttp.StatusOK, rec.Code, rec.Body.String())
 }
+
+// R8: a session another application opened by login-as, named "login-as:<actor>|<device>" in
+// tokens.name, is left by the return route, which signs in as the actor with no password.
+func TestReturnFromALoginAsSessionTheHostNamed(t *testing.T) {
+	app := newApp(t)
+	identity.Install(app, identity.WithoutMail())
+	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
+	seed(t, app.Database(), identitytest.Account(8, "bob", "secret"))
+
+	now := time.Now()
+	creds, err := gormstore.New(app.Database()).Sessions.Open(t.Context(), account.NewSession{AccountID: 8, At: now, ExpiresAt: now.Add(time.Hour)})
+	require.NoError(t, err)
+	require.NoError(t, app.Database().Model(&auth.Token{}).Where("token_value = ?", creds.Access).Update("name", "login-as:7|Mozilla/5.0 (X11; Linux)").Error)
+
+	req := httptest.NewRequestWithContext(t.Context(), nethttp.MethodPost, "/v1/auth/login-as/return", nil)
+	req.Header.Set("Authorization", "Bearer "+creds.Access)
+
+	handler, err := app.Handler()
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, nethttp.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"id":7`, "signed in as the actor")
+	assert.NotContains(t, rec.Body.String(), "impersonator")
+
+	old := httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/v1/auth/me", nil)
+	old.Header.Set("Authorization", "Bearer "+creds.Access)
+
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, old)
+	assert.Equal(t, nethttp.StatusUnauthorized, rec.Code, "the login-as session is over")
+}
