@@ -146,11 +146,12 @@ func (u *Users) ChangeLocale(ctx context.Context, in ChangeLocaleInput) error {
 		return apperr.BadRequest(string(ReasonLocaleInvalid)).WithReason(ReasonLocaleInvalid)
 	}
 
-	if err := u.cfg.offers("locale", in.Locale); err != nil {
+	err := u.cfg.offers("locale", in.Locale)
+	if err != nil {
 		return err
 	}
 
-	err := u.deps.Accounts.SetLocale(ctx, in.AccountID, in.Locale)
+	err = u.deps.Accounts.SetLocale(ctx, in.AccountID, in.Locale)
 	if errors.Is(err, ErrNotFound) {
 		return accountNotFound()
 	}

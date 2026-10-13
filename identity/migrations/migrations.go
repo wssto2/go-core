@@ -49,13 +49,13 @@ func (w withoutAccounts) Open(name string) (fs.File, error) {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 	}
 
-	return w.FS.Open(name)
+	return w.FS.Open(name) //nolint:wrapcheck // an fs.FS passes the underlying errors (fs.ErrNotExist) through
 }
 
 func (w withoutAccounts) ReadDir(name string) ([]fs.DirEntry, error) {
 	all, err := fs.ReadDir(w.FS, name)
 	if err != nil {
-		return nil, err
+		return nil, err //nolint:wrapcheck // an fs.FS passes the underlying errors through
 	}
 
 	return slices.DeleteFunc(all, func(e fs.DirEntry) bool { return accountsOnly(e.Name()) }), nil

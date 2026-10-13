@@ -34,7 +34,7 @@ func TestWithoutAccountsKeepsTheSessionTables(t *testing.T) {
 	entries, err := fs.ReadDir(migrations.WithoutAccounts(), ".")
 	require.NoError(t, err)
 
-	var names []string
+	names := make([]string, 0, len(entries))
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}

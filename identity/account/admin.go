@@ -210,14 +210,6 @@ func checkAll(errs ...error) error {
 	return nil
 }
 
-func (a *Admin) checkLocale(locale string) error {
-	if !ValidLocale(locale) {
-		return invalid("locale", ReasonLocaleInvalid)
-	}
-
-	return a.d.Users.cfg.offers("locale", locale)
-}
-
 // UpdateAccount is the new values of an account's details: every field is
 // written as given, so a form posts them all. The password, the status and the
 // language of the person's own choosing are not here: see SetPassword,
@@ -753,4 +745,12 @@ func (a *Admin) Changes(ctx context.Context, accountID int, view ChangeView, p P
 	}
 
 	return ChangePage{Rows: rows, Total: total, Counts: changeCounts(byAction)}, nil
+}
+
+func (a *Admin) checkLocale(locale string) error {
+	if !ValidLocale(locale) {
+		return invalid("locale", ReasonLocaleInvalid)
+	}
+
+	return a.d.Users.cfg.offers("locale", locale)
 }
