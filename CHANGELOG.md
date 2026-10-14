@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.8.5
+
+An application moves its own features to `Install` one at a time, behind its own security, with transport-only request types.
+
+### Added
+
+- `App.RoutesWith(route.Security, routes...)`: mounts an application's routes behind a chain it chooses (for example API keys, an embed token and its own rate limit), next to identity's. The authorizer defaults to the App's; public routes stay public, `Requires` is still checked, start-up still refuses an undefined permission, and the modules' routes keep identity's chain.
+- `gocore.FromContainer[T](app) *Deferred[T]`: an `Install` feature takes a collaborator the old `App.Modules` still bind. It is read from the container after the old modules register and before routes serve; start-up fails with the type's name if it was never bound. For the migration only: hoist what can be built from `app.Database()`.
+- `accesshttp.ScopeOf`, `RoleSummaryOf`, `RoleOf`, `BindingOf`, `SubjectAccessOf`: the builders the access routes answer with, so an application serving its own subject kind answers in the same wire.
+- `route.Group(...).MalformedPath(http.StatusBadRequest)` and `Route.MalformedPath(...)`: a path parameter that does not parse (an `int` id given `abc`) answers 400 `invalid <param>` in go-core's envelope instead of 422 `must_be_number`. 422 stays the default; the route's setting wins over its group's; only 400 and 422 are accepted. Query, body and validation errors stay 422.
+- README: "moving a module to `Install`" checklist.
+
+### Changed
+
+- `route`: the binder fills `path:` and `query:` fields, and the JSON body, through embedded structs, so `struct{ ThingPath; app.CreateInput }` is a request type. A 422 names the promoted field as before, and a body `id` cannot overwrite a path field.
+- `contract` / `cmd/modulets`: `path:` fields render in the route's input (the URL parameters), also when they are `json:"-"` or inside an embedded struct, and never in the body schema; embedded `query:` fields render as optional.
+- `contract` / go2ts: an untagged embedded struct renders flat, as `encoding/json` encodes it. **Breaking (generated TypeScript):** an exported embedded struct no longer produces a nested key named after its type.
+
 ## v1.8.4
 
 `v1.8.3` is retracted: it was tagged on v1.8.2's commit and carries none of this. Use v1.8.4.
