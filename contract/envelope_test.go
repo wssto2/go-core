@@ -23,9 +23,25 @@ func TestEnvelopedOutputsHaveATypeScriptForm(t *testing.T) {
 	}
 
 	raw, _ := os.ReadFile(filepath.Join(dir, "env", "routes.ts")) //nolint:gosec // temp dir
-	for _, want := range []string{"ListResult<Row>", "{ data: Row[]; meta: Stats }"} {
-		if !strings.Contains(string(raw), want) {
+	for _, want := range []string{`route<ListInput, Row[]>`, `route<Draft, Row[]>`} {
+		if !strings.Contains(string(raw), want) || strings.Contains(string(raw), "ListResult") {
 			t.Fatalf("routes.ts misses %q:\n%s", want, raw)
 		}
+	}
+}
+
+func TestWithMetaExportsItsMetaType(t *testing.T) {
+	fixedVersion(t)
+
+	meta := route.Post[Draft, route.WithMeta[[]Row, Stats]]("/m").Name("env.meta")
+	dir := t.TempDir()
+
+	if err := Generate(dir, route.Group("env", meta)); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, _ := os.ReadFile(filepath.Join(dir, "env", "entities.ts")) //nolint:gosec // temp dir
+	if !strings.Contains(string(raw), "Stats") {
+		t.Fatalf("entities.ts misses the meta type:\n%s", raw)
 	}
 }

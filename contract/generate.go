@@ -355,24 +355,27 @@ func tsType(spec route.Spec, t reflect.Type, lists *bool) (string, []reflect.Typ
 			return "string", nil, nil
 		}
 
+		// The client unwraps the envelope: a Page's Out is its rows, a WithMeta's is its data; meta stays untyped.
 		if isPage(t) {
 			result, _ := t.FieldByName("Result")
+			data, _ := result.Type.FieldByName("Data")
 
-			return tsType(spec, result.Type, lists)
+			return tsType(spec, data.Type, lists)
 		}
 
 		if isWithMeta(t) {
 			items, _ := t.FieldByName("Items")
 			info, _ := t.FieldByName("Info")
 
-			data, dataStructs, err := tsType(spec, items.Type, lists)
+			expr, structs, err := tsType(spec, items.Type, lists)
 			if err != nil {
 				return "", nil, err
 			}
 
-			meta, metaStructs, err := tsType(spec, info.Type, lists)
+			// The meta type is exported too, so an app can cast the untyped meta to it.
+			_, metaStructs, err := tsType(spec, info.Type, lists)
 
-			return "{ data: " + data + "; meta: " + meta + " }", append(dataStructs, metaStructs...), err
+			return expr, append(structs, metaStructs...), err
 		}
 
 		if isListResult(t) {
