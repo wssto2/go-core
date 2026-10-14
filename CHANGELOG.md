@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.8.6
+
+Typed routes answer everything `web` answers, so an application's features need no `route.Raw` for creates, paged lists, filters or several permissions.
+
+### Added
+
+- `Route.Status(2xx)`: a typed route's success status (201 for creates). A 204 answers no body. Anything outside 2xx panics at declaration. Recorded in `Spec.Status`.
+- `route.Page[T]` answers exactly what `web.Paginated` writes (`data` plus the paging `meta`, with `Result.Meta` merged), and `route.WithMeta[T, M]` exactly what `web.JSON(c, status, data, meta)` writes. Both implement `route.Enveloped` and combine with `Status`. `web.PageMeta` is the meta builder both use. A plain `datatable.DatatableResult` output keeps its nested form.
+- A `query:"*"` field of type `url.Values` (at most one per input) takes the query parameters no other field declares. Recorded in `Spec.FreeFormQuery`. `datatable.ParamsFromValues(url.Values)` gives the params `ParamsFromGin` gives (which now calls it).
+- `RequiresAny(...)` and `RequiresAll(...)` on `Route` and `RawRoute`, recorded in `Spec.AnyOf`/`Spec.AllOf`; `Spec.Needs()` lists every permission a route names. Start-up refuses an undefined id, mixing the forms, or `Public()` with a permission.
+- `route.Exchange.RequestID()`: the request-id middleware's id, else the incoming `X-Request-ID`.
+- `auth.UserOf[T](ctx)`: the application's own user, as its authentication put it with `auth.SetUser`, in a typed handler.
+- `validation.CheckRules(values or reflect.Types...)` finds validation rules the validator does not know. Routes run it when the handler is bound, so an input with `gte=0` fails at start-up (and in `gocore.Check`) instead of answering 500 on every request.
+- README: the "moving a module to `Install`" checklist covers 201/204, paged lists, filters, several permissions, the request id and the user.
+
+### Generated TypeScript
+
+- `Page[T]` generates `T[]` and `WithMeta[T, M]` generates `T` (the client unwraps the envelope); `M` is exported as an entity, and meta stays untyped on the client. The status, the permission rules and free-form filters are not in the generated TypeScript.
+
 ## v1.8.5
 
 An application moves its own features to `Install` one at a time, behind its own security, with transport-only request types.
