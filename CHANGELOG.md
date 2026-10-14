@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.8.7
+
+Generated route tables carry the envelope's `meta` type. Needs vue-core 0.5.4 or later.
+
+### Changed
+
+- `contract.Generate`: a `route.Page[Row]` output generates `route<In, Row[], PageMeta>`, with `PageMeta` imported from `@wssto2/vue-core/client`; a `route.WithMeta[T, M]` output generates `route<In, T, M>`, with `M` imported from `./entities`. Other routes keep two type arguments.
+
 ## v1.8.6
 
 Typed routes answer everything `web` answers, so an application's features need no `route.Raw` for creates, paged lists, filters or several permissions.
