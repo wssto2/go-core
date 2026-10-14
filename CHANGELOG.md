@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.8.8
+
+Typed routes set response headers and combine permission rules, so an application keeps neither as `route.Raw` nor as a check in its handler.
+
+### Added
+
+- `route.Exchange.SetHeader(name, value) error`: a typed handler sets a response header (for example `Cache-Control`) on success and on error. `Content-Type` and `Content-Length` are the envelope's and return `route.ErrReservedHeader`.
+
+### Changed
+
+- `Requires`, `RequiresAny` and `RequiresAll` combine on one route, and all must hold: `Requires(a).RequiresAny(b, c)` is a and (b or c). A refusal names the first unmet `Requires`, else the any-of's last id (as `RequiresAny` alone does), else the first unmet all-of id. Before, mixing them was refused at mount.
+
 ## v1.8.7
 
 Generated route tables carry the envelope's `meta` type. Needs vue-core 0.5.4 or later.
