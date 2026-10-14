@@ -103,3 +103,41 @@ func TestFreeFormQueryInputTakesFilters(t *testing.T) {
 		}
 	}
 }
+
+type DealerPath struct {
+	DealerID int `path:"dealer_id"`
+}
+
+type ListRequest struct {
+	DealerPath
+
+	Query url.Values `json:"-" query:"*"`
+}
+
+type ShowRequest struct {
+	DealerPath
+}
+
+func TestAnEmptySchemaIsLeftOutOfTheRouteInput(t *testing.T) {
+	group := route.Group("dl",
+		route.Get[ListRequest, []Row]("/dealers/:dealer_id/rows").Name("dl.list"),
+		route.Get[ShowRequest, []Row]("/dealers/:dealer_id/one").Name("dl.one"))
+
+	routes := generatedFile(t, group, "routes.ts")
+	for _, want := range []string{
+		`route<{ dealer_id: number } & Record<string, QueryValue>, Row[]>("GET", "/dealers/:dealer_id/rows")`,
+		`route<{ dealer_id: number }, Row[]>("GET", "/dealers/:dealer_id/one")`,
+	} {
+		if !strings.Contains(routes, want) {
+			t.Fatalf("routes.ts misses %q:\n%s", want, routes)
+		}
+	}
+
+	if strings.Contains(routes, "ListRequest") || strings.Contains(routes, "ShowRequest") {
+		t.Fatalf("routes.ts still names an empty schema:\n%s", routes)
+	}
+
+	if schemas := generatedFile(t, group, "schemas.ts"); strings.Contains(schemas, "ListRequest") {
+		t.Fatalf("an unused empty schema is emitted:\n%s", schemas)
+	}
+}

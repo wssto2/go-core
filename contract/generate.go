@@ -159,43 +159,38 @@ func planOf(g *route.Contract) (*plan, error) {
 				return nil, err
 			}
 
-			line.in = spec.In.Name()
-			line.usesIn = []string{spec.In.Name()}
-
 			// A path field kept out of the body (json:"-") is still part of what the caller gives the route.
 			hidden, err := hiddenPathFields(spec, spec.In, &p.lists, false)
 			if err != nil {
 				return nil, err
 			}
 
-			if len(hidden) > 0 {
-				line.in += " & { " + strings.Join(hidden, "; ") + " }"
+			parts := []string{}
+			// A schema with no property (z.object({}) infers Record<string, never>) would collapse the
+			// whole input to never, so such a type is left out of the input and its schema is not emitted.
+			dropped := !hasWireProps(spec.In, false) && (len(hidden) > 0 || spec.FreeFormQuery)
+
+			if !dropped {
+				parts = append(parts, spec.In.Name())
+				line.usesIn = []string{spec.In.Name()}
+
+				if !p.inSet[spec.In.Name()] {
+					p.inSet[spec.In.Name()] = true
+					p.ins = append(p.ins, reflect.New(spec.In).Elem().Interface())
+				}
 			}
 
-			// Free-form filters travel as extra query parameters. A schema with no property (z.object({})
-			// infers Record<string, never>) would make every one of them a type error, so it is left out.
+			if len(hidden) > 0 {
+				parts = append(parts, "{ "+strings.Join(hidden, "; ")+" }")
+			}
+
+			// Free-form filters travel as extra query parameters.
 			if spec.FreeFormQuery {
-				if !hasWireProps(spec.In) {
-					line.in = "{ " + strings.Join(hidden, "; ") + " }"
-					if len(hidden) == 0 {
-						line.in = ""
-					}
-
-					line.usesIn = nil
-				}
-
-				if line.in != "" {
-					line.in += " & "
-				}
-
-				line.in += "Record<string, QueryValue>"
+				parts = append(parts, "Record<string, QueryValue>")
 				p.query = true
 			}
 
-			if !p.inSet[spec.In.Name()] {
-				p.inSet[spec.In.Name()] = true
-				p.ins = append(p.ins, reflect.New(spec.In).Elem().Interface())
-			}
+			line.in = strings.Join(parts, " & ")
 		}
 
 		if spec.Out == reflect.TypeFor[route.Empty]() || spec.Status == http.StatusNoContent {
@@ -342,23 +337,36 @@ func isListResult(t reflect.Type) bool {
 
 // hasWireProps reports whether the schema of an input type has a property: an exported field that is
 // not json:"-" and not the free-form query field, looking into promoted embedded structs.
-func hasWireProps(t reflect.Type) bool {
+func hasWireProps(t reflect.Type, embedded bool) bool {
 	for field := range t.Fields() {
 		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 
-		switch {
-		case !field.IsExported() && !field.Anonymous, field.Tag.Get("json") == "-",
-			field.Tag.Get("query") == route.FreeFormTag:
-		case field.Anonymous && name == "" && field.Type.Kind() == reflect.Struct:
-			if hasWireProps(field.Type) {
+		if field.Anonymous && name == "" && field.Type.Kind() == reflect.Struct {
+			if hasWireProps(field.Type, true) {
 				return true
 			}
-		default:
+
+			continue
+		}
+
+		if inWire(field, embedded) {
 			return true
 		}
 	}
 
 	return false
+}
+
+// inWire reports whether a field is a property of its type's schema.
+func inWire(field reflect.StructField, embedded bool) bool {
+	switch {
+	case !field.IsExported(), field.Tag.Get("json") == "-", field.Tag.Get("query") == route.FreeFormTag:
+		return false
+	case embedded && (field.Tag.Get("path") != "" || field.Tag.Get("query") != ""):
+		return false
+	}
+
+	return true
 }
 
 // isPage reports whether t is route.Page[Row], which has the ListResult<Row> form too.
