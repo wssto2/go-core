@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authzhttp"
 	"github.com/wssto2/go-core/binders"
@@ -56,7 +59,8 @@ func (r Route[In, Out]) To(handler func(ctx context.Context, in In) (Out, error)
 			var in In
 
 			if typed {
-				if err := bindInput(c, &in, hasBody); err != nil {
+				err := bindInput(c, &in, hasBody, r.d.malformedStatus())
+				if err != nil {
 					web.Fail(c, err)
 					return
 				}
@@ -82,10 +86,11 @@ func (r Route[In, Out]) To(handler func(ctx context.Context, in In) (Out, error)
 
 // bindInput fills in from the URL path, the query string and, when the method
 // has one, the body, then validates it.
-func bindInput[In any](c *gin.Context, in *In, hasBody bool) error {
+func bindInput[In any](c *gin.Context, input *In, hasBody bool, malformedPath int) error { //nolint:varnamelen // gin c
 	if hasBody {
-		if err := binders.BindRequest(c, in); err != nil {
-			return err
+		err := binders.BindRequest(c, input)
+		if err != nil {
+			return err //nolint:wrapcheck // binders' own validation error
 		}
 	}
 
@@ -94,15 +99,22 @@ func bindInput[In any](c *gin.Context, in *In, hasBody bool) error {
 		params[p.Key] = []string{p.Value}
 	}
 
-	if err := binders.BindStrings(in, "path", params); err != nil {
-		return err
+	err := binders.BindStrings(input, "path", params)
+	if err != nil {
+		var ve *validation.ValidationError
+		if malformedPath == http.StatusBadRequest && errors.As(err, &ve) {
+			return apperr.BadRequest("invalid " + strings.Join(slices.Sorted(maps.Keys(ve.Failures)), ", "))
+		}
+
+		return err //nolint:wrapcheck // binders' own validation error
 	}
 
-	if err := binders.BindStrings(in, "query", c.Request.URL.Query()); err != nil {
-		return err
+	err = binders.BindStrings(input, "query", c.Request.URL.Query())
+	if err != nil {
+		return err //nolint:wrapcheck // binders' own validation error
 	}
 
-	return validation.ValidateInput(in)
+	return validation.ValidateInput(input) //nolint:wrapcheck // validation's own error
 }
 
 // Excuses says that the routes, declared in the same contract as this one, are left out of this

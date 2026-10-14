@@ -1,6 +1,7 @@
 package route
 
 import (
+	"fmt"
 	"net/http"
 	"reflect"
 )
@@ -39,6 +40,32 @@ type Declared interface {
 type declaration struct {
 	spec   Spec
 	groups []*Contract
+	// malformedPath is the status for a path segment that cannot be parsed; 0 keeps 422.
+	malformedPath int
+}
+
+// malformedStatus is the route's own setting, else the first group's that has one, else 0.
+func (d *declaration) malformedStatus() int {
+	if d.malformedPath != 0 {
+		return d.malformedPath
+	}
+
+	for _, g := range d.groups {
+		if g.malformedPath != 0 {
+			return g.malformedPath
+		}
+	}
+
+	return 0
+}
+
+// checkMalformedStatus refuses anything but 400 and 422: a declaration mistake, found at start-up.
+func checkMalformedStatus(status int) int {
+	if status != http.StatusBadRequest && status != http.StatusUnprocessableEntity {
+		panic(fmt.Sprintf("route: MalformedPath(%d): only 400 and 422 (Unprocessable) are allowed", status))
+	}
+
+	return status
 }
 
 // Route is a declared route with input type In and output type Out.
@@ -92,6 +119,14 @@ func (r Route[In, Out]) Requires(permission string) Route[In, Out] {
 // route cannot also Requires a permission.
 func (r Route[In, Out]) Public() Route[In, Out] {
 	r.d.spec.Public = true
+	return r
+}
+
+// MalformedPath sets the status for a path parameter that cannot be parsed (an id that is
+// not a number): 400 or 422, which is the default. It wins over the group's setting.
+func (r Route[In, Out]) MalformedPath(status int) Route[In, Out] {
+	r.d.malformedPath = checkMalformedStatus(status)
+
 	return r
 }
 

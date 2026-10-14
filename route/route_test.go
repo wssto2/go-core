@@ -2,6 +2,7 @@ package route_test
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -297,4 +298,60 @@ func TestBindsAndValidatesTheBodyThroughEmbeddedStructs(t *testing.T) {
 	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "title") {
 		t.Fatalf("want 422 naming title, got %d: %s", rec.Code, rec.Body)
 	}
+}
+
+type idInput struct {
+	ID    int `path:"id"`
+	Limit int `query:"limit"`
+}
+
+func TestMalformedPathAnswersTheChosenStatus(t *testing.T) {
+	t.Parallel()
+
+	handler := func(_ context.Context, in idInput) (int, error) { return in.ID, nil }
+
+	def := route.Get[idInput, int]("/def/:id").To(handler)
+	own := route.Get[idInput, int]("/own/:id").MalformedPath(http.StatusBadRequest).To(handler)
+	grouped := route.Get[idInput, int]("/grp/:id")
+	overridden := route.Get[idInput, int]("/ovr/:id").MalformedPath(http.StatusUnprocessableEntity)
+	route.Group("g", grouped, overridden).MalformedPath(http.StatusBadRequest)
+
+	engine := newEngine()
+
+	for _, b := range []route.Handled{def, own, grouped.To(handler), overridden.To(handler)} {
+		err := b.Mount(engine, open())
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for target, want := range map[string]int{
+		"/def/abc": 422, "/own/abc": 400, "/grp/abc": 400, "/ovr/abc": 422,
+		"/own/7": 200, "/grp/7": 200, "/own/7?limit=x": 422, "/grp/7?limit=x": 422,
+	} {
+		if rec := do(engine, http.MethodGet, target, ""); rec.Code != want {
+			t.Errorf("%s: %d, want %d: %s", target, rec.Code, want, rec.Body)
+		}
+	}
+
+	rec := do(engine, http.MethodGet, "/own/abc", "")
+	if !strings.Contains(rec.Body.String(), "invalid id") || !strings.Contains(rec.Body.String(), `"success":false`) {
+		t.Errorf("want the error envelope naming id, got %s", rec.Body)
+	}
+
+	if rec := do(engine, http.MethodGet, "/own/7", ""); !strings.Contains(rec.Body.String(), "7") {
+		t.Errorf("a well-formed id binds as int: %s", rec.Body)
+	}
+}
+
+func TestMalformedPathRefusesOtherStatuses(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "only 400") {
+			t.Fatalf("want a clear refusal, got %v", r)
+		}
+	}()
+
+	route.Get[idInput, int]("/x/:id").MalformedPath(http.StatusNotFound)
 }
