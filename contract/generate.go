@@ -161,7 +161,7 @@ func planOf(g *route.Contract) (*plan, error) {
 			line.usesIn = []string{spec.In.Name()}
 
 			// A path field kept out of the body (json:"-") is still part of what the caller gives the route.
-			hidden, err := hiddenPathFields(spec, spec.In, &p.lists)
+			hidden, err := hiddenPathFields(spec, spec.In, &p.lists, false)
 			if err != nil {
 				return nil, err
 			}
@@ -237,15 +237,16 @@ func planOf(g *route.Contract) (*plan, error) {
 	return p, nil
 }
 
-// hiddenPathFields renders the path:"…" fields of t that json:"-" keeps out of its schema as
-// "name: type", through embedded structs, so the route's input has the URL parameters while
-// the body schema stays the body.
-func hiddenPathFields(spec route.Spec, t reflect.Type, lists *bool) ([]string, error) {
+// hiddenPathFields renders the URL parameters of t that its body schema leaves out as
+// "name: type" ("name?: type" for a query field): a path field with json:"-", and, inside
+// an embedded struct, every path:"…" and query:"…" field whatever its json tag. The route's
+// input then has the parameters, and the body schema stays the body.
+func hiddenPathFields(spec route.Spec, t reflect.Type, lists *bool, embedded bool) ([]string, error) {
 	var out []string
 
 	for field := range t.Fields() {
 		if field.Anonymous && field.Type.Kind() == reflect.Struct {
-			inner, err := hiddenPathFields(spec, field.Type, lists)
+			inner, err := hiddenPathFields(spec, field.Type, lists, true)
 			if err != nil {
 				return nil, err
 			}
@@ -255,8 +256,12 @@ func hiddenPathFields(spec route.Spec, t reflect.Type, lists *bool) ([]string, e
 			continue
 		}
 
-		name := field.Tag.Get("path")
-		if name == "" || name == "-" || field.Tag.Get("json") != "-" || !field.IsExported() {
+		name, optional := field.Tag.Get("path"), ""
+		if name == "" && embedded {
+			name, optional = field.Tag.Get("query"), "?"
+		}
+
+		if name == "" || name == "-" || (!embedded && field.Tag.Get("json") != "-") || !field.IsExported() {
 			continue
 		}
 
@@ -265,7 +270,7 @@ func hiddenPathFields(spec route.Spec, t reflect.Type, lists *bool) ([]string, e
 			return nil, err
 		}
 
-		out = append(out, name+": "+expr)
+		out = append(out, name+optional+": "+expr)
 	}
 
 	return out, nil

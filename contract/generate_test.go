@@ -241,3 +241,45 @@ func TestPathFieldsKeptOutOfTheBodyAreInTheRouteInput(t *testing.T) { //nolint:p
 		t.Errorf("the body schema must hold title and no id:\n%s", schemas)
 	}
 }
+
+type ThingPath struct {
+	ID int `json:"id" path:"id"`
+}
+
+type PartBody struct {
+	Title string `json:"title" validation:"max:50"`
+}
+
+type AddPartRequest struct {
+	ThingPath
+	PartBody
+}
+
+func TestEmbeddedPathFieldsRenderFlatInTheRouteInput(t *testing.T) { //nolint:paralleltest // swaps a variable
+	fixedVersion(t)
+
+	dir := t.TempDir()
+
+	err := Generate(dir, route.Group("things", route.Post[AddPartRequest, Part]("/things/:id/parts").Name("things.add-part")))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	read := func(name string) string {
+		b, err := os.ReadFile(filepath.Join(dir, "things", name)) //nolint:gosec // test temp dir
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return string(b)
+	}
+
+	if got, want := read("routes.ts"), `route<AddPartRequest & { id: number }, Part>(`; !strings.Contains(got, want) || strings.Contains(got, "ThingPath") {
+		t.Errorf("the route input must have id flat and no ThingPath:\n%s", got)
+	}
+
+	schemas := read("schemas.ts")
+	if !strings.Contains(schemas, "title:") || strings.Contains(schemas, "id:") || strings.Contains(schemas, "ThingPath") {
+		t.Errorf("the body schema must hold title only:\n%s", schemas)
+	}
+}

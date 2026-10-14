@@ -122,6 +122,39 @@ func wireName(field reflect.StructField) string {
 	return field.Name
 }
 
+// wireFields lists the fields of t that encoding/json would write or read, in order:
+// an untagged embedded struct is flattened into its parent, and inside it the
+// path:"…" and query:"…" fields are left out, because they are the URL's
+// parameters, not the body (the route contract renders them into the route input).
+func wireFields(t reflect.Type) []reflect.StructField {
+	return appendWireFields(nil, t, false)
+}
+
+func appendWireFields(out []reflect.StructField, t reflect.Type, embedded bool) []reflect.StructField {
+	for i := range t.NumField() {
+		field := t.Field(i)
+
+		if ft := field.Type; field.Anonymous {
+			if ft.Kind() == reflect.Pointer {
+				ft = ft.Elem()
+			}
+
+			if name, _, _ := strings.Cut(field.Tag.Get("json"), ","); ft.Kind() == reflect.Struct && name == "" {
+				out = appendWireFields(out, ft, true)
+				continue
+			}
+		}
+
+		if embedded && (field.Tag.Get("path") != "" || field.Tag.Get("query") != "") {
+			continue
+		}
+
+		out = append(out, field)
+	}
+
+	return out
+}
+
 // Converts a Go struct to a TypeScript type definition.
 func structToTs(s interface{}, ctx *GenContext) (string, string, map[string]interface{}, error) {
 	reflectType := reflect.TypeOf(s)
@@ -146,9 +179,7 @@ func structToTs(s interface{}, ctx *GenContext) (string, string, map[string]inte
 
 	typeFields := ""
 
-	for i := 0; i < reflectType.NumField(); i++ {
-		field := reflectType.Field(i)
-
+	for _, field := range wireFields(reflectType) {
 		// Skip unexported fields
 		if field.PkgPath != "" {
 			continue

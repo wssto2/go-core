@@ -361,9 +361,7 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 	var fieldsBuilder strings.Builder
 	var crossFieldComments []string
 
-	for i := 0; i < rt.NumField(); i++ {
-		field := rt.Field(i)
-
+	for _, field := range wireFields(rt) {
 		if field.PkgPath != "" { // unexported
 			continue
 		}
