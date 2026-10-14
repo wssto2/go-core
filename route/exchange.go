@@ -47,6 +47,20 @@ func (x Exchange) Path() string {
 	return x.c.Request.URL.Path
 }
 
+// RequestID is the id go-core's request-id middleware gave the request, else the incoming
+// X-Request-ID header, else empty.
+func (x Exchange) RequestID() string {
+	if x.c == nil {
+		return ""
+	}
+
+	if id := x.c.GetString("request_id"); id != "" {
+		return id
+	}
+
+	return x.c.GetHeader("X-Request-ID")
+}
+
 // UserAgent is the User-Agent header.
 func (x Exchange) UserAgent() string { return x.Header("User-Agent") }
 
