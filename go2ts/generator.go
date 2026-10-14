@@ -138,6 +138,11 @@ func appendWireFields(out []reflect.StructField, t reflect.Type, embedded bool) 
 			continue
 		}
 
+		// query:"*" takes the free-form parameters: never part of a body or a schema.
+		if field.Tag.Get("query") == "*" {
+			continue
+		}
+
 		if embedded && (field.Tag.Get("path") != "" || field.Tag.Get("query") != "") {
 			continue
 		}

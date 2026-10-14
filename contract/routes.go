@@ -99,11 +99,16 @@ func quote(s string) string {
 func routesFile(group string, p *plan) string {
 	var b strings.Builder
 
+	imports := []string{"route"}
 	if p.lists {
-		b.WriteString("import { route, type ListResult } from \"@wssto2/vue-core/client\";\n")
-	} else {
-		b.WriteString("import { route } from \"@wssto2/vue-core/client\";\n")
+		imports = append(imports, "type ListResult")
 	}
+
+	if p.query {
+		imports = append(imports, "type QueryValue")
+	}
+
+	b.WriteString("import { " + strings.Join(imports, ", ") + " } from \"@wssto2/vue-core/client\";\n")
 
 	if names := usedNames(p, func(r routeLine) []string { return r.usesIn }); len(names) > 0 {
 		b.WriteString("import type { " + strings.Join(names, ", ") + " } from \"./schemas\";\n")

@@ -17,7 +17,10 @@ Typed routes answer everything `web` answers, so an application's features need 
 
 ### Generated TypeScript
 
-- `Page[T]` generates `T[]` and `WithMeta[T, M]` generates `T` (the client unwraps the envelope); `M` is exported as an entity, and meta stays untyped on the client. The status, the permission rules and free-form filters are not in the generated TypeScript.
+- `Page[T]` generates `T[]` and `WithMeta[T, M]` generates `T` (the client unwraps the envelope); `M` is exported as an entity, and meta stays untyped on the client. The status and the permission rules are not in the generated TypeScript.
+- `routes.ts` no longer imports a `WithMeta` meta entity it does not use (it is still exported from `entities.ts`), so `noUnusedLocals` holds.
+- A `query:"*"` field never becomes a schema or entity property, whatever its `json` tag (it used to generate `*: z.unknown()`).
+- A route with free-form filters types its input as `In & Record<string, QueryValue>` (vue-core's `QueryValue`); an input with no other property is just `Record<string, QueryValue>`, instead of `Record<string, never>`.
 
 ## v1.8.5
 

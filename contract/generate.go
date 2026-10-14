@@ -95,6 +95,7 @@ type plan struct {
 	outs   []any // output and extra structs, for entities.ts
 	inSet  map[string]bool
 	outSet map[string]bool
+	query  bool // some input takes free-form filters: QueryValue is imported
 	lists  bool // some output is a ListResult<Row>, imported next to route
 }
 
@@ -171,6 +172,26 @@ func planOf(g *route.Contract) (*plan, error) {
 				line.in += " & { " + strings.Join(hidden, "; ") + " }"
 			}
 
+			// Free-form filters travel as extra query parameters. A schema with no property (z.object({})
+			// infers Record<string, never>) would make every one of them a type error, so it is left out.
+			if spec.FreeFormQuery {
+				if !hasWireProps(spec.In) {
+					line.in = "{ " + strings.Join(hidden, "; ") + " }"
+					if len(hidden) == 0 {
+						line.in = ""
+					}
+
+					line.usesIn = nil
+				}
+
+				if line.in != "" {
+					line.in += " & "
+				}
+
+				line.in += "Record<string, QueryValue>"
+				p.query = true
+			}
+
 			if !p.inSet[spec.In.Name()] {
 				p.inSet[spec.In.Name()] = true
 				p.ins = append(p.ins, reflect.New(spec.In).Elem().Interface())
@@ -197,6 +218,28 @@ func planOf(g *route.Contract) (*plan, error) {
 				if !p.outSet[st.Name()] {
 					p.outSet[st.Name()] = true
 					p.outs = append(p.outs, reflect.New(st).Elem().Interface())
+				}
+			}
+		}
+
+		// A WithMeta's meta type is exported (an app casts the untyped meta to it) but no route names it.
+		if isWithMeta(spec.Out) {
+			info, _ := spec.Out.FieldByName("Info")
+
+			_, structs, err := tsType(spec, info.Type, &p.lists)
+			if err != nil {
+				return nil, err
+			}
+
+			for _, meta := range structs {
+				err := claim(meta)
+				if err != nil {
+					return nil, err
+				}
+
+				if !p.outSet[meta.Name()] {
+					p.outSet[meta.Name()] = true
+					p.outs = append(p.outs, reflect.New(meta).Elem().Interface())
 				}
 			}
 		}
@@ -297,6 +340,27 @@ func isListResult(t reflect.Type) bool {
 	return t.PkgPath() == "github.com/wssto2/go-core/datatable" && strings.HasPrefix(t.Name(), "DatatableResult[")
 }
 
+// hasWireProps reports whether the schema of an input type has a property: an exported field that is
+// not json:"-" and not the free-form query field, looking into promoted embedded structs.
+func hasWireProps(t reflect.Type) bool {
+	for field := range t.Fields() {
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+
+		switch {
+		case !field.IsExported() && !field.Anonymous, field.Tag.Get("json") == "-",
+			field.Tag.Get("query") == route.FreeFormTag:
+		case field.Anonymous && name == "" && field.Type.Kind() == reflect.Struct:
+			if hasWireProps(field.Type) {
+				return true
+			}
+		default:
+			return true
+		}
+	}
+
+	return false
+}
+
 // isPage reports whether t is route.Page[Row], which has the ListResult<Row> form too.
 func isPage(t reflect.Type) bool {
 	return t.PkgPath() == "github.com/wssto2/go-core/route" && strings.HasPrefix(t.Name(), "Page[")
@@ -365,17 +429,8 @@ func tsType(spec route.Spec, t reflect.Type, lists *bool) (string, []reflect.Typ
 
 		if isWithMeta(t) {
 			items, _ := t.FieldByName("Items")
-			info, _ := t.FieldByName("Info")
 
-			expr, structs, err := tsType(spec, items.Type, lists)
-			if err != nil {
-				return "", nil, err
-			}
-
-			// The meta type is exported too, so an app can cast the untyped meta to it.
-			_, metaStructs, err := tsType(spec, info.Type, lists)
-
-			return expr, append(structs, metaStructs...), err
+			return tsType(spec, items.Type, lists)
 		}
 
 		if isListResult(t) {

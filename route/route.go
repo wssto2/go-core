@@ -207,3 +207,6 @@ func (s Spec) permissionProblem() string {
 
 	return ""
 }
+
+// FreeFormTag is the query tag value of the field that takes free-form filters.
+const FreeFormTag = binders.FreeForm

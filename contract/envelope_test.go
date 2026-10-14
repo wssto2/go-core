@@ -2,6 +2,7 @@
 package contract
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,5 +44,62 @@ func TestWithMetaExportsItsMetaType(t *testing.T) {
 	raw, _ := os.ReadFile(filepath.Join(dir, "env", "entities.ts")) //nolint:gosec // temp dir
 	if !strings.Contains(string(raw), "Stats") {
 		t.Fatalf("entities.ts misses the meta type:\n%s", raw)
+	}
+}
+
+type OnlyFilters struct {
+	Filters url.Values `query:"*"`
+}
+
+type PagedFilters struct {
+	Page    int        `query:"page"`
+	Filters url.Values `json:"-"     query:"*"`
+}
+
+func generatedFile(t *testing.T, group *route.Contract, file string) string {
+	t.Helper()
+	fixedVersion(t)
+
+	dir := t.TempDir()
+	if err := Generate(dir, group); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, _ := os.ReadFile(filepath.Join(dir, group.Name(), file)) //nolint:gosec // temp dir
+
+	return string(raw)
+}
+
+func TestRoutesDoNotImportTheMetaEntity(t *testing.T) {
+	meta := route.Post[Draft, route.WithMeta[[]Row, Stats]]("/m").Name("env.meta")
+	group := route.Group("env", meta)
+
+	if routes := generatedFile(t, group, "routes.ts"); strings.Contains(routes, "Stats") {
+		t.Fatalf("routes.ts imports the meta entity:\n%s", routes)
+	}
+}
+
+func TestFreeFormQueryFieldIsLeftOutOfSchemas(t *testing.T) {
+	group := route.Group("free", route.Get[OnlyFilters, []Row]("/a").Name("free.a"))
+
+	if schemas := generatedFile(t, group, "schemas.ts"); strings.Contains(schemas, "*") {
+		t.Fatalf("schemas.ts has the free-form field:\n%s", schemas)
+	}
+}
+
+func TestFreeFormQueryInputTakesFilters(t *testing.T) {
+	group := route.Group("free",
+		route.Get[OnlyFilters, []Row]("/a").Name("free.a"),
+		route.Get[PagedFilters, []Row]("/b").Name("free.b"))
+
+	routes := generatedFile(t, group, "routes.ts")
+	for _, want := range []string{
+		`route<Record<string, QueryValue>, Row[]>("GET", "/a")`,
+		`route<PagedFilters & Record<string, QueryValue>, Row[]>("GET", "/b")`,
+		`import { route, type QueryValue } from`,
+	} {
+		if !strings.Contains(routes, want) {
+			t.Fatalf("routes.ts misses %q:\n%s", want, routes)
+		}
 	}
 }
