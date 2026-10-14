@@ -178,7 +178,7 @@ pricerule.Install(app, vehicles) // handlers call vehicles.MustGet() at request 
 
 Checklist for one module:
 
-1. Declare typed routes and a `route.Group`; put the path ids in the input as `path:"…"` fields (`json:"-"` when the body is the same struct; embedded structs are read; the generated TypeScript has them in the route input, not in the body schema).
+1. Declare typed routes and a `route.Group` with a request type of the transport: `type CreatePartRequest struct { ThingPath; apppkg.CreatePartInput }`, where `ThingPath` holds the typed ids (`ID int `path:"id"``) and the application's input stays free of HTTP. Embedded structs are bound and validated like `encoding/json` promotes them; the generated TypeScript has the path and query fields flat in the route input and only the body in the schema. No `json:"-"` or text ids needed.
 2. Write `Install(app, deps)`: build the service from `deps`, collect `app.Routes` (or `app.RoutesWith` for the application's own chain), `app.Permissions`, `app.Background`.
 3. Take what is still built by old modules with `gocore.FromContainer[T](app)` and read it at request time; hoist the collaborator out of its module as soon as it can be built from `app.Database()`.
 4. Keep a module only for what other old modules still resolve (`Bind` the service there) and delete it with its last user.
