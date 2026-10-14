@@ -1,6 +1,7 @@
 package datatable
 
 import (
+"net/url"
 "strconv"
 
 "github.com/gin-gonic/gin"
@@ -60,40 +61,51 @@ return p.PerPage
 //
 // All other query parameters are treated as filter key-value pairs.
 func ParamsFromGin(ctx *gin.Context) QueryParams {
-view := ctx.DefaultQuery("view", "")
-page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
-search := ctx.DefaultQuery("search", "")
-
-// Accept both canonical and legacy param names.
-perPageStr := ctx.DefaultQuery("per_page", ctx.DefaultQuery("length", ""))
-perPage, _ := strconv.Atoi(perPageStr)
-
-orderCol := ctx.DefaultQuery("order_col", ctx.DefaultQuery("order_column", ""))
-orderDir := ctx.DefaultQuery("order_dir", ctx.DefaultQuery("order_direction", ""))
-
-// Reserved keys — both canonical and legacy aliases — must not bleed into filters.
-reserved := map[string]bool{
-"page": true, "search": true, "view": true,
-// canonical
-"per_page": true, "order_col": true, "order_dir": true,
-// legacy aliases
-"length": true, "order_column": true, "order_direction": true,
+	return ParamsFromValues(ctx.Request.URL.Query())
 }
 
-filters := make(map[string]string)
-for key, values := range ctx.Request.URL.Query() {
-if !reserved[key] && len(values) > 0 {
-filters[key] = values[0]
-}
-}
+// ParamsFromValues is ParamsFromGin for a query already in hand, such as the url.Values field
+// (query:"*") of a typed route's input: the same names, aliases and filters.
+func ParamsFromValues(query url.Values) QueryParams {
+	get := func(keys ...string) string {
+		for _, key := range keys {
+			if query.Has(key) {
+				return query.Get(key)
+			}
+		}
 
-return QueryParams{
-View:     view,
-Page:     page,
-PerPage:  perPage,
-Search:   search,
-OrderCol: orderCol,
-OrderDir: orderDir,
-Filters:  filters,
-}
+		return ""
+	}
+
+	page := 1
+	if query.Has("page") {
+		page, _ = strconv.Atoi(query.Get("page"))
+	}
+
+	perPage, _ := strconv.Atoi(get("per_page", "length"))
+
+	// Reserved keys, canonical and legacy, must not bleed into filters.
+	reserved := map[string]bool{
+		"page": true, "search": true, "view": true,
+		"per_page": true, "order_col": true, "order_dir": true,
+		"length": true, "order_column": true, "order_direction": true,
+	}
+
+	filters := make(map[string]string)
+
+	for key, values := range query {
+		if !reserved[key] && len(values) > 0 {
+			filters[key] = values[0]
+		}
+	}
+
+	return QueryParams{
+		View:     get("view"),
+		Page:     page,
+		PerPage:  perPage,
+		Search:   get("search"),
+		OrderCol: get("order_col", "order_column"),
+		OrderDir: get("order_dir", "order_direction"),
+		Filters:  filters,
+	}
 }

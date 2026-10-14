@@ -3,6 +3,7 @@ package gocore
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/bootstrap"
@@ -147,5 +149,35 @@ func TestRoutesWithStillRefusesWhatIsWrongAtStartUp(t *testing.T) {
 	err = bare.Check()
 	if err == nil || !strings.Contains(err.Error(), "no authentication") {
 		t.Errorf("a chain without authentication must stop a protected route, got %v", err)
+	}
+}
+
+type chainUser struct{ id int }
+
+func (u chainUser) GetID() int { return u.id }
+
+func TestRoutesWithHandlerSeesTheChainsUserAndTheRequestID(t *testing.T) {
+	t.Parallel()
+
+	app, _ := twoChains(t, nil)
+	own := route.Security{Authenticate: []gin.HandlerFunc{func(ctx *gin.Context) {
+		auth.SetUser(ctx, chainUser{id: 9})
+		ctx.Next()
+	}}, Authorizer: nil}
+
+	app.RoutesWith(own, okRoute(keyPath).To(func(ctx context.Context, _ route.None) (string, error) {
+		user, ok := auth.UserOf[chainUser](ctx)
+
+		return fmt.Sprintf("%v %d %s", ok, user.id, route.ExchangeOf(ctx).RequestID()), nil
+	}))
+
+	handler, err := app.Handler()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := call(handler, keyPath, "X-Request-ID", "rid-1")
+	if !strings.Contains(rec.Body.String(), "true 9 rid-1") {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 }

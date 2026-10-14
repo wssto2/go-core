@@ -53,7 +53,7 @@ func (r Route[In, Out]) To(handler func(ctx context.Context, in In) (Out, error)
 	}
 
 	if typed {
-		err := validation.CheckRules(inType)
+		err := errors.Join(validation.CheckRules(inType), binders.CheckFreeForm(inType))
 		if err != nil {
 			b.err = fmt.Errorf("route %s: %w", r.d.spec, err)
 
@@ -85,6 +85,12 @@ func (r Route[In, Out]) To(handler func(ctx context.Context, in In) (Out, error)
 
 			if empty {
 				web.NoContent(c)
+				return
+			}
+
+			if env, ok := any(out).(Enveloped); ok {
+				web.JSON(c, status, env.Data(), env.Meta())
+
 				return
 			}
 

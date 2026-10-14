@@ -297,6 +297,16 @@ func isListResult(t reflect.Type) bool {
 	return t.PkgPath() == "github.com/wssto2/go-core/datatable" && strings.HasPrefix(t.Name(), "DatatableResult[")
 }
 
+// isPage reports whether t is route.Page[Row], which has the ListResult<Row> form too.
+func isPage(t reflect.Type) bool {
+	return t.PkgPath() == "github.com/wssto2/go-core/route" && strings.HasPrefix(t.Name(), "Page[")
+}
+
+// isWithMeta reports whether t is route.WithMeta[T, M].
+func isWithMeta(t reflect.Type) bool {
+	return t.PkgPath() == "github.com/wssto2/go-core/route" && strings.HasPrefix(t.Name(), "WithMeta[")
+}
+
 // checkNamed refuses what go2ts cannot name: a generic or anonymous struct.
 func checkNamed(spec route.Spec, t reflect.Type) error {
 	if t.Name() == "" || strings.ContainsAny(t.Name(), "[]") {
@@ -343,6 +353,26 @@ func tsType(spec route.Spec, t reflect.Type, lists *bool) (string, []reflect.Typ
 	case reflect.Struct:
 		if t.PkgPath() == "time" && t.Name() == "Time" {
 			return "string", nil, nil
+		}
+
+		if isPage(t) {
+			result, _ := t.FieldByName("Result")
+
+			return tsType(spec, result.Type, lists)
+		}
+
+		if isWithMeta(t) {
+			items, _ := t.FieldByName("Items")
+			info, _ := t.FieldByName("Info")
+
+			data, dataStructs, err := tsType(spec, items.Type, lists)
+			if err != nil {
+				return "", nil, err
+			}
+
+			meta, metaStructs, err := tsType(spec, info.Type, lists)
+
+			return "{ data: " + data + "; meta: " + meta + " }", append(dataStructs, metaStructs...), err
 		}
 
 		if isListResult(t) {

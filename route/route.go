@@ -2,6 +2,7 @@ package route
 
 import (
 	"fmt"
+	"github.com/wssto2/go-core/binders"
 	"net/http"
 	"reflect"
 	"slices"
@@ -31,6 +32,9 @@ type Spec struct {
 	Status int
 	In     reflect.Type
 	Out    reflect.Type
+	// FreeFormQuery is true when the input has a query:"*" url.Values field that takes the
+	// query parameters no other field declares (datatable filters).
+	FreeFormQuery bool
 	// Untyped is true for routes declared with Raw: they have no In or Out.
 	Untyped bool
 }
@@ -83,10 +87,11 @@ type Route[In, Out any] struct {
 
 func declare[In, Out any](method, path string) Route[In, Out] {
 	return Route[In, Out]{d: &declaration{spec: Spec{
-		Method: method,
-		Path:   path,
-		In:     reflect.TypeFor[In](),
-		Out:    reflect.TypeFor[Out](),
+		Method:        method,
+		Path:          path,
+		In:            reflect.TypeFor[In](),
+		Out:           reflect.TypeFor[Out](),
+		FreeFormQuery: len(binders.FreeFormFields(reflect.TypeFor[In]())) > 0,
 	}}}
 }
 

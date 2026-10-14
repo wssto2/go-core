@@ -184,6 +184,7 @@ Checklist for one module:
 4. Keep a module only for what other old modules still resolve (`Bind` the service there) and delete it with its last user.
 5. `contract.Generate` the feature's TypeScript and compare it with the wire golden before removing the old handlers.
 6. For an application's own subject kind (service accounts), answer access screens with `accesshttp.BindingOf`, `RoleSummaryOf`, `RoleOf`, `ScopeOf` and `SubjectAccessOf`.
+7. Answer what the old handlers answered, typed: `.Status(http.StatusCreated)` for a create (204 for no body; only 2xx). A paged list is `route.Page[Row]` (byte-identical to `web.Paginated`, `Result.Meta` merged), any other data with a top-level meta is `route.WithMeta[T, M]` (as `web.JSON(c, status, data, meta)`); both combine with `.Status`. Datatable filters are a `Filters url.Values `query:"*" json:"-"`` field (at most one; it takes the parameters no other field declares), read with `datatable.ParamsFromValues`. Several permissions: `.RequiresAny(a, b)` or `.RequiresAll(a, b)` (all must be in the catalogue). The request id is `route.ExchangeOf(ctx).RequestID()`; the application's own user is `auth.UserOf[*User](ctx)`, provided its authentication calls `auth.SetUser`. `validation.CheckRules(Input{}, …)` in a test finds a `validation:` rule the validator does not know (`gte=0`); routes refuse one at start-up. None of status, rules or filters is in the generated TypeScript.
 
 **`Run` checks first and says what to fix.** Every problem is collected, each with its fix (`ExampleApp_Check`):
 

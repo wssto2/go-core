@@ -37,10 +37,8 @@ func NoContent(ctx *gin.Context) {
 	ctx.Status(http.StatusNoContent)
 }
 
-// Paginated sends a standard 200 with DatatableResult pagination meta pre-filled.
-// Any enrichment data stored in result.Meta (e.g. from WithAuthors) is merged
-// into the pagination meta so callers never need to do this manually.
-func Paginated[T any](ctx *gin.Context, result *datatable.DatatableResult[T]) {
+// PageMeta is the meta of a page: the paging numbers with the enrichment data of result.Meta merged in.
+func PageMeta[T any](result *datatable.DatatableResult[T]) gin.H {
 	meta := gin.H{
 		"total":     result.Total,
 		"page":      result.Page,
@@ -52,7 +50,15 @@ func Paginated[T any](ctx *gin.Context, result *datatable.DatatableResult[T]) {
 	for k, v := range result.Meta {
 		meta[k] = v
 	}
-	JSON(ctx, http.StatusOK, result.Data, meta)
+
+	return meta
+}
+
+// Paginated sends a standard 200 with DatatableResult pagination meta pre-filled.
+// Any enrichment data stored in result.Meta (e.g. from WithAuthors) is merged
+// into the pagination meta so callers never need to do this manually.
+func Paginated[T any](ctx *gin.Context, result *datatable.DatatableResult[T]) {
+	JSON(ctx, http.StatusOK, result.Data, PageMeta(result))
 }
 
 // AutocompleteOption represents a standard option for autocomplete fields.

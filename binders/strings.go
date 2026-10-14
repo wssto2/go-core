@@ -1,6 +1,9 @@
 package binders
 
 import (
+	"fmt"
+	"maps"
+	"net/url"
 	"reflect"
 
 	"github.com/wssto2/go-core/validation"
@@ -23,7 +26,8 @@ func BindStrings[T any](v *T, tag string, values map[string][]string) error {
 	failures := make(map[string][]validation.Failure)
 	debug := make(map[string][]string)
 
-	bindFields(rv, tag, values, failures, debug)
+	free := declaredKeys(rv.Type(), tag)
+	bindFields(rv, tag, values, free, failures, debug)
 
 	if len(failures) > 0 {
 		return validation.NewValidationError("validation failed", failures, debug)
@@ -43,7 +47,7 @@ func isList(t reflect.Type) bool {
 // bindFields fills the tagged fields of value, going into embedded structs as the
 // route's path check does.
 func bindFields(
-	value reflect.Value, tag string, values map[string][]string,
+	value reflect.Value, tag string, values map[string][]string, declared map[string]bool,
 	failures map[string][]validation.Failure, debug map[string][]string,
 ) {
 	rt := value.Type()
@@ -52,7 +56,21 @@ func bindFields(
 		field := rt.Field(idx)
 
 		if field.Anonymous && field.Type.Kind() == reflect.Struct && field.Tag.Get(tag) == "" {
-			bindFields(value.Field(idx), tag, values, failures, debug)
+			bindFields(value.Field(idx), tag, values, declared, failures, debug)
+
+			continue
+		}
+
+		if tag == "query" && field.Tag.Get(tag) == FreeForm && field.Type == freeFormType() {
+			rest := url.Values{}
+
+			for key, vals := range values {
+				if !declared[key] {
+					rest[key] = vals
+				}
+			}
+
+			value.Field(idx).Set(reflect.ValueOf(rest))
 
 			continue
 		}
@@ -85,4 +103,68 @@ func bindField(
 		failures[key] = append(failures[key], *f)
 		debug[key] = append(debug[key], "coerce")
 	}
+}
+
+// FreeForm is the tag value of a field that takes the query parameters no other field declares:
+//
+//	Filters url.Values `json:"-" query:"*"`
+const FreeForm = "*"
+
+func freeFormType() reflect.Type { return reflect.TypeFor[url.Values]() }
+
+// declaredKeys is every key that a field of the struct (embedded ones too) names under tag.
+func declaredKeys(typ reflect.Type, tag string) map[string]bool {
+	keys := map[string]bool{}
+
+	for field := range typ.Fields() {
+		name := field.Tag.Get(tag)
+
+		switch {
+		case field.Anonymous && field.Type.Kind() == reflect.Struct && name == "":
+			maps.Copy(keys, declaredKeys(field.Type, tag))
+		case name != "" && name != FreeForm:
+			keys[name] = true
+		}
+	}
+
+	return keys
+}
+
+// FreeFormFields lists the fields of the input type (embedded structs included) tagged query:"*".
+// More than one is a declaration mistake, and so is one that is not an url.Values: see CheckFreeForm.
+func FreeFormFields(typ reflect.Type) []reflect.StructField {
+	var out []reflect.StructField
+
+	if typ.Kind() != reflect.Struct {
+		return nil
+	}
+
+	for field := range typ.Fields() {
+		name := field.Tag.Get("query")
+
+		switch {
+		case field.Anonymous && field.Type.Kind() == reflect.Struct && name == "":
+			out = append(out, FreeFormFields(field.Type)...)
+		case name == FreeForm:
+			out = append(out, field)
+		}
+	}
+
+	return out
+}
+
+// CheckFreeForm refuses an input with more than one query:"*" field, or one that is not an url.Values.
+func CheckFreeForm(typ reflect.Type) error {
+	fields := FreeFormFields(typ)
+
+	if len(fields) > 1 {
+		return fmt.Errorf("binders: %s has %d query:\"*\" fields, at most one", typ, len(fields)) //nolint:err113 // names it
+	}
+
+	if len(fields) == 1 && fields[0].Type != freeFormType() {
+		return fmt.Errorf( //nolint:err113 // names the field
+			"binders: %s.%s is tagged query:\"*\" but is %s, not url.Values", typ, fields[0].Name, fields[0].Type)
+	}
+
+	return nil
 }
