@@ -1,3 +1,4 @@
+//nolint:paralleltest,lll,noinlineerr,varnamelen // tests in the style of the package's others
 package route_test
 
 import (

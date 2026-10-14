@@ -1,3 +1,4 @@
+//nolint:paralleltest,exhaustruct,lll,tagalign,noinlineerr,exhaustruct_v5 // tests in the style of the package's others
 package validation_test
 
 import (

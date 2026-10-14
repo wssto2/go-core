@@ -1,3 +1,4 @@
+//nolint:paralleltest,exhaustruct,noinlineerr,prealloc,varnamelen,exhaustruct_v5 // tests
 package validation
 
 import (

@@ -60,7 +60,10 @@ func UserFromContext(ctx context.Context) (Identifiable, bool) {
 // UserOf is the authenticated user as the application's own type: what a typed route handler
 // calls with its ctx, after the authentication middleware (Authenticated or the app's own, which
 // calls SetUser) put the provider's user on the request. False when there is none or it is another type.
+//
+//nolint:ireturn // a generic accessor returns its type parameter
 func UserOf[T any](ctx context.Context) (T, bool) {
 	user, ok := ctx.Value(userCtxKey).(T)
+
 	return user, ok
 }

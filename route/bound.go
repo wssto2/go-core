@@ -53,8 +53,10 @@ func (r Route[In, Out]) To(handler func(ctx context.Context, in In) (Out, error)
 	}
 
 	if typed {
-		if err := validation.CheckRules(inType); err != nil {
+		err := validation.CheckRules(inType)
+		if err != nil {
 			b.err = fmt.Errorf("route %s: %w", r.d.spec, err)
+
 			return b
 		}
 	}
@@ -164,6 +166,7 @@ func (s Security) guard(spec Spec) []gin.HandlerFunc {
 	}
 
 	chain := append([]gin.HandlerFunc(nil), s.Authenticate...)
+
 	switch {
 	case spec.Permission != "":
 		chain = append(chain, authzhttp.Require(s.Authorizer, spec.Permission))
@@ -178,17 +181,20 @@ func (s Security) guard(spec Spec) []gin.HandlerFunc {
 	return chain
 }
 
+// problem is a mount error that names the route it is about.
+func problem(text string) error { return errors.New(text) } //nolint:err113 // dynamic by design
+
 // check says what stops spec from being mounted with these settings.
 func (s Security) check(spec Spec) error {
-	if problem := spec.permissionProblem(); problem != "" {
-		return errors.New(problem)
+	if text := spec.permissionProblem(); text != "" {
+		return problem(text)
 	}
 
 	needs := spec.Needs()
 
 	switch {
 	case spec.Public && len(needs) > 0:
-		return errors.New("route " + spec.String() + " is Public but also requires " + strings.Join(needs, ", ") +
+		return problem("route " + spec.String() + " is Public but also requires " + strings.Join(needs, ", ") +
 			": remove .Public() so it needs sign-in, or remove .Requires(...)")
 	case spec.Public:
 		return nil
@@ -196,7 +202,7 @@ func (s Security) check(spec Spec) error {
 		return errors.New("route " + spec.String() + " needs an authenticated user but the application has no authentication: " +
 			"pass gocore.WithAuthentication(...) to gocore.New, or mark the route .Public()")
 	case len(needs) > 0 && s.Authorizer == nil:
-		return errors.New("route " + spec.String() + " requires " + strings.Join(needs, ", ") +
+		return problem("route " + spec.String() + " requires " + strings.Join(needs, ", ") +
 			" but the application has no authorizer: pass gocore.WithAuthorizer(...) to gocore.New")
 	}
 
@@ -246,12 +252,14 @@ func (r RawRoute) Requires(permission string) RawRoute {
 // RequiresAny gates the route on holding at least one of the permissions.
 func (r RawRoute) RequiresAny(permissions ...string) RawRoute {
 	r.d.spec.AnyOf = permissions
+
 	return r
 }
 
 // RequiresAll gates the route on holding every one of the permissions.
 func (r RawRoute) RequiresAll(permissions ...string) RawRoute {
 	r.d.spec.AllOf = permissions
+
 	return r
 }
 

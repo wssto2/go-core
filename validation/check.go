@@ -11,7 +11,7 @@ import (
 // request time such a rule fails every request with 500, so call this at start-up (routes do) or in
 // a test over an application's other inputs. The message names the type, the field and the rule.
 func CheckRules(values ...any) error {
-	v := New()
+	validator := New()
 
 	for _, value := range values {
 		t, ok := value.(reflect.Type)
@@ -19,7 +19,8 @@ func CheckRules(values ...any) error {
 			t = reflect.TypeOf(value)
 		}
 
-		if err := v.checkType(t, map[reflect.Type]bool{}); err != nil {
+		err := validator.checkType(t, map[reflect.Type]bool{})
+		if err != nil {
 			return err
 		}
 	}
@@ -27,35 +28,39 @@ func CheckRules(values ...any) error {
 	return nil
 }
 
-func (v *Validator) checkType(t reflect.Type, seen map[reflect.Type]bool) error {
-	for t != nil && (t.Kind() == reflect.Ptr || t.Kind() == reflect.Slice || t.Kind() == reflect.Array) {
-		t = t.Elem()
-	}
-
-	if t == nil || t.Kind() != reflect.Struct || seen[t] {
+func (v *Validator) checkType(typ reflect.Type, seen map[reflect.Type]bool) error {
+	typ = innerStructType(typ)
+	if typ == nil || seen[typ] {
 		return nil
 	}
 
-	seen[t] = true
+	seen[typ] = true
 
-	for _, f := range globalMetaCache.get(t).Fields {
-		for _, r := range f.Rules {
-			if _, ok := v.registry[r.name]; !ok {
-				hint := ""
-				if strings.ContainsAny(r.name, "=,") {
-					hint = " (arguments follow a colon, as in max:10; rules are separated by |)"
-				}
-
-				return fmt.Errorf("validation: %s.%s has the unknown rule %q%s", t, f.GoName, r.name, hint)
+	for _, field := range globalMetaCache.get(typ).Fields {
+		for _, rule := range field.Rules {
+			if _, ok := v.registry[rule.name]; !ok {
+				return unknownRule(typ, field.GoName, rule.name)
 			}
 		}
 
-		if f.ElemType != nil {
-			if err := v.checkType(f.ElemType, seen); err != nil {
-				return err
-			}
+		if field.ElemType == nil {
+			continue
+		}
+
+		err := v.checkType(field.ElemType, seen)
+		if err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+func unknownRule(typ reflect.Type, field, rule string) error {
+	hint := ""
+	if strings.ContainsAny(rule, "=,") {
+		hint = " (arguments follow a colon, as in max:10; rules are separated by |)"
+	}
+
+	return fmt.Errorf("validation: %s.%s has the unknown rule %q%s", typ, field, rule, hint) //nolint:err113 // names it
 }

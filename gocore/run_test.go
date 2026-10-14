@@ -468,6 +468,7 @@ func TestCheckReportsPathParametersTheInputDoesNotHave(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // like the tests around it
 func TestCheckRefusesAnUndefinedPermissionInRequiresAny(t *testing.T) {
 	app := testApp(t, "local")
 	app.authenticate = []gin.HandlerFunc{passthrough}

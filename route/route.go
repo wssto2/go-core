@@ -137,12 +137,14 @@ func (r Route[In, Out]) Status(status int) Route[In, Out] {
 // RequiresAny gates the route on holding at least one of the permissions.
 func (r Route[In, Out]) RequiresAny(permissions ...string) Route[In, Out] {
 	r.d.spec.AnyOf = permissions
+
 	return r
 }
 
 // RequiresAll gates the route on holding every one of the permissions.
 func (r Route[In, Out]) RequiresAll(permissions ...string) Route[In, Out] {
 	r.d.spec.AllOf = permissions
+
 	return r
 }
 

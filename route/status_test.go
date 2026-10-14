@@ -1,3 +1,4 @@
+//nolint:paralleltest,lll,noinlineerr,varnamelen // tests in the style of the package's others
 package route_test
 
 import (
@@ -46,6 +47,7 @@ func TestStatusRefusesNon2xx(t *testing.T) {
 					t.Fatalf("Status(%d) must panic", status)
 				}
 			}()
+
 			route.Get[route.None, string]("/x").Status(status)
 		}()
 	}

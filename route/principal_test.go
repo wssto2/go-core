@@ -1,3 +1,4 @@
+//nolint:paralleltest,exhaustruct,ireturn,varnamelen,nlreturn,noinlineerr,exhaustruct_v5 // tests
 package route_test
 
 import (
@@ -38,7 +39,8 @@ func TestHandlerSeesTheAppsUserAndTheRequestID(t *testing.T) {
 	e := newEngine()
 	e.Use(middlewares.RequestID())
 
-	if err := r.Mount(e, route.Security{Authenticate: []gin.HandlerFunc{auth.Authenticated(fixedProvider{})}}); err != nil {
+	sec := route.Security{Authenticate: []gin.HandlerFunc{auth.Authenticated(fixedProvider{})}}
+	if err := r.Mount(e, sec); err != nil {
 		t.Fatal(err)
 	}
 
