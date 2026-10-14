@@ -157,8 +157,15 @@ func (s Security) guard(spec Spec) []gin.HandlerFunc {
 	}
 
 	chain := append([]gin.HandlerFunc(nil), s.Authenticate...)
-	if spec.Permission != "" {
+	switch {
+	case spec.Permission != "":
 		chain = append(chain, authzhttp.Require(s.Authorizer, spec.Permission))
+	case len(spec.AnyOf) > 0:
+		chain = append(chain, authzhttp.RequireAny(s.Authorizer, spec.AnyOf...))
+	default:
+		for _, permission := range spec.AllOf {
+			chain = append(chain, authzhttp.Require(s.Authorizer, permission))
+		}
 	}
 
 	return chain
@@ -166,17 +173,23 @@ func (s Security) guard(spec Spec) []gin.HandlerFunc {
 
 // check says what stops spec from being mounted with these settings.
 func (s Security) check(spec Spec) error {
+	if problem := spec.permissionProblem(); problem != "" {
+		return errors.New(problem)
+	}
+
+	needs := spec.Needs()
+
 	switch {
-	case spec.Public && spec.Permission != "":
-		return errors.New("route " + spec.String() + " is Public but also Requires " + spec.Permission +
+	case spec.Public && len(needs) > 0:
+		return errors.New("route " + spec.String() + " is Public but also requires " + strings.Join(needs, ", ") +
 			": remove .Public() so it needs sign-in, or remove .Requires(...)")
 	case spec.Public:
 		return nil
 	case len(s.Authenticate) == 0:
 		return errors.New("route " + spec.String() + " needs an authenticated user but the application has no authentication: " +
 			"pass gocore.WithAuthentication(...) to gocore.New, or mark the route .Public()")
-	case spec.Permission != "" && s.Authorizer == nil:
-		return errors.New("route " + spec.String() + " requires " + spec.Permission +
+	case len(needs) > 0 && s.Authorizer == nil:
+		return errors.New("route " + spec.String() + " requires " + strings.Join(needs, ", ") +
 			" but the application has no authorizer: pass gocore.WithAuthorizer(...) to gocore.New")
 	}
 
@@ -220,6 +233,18 @@ func (r RawRoute) Name(name string) RawRoute {
 // Requires gates the route on a permission id from the authz catalogue.
 func (r RawRoute) Requires(permission string) RawRoute {
 	r.d.spec.Permission = permission
+	return r
+}
+
+// RequiresAny gates the route on holding at least one of the permissions.
+func (r RawRoute) RequiresAny(permissions ...string) RawRoute {
+	r.d.spec.AnyOf = permissions
+	return r
+}
+
+// RequiresAll gates the route on holding every one of the permissions.
+func (r RawRoute) RequiresAll(permissions ...string) RawRoute {
+	r.d.spec.AllOf = permissions
 	return r
 }
 

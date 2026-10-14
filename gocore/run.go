@@ -88,13 +88,13 @@ func (a *App) routeProblems() []Problem {
 			problems = append(problems, Problem{What: msg, Fix: "make the path parameters and the input's path:\"…\" fields name the same things"})
 		}
 
-		if spec.Permission == "" {
-			continue
-		}
+		for _, permission := range spec.Needs() {
+			if a.catalogued(permission) {
+				continue
+			}
 
-		if !a.catalogued(spec.Permission) {
 			problems = append(problems, Problem{
-				What: "route " + spec.String() + " requires " + spec.Permission + ", which no permission catalogue defines",
+				What: "route " + spec.String() + " requires " + permission + ", which no permission catalogue defines",
 				Fix:  "define it in the catalogue and pass the catalogue to app.Permissions (a module's routes: call its DefinePermissions, e.g. notification.DefinePermissions(catalogue)), or fix the id in Requires",
 			})
 		}

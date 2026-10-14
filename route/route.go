@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"slices"
 )
 
 // None is the input of a route that takes none.
@@ -19,6 +20,10 @@ type Spec struct {
 	Path       string
 	Name       string
 	Permission string
+	// AnyOf (RequiresAny) is a set of permissions of which holding one is enough; AllOf (RequiresAll)
+	// a set of which every one is needed. They exclude each other and Permission.
+	AnyOf []string
+	AllOf []string
 	// Public is true for a route anyone may call. Every other route needs an
 	// authenticated principal, and Permission, when set, on top of that.
 	Public bool
@@ -129,6 +134,18 @@ func (r Route[In, Out]) Status(status int) Route[In, Out] {
 	return r
 }
 
+// RequiresAny gates the route on holding at least one of the permissions.
+func (r Route[In, Out]) RequiresAny(permissions ...string) Route[In, Out] {
+	r.d.spec.AnyOf = permissions
+	return r
+}
+
+// RequiresAll gates the route on holding every one of the permissions.
+func (r Route[In, Out]) RequiresAll(permissions ...string) Route[In, Out] {
+	r.d.spec.AllOf = permissions
+	return r
+}
+
 // Public opens the route to anyone, signed in or not (a login form, a health
 // probe). Without it the route needs an authenticated principal. A public
 // route cannot also Requires a permission.
@@ -149,3 +166,37 @@ func (r Route[In, Out]) MalformedPath(status int) Route[In, Out] {
 func (r Route[In, Out]) Spec() Spec { return r.d.spec }
 
 func (r Route[In, Out]) declaration() *declaration { return r.d }
+
+// Needs lists every permission the route names, whatever the rule.
+func (s Spec) Needs() []string {
+	return slices.Concat(nonEmpty(s.Permission), s.AnyOf, s.AllOf)
+}
+
+func nonEmpty(s string) []string {
+	if s == "" {
+		return nil
+	}
+
+	return []string{s}
+}
+
+// permissionProblem says what is wrong with the permission settings of a route, "" when nothing.
+func (s Spec) permissionProblem() string {
+	kinds := 0
+
+	for _, set := range []bool{s.Permission != "", len(s.AnyOf) > 0, len(s.AllOf) > 0} {
+		if set {
+			kinds++
+		}
+	}
+
+	if kinds > 1 {
+		return "route " + s.String() + " combines Requires, RequiresAny and RequiresAll: use one"
+	}
+
+	if slices.Contains(s.Needs(), "") {
+		return "route " + s.String() + " names an empty permission"
+	}
+
+	return ""
+}

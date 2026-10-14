@@ -467,3 +467,14 @@ func TestCheckReportsPathParametersTheInputDoesNotHave(t *testing.T) {
 		t.Errorf("the matching route is reported:\n%s", got)
 	}
 }
+
+func TestCheckRefusesAnUndefinedPermissionInRequiresAny(t *testing.T) {
+	app := testApp(t, "local")
+	app.authenticate = []gin.HandlerFunc{passthrough}
+	app.Routes(route.Get[route.None, string]("/any").RequiresAny("ghost.a:view", "ghost.b:view").To(pong))
+
+	err := app.Check()
+	if err == nil || !strings.Contains(err.Error(), "ghost.b:view, which no permission catalogue defines") {
+		t.Fatalf("got %v", err)
+	}
+}
