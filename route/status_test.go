@@ -50,3 +50,18 @@ func TestStatusRefusesNon2xx(t *testing.T) {
 		}()
 	}
 }
+
+type ratesInput struct {
+	Rate float64 `json:"rate" validation:"gte=0"`
+}
+
+func TestAnUnknownValidationRuleIsRefusedWhenMounted(t *testing.T) {
+	r := route.Post[ratesInput, route.Empty]("/rates").Name("rates.save").To(func(context.Context, ratesInput) (route.Empty, error) {
+		return route.Empty{}, nil
+	})
+
+	err := r.Mount(newEngine(), open())
+	if err == nil || !strings.Contains(err.Error(), "ratesInput.Rate") || !strings.Contains(err.Error(), `"gte=0"`) || !strings.Contains(err.Error(), "rates.save") {
+		t.Fatalf("got %v", err)
+	}
+}

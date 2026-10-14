@@ -52,6 +52,13 @@ func (r Route[In, Out]) To(handler func(ctx context.Context, in In) (Out, error)
 		return b
 	}
 
+	if typed {
+		if err := validation.CheckRules(inType); err != nil {
+			b.err = fmt.Errorf("route %s: %w", r.d.spec, err)
+			return b
+		}
+	}
+
 	hasBody := r.d.spec.Method == http.MethodPost || r.d.spec.Method == http.MethodPut || r.d.spec.Method == http.MethodPatch
 	status := cmp.Or(r.d.spec.Status, http.StatusOK)
 	empty := reflect.TypeFor[Out]() == reflect.TypeFor[Empty]() || status == http.StatusNoContent
