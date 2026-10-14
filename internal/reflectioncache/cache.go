@@ -14,6 +14,8 @@ type FieldInfo struct {
 	Index   []int
 	Tag     reflect.StructTag
 	PkgPath string
+	// Anonymous marks an embedded field.
+	Anonymous bool
 }
 
 type cacheEntry struct {
@@ -70,11 +72,12 @@ func (c *Cache) FieldsByType(t reflect.Type) []FieldInfo {
 			idx := make([]int, len(field.Index))
 			copy(idx, field.Index)
 			fields = append(fields, FieldInfo{
-				Name:    field.Name,
-				Type:    field.Type,
-				Index:   idx,
-				Tag:     field.Tag,
-				PkgPath: field.PkgPath,
+				Name:      field.Name,
+				Type:      field.Type,
+				Index:     idx,
+				Tag:       field.Tag,
+				PkgPath:   field.PkgPath,
+				Anonymous: field.Anonymous,
 			})
 		}
 	} else {

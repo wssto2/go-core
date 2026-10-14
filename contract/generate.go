@@ -256,12 +256,8 @@ func hiddenPathFields(spec route.Spec, t reflect.Type, lists *bool, embedded boo
 			continue
 		}
 
-		name, optional := field.Tag.Get("path"), ""
-		if name == "" && embedded {
-			name, optional = field.Tag.Get("query"), "?"
-		}
-
-		if name == "" || name == "-" || (!embedded && field.Tag.Get("json") != "-") || !field.IsExported() {
+		name, ok := urlParam(field, embedded)
+		if !ok {
 			continue
 		}
 
@@ -270,10 +266,27 @@ func hiddenPathFields(spec route.Spec, t reflect.Type, lists *bool, embedded boo
 			return nil, err
 		}
 
-		out = append(out, name+optional+": "+expr)
+		out = append(out, name+": "+expr)
 	}
 
 	return out, nil
+}
+
+// urlParam is the TypeScript property ("id", or "page?") of a field the body schema leaves out.
+func urlParam(field reflect.StructField, embedded bool) (string, bool) {
+	if !field.IsExported() {
+		return "", false
+	}
+
+	if name := field.Tag.Get("path"); name != "" && name != "-" && (embedded || field.Tag.Get("json") == "-") {
+		return name, true
+	}
+
+	if name := field.Tag.Get("query"); embedded && name != "" && name != "-" {
+		return name + "?", true
+	}
+
+	return "", false
 }
 
 // isListResult reports whether t is datatable.DatatableResult[Row]: the one

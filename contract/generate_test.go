@@ -255,12 +255,14 @@ type AddPartRequest struct {
 	PartBody
 }
 
-func TestEmbeddedPathFieldsRenderFlatInTheRouteInput(t *testing.T) { //nolint:paralleltest // swaps a variable
+func TestEmbeddedPathFieldsRenderFlatInTheRouteInput(t *testing.T) { //nolint:paralleltest // swaps a var
 	fixedVersion(t)
 
 	dir := t.TempDir()
 
-	err := Generate(dir, route.Group("things", route.Post[AddPartRequest, Part]("/things/:id/parts").Name("things.add-part")))
+	add := route.Post[AddPartRequest, Part]("/things/:id/parts").Name("things.add-part")
+
+	err := Generate(dir, route.Group("things", add))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +276,8 @@ func TestEmbeddedPathFieldsRenderFlatInTheRouteInput(t *testing.T) { //nolint:pa
 		return string(b)
 	}
 
-	if got, want := read("routes.ts"), `route<AddPartRequest & { id: number }, Part>(`; !strings.Contains(got, want) || strings.Contains(got, "ThingPath") {
+	got, want := read("routes.ts"), `route<AddPartRequest & { id: number }, Part>(`
+	if !strings.Contains(got, want) || strings.Contains(got, "ThingPath") {
 		t.Errorf("the route input must have id flat and no ThingPath:\n%s", got)
 	}
 

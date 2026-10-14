@@ -252,3 +252,49 @@ func TestBindsPathAndQueryThroughEmbeddedStructs(t *testing.T) {
 		t.Fatalf("want 422 naming id, got %d: %s", rec.Code, rec.Body)
 	}
 }
+
+type newPart struct {
+	Title string `json:"title" validation:"required|max:5"`
+	Count int    `json:"count"`
+}
+
+type thingPath struct {
+	ID int `json:"id" path:"id"`
+}
+
+type createPartInput struct {
+	thingPath
+	newPart
+}
+
+func TestBindsAndValidatesTheBodyThroughEmbeddedStructs(t *testing.T) {
+	t.Parallel()
+
+	var got createPartInput
+
+	engine := newEngine()
+
+	handler := func(_ context.Context, in createPartInput) (route.Empty, error) {
+		got = in
+
+		return route.Empty{}, nil
+	}
+
+	err := route.Post[createPartInput, route.Empty]("/t/:id").To(handler).Mount(engine, open())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := do(engine, http.MethodPost, "/t/7", `{"title":"hi","count":2,"id":99}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+
+	if got.ID != 7 || got.Title != "hi" || got.Count != 2 {
+		t.Fatalf("bound %+v (the path wins over a body id)", got)
+	}
+
+	rec := do(engine, http.MethodPost, "/t/7", `{"title":"too long"}`)
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "title") {
+		t.Fatalf("want 422 naming title, got %d: %s", rec.Code, rec.Body)
+	}
+}

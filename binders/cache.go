@@ -9,7 +9,7 @@ import (
 // fieldMeta holds the parsed tag information for a single struct field.
 // Built once per struct type and cached — never rebuilt per request.
 type fieldMeta struct {
-	index       int    // position in the struct
+	index       []int  // field index path, through embedded structs (reflect.Value.FieldByIndex)
 	formKey     string // resolved binding key
 	structField reflect.StructField
 }
@@ -51,22 +51,39 @@ func resolveKey(sf reflect.StructField) string {
 }
 
 func buildFieldMeta(t reflect.Type) []fieldMeta {
-	fields := make([]fieldMeta, 0, t.NumField())
+	return appendFieldMeta(make([]fieldMeta, 0, t.NumField()), t, nil, false)
+}
 
-	for i := 0; i < t.NumField(); i++ {
+// appendFieldMeta lists the bindable fields of t. An untagged embedded struct is flattened
+// the way encoding/json does, and inside it path:"…" and query:"…" fields are not body fields.
+func appendFieldMeta(fields []fieldMeta, t reflect.Type, prefix []int, embedded bool) []fieldMeta {
+	for i := range t.NumField() {
 		sf := t.Field(i)
+		index := append(append([]int(nil), prefix...), i)
 
 		key := resolveKey(sf)
-		if key == "" {
+		if isPromoted(sf, key) {
+			fields = appendFieldMeta(fields, sf.Type, index, true)
+
 			continue
 		}
 
-		fields = append(fields, fieldMeta{
-			index:       i,
-			formKey:     key,
-			structField: sf,
-		})
+		if key == "" || (embedded && isURLParam(sf)) {
+			continue
+		}
+
+		fields = append(fields, fieldMeta{index: index, formKey: key, structField: sf})
 	}
 
 	return fields
+}
+
+// isPromoted: an embedded struct without a binding name hands its fields to the parent.
+func isPromoted(sf reflect.StructField, key string) bool {
+	return sf.Anonymous && sf.Type.Kind() == reflect.Struct && key == "" &&
+		sf.Tag.Get("json") == "" && sf.Tag.Get("form") == ""
+}
+
+func isURLParam(sf reflect.StructField) bool {
+	return sf.Tag.Get("path") != "" || sf.Tag.Get("query") != ""
 }

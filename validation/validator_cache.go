@@ -77,10 +77,31 @@ func (c *structMetaCache) get(t reflect.Type) *cachedStructMeta {
 	return meta
 }
 
+// flattenEmbedded lists the fields with an untagged embedded struct replaced by its own
+// fields (index paths prefixed), the way encoding/json promotes them, so a request type
+// built as struct{ Path; Body } validates the promoted fields under their own names.
+func flattenEmbedded(list []reflectioncache.FieldInfo, prefix []int) []reflectioncache.FieldInfo {
+	out := make([]reflectioncache.FieldInfo, 0, len(list))
+
+	for _, info := range list {
+		info.Index = append(append([]int(nil), prefix...), info.Index...)
+
+		if info.Anonymous && info.Type.Kind() == reflect.Struct && info.Tag == "" {
+			out = append(out, flattenEmbedded(reflectioncache.FieldsByType(info.Type), info.Index)...)
+
+			continue
+		}
+
+		out = append(out, info)
+	}
+
+	return out
+}
+
 // buildStructMeta constructs the metadata for t using reflectioncache to avoid
 // re-running reflect.Type.Field() on subsequent calls.
 func buildStructMeta(t reflect.Type) *cachedStructMeta {
-	fiList := reflectioncache.FieldsByType(t)
+	fiList := flattenEmbedded(reflectioncache.FieldsByType(t), nil)
 	fields := make([]cachedFieldMeta, 0, len(fiList))
 	nameLookup := make(map[string]int, len(fiList)*2)
 

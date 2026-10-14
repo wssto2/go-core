@@ -253,7 +253,7 @@ func coerceMapIntoStruct(field reflect.Value, v map[string]interface{}) *validat
 			continue
 		}
 
-		if msg := coerceValue(field.Field(meta.index), rawVal, false); msg != nil {
+		if msg := coerceValue(field.FieldByIndex(meta.index), rawVal, false); msg != nil {
 			return msg
 		}
 	}

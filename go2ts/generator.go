@@ -131,18 +131,11 @@ func wireFields(t reflect.Type) []reflect.StructField {
 }
 
 func appendWireFields(out []reflect.StructField, t reflect.Type, embedded bool) []reflect.StructField {
-	for i := range t.NumField() {
-		field := t.Field(i)
+	for field := range t.Fields() {
+		if inner, ok := promoted(field); ok {
+			out = appendWireFields(out, inner, true)
 
-		if ft := field.Type; field.Anonymous {
-			if ft.Kind() == reflect.Pointer {
-				ft = ft.Elem()
-			}
-
-			if name, _, _ := strings.Cut(field.Tag.Get("json"), ","); ft.Kind() == reflect.Struct && name == "" {
-				out = appendWireFields(out, ft, true)
-				continue
-			}
+			continue
 		}
 
 		if embedded && (field.Tag.Get("path") != "" || field.Tag.Get("query") != "") {
@@ -153,6 +146,19 @@ func appendWireFields(out []reflect.StructField, t reflect.Type, embedded bool) 
 	}
 
 	return out
+}
+
+// promoted is the struct an embedded field hands its fields to, the way encoding/json
+// promotes them: embedded, a struct (or a pointer to one) and without a json name.
+func promoted(field reflect.StructField) (reflect.Type, bool) {
+	inner := field.Type
+	if inner.Kind() == reflect.Pointer {
+		inner = inner.Elem()
+	}
+
+	name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+
+	return inner, field.Anonymous && inner.Kind() == reflect.Struct && name == ""
 }
 
 // Converts a Go struct to a TypeScript type definition.

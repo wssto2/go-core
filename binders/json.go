@@ -70,7 +70,7 @@ func bind[T any](subject *T, raw map[string]any, isMultipart bool) error {
 	for i := range fields {
 		meta := &fields[i]
 		rawVal, present := raw[meta.formKey]
-		fieldVal := reflectValue.Field(meta.index)
+		fieldVal := reflectValue.FieldByIndex(meta.index)
 
 		if present && rawVal != nil {
 			if f := coerceValue(fieldVal, rawVal, isMultipart); f != nil {
