@@ -80,6 +80,7 @@ func ExampleExchangeOf() {
 	// Output: {"success":true,"data":{"seen":"curl"}} seen=yes; HttpOnly; Secure; SameSite=Lax
 }
 
+//nolint:cyclop,noinlineerr,varnamelen,paralleltest // one scenario table in the style of the package's tests
 func TestSetHeaderOnSuccessAndError(t *testing.T) {
 	e := newEngine()
 	mustMount := func(r route.Bound) {
@@ -93,6 +94,7 @@ func TestSetHeaderOnSuccessAndError(t *testing.T) {
 	}))
 	mustMount(route.Get[route.None, string]("/bad").To(func(ctx context.Context, _ route.None) (string, error) {
 		_ = route.ExchangeOf(ctx).SetHeader("Cache-Control", "no-store")
+
 		return "", apperr.BadRequest("nope")
 	}))
 	mustMount(route.Get[route.None, string]("/ct").To(func(ctx context.Context, _ route.None) (string, error) {

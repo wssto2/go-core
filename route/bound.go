@@ -173,15 +173,16 @@ func (s Security) guard(spec Spec) []gin.HandlerFunc {
 
 	chain := append([]gin.HandlerFunc(nil), s.Authenticate...)
 
-	switch {
-	case spec.Permission != "":
+	if spec.Permission != "" {
 		chain = append(chain, authzhttp.Require(s.Authorizer, spec.Permission))
-	case len(spec.AnyOf) > 0:
+	}
+
+	if len(spec.AnyOf) > 0 {
 		chain = append(chain, authzhttp.RequireAny(s.Authorizer, spec.AnyOf...))
-	default:
-		for _, permission := range spec.AllOf {
-			chain = append(chain, authzhttp.Require(s.Authorizer, permission))
-		}
+	}
+
+	for _, permission := range spec.AllOf {
+		chain = append(chain, authzhttp.Require(s.Authorizer, permission))
 	}
 
 	return chain

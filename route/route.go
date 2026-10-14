@@ -22,7 +22,7 @@ type Spec struct {
 	Name       string
 	Permission string
 	// AnyOf (RequiresAny) is a set of permissions of which holding one is enough; AllOf (RequiresAll)
-	// a set of which every one is needed. They exclude each other and Permission.
+	// a set of which every one is needed. They may be combined with Permission and each other: all must hold.
 	AnyOf []string
 	AllOf []string
 	// Public is true for a route anyone may call. Every other route needs an
@@ -189,18 +189,6 @@ func nonEmpty(s string) []string {
 
 // permissionProblem says what is wrong with the permission settings of a route, "" when nothing.
 func (s Spec) permissionProblem() string {
-	kinds := 0
-
-	for _, set := range []bool{s.Permission != "", len(s.AnyOf) > 0, len(s.AllOf) > 0} {
-		if set {
-			kinds++
-		}
-	}
-
-	if kinds > 1 {
-		return "route " + s.String() + " combines Requires, RequiresAny and RequiresAll: use one"
-	}
-
 	if slices.Contains(s.Needs(), "") {
 		return "route " + s.String() + " names an empty permission"
 	}
