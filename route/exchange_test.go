@@ -2,6 +2,7 @@ package route_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +11,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/route"
+	"github.com/wssto2/go-core/web"
 )
 
 type Greeting struct {
@@ -74,4 +78,51 @@ func ExampleExchangeOf() {
 
 	fmt.Println(rec.Body.String(), rec.Header().Get("Set-Cookie"))
 	// Output: {"success":true,"data":{"seen":"curl"}} seen=yes; HttpOnly; Secure; SameSite=Lax
+}
+
+func TestSetHeaderOnSuccessAndError(t *testing.T) {
+	e := newEngine()
+	mustMount := func(r route.Bound) {
+		if err := r.Mount(e, secured(authztest.AllowAll())); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mustMount(route.Get[route.None, string]("/ok").To(func(ctx context.Context, _ route.None) (string, error) {
+		return "v", route.ExchangeOf(ctx).SetHeader("Cache-Control", "private, max-age=300")
+	}))
+	mustMount(route.Get[route.None, string]("/bad").To(func(ctx context.Context, _ route.None) (string, error) {
+		_ = route.ExchangeOf(ctx).SetHeader("Cache-Control", "no-store")
+		return "", apperr.BadRequest("nope")
+	}))
+	mustMount(route.Get[route.None, string]("/ct").To(func(ctx context.Context, _ route.None) (string, error) {
+		return "", route.ExchangeOf(ctx).SetHeader("content-type", "text/plain")
+	}))
+
+	w := do(e, http.MethodGet, "/ok", "")
+	if w.Code != 200 || w.Header().Get("Cache-Control") != "private, max-age=300" {
+		t.Fatalf("ok: %d %v", w.Code, w.Header())
+	}
+
+	ref := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(ref)
+	web.JSON(c, 200, "v")
+
+	if w.Body.String() != ref.Body.String() || w.Header().Get("Content-Type") != ref.Header().Get("Content-Type") {
+		t.Fatalf("envelope differs: %q vs %q", w.Body.String(), ref.Body.String())
+	}
+
+	if w = do(e, http.MethodGet, "/bad", ""); w.Code != 400 || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("error: %d %v", w.Code, w.Header())
+	}
+
+	if w = do(e, http.MethodGet, "/ct", ""); w.Code != 500 {
+		t.Fatalf("reserved: %d", w.Code)
+	}
+
+	for _, name := range []string{"Content-Type", "content-length"} {
+		if err := (route.Exchange{}).SetHeader(name, "x"); !errors.Is(err, route.ErrReservedHeader) {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
 }

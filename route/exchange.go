@@ -2,7 +2,10 @@ package route
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -104,4 +107,22 @@ func (x Exchange) SetCookie(cookie *http.Cookie) {
 	}
 
 	http.SetCookie(x.c.Writer, cookie)
+}
+
+// ErrReservedHeader is returned by SetHeader for a header the response envelope owns.
+var ErrReservedHeader = errors.New("route: header is set by the response envelope")
+
+// SetHeader sets a response header (Cache-Control, ETag) on what the route writes, on
+// success and on error. Content-Type and Content-Length belong to the envelope and are
+// refused with ErrReservedHeader. Outside a route it does nothing.
+func (x Exchange) SetHeader(name, value string) error {
+	if strings.EqualFold(name, "Content-Type") || strings.EqualFold(name, "Content-Length") {
+		return fmt.Errorf("%w: %s", ErrReservedHeader, http.CanonicalHeaderKey(name))
+	}
+
+	if x.c != nil {
+		x.c.Writer.Header().Set(name, value)
+	}
+
+	return nil
 }
