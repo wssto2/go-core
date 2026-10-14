@@ -39,6 +39,11 @@
 //	import { route, type ListResult } from "@wssto2/vue-core/client";
 //	list: route<ListInput, ListResult<Row>>("GET", "/rows"),
 //
+// route.Page[Row] as an output is Row[] with PageMeta as the route's third type
+// argument (imported from the same module), and route.WithMeta[T, M] is T with
+// M, whose entity is imported from ./entities. Other routes have two arguments.
+// These route tables need vue-core 0.5.4 or later.
+//
 // Any other generic type is an error: go2ts names types by their Go name, so
 // declare a named type for it.
 package contract

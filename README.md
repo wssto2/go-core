@@ -253,7 +253,7 @@ export const ticketsRoutes = {
 } as const;
 ```
 
-A route whose output is `datatable.DatatableResult[Row]` types as `ListResult<Row>` (imported from `@wssto2/vue-core/client` next to `route`, with exactly the datatable wire shape); any other generic type is refused. A body field with `json:",omitempty"` is `.optional()` in the Zod schema, unless it is `required`. A typed route's path and its input must agree: every `:name` of the path needs a field tagged `path:"name"` and the other way round, which start-up (`Check`) and `contract.Generate` report with the route, the parameter and the fix, since TypeScript cannot check it.
+A route whose output is `datatable.DatatableResult[Row]` types as `ListResult<Row>` (imported from `@wssto2/vue-core/client` next to `route`, with exactly the datatable wire shape); `route.Page[Row]` types as `route<In, Row[], PageMeta>` (`PageMeta` imported from the same module) and `route.WithMeta[T, M]` as `route<In, T, M>` (`M` imported from `./entities`); these route tables need vue-core 0.5.4 or later. Any other generic type is refused. A body field with `json:",omitempty"` is `.optional()` in the Zod schema, unless it is `required`. A typed route's path and its input must agree: every `:name` of the path needs a field tagged `path:"name"` and the other way round, which start-up (`Check`) and `contract.Generate` report with the route, the parameter and the fix, since TypeScript cannot check it.
 
 The key is the route's `.Name` without the group prefix (`tickets.show` is `show`); without a name it is the method and path (`GET /tickets/:id` is `getTicketsById`). `route.None` and `route.Empty` become `void`. Every file's first line names the go-core version that wrote it.
 

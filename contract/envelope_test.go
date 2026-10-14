@@ -24,7 +24,7 @@ func TestEnvelopedOutputsHaveATypeScriptForm(t *testing.T) {
 	}
 
 	raw, _ := os.ReadFile(filepath.Join(dir, "env", "routes.ts")) //nolint:gosec // temp dir
-	for _, want := range []string{`route<ListInput, Row[]>`, `route<Draft, Row[]>`} {
+	for _, want := range []string{`route<ListInput, Row[], PageMeta>`, `route<Draft, Row[], Stats>`} {
 		if !strings.Contains(string(raw), want) || strings.Contains(string(raw), "ListResult") {
 			t.Fatalf("routes.ts misses %q:\n%s", want, raw)
 		}
@@ -70,12 +70,29 @@ func generatedFile(t *testing.T, group *route.Contract, file string) string {
 	return string(raw)
 }
 
-func TestRoutesDoNotImportTheMetaEntity(t *testing.T) {
-	meta := route.Post[Draft, route.WithMeta[[]Row, Stats]]("/m").Name("env.meta")
-	group := route.Group("env", meta)
+func TestRoutesImportTheMetaTypes(t *testing.T) {
+	group := route.Group("env",
+		route.Post[Draft, route.WithMeta[[]Row, Stats]]("/m").Name("env.meta"),
+		route.Get[ListInput, route.Page[Row]]("/p").Name("env.page"),
+		route.Get[ListInput, []Row]("/plain").Name("env.plain"))
 
-	if routes := generatedFile(t, group, "routes.ts"); strings.Contains(routes, "Stats") {
-		t.Fatalf("routes.ts imports the meta entity:\n%s", routes)
+	routes := generatedFile(t, group, "routes.ts")
+	for _, want := range []string{
+		`import { route, type PageMeta } from "@wssto2/vue-core/client";`,
+		`Stats } from "./entities"`,
+		`route<ListInput, Row[]>("GET", "/plain")`,
+	} {
+		if !strings.Contains(routes, want) {
+			t.Fatalf("routes.ts misses %q:\n%s", want, routes)
+		}
+	}
+}
+
+func TestPlainRoutesImportNoPageMeta(t *testing.T) {
+	group := route.Group("env", route.Get[ListInput, []Row]("/plain").Name("env.plain"))
+
+	if routes := generatedFile(t, group, "routes.ts"); strings.Contains(routes, "PageMeta") {
+		t.Fatalf("routes.ts imports PageMeta:\n%s", routes)
 	}
 }
 

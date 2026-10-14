@@ -97,12 +97,14 @@ type plan struct {
 	outSet map[string]bool
 	query  bool // some input takes free-form filters: QueryValue is imported
 	lists  bool // some output is a ListResult<Row>, imported next to route
+	paged  bool // some output is a route.Page: PageMeta is imported next to route
 }
 
 type routeLine struct {
 	key        string
 	spec       route.Spec
 	in, out    string // TypeScript type of the input and output; empty for raw routes
+	meta       string // TypeScript type of the envelope's meta; empty when the route names none
 	usesIn     []string
 	usesOut    []string
 	permission string
@@ -217,20 +219,29 @@ func planOf(g *route.Contract) (*plan, error) {
 			}
 		}
 
-		// A WithMeta's meta type is exported (an app casts the untyped meta to it) but no route names it.
+		if isPage(spec.Out) {
+			line.meta = "PageMeta"
+			p.paged = true
+		}
+
+		// A WithMeta's meta type is the route's third type argument, so its entity is imported too.
 		if isWithMeta(spec.Out) {
 			info, _ := spec.Out.FieldByName("Info")
 
-			_, structs, err := tsType(spec, info.Type, &p.lists)
+			expr, structs, err := tsType(spec, info.Type, &p.lists)
 			if err != nil {
 				return nil, err
 			}
+
+			line.meta = expr
 
 			for _, meta := range structs {
 				err := claim(meta)
 				if err != nil {
 					return nil, err
 				}
+
+				line.usesOut = append(line.usesOut, meta.Name())
 
 				if !p.outSet[meta.Name()] {
 					p.outSet[meta.Name()] = true
@@ -427,7 +438,7 @@ func tsType(spec route.Spec, t reflect.Type, lists *bool) (string, []reflect.Typ
 			return "string", nil, nil
 		}
 
-		// The client unwraps the envelope: a Page's Out is its rows, a WithMeta's is its data; meta stays untyped.
+		// The client unwraps the envelope: a Page's Out is its rows, a WithMeta's is its data (meta is the third argument).
 		if isPage(t) {
 			result, _ := t.FieldByName("Result")
 			data, _ := result.Type.FieldByName("Data")

@@ -104,6 +104,10 @@ func routesFile(group string, p *plan) string {
 		imports = append(imports, "type ListResult")
 	}
 
+	if p.paged {
+		imports = append(imports, "type PageMeta")
+	}
+
 	if p.query {
 		imports = append(imports, "type QueryValue")
 	}
@@ -153,7 +157,12 @@ func routeCall(r routeLine) string {
 	if r.spec.Untyped {
 		call = "route.raw"
 	} else {
-		call += "<" + r.in + ", " + r.out + ">"
+		call += "<" + r.in + ", " + r.out
+		if r.meta != "" {
+			call += ", " + r.meta
+		}
+
+		call += ">"
 	}
 
 	args := quote(r.spec.Method) + ", " + quote(r.spec.Path)
