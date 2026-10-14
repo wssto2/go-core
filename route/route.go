@@ -22,6 +22,8 @@ type Spec struct {
 	// Public is true for a route anyone may call. Every other route needs an
 	// authenticated principal, and Permission, when set, on top of that.
 	Public bool
+	// Status is the success status the route answers; 0 means the default, 200 (204 for an Empty output).
+	Status int
 	In     reflect.Type
 	Out    reflect.Type
 	// Untyped is true for routes declared with Raw: they have no In or Out.
@@ -111,6 +113,19 @@ func (r Route[In, Out]) Name(name string) Route[In, Out] {
 // define it.
 func (r Route[In, Out]) Requires(permission string) Route[In, Out] {
 	r.d.spec.Permission = permission
+	return r
+}
+
+// Status sets the success status the route answers, for example http.StatusCreated for a create.
+// Only 2xx is accepted; anything else is a declaration mistake and panics at start-up. With
+// http.StatusNoContent the route answers no body (an Empty output does the same).
+func (r Route[In, Out]) Status(status int) Route[In, Out] {
+	if status < http.StatusOK || status >= http.StatusMultipleChoices {
+		panic(fmt.Sprintf("route: Status(%d): only 2xx success statuses are allowed", status))
+	}
+
+	r.d.spec.Status = status
+
 	return r
 }
 

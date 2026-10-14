@@ -3,6 +3,7 @@ package contract
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -176,7 +177,7 @@ func planOf(g *route.Contract) (*plan, error) {
 			}
 		}
 
-		if spec.Out == reflect.TypeFor[route.Empty]() {
+		if spec.Out == reflect.TypeFor[route.Empty]() || spec.Status == http.StatusNoContent {
 			line.out = "void"
 		} else {
 			expr, structs, err := tsType(spec, spec.Out, &p.lists)

@@ -1,6 +1,7 @@
 package route
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -52,7 +53,8 @@ func (r Route[In, Out]) To(handler func(ctx context.Context, in In) (Out, error)
 	}
 
 	hasBody := r.d.spec.Method == http.MethodPost || r.d.spec.Method == http.MethodPut || r.d.spec.Method == http.MethodPatch
-	empty := reflect.TypeFor[Out]() == reflect.TypeFor[Empty]()
+	status := cmp.Or(r.d.spec.Status, http.StatusOK)
+	empty := reflect.TypeFor[Out]() == reflect.TypeFor[Empty]() || status == http.StatusNoContent
 
 	b.build = func(security Security) []gin.HandlerFunc {
 		return append(security.guard(r.d.spec), func(c *gin.Context) {
@@ -77,7 +79,7 @@ func (r Route[In, Out]) To(handler func(ctx context.Context, in In) (Out, error)
 				return
 			}
 
-			web.Handle(c, out, nil)
+			web.JSON(c, status, out)
 		})
 	}
 
