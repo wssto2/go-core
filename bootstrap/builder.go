@@ -559,7 +559,7 @@ func (b *AppBuilder) WithHttp() *AppBuilder {
 	}
 
 	if b.cfg.Frontend.StaticPath != "" && b.cfg.Frontend.StaticURL != "" {
-		b.engine.Static(b.cfg.Frontend.StaticURL, b.cfg.Frontend.StaticPath)
+		serveStatic(b.engine, b.cfg.Frontend.StaticURL, b.cfg.Frontend.StaticPath)
 	}
 	if b.spaConfig != nil {
 		viteCfg := b.spaConfig.Vite
@@ -568,7 +568,7 @@ func (b *AppBuilder) WithHttp() *AppBuilder {
 			// Derive the assets directory from the manifest path:
 			// e.g. "./frontend/dist/.vite/manifest.json" → "./frontend/dist"
 			assetsDir := filepath.Dir(filepath.Dir(viteCfg.ManifestPath))
-			b.engine.Static(viteCfg.AssetsURLPrefix, assetsDir)
+			serveStatic(b.engine, viteCfg.AssetsURLPrefix, assetsDir)
 		}
 	}
 

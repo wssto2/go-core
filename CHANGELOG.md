@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.11.1
+
+### Fixed
+
+- The static and Vite asset routes answer 404 for `*.map`: a build's source maps carry the original source, which a release may keep for reading a minified stack but never serves to a browser.
+
 ## v1.11.0
 
 The incident log becomes a module. A server error or a panic is an incident, repeats are counted on it, a person can report a bug, the browser can report its errors, and the people who hold `incident:manage` are alerted.
