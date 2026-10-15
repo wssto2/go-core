@@ -23,7 +23,7 @@ type ShowInput struct {
 	ID int `path:"id"`
 }
 
-var Show = route.Get[ShowInput, Ticket]("/tickets/:id")
+var Show = route.Get[ShowInput, Ticket]("/tickets/:id").Authenticated()
 
 type Service struct{ app *gocore.App }
 

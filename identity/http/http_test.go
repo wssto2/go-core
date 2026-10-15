@@ -444,7 +444,7 @@ func TestAuthenticationLeavesTheIdentityForOtherRoutes(t *testing.T) {
 
 	var principal authz.Principal
 
-	probe := route.Get[route.None, route.Empty]("/probe")
+	probe := route.Get[route.None, route.Empty]("/probe").Authenticated()
 	require.NoError(t, probe.To(func(ctx context.Context, _ route.None) (route.Empty, error) {
 		who, _ = identityhttp.AuthenticatedFrom(ctx)
 		principal, _ = authz.PrincipalFrom(ctx)

@@ -52,7 +52,11 @@ func call(handler http.Handler, path string, headers ...string) *httptest.Respon
 }
 
 func okRoute(path string) route.Route[route.None, string] {
-	return route.Get[route.None, string](path)
+	return route.Get[route.None, string](path).Authenticated()
+}
+
+func publicRoute(path string) route.Route[route.None, string] {
+	return route.Get[route.None, string](path).Public()
 }
 
 func serve(path string) func(context.Context, route.None) (string, error) {
@@ -77,7 +81,7 @@ func TestRoutesWithMountsBehindTheAppsOwnChain(t *testing.T) {
 
 	app, own := twoChains(t, nil)
 	app.Routes(okRoute(sessionPath).To(serve("session")))
-	app.RoutesWith(own, okRoute(keyPath).To(serve("key")), okRoute("/open").Public().To(serve("open")))
+	app.RoutesWith(own, okRoute(keyPath).To(serve("key")), publicRoute("/open").To(serve("open")))
 
 	handler, err := app.Handler()
 	if err != nil {

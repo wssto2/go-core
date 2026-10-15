@@ -15,7 +15,7 @@ func TestRootServesOutsideThePrefixBehindTheAppsSecurity(t *testing.T) {
 	app, _ := twoChains(t, nil)
 	app.prefix = apiPrefix
 	app.Routes(okRoute("/inside").To(serve("inside")))
-	app.Root(okRoute("/outside").To(serve("outside")), okRoute("/open").Public().To(serve("open")))
+	app.Root(okRoute("/outside").To(serve("outside")), publicRoute("/open").To(serve("open")))
 
 	handler, err := app.Handler()
 	if err != nil {

@@ -94,7 +94,7 @@ func TestPrefixMountsEveryRouteUnderIt(t *testing.T) {
 	for prefix, want := range map[string]string{"": "/v1/ping", "/api": "/api/v1/ping", "api/": "/api/v1/ping", "/": "/v1/ping"} {
 		app := New(bootstrap.DefaultConfig(), WithLogger(slog.New(slog.DiscardHandler)),
 			WithAuthentication(func(c *gin.Context) { c.Next() }), WithPrefix(prefix))
-		app.Routes(route.Get[route.None, string]("/v1/ping").To(func(context.Context, route.None) (string, error) { return "pong", nil }))
+		app.Routes(route.Get[route.None, string]("/v1/ping").Authenticated().To(func(context.Context, route.None) (string, error) { return "pong", nil }))
 
 		handler, err := app.Handler()
 		if err != nil {

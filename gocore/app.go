@@ -446,6 +446,21 @@ func (m mounted) mount(engine gin.IRouter, prefix string, app route.Security) er
 	return m.Mount(group, sec) //nolint:wrapcheck // the route's own message names the route
 }
 
+// Served lists the installed routes with the path each is served at (the prefix included, or the site root for a
+// Root route), in the order they were collected, which is the order they are mounted.
+func (a *App) Served() []route.Served {
+	out := make([]route.Served, len(a.routes))
+	for i, r := range a.routes {
+		out[i] = route.Served{Spec: r.Spec(), Path: r.path(a.prefix)}
+	}
+
+	return out
+}
+
+// Contracts lists the groups the installed routes belong to, each once, in the order their routes were collected:
+// what the TypeScript generator writes for this application. A group none of whose routes is installed is not listed.
+func (a *App) Contracts() []*route.Contract { return route.Contracts(a.handled()...) }
+
 func (a *App) handled() []route.Handled {
 	out := make([]route.Handled, len(a.routes))
 	for i, r := range a.routes {

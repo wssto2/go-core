@@ -30,6 +30,9 @@ type Spec struct {
 	Public bool
 	// PersonOnly is true for a route only a person may call: a service account (an API key) is refused with 403.
 	PersonOnly bool
+	// Authenticated is true for a route that needs an authenticated principal and no permission: the handler decides
+	// what that principal may do (a record checked against its owner, a lookup every signed-in user may make).
+	Authenticated bool
 	// Status is the success status the route answers; 0 means the default, 200 (204 for an Empty output).
 	Status int
 	In     reflect.Type
@@ -163,6 +166,15 @@ func (r Route[In, Out]) Public() Route[In, Out] {
 	return r
 }
 
+// Authenticated declares that any authenticated principal may call the route and the handler decides the rest:
+// the access is declared, not forgotten. A route must declare one of Requires, RequiresAny, RequiresAll, Public,
+// PersonOnly or Authenticated, or starting the application fails. It cannot also be Public.
+func (r Route[In, Out]) Authenticated() Route[In, Out] {
+	r.d.spec.Authenticated = true
+
+	return r
+}
+
 // PersonOnly refuses a service account (a request made with an API key) with 403, whatever
 // permission it holds: for what only a person has, such as their own session, profile or devices.
 // It is checked after the authentication, so a route that is Public cannot also be PersonOnly.
@@ -196,6 +208,12 @@ func nonEmpty(s string) []string {
 	}
 
 	return []string{s}
+}
+
+// DeclaresAccess reports whether the route says who may call it: it names a permission, or is Public, PersonOnly
+// or Authenticated. A route that declares nothing is a forgotten permission, so starting the application refuses it.
+func (s Spec) DeclaresAccess() bool {
+	return s.Public || s.PersonOnly || s.Authenticated || len(s.Needs()) > 0
 }
 
 // permissionProblem says what is wrong with the permission settings of a route, "" when nothing.

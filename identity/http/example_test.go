@@ -87,7 +87,7 @@ func ExampleAuthenticatedFrom() {
 	engine, kit := serve(identityhttp.Config{})
 	signed, _ := kit.SignIn.Login(context.Background(), account.LoginInput{Login: "ana", Password: "secret"})
 
-	whoami := route.Get[route.None, string]("/whoami")
+	whoami := route.Get[route.None, string]("/whoami").Authenticated()
 	_ = whoami.To(func(ctx context.Context, _ route.None) (string, error) {
 		who, _ := identityhttp.AuthenticatedFrom(ctx)
 		return who.Account.Login, nil

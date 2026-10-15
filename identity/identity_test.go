@@ -38,7 +38,7 @@ import (
 const Shared database.Connection = "shared"
 
 // Whoami is a feature's own route: behind identity's authentication, acting as the signed-in person.
-var Whoami = route.Get[route.None, int]("/whoami")
+var Whoami = route.Get[route.None, int]("/whoami").Authenticated()
 
 func whoami(ctx context.Context, _ route.None) (int, error) {
 	p, ok := authz.PrincipalFrom(ctx)
@@ -176,7 +176,7 @@ func TestWithTenantSetsTheTenantOfTheSignedInAccount(t *testing.T) {
 	} {
 		app := newApp(t)
 		identity.Install(app, opts...)
-		app.Routes(route.Get[route.None, string]("/tenant").To(tenantSeen))
+		app.Routes(route.Get[route.None, string]("/tenant").Authenticated().To(tenantSeen))
 		seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 		seed(t, app.Database(), identitytest.Account(8, rootLogin, "secret"))
 		require.NoError(t, app.Check())
@@ -628,7 +628,7 @@ func TestWithRequestUserMakesTheRequestsUser(t *testing.T) {
 
 			return shopper{id: who.Account.ID, Shop: shop + ":" + who.Account.Login}, nil
 		}))
-	app.Routes(route.Get[route.None, string]("/shop").To(shopOf))
+	app.Routes(route.Get[route.None, string]("/shop").Authenticated().To(shopOf))
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 	seed(t, app.Database(), identitytest.Account(8, "banned", "secret"))
 	require.NoError(t, app.Check())
@@ -654,7 +654,7 @@ func TestWithoutRequestUserTheAccountIsTheUser(t *testing.T) {
 
 	app := newApp(t)
 	identity.Install(app, identity.WithoutMail())
-	app.Routes(route.Get[route.None, string]("/shop").To(func(ctx context.Context, _ route.None) (string, error) {
+	app.Routes(route.Get[route.None, string]("/shop").Authenticated().To(func(ctx context.Context, _ route.None) (string, error) {
 		if a, ok := auth.UserOf[account.Account](ctx); ok {
 			return a.Login, nil
 		}

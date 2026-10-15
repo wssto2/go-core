@@ -357,7 +357,7 @@ func TestWithoutUserAdminLeavesThePathsToTheHost(t *testing.T) {
 		identity.WithAccounts(storeWithoutSearch{identitytest.NewAccounts()}), identity.WithHasher(identitytest.Hasher))
 
 	// a host's own route on a path the users administration also declares
-	hostSignIns := route.Get[hostID, string]("/v1/iam/users/:id/" + "sign" + "ins")
+	hostSignIns := route.Get[hostID, string]("/v1/iam/users/:id/" + "sign" + "ins").Authenticated()
 	app.Routes(hostSignIns.To(func(context.Context, hostID) (string, error) { return "mine", nil }))
 
 	require.NoError(t, app.Check())

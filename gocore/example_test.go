@@ -32,7 +32,7 @@ func (s *Service) Ping(context.Context, route.None) (string, error) {
 	return s.Clock.Now().Format("2006-01-02"), nil
 }
 
-var Ping = route.Get[route.None, string]("/ping")
+var Ping = route.Get[route.None, string]("/ping").Authenticated()
 
 // Install is how a feature puts itself together: it reads the environment
 // from app and hands over what it offers.
