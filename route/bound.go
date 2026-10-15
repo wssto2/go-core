@@ -173,6 +173,10 @@ func (s Security) guard(spec Spec) []gin.HandlerFunc {
 
 	chain := append([]gin.HandlerFunc(nil), s.Authenticate...)
 
+	if spec.PersonOnly {
+		chain = append(chain, refuseServiceAccount)
+	}
+
 	if spec.Permission != "" {
 		chain = append(chain, authzhttp.Require(s.Authorizer, spec.Permission))
 	}
@@ -186,6 +190,20 @@ func (s Security) guard(spec Spec) []gin.HandlerFunc {
 	}
 
 	return chain
+}
+
+var errPersonOnly = errors.New("this is for a person; a service account cannot use it")
+
+// refuseServiceAccount answers 403 to a request made as a service account.
+func refuseServiceAccount(c *gin.Context) {
+	if p, ok := authz.PrincipalFrom(c.Request.Context()); ok && p.Kind == authz.KindServiceAccount {
+		_ = c.Error(apperr.ForbiddenErr(errPersonOnly).WithReason(authz.ReasonForbidden, map[string]any{"why": "person_only"}))
+		c.Abort()
+
+		return
+	}
+
+	c.Next()
 }
 
 // problem is a mount error that names the route it is about.
@@ -203,6 +221,8 @@ func (s Security) check(spec Spec) error {
 	case spec.Public && len(needs) > 0:
 		return problem("route " + spec.String() + " is Public but also requires " + strings.Join(needs, ", ") +
 			": remove .Public() so it needs sign-in, or remove .Requires(...)")
+	case spec.Public && spec.PersonOnly:
+		return problem("route " + spec.String() + " is Public but also PersonOnly: a public route is not authenticated, so it has no service account to refuse")
 	case spec.Public:
 		return nil
 	case len(s.Authenticate) == 0:
@@ -273,6 +293,13 @@ func (r RawRoute) RequiresAll(permissions ...string) RawRoute {
 // Public opens the route to anyone; see Route.Public.
 func (r RawRoute) Public() RawRoute {
 	r.d.spec.Public = true
+	return r
+}
+
+// PersonOnly refuses a service account with 403; see Route.PersonOnly.
+func (r RawRoute) PersonOnly() RawRoute {
+	r.d.spec.PersonOnly = true
+
 	return r
 }
 

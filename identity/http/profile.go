@@ -11,28 +11,28 @@ import (
 )
 
 // The profile routes: what a signed-in person does with their own account. They
-// need a signed-in person and no permission.
+// need a signed-in person and no permission; a service account is refused (PersonOnly).
 var (
 	// ShowProfile is the person's own account, with an e-mail change that waits for its code.
-	ShowProfile = route.Get[route.None, ProfileResponse](profileBase).Name("identity.profile.show")
+	ShowProfile = route.Get[route.None, ProfileResponse](profileBase).Name("identity.profile.show").PersonOnly()
 	// UpdateProfile writes the person's name and phone.
-	UpdateProfile = route.Put[UpdateProfileInput, ProfileResponse](profileBase).Name("identity.profile.update")
+	UpdateProfile = route.Put[UpdateProfileInput, ProfileResponse](profileBase).Name("identity.profile.update").PersonOnly()
 	// ChangeOwnPassword changes the password and signs out every other session.
-	ChangeOwnPassword = route.Put[ChangePasswordInput, route.Empty](profileBase + "/password").Name("identity.profile.change-password")
+	ChangeOwnPassword = route.Put[ChangePasswordInput, route.Empty](profileBase + "/password").Name("identity.profile.change-password").PersonOnly()
 	// RequestEmailChange mails a code to a new address after the password is confirmed.
-	RequestEmailChange = route.Post[RequestEmailInput, PendingEmail](profileBase + "/email").Name("identity.profile.request-email")
+	RequestEmailChange = route.Post[RequestEmailInput, PendingEmail](profileBase + "/email").Name("identity.profile.request-email").PersonOnly()
 	// ResendEmailCode mails a fresh code to the pending address.
-	ResendEmailCode = route.Post[route.None, PendingEmail](profileBase + "/email/resend").Name("identity.profile.resend-email")
+	ResendEmailCode = route.Post[route.None, PendingEmail](profileBase + "/email/resend").Name("identity.profile.resend-email").PersonOnly()
 	// ConfirmEmailChange verifies the code and makes the new address the person's.
-	ConfirmEmailChange = route.Post[ConfirmEmailInput, ProfileResponse](profileBase + "/email/confirm").Name("identity.profile.confirm-email")
+	ConfirmEmailChange = route.Post[ConfirmEmailInput, ProfileResponse](profileBase + "/email/confirm").Name("identity.profile.confirm-email").PersonOnly()
 	// CancelEmailChange drops the pending change.
-	CancelEmailChange = route.Delete[route.None, route.Empty](profileBase + "/email").Name("identity.profile.cancel-email")
+	CancelEmailChange = route.Delete[route.None, route.Empty](profileBase + "/email").Name("identity.profile.cancel-email").PersonOnly()
 	// OwnSignIns is the person's own sign-in history, newest first, with the count of each view in meta.views.
-	OwnSignIns = route.Get[OwnSignInsInput, datatable.DatatableResult[SignInRow]](profileBase + "/signins").Name("identity.profile.signins")
+	OwnSignIns = route.Get[OwnSignInsInput, datatable.DatatableResult[SignInRow]](profileBase + "/signins").Name("identity.profile.signins").PersonOnly()
 	// OwnSessions lists the person's live sessions; the one the request came with is marked current.
-	OwnSessions = route.Get[route.None, SessionList](profileBase + "/sessions").Name("identity.profile.sessions")
+	OwnSessions = route.Get[route.None, SessionList](profileBase + "/sessions").Name("identity.profile.sessions").PersonOnly()
 	// RevokeOwnSession ends one of the person's sessions, not the current one (that is signing out).
-	RevokeOwnSession = route.Delete[OwnSessionInput, route.Empty](profileBase + "/sessions/:session_id").Name("identity.profile.revoke-session")
+	RevokeOwnSession = route.Delete[OwnSessionInput, route.Empty](profileBase + "/sessions/:session_id").Name("identity.profile.revoke-session").PersonOnly()
 )
 
 // OwnSignInsInput is a page of the person's own sign-in history; View is as in SignInsInput.

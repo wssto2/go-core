@@ -28,6 +28,8 @@ type Spec struct {
 	// Public is true for a route anyone may call. Every other route needs an
 	// authenticated principal, and Permission, when set, on top of that.
 	Public bool
+	// PersonOnly is true for a route only a person may call: a service account (an API key) is refused with 403.
+	PersonOnly bool
 	// Status is the success status the route answers; 0 means the default, 200 (204 for an Empty output).
 	Status int
 	In     reflect.Type
@@ -158,6 +160,15 @@ func (r Route[In, Out]) RequiresAll(permissions ...string) Route[In, Out] {
 // route cannot also Requires a permission.
 func (r Route[In, Out]) Public() Route[In, Out] {
 	r.d.spec.Public = true
+	return r
+}
+
+// PersonOnly refuses a service account (a request made with an API key) with 403, whatever
+// permission it holds: for what only a person has, such as their own session, profile or devices.
+// It is checked after the authentication, so a route that is Public cannot also be PersonOnly.
+func (r Route[In, Out]) PersonOnly() Route[In, Out] {
+	r.d.spec.PersonOnly = true
+
 	return r
 }
 
