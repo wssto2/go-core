@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -150,6 +151,20 @@ func WithDeadLetterRetention(d time.Duration) Option {
 // 'unsafe-eval' for Zod); production keeps a nonce-only script-src.
 func WithCSP(directive string, sources ...string) Option {
 	return WithBuilder(func(b *bootstrap.AppBuilder) { b.WithCSP(directive, sources...) })
+}
+
+// WithServiceWorker serves the file at /sw.js, at the root of the site outside
+// the prefix, which is the scope a PWA's service worker needs to control every
+// page. It is public and never cached (Cache-Control: no-cache), so a new
+// build's worker is picked up on the next load. A missing file answers 404.
+func WithServiceWorker(file string) Option {
+	return func(app *App) {
+		app.Root(route.Raw(http.MethodGet, "/sw.js").Name("serviceworker").Public().To(func(ctx *gin.Context) {
+			ctx.Header("Cache-Control", "no-cache")
+			ctx.Header("Content-Type", "text/javascript; charset=utf-8")
+			ctx.File(file)
+		}))
+	}
 }
 
 // WithClock replaces the system clock.
