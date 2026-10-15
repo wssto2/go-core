@@ -124,7 +124,8 @@ func WithAuthentication(middleware ...gin.HandlerFunc) Option {
 // WithPrefix mounts every route collected by Routes under one path prefix, the
 // place the API lives: WithPrefix("/api") serves a route declared as
 // "/v1/iam/roles" at "/api/v1/iam/roles". The prefix does not carry a version:
-// routes declare theirs. Modules never take a prefix of their own.
+// routes declare theirs. Modules never take a prefix of their own. Root routes
+// are the exception: they are served outside it.
 func WithPrefix(prefix string) Option {
 	return func(app *App) { app.prefix = "/" + strings.Trim(prefix, "/") }
 }
@@ -305,6 +306,15 @@ func (a *App) Routes(routes ...route.Handled) {
 	}
 }
 
+// Root collects routes served outside the prefix, at the root of the site: a
+// service worker at /sw.js, an embed page at /embed. They are mounted behind
+// the same security as Routes, unless a route is Public.
+func (a *App) Root(routes ...route.Handled) {
+	for _, r := range routes {
+		a.routes = append(a.routes, mounted{Handled: r, root: true})
+	}
+}
+
 // RoutesWith collects routes that are authenticated by a chain of the feature's
 // own instead of the application's: an app whose routes take API keys or its
 // own tokens next to identity's session, for instance.
@@ -348,6 +358,26 @@ type mounted struct {
 	route.Handled
 
 	own *route.Security
+	// root routes are served outside the prefix.
+	root bool
+}
+
+// group is where the route is mounted: under the prefix, or at the site root.
+func (m mounted) group(engine gin.IRouter, prefix string) gin.IRoutes {
+	if m.root {
+		return engine
+	}
+
+	return engine.Group(prefix)
+}
+
+// path is the route's path as served.
+func (m mounted) path(prefix string) string {
+	if m.root {
+		return m.Spec().Path
+	}
+
+	return prefix + m.Spec().Path
 }
 
 // mount registers the route behind the application's security, or its own.

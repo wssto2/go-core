@@ -72,7 +72,7 @@ func (a *App) routeProblems() []Problem {
 	for i, r := range a.routes {
 		spec := r.Spec()
 
-		key := spec.Method + " " + spec.Path
+		key := spec.Method + " " + r.path(a.prefix)
 		if seen[key] {
 			problems = append(problems, Problem{
 				What: "route " + key + " is installed twice",
@@ -126,7 +126,7 @@ func (a *App) dryMount(scratch *gin.Engine, entry mounted) (err error) {
 		}
 	}()
 
-	return entry.mount(scratch.Group(a.prefix), a.security())
+	return entry.mount(entry.group(scratch, a.prefix), a.security())
 }
 
 func (a *App) catalogued(permission string) bool {
@@ -243,7 +243,7 @@ func (m *featuresModule) Register(c *bootstrap.Container) error {
 	}
 
 	for _, r := range m.app.routes {
-		err := r.mount(engine.Group(m.app.prefix), m.app.security())
+		err := r.mount(r.group(engine, m.app.prefix), m.app.security())
 		if err != nil {
 			return err
 		}
@@ -314,7 +314,7 @@ func (a *App) Handler() (http.Handler, error) {
 	engine.Use(middlewares.ErrorHandler(a.log, nil, true))
 
 	for _, r := range a.routes {
-		err := r.mount(engine.Group(a.prefix), a.security())
+		err := r.mount(r.group(engine, a.prefix), a.security())
 		if err != nil {
 			return nil, err
 		}
