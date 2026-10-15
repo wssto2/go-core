@@ -1,4 +1,4 @@
-//nolint:testpackage,paralleltest // uses the package's runnable helper; a real server, and production sets gin's global mode
+//nolint:testpackage,paralleltest // uses the package's runnable helper; a real server that sets gin's global mode
 package gocore
 
 import (

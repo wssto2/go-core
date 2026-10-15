@@ -11,8 +11,11 @@ import (
 func TestWithServiceWorkerServesTheFileAtTheRootOutsideThePrefix(t *testing.T) {
 	t.Parallel()
 
+	const script = "self.addEventListener('fetch', () => {})"
+
 	file := filepath.Join(t.TempDir(), "worker.js")
-	err := os.WriteFile(file, []byte("self.addEventListener('fetch', () => {})"), 0o600)
+
+	err := os.WriteFile(file, []byte(script), 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +30,7 @@ func TestWithServiceWorkerServesTheFileAtTheRootOutsideThePrefix(t *testing.T) {
 	}
 
 	rec := call(handler, "/sw.js") // no sign-in: a worker script is fetched without credentials
-	if rec.Code != http.StatusOK || rec.Body.String() != "self.addEventListener('fetch', () => {})" {
+	if rec.Code != http.StatusOK || rec.Body.String() != script {
 		t.Fatalf("%d %q", rec.Code, rec.Body)
 	}
 
