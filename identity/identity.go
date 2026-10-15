@@ -99,6 +99,10 @@ type (
 	ChangeAction = account.ChangeAction
 	// Session is one sign-in of an account on one device.
 	Session = account.Session
+	// Authenticated is the account and session behind a request's token, what WithRequestUser is given.
+	Authenticated = account.Authenticated
+	// RequestUser makes the application's own user of the signed-in account; WithRequestUser sets it.
+	RequestUser = identityhttp.RequestUser
 	// AccountStore keeps accounts; WithAccounts replaces the default.
 	AccountStore = account.Store
 	// PasswordHasher hashes passwords; WithHasher replaces bcrypt.
@@ -157,6 +161,7 @@ type settings struct {
 	project                 UserProjector
 	principal               PrincipalOf
 	tenant                  identityhttp.TenantOf
+	requestUser             RequestUser
 	navigation              NavigationProvider
 	cookies                 Cookies
 	mail                    mail.Sender
@@ -251,6 +256,14 @@ func WithPrincipal(p PrincipalOf) Option { return func(s *settings) { s.principa
 // the tenant of an account, which is the application's own data, so the application answers; it is the same
 // question WithPrincipal answers for the authz principal. Without it no tenant is set.
 func WithTenant(of identityhttp.TenantOf) Option { return func(s *settings) { s.tenant = of } }
+
+// WithRequestUser makes the application's own user of the signed-in account: what it returns becomes the request's
+// user (auth.GetIdentifiable, auth.UserOf[T]) on every route, identity's and the application's, where without it
+// the account itself is. It runs on every request, after the session is found and before the handler, so nothing
+// a cache holds decides the user: an application whose services take its own user type, refreshed from its own
+// data, builds it here. An error answers the request as it is (apperr.Unauthorized for a person who may no longer
+// act). The authz principal is still the account's (WithPrincipal).
+func WithRequestUser(of RequestUser) Option { return func(s *settings) { s.requestUser = of } }
 
 // WithNavigation sets the menu /auth/me carries, cut down to the permissions the
 // person holds. The tree is yours; identity only filters it.
@@ -535,7 +548,9 @@ func Install(app *gocore.App, opts ...Option) *Users {
 
 	cfg.Access = s.accessOf(app)
 
-	chain := []gin.HandlerFunc{identityhttp.Authentication(svc.SignIn, s.cookies, s.principal)}
+	chain := []gin.HandlerFunc{identityhttp.Authenticator{
+		SignIn: svc.SignIn, Cookies: s.cookies, Principal: s.principal, User: s.requestUser,
+	}.Middleware()}
 	if s.tenant != nil {
 		chain = append(chain, identityhttp.Tenant(s.tenant))
 	}

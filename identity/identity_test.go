@@ -597,3 +597,74 @@ func TestLoginAsRefusedForLackOfPermissionCarriesItsReason(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), `"code":"authz.forbidden"`, name)
 	}
 }
+
+// shopper is an application's own user type, built from the account on every request.
+type shopper struct {
+	id   int
+	Shop string
+}
+
+func (s shopper) GetID() int { return s.id }
+
+func shopOf(ctx context.Context, _ route.None) (string, error) {
+	if s, ok := auth.UserOf[shopper](ctx); ok {
+		return s.Shop, nil
+	}
+
+	return "no shopper", nil
+}
+
+// WithRequestUser makes the request's user of the account on every request, so what it reads is never older than the request.
+func TestWithRequestUserMakesTheRequestsUser(t *testing.T) {
+	t.Parallel()
+
+	shop := "north"
+	app := newApp(t)
+	identity.Install(app, identity.WithoutMail(), identity.WithRequestUser(
+		func(_ context.Context, who identity.Authenticated) (auth.Identifiable, error) {
+			if who.Account.Login == "banned" {
+				return nil, apperr.Unauthorized("not any more")
+			}
+
+			return shopper{id: who.Account.ID, Shop: shop + ":" + who.Account.Login}, nil
+		}))
+	app.Routes(route.Get[route.None, string]("/shop").To(shopOf))
+	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
+	seed(t, app.Database(), identitytest.Account(8, "banned", "secret"))
+	require.NoError(t, app.Check())
+
+	web := newClient(t, app)
+	require.Equal(t, nethttp.StatusOK,
+		web.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "ana", "password": "secret"}).Code)
+	assert.JSONEq(t, `{"success":true,"data":"north:ana"}`, web.do(nethttp.MethodGet, "/shop", nil).Body.String())
+
+	shop = "south" // the next request sees the change: nothing is cached
+	assert.JSONEq(t, `{"success":true,"data":"south:ana"}`, web.do(nethttp.MethodGet, "/shop", nil).Body.String())
+
+	other := newClient(t, app)
+	require.Equal(t, nethttp.StatusOK,
+		other.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "banned", "password": "secret"}).Code)
+	assert.Equal(t, nethttp.StatusUnauthorized, other.do(nethttp.MethodGet, "/shop", nil).Code, "an error from the function answers the request")
+}
+
+// Without WithRequestUser the account is the user.
+func TestWithoutRequestUserTheAccountIsTheUser(t *testing.T) {
+	t.Parallel()
+
+	app := newApp(t)
+	identity.Install(app, identity.WithoutMail())
+	app.Routes(route.Get[route.None, string]("/shop").To(func(ctx context.Context, _ route.None) (string, error) {
+		if a, ok := auth.UserOf[account.Account](ctx); ok {
+			return a.Login, nil
+		}
+
+		return "none", nil
+	}))
+	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
+	require.NoError(t, app.Check())
+
+	web := newClient(t, app)
+	require.Equal(t, nethttp.StatusOK,
+		web.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "ana", "password": "secret"}).Code)
+	assert.JSONEq(t, `{"success":true,"data":"ana"}`, web.do(nethttp.MethodGet, "/shop", nil).Body.String())
+}
