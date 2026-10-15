@@ -188,6 +188,13 @@ func buildWorld(t *testing.T, db *gorm.DB, authorizer authz.Authorizer, sink *ma
 	w.app = gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAutoMigrate(t.Context()), gocore.WithClock(w.clock), gocore.WithAuthorizer(authorizer),
 		gocore.WithAuthentication(func(c *gin.Context) {
+			if robot, err := strconv.Atoi(c.GetHeader("X-Robot")); err == nil { // a service account, made with an API key
+				c.Request = c.Request.WithContext(authz.WithPrincipal(c.Request.Context(), authz.ServiceAccount(robot)))
+				c.Next()
+
+				return
+			}
+
 			id, err := strconv.Atoi(c.GetHeader("X-Person"))
 			if err != nil {
 				_ = c.Error(apperr.Unauthorized("not signed in"))

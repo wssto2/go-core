@@ -111,12 +111,12 @@ type DeadLetterDeclared struct {
 func DeclareDeadLetters() *DeadLetterDeclared {
 	d := &DeadLetterDeclared{
 		List: route.Get[DeadLettersInput, datatable.DatatableResult[DeadLetterRow]](deadLetters).
-			Name("events.dead-letters.list").Requires(ViewDeadLetters),
+			Name("events.dead-letters.list").Requires(ViewDeadLetters).PersonOnly(),
 		Retry: route.Post[RetryInput, Retried](deadLetters + "/:event/:consumer/retry").
-			Name("events.dead-letters.retry").Requires(RetryDeadLetters),
+			Name("events.dead-letters.retry").Requires(RetryDeadLetters).PersonOnly(),
 		RetryAll: route.Post[RetryAllInput, Retried](deadLetters + "/retry").
-			Name("events.dead-letters.retry-all").Requires(RetryDeadLetters),
-		Consumers: route.Get[route.None, ConsumerNames](base + "/events/consumers").Name("events.consumers").Requires(ViewDeadLetters),
+			Name("events.dead-letters.retry-all").Requires(RetryDeadLetters).PersonOnly(),
+		Consumers: route.Get[route.None, ConsumerNames](base + "/events/consumers").Name("events.consumers").Requires(ViewDeadLetters).PersonOnly(),
 	}
 
 	d.group = route.Group("events", d.List, d.Retry, d.RetryAll, d.Consumers)
