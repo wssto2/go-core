@@ -93,13 +93,13 @@ type Visibility struct {
 }
 
 // Sees reports whether the visibility reaches the account.
-func (v Visibility) Sees(a Account) bool {
+func (v Visibility) Sees(account Account) bool {
 	if v.All {
 		return true
 	}
 
 	for _, id := range v.Tenants {
-		if a.TenantID > 0 && id == a.TenantID {
+		if account.TenantID > 0 && id == account.TenantID {
 			return true
 		}
 	}
@@ -109,6 +109,13 @@ func (v Visibility) Sees(a Account) bool {
 
 // Store keeps service accounts and their keys. gormstore is the SQL one; storetest holds a store to it.
 type Store interface {
+	AccountStore
+	KeyStore
+	NoticeStore
+}
+
+// AccountStore is the accounts half of a Store.
+type AccountStore interface {
 	// List returns the accounts the visibility reaches, by name, with their key summary as of at.
 	List(ctx context.Context, visible Visibility, at time.Time) ([]Summary, error)
 	// Find returns one account with its key summary as of at, or ErrNotFound.
@@ -117,7 +124,10 @@ type Store interface {
 	Create(ctx context.Context, account *Account) error
 	// Update stores the name, description, tenant, owner, update and deactivation of the account.
 	Update(ctx context.Context, account Account) error
+}
 
+// KeyStore is the keys half of a Store.
+type KeyStore interface {
 	// Keys returns every key of an account, newest first.
 	Keys(ctx context.Context, accountID int) ([]Key, error)
 	// FindKey returns one key of the account, or ErrKeyNotFound.
@@ -132,8 +142,6 @@ type Store interface {
 	FindByKeyHash(ctx context.Context, hash string) (Key, Account, error)
 	// TouchKey records a use of the key.
 	TouchKey(ctx context.Context, keyID int, at time.Time) error
-
-	NoticeStore
 }
 
 // DefaultKeyPrefix starts the secret of every key unless Config.KeyPrefix says otherwise, so a secret is

@@ -124,22 +124,29 @@ func Declare() *Declared {
 		Stream:      route.Raw("GET", inbox+"/stream").Name("notification.stream").PersonOnly(),
 		Test:        route.Post[route.None, route.Empty](inbox + "/test").Name("notification.test").PersonOnly(),
 
-		Preferences:   route.Get[route.None, Preferences](inbox + "/preferences").Name("notification.preferences").PersonOnly(),
-		SetEmail:      route.Put[SetEmailInput, CategorySettings](inbox + "/preferences/:category").Name("notification.preferences.set-email").PersonOnly(),
-		SetQuietHours: route.Put[QuietHoursInput, QuietHours](inbox + "/quiet-hours").Name("notification.quiet-hours").PersonOnly(),
+		Preferences: route.Get[route.None, Preferences](inbox + "/preferences").
+			Name("notification.preferences").PersonOnly(),
+		SetEmail: route.Put[SetEmailInput, CategorySettings](inbox + "/preferences/:category").
+			Name("notification.preferences.set-email").PersonOnly(),
+		SetQuietHours: route.Put[QuietHoursInput, QuietHours](inbox + "/quiet-hours").
+			Name("notification.quiet-hours").PersonOnly(),
 		SetPush: route.Put[SetPushInput, CategorySettings](
 			inbox + "/preferences/:category/push",
 		).Name("notification.preferences.set-push").PersonOnly(),
 
 		PushConfig: route.Get[route.None, PushConfig](inbox + "/push").Name("notification.push").PersonOnly(),
 		Devices:    route.Get[route.None, DeviceList](inbox + "/devices").Name("notification.devices").PersonOnly(),
-		Subscribe:  route.Post[Subscription, Device](inbox + "/devices").Name("notification.device.subscribe").PersonOnly(),
+		Subscribe: route.Post[Subscription, Device](inbox + "/devices").
+			Name("notification.device.subscribe").PersonOnly(),
 		Unsubscribe: route.Post[UnsubscribeInput, DeviceList](
 			inbox + "/devices/unsubscribe",
 		).Name("notification.device.unsubscribe").PersonOnly(),
-		RenameDevice: route.Patch[RenameDeviceInput, Device](inbox + "/devices/:id").Name("notification.device.rename").PersonOnly(),
-		RemoveDevice: route.Delete[DeviceInput, DeviceList](inbox + "/devices/:id").Name("notification.device.remove").PersonOnly(),
-		TestDevice:   route.Post[DeviceInput, DeviceList](inbox + "/devices/:id/test").Name("notification.device.test").PersonOnly(),
+		RenameDevice: route.Patch[RenameDeviceInput, Device](inbox + "/devices/:id").
+			Name("notification.device.rename").PersonOnly(),
+		RemoveDevice: route.Delete[DeviceInput, DeviceList](inbox + "/devices/:id").
+			Name("notification.device.remove").PersonOnly(),
+		TestDevice: route.Post[DeviceInput, DeviceList](inbox + "/devices/:id/test").
+			Name("notification.device.test").PersonOnly(),
 	}
 
 	d.group = route.Group("notification", d.List, d.Unread, d.MarkRead, d.MarkAllRead, d.Stream, d.Test, d.Preferences,

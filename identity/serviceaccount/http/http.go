@@ -10,6 +10,7 @@ package http
 
 import (
 	"context"
+	"fmt"
 	nethttp "net/http"
 	"time"
 
@@ -50,21 +51,31 @@ type RevokeRequest struct {
 }
 
 // The service account routes. A path id that is not a number answers 400, for the whole group.
+//
+//nolint:gochecknoglobals // a route is declared once, as a value
 var (
-	Index = route.Get[route.None, ServiceAccountList](base).Name("serviceaccount.index").Requires(serviceaccount.View)
-	Show  = route.Get[AccountPath, ServiceAccount](record).Name("serviceaccount.show").Requires(serviceaccount.View)
+	Index = route.Get[route.None, ServiceAccountList](base).
+		Name("serviceaccount.index").Requires(serviceaccount.View)
+	Show = route.Get[AccountPath, ServiceAccount](record).
+		Name("serviceaccount.show").Requires(serviceaccount.View)
 	// Create makes an account, answering 201.
-	Create     = route.Post[serviceaccount.SaveInput, ServiceAccount](base).Name("serviceaccount.create").Requires(serviceaccount.Manage).Status(nethttp.StatusCreated)
-	Update     = route.Put[UpdateRequest, ServiceAccount](record).Name("serviceaccount.update").Requires(serviceaccount.Manage)
-	Deactivate = route.Post[AccountPath, ServiceAccount](record + "/deactivate").Name("serviceaccount.deactivate").Requires(serviceaccount.Manage)
-	Keys       = route.Get[AccountPath, ApiKeyList](record + "/keys").Name("serviceaccount.keys").Requires(serviceaccount.View)
-	RevokeKey  = route.Post[RevokeRequest, route.Empty](record + "/keys/:keyID/revoke").Name("serviceaccount.revokekey").Requires(serviceaccount.Revoke)
+	Create = route.Post[serviceaccount.SaveInput, ServiceAccount](base).
+		Name("serviceaccount.create").Requires(serviceaccount.Manage).Status(nethttp.StatusCreated)
+	Update = route.Put[UpdateRequest, ServiceAccount](record).
+		Name("serviceaccount.update").Requires(serviceaccount.Manage)
+	Deactivate = route.Post[AccountPath, ServiceAccount](record + "/deactivate").
+			Name("serviceaccount.deactivate").Requires(serviceaccount.Manage)
+	Keys = route.Get[AccountPath, ApiKeyList](record + "/keys").
+		Name("serviceaccount.keys").Requires(serviceaccount.View)
+	RevokeKey = route.Post[RevokeRequest, route.Empty](record + "/keys/:keyID/revoke").
+			Name("serviceaccount.revokekey").Requires(serviceaccount.Revoke)
 
 	// CreateKey answers with the new key's secret, shown once, and Cache-Control: no-store.
-	CreateKey = route.Post[KeyRequest, CreatedApiKey](record + "/keys").Name("serviceaccount.createkey").Requires(serviceaccount.Manage).Status(nethttp.StatusCreated)
+	CreateKey = route.Post[KeyRequest, CreatedApiKey](record + "/keys").
+			Name("serviceaccount.createkey").Requires(serviceaccount.Manage).Status(nethttp.StatusCreated)
 
-	// Contract is what the module offers the outside: contract.Generate(dir, serviceaccount.Routes) writes its TypeScript.
-	// It lists the access routes of an account too, which access.Install serves.
+	// Contract is what the module offers the outside: contract.Generate(dir, serviceaccount.Routes) writes its
+	// TypeScript. It lists the access routes of an account too, which access.Install serves.
 	Contract = route.Group("serviceaccount", Index, Show, Create, Update, Deactivate, Keys, CreateKey, RevokeKey,
 		accesshttp.ServiceAccountBindableRoles, accesshttp.ServiceAccountAccess, accesshttp.ServiceAccountScopes,
 		accesshttp.ServiceAccountBind, accesshttp.ServiceAccountUnbind).MalformedPath(nethttp.StatusBadRequest)
@@ -90,49 +101,50 @@ type ServiceAccount struct {
 	Description   string         `json:"description"`
 	Tenant        *AccountTenant `json:"tenant"`
 	Owner         PersonRef      `json:"owner"`
-	CreatedBy     PersonRef      `json:"created_by"`
-	CreatedAt     time.Time      `json:"created_at"`
-	ActiveKeys    int            `json:"active_keys"`
-	LastUsedAt    *time.Time     `json:"last_used_at"`
-	DeactivatedAt *time.Time     `json:"deactivated_at"`
+	CreatedBy     PersonRef      `json:"created_by"`     //nolint:tagliatelle // snake_case wire
+	CreatedAt     time.Time      `json:"created_at"`     //nolint:tagliatelle // snake_case wire
+	ActiveKeys    int            `json:"active_keys"`    //nolint:tagliatelle // snake_case wire
+	LastUsedAt    *time.Time     `json:"last_used_at"`   //nolint:tagliatelle // snake_case wire
+	DeactivatedAt *time.Time     `json:"deactivated_at"` //nolint:tagliatelle // snake_case wire
 }
 
 // ServiceAccountList is the accounts of GET /service-accounts.
 type ServiceAccountList struct {
-	ServiceAccounts []ServiceAccount `json:"service_accounts"`
+	ServiceAccounts []ServiceAccount `json:"service_accounts"` //nolint:tagliatelle // snake_case wire
 }
 
 // ApiKey is an API key without its secret.
-type ApiKey struct {
+type ApiKey struct { //nolint:revive // the name is the TypeScript contract
 	ID         int        `json:"id"`
 	Name       string     `json:"name"`
 	Prefix     string     `json:"prefix"`
-	CreatedBy  PersonRef  `json:"created_by"`
-	CreatedAt  time.Time  `json:"created_at"`
-	LastUsedAt *time.Time `json:"last_used_at"`
-	ExpiresAt  *time.Time `json:"expires_at"`
-	RevokedAt  *time.Time `json:"revoked_at"`
+	CreatedBy  PersonRef  `json:"created_by"`   //nolint:tagliatelle // snake_case wire
+	CreatedAt  time.Time  `json:"created_at"`   //nolint:tagliatelle // snake_case wire
+	LastUsedAt *time.Time `json:"last_used_at"` //nolint:tagliatelle // snake_case wire
+	ExpiresAt  *time.Time `json:"expires_at"`   //nolint:tagliatelle // snake_case wire
+	RevokedAt  *time.Time `json:"revoked_at"`   //nolint:tagliatelle // snake_case wire
 }
 
 // ApiKeyList is the keys of GET /service-accounts/:id/keys.
-type ApiKeyList struct {
+type ApiKeyList struct { //nolint:revive // the name is the TypeScript contract
 	Keys []ApiKey `json:"keys"`
 }
 
 // CreatedApiKey is a new key with its secret: the only time the secret is ever returned.
-type CreatedApiKey struct {
+type CreatedApiKey struct { //nolint:revive // the name is the TypeScript contract
 	Key    ApiKey `json:"key"`
 	Secret string `json:"secret"`
 }
 
-func accountOf(a serviceaccount.AccountView) ServiceAccount {
+func accountOf(view serviceaccount.AccountView) ServiceAccount {
 	out := ServiceAccount{
-		ID: a.ID, Name: a.Name, Description: a.Description, Owner: PersonRef(a.Owner), CreatedBy: PersonRef(a.CreatedBy),
-		CreatedAt: a.CreatedAt, ActiveKeys: a.ActiveKeys, LastUsedAt: a.LastUsedAt, DeactivatedAt: a.DeactivatedAt,
+		ID: view.ID, Name: view.Name, Description: view.Description, Tenant: nil, Owner: PersonRef(view.Owner),
+		CreatedBy: PersonRef(view.CreatedBy), CreatedAt: view.CreatedAt, ActiveKeys: view.ActiveKeys,
+		LastUsedAt: view.LastUsedAt, DeactivatedAt: view.DeactivatedAt,
 	}
 
-	if a.Tenant != nil {
-		out.Tenant = &AccountTenant{ID: a.Tenant.ID, Name: a.Tenant.Name}
+	if view.Tenant != nil {
+		out.Tenant = &AccountTenant{ID: view.Tenant.ID, Name: view.Tenant.Name}
 	}
 
 	return out
@@ -170,9 +182,9 @@ func Routes(accounts Accounts) []route.Handled {
 type handler struct{ accounts Accounts }
 
 // positive refuses a path id that is zero or negative: the account of such an id cannot exist.
-func positive(name string, id int) error {
+func positive(id int) error {
 	if id <= 0 {
-		return apperr.BadRequest("invalid " + name + ": must be a positive integer")
+		return apperr.BadRequest("invalid id: must be a positive integer")
 	}
 
 	return nil
@@ -181,61 +193,65 @@ func positive(name string, id int) error {
 func (h handler) index(ctx context.Context, _ route.None) (ServiceAccountList, error) {
 	accounts, err := h.accounts.List(ctx)
 	if err != nil {
-		return ServiceAccountList{}, err
+		return ServiceAccountList{}, fmt.Errorf("serviceaccount: list: %w", err)
 	}
 
 	out := ServiceAccountList{ServiceAccounts: make([]ServiceAccount, 0, len(accounts))}
-	for _, a := range accounts {
-		out.ServiceAccounts = append(out.ServiceAccounts, accountOf(a))
+	for _, view := range accounts {
+		out.ServiceAccounts = append(out.ServiceAccounts, accountOf(view))
 	}
 
 	return out, nil
 }
 
-func (h handler) show(ctx context.Context, in AccountPath) (ServiceAccount, error) {
-	if err := positive("id", in.ID); err != nil {
+func (h handler) show(ctx context.Context, input AccountPath) (ServiceAccount, error) {
+	err := positive(input.ID)
+	if err != nil {
 		return ServiceAccount{}, err
 	}
 
-	a, err := h.accounts.Get(ctx, in.ID)
+	view, err := h.accounts.Get(ctx, input.ID)
 
-	return accountOf(a), err
+	return accountOf(view), err
 }
 
-func (h handler) create(ctx context.Context, in serviceaccount.SaveInput) (ServiceAccount, error) {
-	a, err := h.accounts.Create(ctx, in)
+func (h handler) create(ctx context.Context, input serviceaccount.SaveInput) (ServiceAccount, error) {
+	view, err := h.accounts.Create(ctx, input)
 
-	return accountOf(a), err
+	return accountOf(view), err
 }
 
-func (h handler) update(ctx context.Context, in UpdateRequest) (ServiceAccount, error) {
-	if err := positive("id", in.ID); err != nil {
+func (h handler) update(ctx context.Context, input UpdateRequest) (ServiceAccount, error) {
+	err := positive(input.ID)
+	if err != nil {
 		return ServiceAccount{}, err
 	}
 
-	a, err := h.accounts.Update(ctx, in.ID, in.SaveInput)
+	view, err := h.accounts.Update(ctx, input.ID, input.SaveInput)
 
-	return accountOf(a), err
+	return accountOf(view), err
 }
 
-func (h handler) deactivate(ctx context.Context, in AccountPath) (ServiceAccount, error) {
-	if err := positive("id", in.ID); err != nil {
+func (h handler) deactivate(ctx context.Context, input AccountPath) (ServiceAccount, error) {
+	err := positive(input.ID)
+	if err != nil {
 		return ServiceAccount{}, err
 	}
 
-	a, err := h.accounts.Deactivate(ctx, in.ID)
+	view, err := h.accounts.Deactivate(ctx, input.ID)
 
-	return accountOf(a), err
+	return accountOf(view), err
 }
 
-func (h handler) keys(ctx context.Context, in AccountPath) (ApiKeyList, error) {
-	if err := positive("id", in.ID); err != nil {
-		return ApiKeyList{}, err
-	}
-
-	keys, err := h.accounts.Keys(ctx, in.ID)
+func (h handler) keys(ctx context.Context, input AccountPath) (ApiKeyList, error) {
+	err := positive(input.ID)
 	if err != nil {
 		return ApiKeyList{}, err
+	}
+
+	keys, err := h.accounts.Keys(ctx, input.ID)
+	if err != nil {
+		return ApiKeyList{}, fmt.Errorf("serviceaccount: keys: %w", err)
 	}
 
 	out := ApiKeyList{Keys: make([]ApiKey, 0, len(keys))}
@@ -246,33 +262,42 @@ func (h handler) keys(ctx context.Context, in AccountPath) (ApiKeyList, error) {
 	return out, nil
 }
 
-func (h handler) revokeKey(ctx context.Context, in RevokeRequest) (route.Empty, error) {
-	if err := positive("id", in.ID); err != nil {
+func (h handler) revokeKey(ctx context.Context, input RevokeRequest) (route.Empty, error) {
+	err := positive(input.ID)
+	if err != nil {
 		return route.Empty{}, err
 	}
 
-	if in.KeyID <= 0 { // the 422 a path number of the route package gives
+	if input.KeyID <= 0 { // the 422 a path number of the route package gives
 		return route.Empty{}, validation.NewValidationError("validation failed",
-			map[string][]validation.Failure{"keyID": {validation.Fail(validation.CodeMustBePositiveNumber)}}, map[string][]string{"keyID": {"path"}})
+			map[string][]validation.Failure{"keyID": {validation.Fail(validation.CodeMustBePositiveNumber)}},
+			map[string][]string{"keyID": {"path"}})
 	}
 
-	return route.Empty{}, h.accounts.RevokeKey(ctx, in.ID, in.KeyID)
+	err = h.accounts.RevokeKey(ctx, input.ID, input.KeyID)
+	if err != nil {
+		return route.Empty{}, fmt.Errorf("serviceaccount: revoke key: %w", err)
+	}
+
+	return route.Empty{}, nil
 }
 
 // createKey answers the secret with Cache-Control: no-store (it is shown once: never cache it), and only
 // when the key was made: an error answer is no secret.
-func (h handler) createKey(ctx context.Context, in KeyRequest) (CreatedApiKey, error) {
-	if err := positive("id", in.ID); err != nil {
-		return CreatedApiKey{}, err
-	}
-
-	created, err := h.accounts.CreateKey(ctx, in.ID, in.KeyInput)
+func (h handler) createKey(ctx context.Context, input KeyRequest) (CreatedApiKey, error) {
+	err := positive(input.ID)
 	if err != nil {
 		return CreatedApiKey{}, err
 	}
 
-	if err := route.ExchangeOf(ctx).SetHeader("Cache-Control", "no-store"); err != nil {
-		return CreatedApiKey{}, err
+	created, err := h.accounts.CreateKey(ctx, input.ID, input.KeyInput)
+	if err != nil {
+		return CreatedApiKey{}, fmt.Errorf("serviceaccount: create key: %w", err)
+	}
+
+	err = route.ExchangeOf(ctx).SetHeader("Cache-Control", "no-store")
+	if err != nil {
+		return CreatedApiKey{}, fmt.Errorf("serviceaccount: no-store header: %w", err)
 	}
 
 	return CreatedApiKey{Key: keyOf(created.Key), Secret: created.Secret}, nil

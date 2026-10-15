@@ -116,7 +116,8 @@ func DeclareDeadLetters() *DeadLetterDeclared {
 			Name("events.dead-letters.retry").Requires(RetryDeadLetters).PersonOnly(),
 		RetryAll: route.Post[RetryAllInput, Retried](deadLetters + "/retry").
 			Name("events.dead-letters.retry-all").Requires(RetryDeadLetters).PersonOnly(),
-		Consumers: route.Get[route.None, ConsumerNames](base + "/events/consumers").Name("events.consumers").Requires(ViewDeadLetters).PersonOnly(),
+		Consumers: route.Get[route.None, ConsumerNames](base + "/events/consumers").
+			Name("events.consumers").Requires(ViewDeadLetters).PersonOnly(),
 	}
 
 	d.group = route.Group("events", d.List, d.Retry, d.RetryAll, d.Consumers)

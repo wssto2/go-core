@@ -75,18 +75,19 @@ func New(cfg Config) (*Roles, *Bindings, error) {
 		return nil, nil, fmt.Errorf("access: %w", err)
 	}
 
-	b := base{cfg: cfg, delegation: delegation, serviceDelegation: nil}
+	shared := base{cfg: cfg, delegation: delegation, serviceDelegation: nil}
 
 	if _, ok := cfg.Engine.Catalogue().Lookup(ManageServiceAccountBindings); ok {
-		b.serviceDelegation, err = authz.NewAdmin(authz.AdminConfig{
-			Engine: cfg.Engine, Store: cfg.Store, ManageRoles: ManageRoles, ManageBindings: ManageServiceAccountBindings, Protected: nil,
+		shared.serviceDelegation, err = authz.NewAdmin(authz.AdminConfig{
+			Engine: cfg.Engine, Store: cfg.Store, ManageRoles: ManageRoles,
+			ManageBindings: ManageServiceAccountBindings, Protected: nil,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("access: %w", err)
 		}
 	}
 
-	return &Roles{base: b}, &Bindings{base: b}, nil
+	return &Roles{base: shared}, &Bindings{base: shared}, nil
 }
 
 // base is what both services share.
@@ -113,7 +114,9 @@ func (b base) gateOf(kind authz.Kind) (gate, error) {
 	case kind == authz.KindUser:
 		return gate{view: ViewAccess, manage: ManageBindings, delegation: b.delegation}, nil
 	case kind == authz.KindServiceAccount && b.serviceDelegation != nil:
-		return gate{view: ViewServiceAccountAccess, manage: ManageServiceAccountBindings, delegation: b.serviceDelegation}, nil
+		return gate{
+			view: ViewServiceAccountAccess, manage: ManageServiceAccountBindings, delegation: b.serviceDelegation,
+		}, nil
 	default:
 		return gate{}, apperr.NotFound("subject not found")
 	}

@@ -133,16 +133,7 @@ func (a Authenticator) bySession(ctx *gin.Context, cookies Cookies, principal Pr
 		return
 	}
 
-	who := Authenticated{Authenticated: signed, ServiceAccount: nil}
-
-	acting, err := principal(reqCtx, who.Account)
-	if err != nil {
-		refuse(ctx, err)
-
-		return
-	}
-
-	user, err := a.requestUser(reqCtx, who, who.Account)
+	acting, err := principal(reqCtx, signed.Account)
 	if err != nil {
 		refuse(ctx, err)
 
@@ -152,7 +143,7 @@ func (a Authenticator) bySession(ctx *gin.Context, cookies Cookies, principal Pr
 	reqCtx = context.WithValue(reqCtx, authenticatedKey{}, signed)
 	ctx.Request = ctx.Request.WithContext(authz.WithPrincipal(reqCtx, acting))
 
-	a.admit(ctx, user)
+	a.serve(ctx, Authenticated{Authenticated: signed, ServiceAccount: nil}, signed.Account)
 }
 
 // byKey is the chain of a request that presents an API key. The key is the only credential looked at: a session
@@ -160,7 +151,8 @@ func (a Authenticator) bySession(ctx *gin.Context, cookies Cookies, principal Pr
 // nobody, since a service account is no account of identity's.
 func (a Authenticator) byKey(ctx *gin.Context) {
 	secret := ctx.GetHeader(KeyHeader)
-	delete(ctx.Request.Header, nethttp.CanonicalHeaderKey(KeyHeader)) // nothing after this reads, logs or forwards the secret
+	// nothing after this reads, logs or forwards the secret
+	delete(ctx.Request.Header, nethttp.CanonicalHeaderKey(KeyHeader))
 
 	if len(secret) > maxKeyLength {
 		refuse(ctx, apperr.Unauthorized("invalid API key"))
@@ -177,41 +169,40 @@ func (a Authenticator) byKey(ctx *gin.Context) {
 		return
 	}
 
-	user, err := a.requestUser(reqCtx, Authenticated{Authenticated: account.Authenticated{}, ServiceAccount: &caller}, caller)
-	if err != nil {
-		refuse(ctx, err)
-
-		return
-	}
-
 	ctx.Request = ctx.Request.WithContext(authz.WithPrincipal(reqCtx, authz.ServiceAccount(caller.AccountID)))
 
-	if a.admit(ctx, user) {
+	if a.serve(ctx, keyRequest(&caller), caller) {
 		a.Keys.record(ctx, caller)
 	}
 }
 
-// requestUser is the request's user: the application's own when it made one, else own, the account or the caller.
-func (a Authenticator) requestUser(ctx context.Context, who Authenticated, own auth.Identifiable) (auth.Identifiable, error) {
-	if a.User == nil {
-		return own, nil
-	}
+// keyRequest is who a request made with a key was made by: no account, the service account.
+func keyRequest(caller *serviceaccount.Caller) Authenticated {
+	var noAccount account.Authenticated
 
-	user, err := a.User(ctx, who)
-	if err != nil {
-		return nil, err
-	}
-
-	if user == nil {
-		return nil, apperr.Internal(errNoRequestUser)
-	}
-
-	return user, nil
+	return Authenticated{Authenticated: noAccount, ServiceAccount: caller}
 }
 
-// admit makes the user the request's, counts it in the application's per-user rate limit and hands the request on.
-// It reports whether the request went on.
-func (Authenticator) admit(ctx *gin.Context, user auth.Identifiable) bool {
+// serve makes the request's user, the application's own when it made one, else own (the account or the caller),
+// counts it in the application's per-user rate limit and hands the request on. It reports whether the request went on.
+func (a Authenticator) serve(ctx *gin.Context, who Authenticated, own auth.Identifiable) bool {
+	user := own
+
+	if a.User != nil {
+		made, err := a.User(ctx.Request.Context(), who)
+		if err == nil && made == nil {
+			err = apperr.Internal(errNoRequestUser)
+		}
+
+		if err != nil {
+			refuse(ctx, err)
+
+			return false
+		}
+
+		user = made
+	}
+
 	auth.SetUser(ctx, user)
 
 	if !auth.EnforceUserRateLimit(ctx, user) {
@@ -243,7 +234,8 @@ func (k *Keys) record(ctx *gin.Context, caller serviceaccount.Caller) {
 
 	err := k.Trail.Write(ctx.Request.Context(), entry)
 	if err != nil && k.Log != nil {
-		k.Log.ErrorContext(ctx.Request.Context(), "service account request trail failed", "service_account", caller.AccountID, "error", err)
+		k.Log.ErrorContext(ctx.Request.Context(), "service account request trail failed",
+			"service_account", caller.AccountID, "error", err)
 	}
 }
 

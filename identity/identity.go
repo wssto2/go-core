@@ -433,7 +433,8 @@ const (
 
 // DefinePermissions adds ViewUsers, ManageUsers and ViewActivity to the catalogue when it lacks
 // them, and the service accounts' iam.serviceaccount:view, :manage and :revoke (an application without service
-// accounts has no use for them, and leaves them unheld), as access.Install does for the catalogue it is given: an application that
+// accounts has no use for them, and leaves them unheld), as access.Install does for the catalogue it is
+// given: an application that
 // installs both needs not call it. An application without access calls it on
 // its catalogue, since start-up checks that every route's permission is defined.
 // Managing needs viewing, so a role that grants one grants the other.
@@ -446,7 +447,9 @@ func DefinePermissions(c *authz.Catalogue) error {
 		{ManageUsers, []authz.DefineOption{authz.Sensitive(), authz.Requires(ViewUsers)}},
 		{ViewActivity, []authz.DefineOption{authz.System()}},
 		{serviceaccount.View, nil},
-		{serviceaccount.Manage, []authz.DefineOption{authz.Sensitive(), authz.OrganizationOnly(), authz.Requires(serviceaccount.View)}},
+		{serviceaccount.Manage, []authz.DefineOption{
+			authz.Sensitive(), authz.OrganizationOnly(), authz.Requires(serviceaccount.View),
+		}},
 		{serviceaccount.Revoke, []authz.DefineOption{authz.Requires(serviceaccount.View)}},
 	} {
 		if _, ok := c.Lookup(def.id); ok {
@@ -631,7 +634,8 @@ func Install(app *gocore.App, opts ...Option) *Users {
 
 	if s.embed {
 		if len(s.embedSecret) < identityhttp.MinEmbedSecret {
-			app.Fail("identity needs an embed secret of at least 32 characters", "pass identity.WithEmbed(secret), for example from an environment variable")
+			app.Fail("identity needs an embed secret of at least 32 characters",
+				"pass identity.WithEmbed(secret), for example from an environment variable")
 
 			return svc.Users
 		}
@@ -648,7 +652,9 @@ func Install(app *gocore.App, opts ...Option) *Users {
 
 // installServiceAccounts puts the service accounts in: tables, routes, the notices, and what Users and the
 // authentication need of them. It returns the authentication of API keys.
-func (s settings) installServiceAccounts(app *gocore.App, users *account.Users, db *gorm.DB, transact database.Transactor) *identityhttp.Keys {
+func (s settings) installServiceAccounts(
+	app *gocore.App, users *account.Users, db *gorm.DB, transact database.Transactor,
+) *identityhttp.Keys {
 	app.Schema(gocore.Schema{Files: samigrations.Files, Models: sagormstore.Migrate}, s.conn...)
 	app.Events() // the notices to owners are events: the queue's tables, whether or not a consumer is installed
 
@@ -661,7 +667,8 @@ func (s settings) installServiceAccounts(app *gocore.App, users *account.Users, 
 
 	users.SetServiceAccounts(service)
 	app.Routes(sahttp.Routes(service)...)
-	app.Background(serviceaccount.NewNoticeWorker(serviceaccount.NewNotices(store, transact, app.Logger(), app.Clock()), app.Consumers, app.Logger()))
+	notices := serviceaccount.NewNotices(store, transact, app.Logger(), app.Clock())
+	app.Background(serviceaccount.NewNoticeWorker(notices, app.Consumers, app.Logger()))
 
 	return &identityhttp.Keys{Auth: service, Trail: trail, Clock: app.Clock(), Log: app.Logger()}
 }

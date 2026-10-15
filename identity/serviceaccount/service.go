@@ -24,7 +24,9 @@ const maxKeyLife = 5 * 365 * 24 * time.Hour
 
 // The widths of the columns, which the inputs' tags repeat.
 const (
-	NameMax        = 100
+	// NameMax is the width of an account's and a key's name.
+	NameMax = 100
+	// DescriptionMax is the width of an account's description.
 	DescriptionMax = 500
 )
 
@@ -80,14 +82,14 @@ type CreatedKey struct {
 type SaveInput struct {
 	Name        string `json:"name"        validation:"required|max:100"`
 	Description string `json:"description" validation:"max:500"`
-	TenantID    *int   `json:"tenant_id"`
-	OwnerID     int    `json:"owner_id"    validation:"required|min:1"`
+	TenantID    *int   `json:"tenant_id"`                               //nolint:tagliatelle // snake_case wire
+	OwnerID     int    `json:"owner_id"    validation:"required|min:1"` //nolint:tagliatelle // snake_case wire
 }
 
 // KeyInput creates an API key. ExpiresAt, when given, is when the key stops working; nothing means it never does.
 type KeyInput struct {
 	Name      string     `json:"name"       validation:"required|max:100"`
-	ExpiresAt *time.Time `json:"expires_at"`
+	ExpiresAt *time.Time `json:"expires_at"` //nolint:tagliatelle // snake_case wire
 }
 
 func (i *SaveInput) sanitize() {
@@ -116,62 +118,31 @@ func New(deps Deps, cfg Config) *Service {
 	return &Service{deps: deps, cfg: cfg, prefix: prefix}
 }
 
-func (s *Service) authorizer() (authz.Authorizer, error) {
-	if s.deps.Authorizer != nil {
-		if a := s.deps.Authorizer(); a != nil {
-			return a, nil
-		}
-	}
+var (
+	errNoAuthorizer = errors.New(
+		"serviceaccount: the application has no authorizer: install access, or pass gocore.WithAuthorizer")
+	errPersonOnly = errors.New("serviceaccount: only a person manages service accounts")
+)
 
-	return nil, apperr.Internal(errNoAuthorizer)
-}
+// The audit trail's record types and the actions it holds.
+const (
+	// AccountEntity is the record type of an account in the audit trail; KeyEntity of a key.
+	AccountEntity = "service_accounts"
+	KeyEntity     = "service_account_keys"
+)
 
-var errNoAuthorizer = errors.New("serviceaccount: the application has no authorizer: install access, or pass gocore.WithAuthorizer")
-
-// visibility is which accounts the actor may see: every one when they hold the view permission at a place
-// above the tenants, otherwise those of the tenants they hold it at.
-func (s *Service) visibility(ctx context.Context) (Visibility, error) {
-	a, err := s.authorizer()
-	if err != nil {
-		return Visibility{}, err
-	}
-
-	if err := a.Require(ctx, View); err != nil {
-		return Visibility{}, err
-	}
-
-	if s.cfg.Tenants == nil {
-		return Visibility{All: true}, nil
-	}
-
-	set, err := a.Access(ctx, View)
-	if err != nil {
-		return Visibility{}, err
-	}
-
-	var out Visibility
-
-	seen := map[int]bool{}
-
-	for _, c := range set.Clauses {
-		place, found := c.Chain.At(s.cfg.Tenants.Level)
-		if !found {
-			return Visibility{All: true}, nil
-		}
-
-		if !seen[place.ID] {
-			seen[place.ID] = true
-			out.Tenants = append(out.Tenants, place.ID)
-		}
-	}
-
-	return out, nil
-}
+const (
+	// secretBytes is the size of a secret: 256 random bits.
+	secretBytes = 32
+	// personsPerAccount is the people an account names: its owner and its creator.
+	personsPerAccount = 2
+)
 
 // Reach says whether the actor may see the service account at all (it answers access.SubjectReach for
 // the accounts): false for one of another tenant, and for one that does not exist.
-func (s *Service) Reach(ctx context.Context, id int) (bool, error) {
-	if _, err := s.find(ctx, id); err != nil {
+func (s *Service) Reach(ctx context.Context, accountID int) (bool, error) {
+	_, err := s.find(ctx, accountID)
+	if err != nil {
 		if apperr.HasCode(err, apperr.CodeNotFound) {
 			return false, nil
 		}
@@ -186,17 +157,17 @@ func (s *Service) Reach(ctx context.Context, id int) (bool, error) {
 func (s *Service) Names(ctx context.Context, ids []int) (map[int]string, error) {
 	out := make(map[int]string, len(ids))
 
-	for _, id := range ids {
-		found, err := s.deps.Store.Find(ctx, id, s.deps.Clock.Now())
+	for _, accountID := range ids {
+		found, err := s.deps.Store.Find(ctx, accountID, s.deps.Clock.Now())
 		if errors.Is(err, ErrNotFound) {
 			continue
 		}
 
 		if err != nil {
-			return nil, apperr.Internal(fmt.Errorf("serviceaccount: read %d: %w", id, err))
+			return nil, apperr.Internal(fmt.Errorf("serviceaccount: read %d: %w", accountID, err))
 		}
 
-		out[id] = found.Name
+		out[accountID] = found.Name
 	}
 
 	return out, nil
@@ -204,12 +175,12 @@ func (s *Service) Names(ctx context.Context, ids []int) (map[int]string, error) 
 
 // List returns the accounts the actor may see, by name.
 func (s *Service) List(ctx context.Context) ([]AccountView, error) {
-	v, err := s.visibility(ctx)
+	visible, err := s.visibility(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	found, err := s.deps.Store.List(ctx, v, s.deps.Clock.Now())
+	found, err := s.deps.Store.List(ctx, visible, s.deps.Clock.Now())
 	if err != nil {
 		return nil, apperr.Internal(fmt.Errorf("serviceaccount: list: %w", err))
 	}
@@ -218,8 +189,8 @@ func (s *Service) List(ctx context.Context) ([]AccountView, error) {
 }
 
 // Get returns one account, or a not-found for one the actor may not see.
-func (s *Service) Get(ctx context.Context, id int) (AccountView, error) {
-	found, err := s.find(ctx, id)
+func (s *Service) Get(ctx context.Context, accountID int) (AccountView, error) {
+	found, err := s.find(ctx, accountID)
 	if err != nil {
 		return AccountView{}, err
 	}
@@ -227,81 +198,34 @@ func (s *Service) Get(ctx context.Context, id int) (AccountView, error) {
 	return s.describeOne(ctx, found)
 }
 
-// find reads an account the actor may see: an account of another tenant is a not-found, not a refusal that
-// admits it exists.
-func (s *Service) find(ctx context.Context, id int) (Summary, error) {
-	v, err := s.visibility(ctx)
-	if err != nil {
-		return Summary{}, err
-	}
-
-	found, err := s.deps.Store.Find(ctx, id, s.deps.Clock.Now())
-	if errors.Is(err, ErrNotFound) {
-		return Summary{}, apperr.NotFound("service account not found")
-	}
-
-	if err != nil {
-		return Summary{}, apperr.Internal(fmt.Errorf("serviceaccount: read %d: %w", id, err))
-	}
-
-	if !v.Sees(found.Account) {
-		return Summary{}, apperr.NotFound("service account not found")
-	}
-
-	return found, nil
-}
-
-// manager is the person who may change accounts: they hold the permission and are a person. A service
-// account never mints credentials.
-func (s *Service) manager(ctx context.Context, permission string) (authz.Principal, error) {
-	a, err := s.authorizer()
-	if err != nil {
-		return authz.Principal{}, err
-	}
-
-	if err := a.Require(ctx, permission); err != nil {
-		return authz.Principal{}, err
-	}
-
-	actor, ok := authz.PrincipalFrom(ctx)
-	if !ok {
-		return authz.Principal{}, apperr.Unauthorized("not authenticated")
-	}
-
-	if actor.Kind != authz.KindUser {
-		return authz.Principal{}, apperr.ForbiddenErr(errPersonOnly).
-			WithReason(authz.ReasonForbidden, map[string]any{"why": "person_only"})
-	}
-
-	return actor, nil
-}
-
-var errPersonOnly = errors.New("serviceaccount: only a person manages service accounts")
-
 // Create makes an account. Nothing works on it until it is given roles and a key.
-func (s *Service) Create(ctx context.Context, in SaveInput) (AccountView, error) {
-	in.sanitize()
+func (s *Service) Create(ctx context.Context, input SaveInput) (AccountView, error) {
+	input.sanitize()
 
-	if err := s.check(in); err != nil {
-		return AccountView{}, err
-	}
-
-	actor, err := s.manager(ctx, Manage)
+	err := s.check(input)
 	if err != nil {
 		return AccountView{}, err
 	}
 
-	if err := s.checkPlaces(ctx, 0, in); err != nil {
+	actor, err := s.manager(ctx)
+	if err != nil {
+		return AccountView{}, err
+	}
+
+	err = s.checkPlaces(ctx, 0, input)
+	if err != nil {
 		return AccountView{}, err
 	}
 
 	account := Account{
-		Name: in.Name, Description: in.Description, TenantID: tenantOf(in), OwnerID: in.OwnerID,
+		ID: 0, Name: input.Name, Description: input.Description, TenantID: tenantOf(input), OwnerID: input.OwnerID,
 		CreatedBy: actor.ID, CreatedAt: s.deps.Clock.Now(),
+		UpdatedBy: 0, UpdatedAt: nil, DeactivatedAt: nil, DeactivatedBy: 0,
 	}
 
 	err = s.deps.Transact.WithinTransaction(ctx, func(ctx context.Context) error {
-		if err := s.deps.Store.Create(ctx, &account); err != nil {
+		err := s.deps.Store.Create(ctx, &account)
+		if err != nil {
 			return fmt.Errorf("create: %w", err)
 		}
 
@@ -315,39 +239,44 @@ func (s *Service) Create(ctx context.Context, in SaveInput) (AccountView, error)
 }
 
 // Update changes an account's name, description, owner and tenant.
-func (s *Service) Update(ctx context.Context, id int, in SaveInput) (AccountView, error) {
-	in.sanitize()
+func (s *Service) Update(ctx context.Context, accountID int, input SaveInput) (AccountView, error) {
+	input.sanitize()
 
-	if err := s.check(in); err != nil {
-		return AccountView{}, err
-	}
-
-	actor, err := s.manager(ctx, Manage)
+	err := s.check(input)
 	if err != nil {
 		return AccountView{}, err
 	}
 
-	found, err := s.find(ctx, id)
+	actor, err := s.manager(ctx)
 	if err != nil {
 		return AccountView{}, err
 	}
 
-	if err := s.checkPlaces(ctx, id, in); err != nil {
+	found, err := s.find(ctx, accountID)
+	if err != nil {
+		return AccountView{}, err
+	}
+
+	err = s.checkPlaces(ctx, accountID, input)
+	if err != nil {
 		return AccountView{}, err
 	}
 
 	before, after := found.Account, found.Account
-	after.Name, after.Description, after.TenantID, after.OwnerID = in.Name, in.Description, tenantOf(in), in.OwnerID
+	after.Name, after.Description = input.Name, input.Description
+	after.TenantID, after.OwnerID = tenantOf(input), input.OwnerID
 	after.UpdatedBy = actor.ID
 	now := s.deps.Clock.Now()
 	after.UpdatedAt = &now
 
 	err = s.deps.Transact.WithinTransaction(ctx, func(ctx context.Context) error {
-		if err := s.deps.Store.Update(ctx, after); err != nil {
+		err := s.deps.Store.Update(ctx, after)
+		if err != nil {
 			return fmt.Errorf("update: %w", err)
 		}
 
-		entry := audit.NewEntry(AccountEntity, id, actor.ID, "update").WithBefore(before).WithAfter(after).WithDiff(audit.Diff(before, after))
+		entry := audit.NewEntry(AccountEntity, accountID, actor.ID, "update").
+			WithBefore(before).WithAfter(after).WithDiff(audit.Diff(before, after))
 
 		return s.deps.Trail.Write(ctx, entry)
 	})
@@ -355,95 +284,18 @@ func (s *Service) Update(ctx context.Context, id int, in SaveInput) (AccountView
 		return AccountView{}, apperr.Internal(fmt.Errorf("serviceaccount: update: %w", err))
 	}
 
-	return s.Get(ctx, id)
-}
-
-// The audit trail's record types and the actions it holds.
-const (
-	// AccountEntity is the record type of an account in the audit trail; KeyEntity of a key.
-	AccountEntity = "service_accounts"
-	KeyEntity     = "service_account_keys"
-)
-
-// check validates the input the way the route's tags do, for code that calls the Service.
-func (s *Service) check(in SaveInput) error {
-	failures := map[string]string{}
-
-	switch {
-	case in.Name == "":
-		failures["name"] = "required"
-	case utf8.RuneCountInString(in.Name) > NameMax:
-		failures["name"] = "max"
-	}
-
-	if utf8.RuneCountInString(in.Description) > DescriptionMax {
-		failures["description"] = "max"
-	}
-
-	if in.OwnerID < 1 {
-		failures["owner_id"] = "required"
-	}
-
-	if len(failures) > 0 {
-		return apperr.BadRequest(fmt.Sprintf("invalid service account: %v", failures))
-	}
-
-	return nil
-}
-
-// checkPlaces refuses a tenant or an owner that does not exist, and a tenant the application refuses.
-func (s *Service) checkPlaces(ctx context.Context, accountID int, in SaveInput) error {
-	if in.TenantID != nil {
-		t := s.cfg.Tenants
-		if t == nil {
-			return apperr.BadRequest("tenant_id: this application has no tenants")
-		}
-
-		names, err := t.Names(ctx, []int{*in.TenantID})
-		if err != nil {
-			return apperr.Internal(fmt.Errorf("serviceaccount: tenant: %w", err))
-		}
-
-		if _, ok := names[*in.TenantID]; !ok {
-			return apperr.BadRequest("tenant_id: no such tenant")
-		}
-
-		if t.Confine != nil {
-			if err := t.Confine(ctx, accountID, *in.TenantID); err != nil {
-				return err
-			}
-		}
-	}
-
-	people, err := s.deps.People.Names(ctx, []int{in.OwnerID})
-	if err != nil {
-		return apperr.Internal(fmt.Errorf("serviceaccount: owner: %w", err))
-	}
-
-	if _, ok := people[in.OwnerID]; !ok {
-		return apperr.BadRequest("owner_id: no such person")
-	}
-
-	return nil
-}
-
-func tenantOf(in SaveInput) int {
-	if in.TenantID == nil {
-		return 0
-	}
-
-	return *in.TenantID
+	return s.Get(ctx, accountID)
 }
 
 // Deactivate stops the account: every key of it stops working at once, the roles it was given stay so that it
 // can be looked at. Deactivating twice keeps the first.
-func (s *Service) Deactivate(ctx context.Context, id int) (AccountView, error) {
-	actor, err := s.manager(ctx, Manage)
+func (s *Service) Deactivate(ctx context.Context, accountID int) (AccountView, error) {
+	actor, err := s.manager(ctx)
 	if err != nil {
 		return AccountView{}, err
 	}
 
-	found, err := s.find(ctx, id)
+	found, err := s.find(ctx, accountID)
 	if err != nil {
 		return AccountView{}, err
 	}
@@ -458,11 +310,13 @@ func (s *Service) Deactivate(ctx context.Context, id int) (AccountView, error) {
 	after.UpdatedBy, after.UpdatedAt = actor.ID, &now
 
 	err = s.deps.Transact.WithinTransaction(ctx, func(ctx context.Context) error {
-		if err := s.deps.Store.Update(ctx, after); err != nil {
+		err := s.deps.Store.Update(ctx, after)
+		if err != nil {
 			return fmt.Errorf("deactivate: %w", err)
 		}
 
-		entry := audit.NewEntry(AccountEntity, id, actor.ID, "deactivate").WithBefore(before).WithAfter(after).WithDiff(audit.Diff(before, after))
+		entry := audit.NewEntry(AccountEntity, accountID, actor.ID, "deactivate").
+			WithBefore(before).WithAfter(after).WithDiff(audit.Diff(before, after))
 
 		return s.deps.Trail.Write(ctx, entry)
 	})
@@ -470,55 +324,38 @@ func (s *Service) Deactivate(ctx context.Context, id int) (AccountView, error) {
 		return AccountView{}, apperr.Internal(fmt.Errorf("serviceaccount: deactivate: %w", err))
 	}
 
-	return s.Get(ctx, id)
+	return s.Get(ctx, accountID)
 }
 
 // Keys lists an account's keys, newest first.
-func (s *Service) Keys(ctx context.Context, id int) ([]KeyView, error) {
-	if _, err := s.find(ctx, id); err != nil {
+func (s *Service) Keys(ctx context.Context, accountID int) ([]KeyView, error) {
+	_, err := s.find(ctx, accountID)
+	if err != nil {
 		return nil, err
 	}
 
-	keys, err := s.deps.Store.Keys(ctx, id)
+	keys, err := s.deps.Store.Keys(ctx, accountID)
 	if err != nil {
-		return nil, apperr.Internal(fmt.Errorf("serviceaccount: keys of %d: %w", id, err))
+		return nil, apperr.Internal(fmt.Errorf("serviceaccount: keys of %d: %w", accountID, err))
 	}
 
 	return s.describeKeys(ctx, keys)
 }
 
 // CreateKey makes a key and returns its secret, once. Only the hash is stored.
-func (s *Service) CreateKey(ctx context.Context, id int, in KeyInput) (CreatedKey, error) {
-	in.Name = strings.TrimSpace(in.Name)
-	if in.Name == "" || utf8.RuneCountInString(in.Name) > NameMax {
-		return CreatedKey{}, apperr.BadRequest("name: required, at most 100 characters")
-	}
+func (s *Service) CreateKey(ctx context.Context, accountID int, input KeyInput) (CreatedKey, error) {
+	input.Name = strings.TrimSpace(input.Name)
 
-	actor, err := s.manager(ctx, Manage)
+	actor, found, err := s.keyTarget(ctx, accountID, input.Name)
 	if err != nil {
 		return CreatedKey{}, err
-	}
-
-	found, err := s.find(ctx, id)
-	if err != nil {
-		return CreatedKey{}, err
-	}
-
-	if !found.Active() {
-		return CreatedKey{}, apperr.BadRequest("the service account is deactivated")
 	}
 
 	now := s.deps.Clock.Now()
 
-	var expires *time.Time
-
-	if in.ExpiresAt != nil && !in.ExpiresAt.IsZero() {
-		at := in.ExpiresAt.UTC()
-		if !at.After(now) || at.After(now.Add(maxKeyLife)) {
-			return CreatedKey{}, apperr.BadRequest("expires_at must be in the future, within five years")
-		}
-
-		expires = &at
+	expires, err := keyExpiry(input.ExpiresAt, now)
+	if err != nil {
+		return CreatedKey{}, err
 	}
 
 	if found.ActiveKeys >= MaxActiveKeys {
@@ -531,23 +368,13 @@ func (s *Service) CreateKey(ctx context.Context, id int, in KeyInput) (CreatedKe
 	}
 
 	key := Key{
-		ServiceAccountID: id, Name: in.Name, Prefix: PrefixOf(secret), Hash: HashSecret(secret),
-		CreatedBy: actor.ID, CreatedAt: now, ExpiresAt: expires,
+		ID: 0, ServiceAccountID: accountID, Name: input.Name, Prefix: PrefixOf(secret), Hash: HashSecret(secret),
+		CreatedBy: actor.ID, CreatedAt: now, LastUsedAt: nil, ExpiresAt: expires, RevokedAt: nil, RevokedBy: 0,
 	}
 
-	err = s.deps.Transact.WithinTransaction(ctx, func(ctx context.Context) error {
-		if err := s.deps.Store.CreateKey(ctx, &key); err != nil {
-			return fmt.Errorf("create key: %w", err)
-		}
-
-		// the trail never holds the hash, let alone the secret
-		trailed := key
-		trailed.Hash = ""
-
-		return s.deps.Trail.Write(ctx, audit.NewEntry(KeyEntity, key.ID, actor.ID, "create").WithAfter(trailed))
-	})
+	err = s.storeKey(ctx, actor, &key)
 	if err != nil {
-		return CreatedKey{}, apperr.Internal(fmt.Errorf("serviceaccount: create key: %w", err))
+		return CreatedKey{}, err
 	}
 
 	views, err := s.describeKeys(ctx, []Key{key})
@@ -559,53 +386,40 @@ func (s *Service) CreateKey(ctx context.Context, id int, in KeyInput) (CreatedKe
 }
 
 // RevokeKey stops one key for good. Revoking a revoked key is not an error.
-func (s *Service) RevokeKey(ctx context.Context, id, keyID int) error {
-	a, err := s.authorizer()
+func (s *Service) RevokeKey(ctx context.Context, accountID, keyID int) error {
+	actor, err := s.revoker(ctx)
 	if err != nil {
 		return err
 	}
 
-	if err := a.Require(ctx, Revoke); err != nil {
-		return err
-	}
-
-	actor, ok := authz.PrincipalFrom(ctx)
-	if !ok {
-		return apperr.Unauthorized("not authenticated")
-	}
-
-	if _, err := s.find(ctx, id); err != nil {
-		return err
-	}
-
-	key, err := s.deps.Store.FindKey(ctx, id, keyID)
-	if errors.Is(err, ErrKeyNotFound) {
-		return apperr.NotFound("key not found")
-	}
-
+	key, err := s.keyToRevoke(ctx, accountID, keyID)
 	if err != nil {
-		return apperr.Internal(fmt.Errorf("serviceaccount: read key %d: %w", keyID, err))
+		return err
 	}
 
 	if key.RevokedAt != nil {
 		return nil
 	}
 
-	by := 0
+	revokedBy := 0
 	if actor.Kind == authz.KindUser {
-		by = actor.ID
+		revokedBy = actor.ID
 	}
 
 	err = s.deps.Transact.WithinTransaction(ctx, func(ctx context.Context) error {
 		now := s.deps.Clock.Now()
-		if err := s.deps.Store.RevokeKey(ctx, keyID, now, by); err != nil {
+
+		err := s.deps.Store.RevokeKey(ctx, keyID, now, revokedBy)
+		if err != nil {
 			return fmt.Errorf("revoke: %w", err)
 		}
 
 		after := key
-		after.RevokedAt, after.RevokedBy = &now, by
+		after.RevokedAt, after.RevokedBy = &now, revokedBy
 
-		return s.deps.Trail.Write(ctx, audit.NewEntry(KeyEntity, keyID, by, "revoke").WithBefore(key).WithAfter(after))
+		entry := audit.NewEntry(KeyEntity, keyID, revokedBy, "revoke").WithBefore(key).WithAfter(after)
+
+		return s.deps.Trail.Write(ctx, entry)
 	})
 	if err != nil {
 		return apperr.Internal(fmt.Errorf("serviceaccount: revoke: %w", err))
@@ -649,10 +463,282 @@ func (s *Service) Authenticate(ctx context.Context, secret string) (Caller, erro
 	return Caller{AccountID: account.ID, KeyID: key.ID, Name: account.Name, TenantID: account.TenantID}, nil
 }
 
+// use hands fn the application's authorizer, or fails when it has none.
+func (s *Service) use(fn func(auth authz.Authorizer) error) error {
+	if s.deps.Authorizer != nil {
+		if auth := s.deps.Authorizer(); auth != nil {
+			return fn(auth)
+		}
+	}
+
+	return apperr.Internal(errNoAuthorizer)
+}
+
+// require refuses the actor who does not hold the permission. The refusal keeps its status and reason through
+// the wrapping: the error handler finds it with errors.As.
+func (s *Service) require(ctx context.Context, permission string) error {
+	return s.use(func(auth authz.Authorizer) error {
+		err := auth.Require(ctx, permission)
+		if err != nil {
+			return fmt.Errorf("serviceaccount: require %s: %w", permission, err)
+		}
+
+		return nil
+	})
+}
+
+// access is where the actor holds the permission.
+func (s *Service) access(ctx context.Context, permission string) (authz.AccessSet, error) {
+	var set authz.AccessSet
+
+	err := s.use(func(auth authz.Authorizer) error {
+		var err error
+
+		set, err = auth.Access(ctx, permission)
+		if err != nil {
+			return fmt.Errorf("serviceaccount: access %s: %w", permission, err)
+		}
+
+		return nil
+	})
+
+	return set, err
+}
+
+// visibility is which accounts the actor may see: every one when they hold the view permission at a place
+// above the tenants, otherwise those of the tenants they hold it at.
+func (s *Service) visibility(ctx context.Context) (Visibility, error) {
+	err := s.require(ctx, View)
+	if err != nil {
+		return Visibility{All: false, Tenants: nil}, err
+	}
+
+	if s.cfg.Tenants == nil {
+		return Visibility{All: true, Tenants: nil}, nil
+	}
+
+	set, err := s.access(ctx, View)
+	if err != nil {
+		return Visibility{All: false, Tenants: nil}, err
+	}
+
+	var out Visibility
+
+	seen := map[int]bool{}
+
+	for _, clause := range set.Clauses {
+		place, found := clause.Chain.At(s.cfg.Tenants.Level)
+		if !found {
+			return Visibility{All: true, Tenants: nil}, nil
+		}
+
+		if !seen[place.ID] {
+			seen[place.ID] = true
+			out.Tenants = append(out.Tenants, place.ID)
+		}
+	}
+
+	return out, nil
+}
+
+// find reads an account the actor may see: an account of another tenant is a not-found, not a refusal that
+// admits it exists.
+func (s *Service) find(ctx context.Context, accountID int) (Summary, error) {
+	visible, err := s.visibility(ctx)
+	if err != nil {
+		return Summary{}, err
+	}
+
+	found, err := s.deps.Store.Find(ctx, accountID, s.deps.Clock.Now())
+	if errors.Is(err, ErrNotFound) {
+		return Summary{}, apperr.NotFound("service account not found")
+	}
+
+	if err != nil {
+		return Summary{}, apperr.Internal(fmt.Errorf("serviceaccount: read %d: %w", accountID, err))
+	}
+
+	if !visible.Sees(found.Account) {
+		return Summary{}, apperr.NotFound("service account not found")
+	}
+
+	return found, nil
+}
+
+// manager is the person who may change accounts: they hold the permission and are a person. A service
+// account never mints credentials.
+func (s *Service) manager(ctx context.Context) (authz.Principal, error) {
+	err := s.require(ctx, Manage)
+	if err != nil {
+		return authz.Principal{}, err
+	}
+
+	actor, ok := authz.PrincipalFrom(ctx)
+	if !ok {
+		return authz.Principal{}, apperr.Unauthorized("not authenticated")
+	}
+
+	if actor.Kind != authz.KindUser {
+		return authz.Principal{}, apperr.ForbiddenErr(errPersonOnly).
+			WithReason(authz.ReasonForbidden, map[string]any{"why": "person_only"})
+	}
+
+	return actor, nil
+}
+
+// check validates the input the way the route's tags do, for code that calls the Service.
+func (s *Service) check(input SaveInput) error {
+	failures := map[string]string{}
+
+	switch {
+	case input.Name == "":
+		failures["name"] = "required"
+	case utf8.RuneCountInString(input.Name) > NameMax:
+		failures["name"] = "max"
+	}
+
+	if utf8.RuneCountInString(input.Description) > DescriptionMax {
+		failures["description"] = "max"
+	}
+
+	if input.OwnerID < 1 {
+		failures["owner_id"] = "required"
+	}
+
+	if len(failures) > 0 {
+		return apperr.BadRequest(fmt.Sprintf("invalid service account: %v", failures))
+	}
+
+	return nil
+}
+
+// checkPlaces refuses a tenant or an owner that does not exist, and a tenant the application refuses.
+func (s *Service) checkPlaces(ctx context.Context, accountID int, input SaveInput) error {
+	if input.TenantID != nil {
+		err := s.checkTenant(ctx, accountID, *input.TenantID)
+		if err != nil {
+			return err
+		}
+	}
+
+	people, err := s.deps.People.Names(ctx, []int{input.OwnerID})
+	if err != nil {
+		return apperr.Internal(fmt.Errorf("serviceaccount: owner: %w", err))
+	}
+
+	if _, ok := people[input.OwnerID]; !ok {
+		return apperr.BadRequest("owner_id: no such person")
+	}
+
+	return nil
+}
+
+func (s *Service) checkTenant(ctx context.Context, accountID, tenantID int) error {
+	tenants := s.cfg.Tenants
+	if tenants == nil {
+		return apperr.BadRequest("tenant_id: this application has no tenants")
+	}
+
+	names, err := tenants.Names(ctx, []int{tenantID})
+	if err != nil {
+		return apperr.Internal(fmt.Errorf("serviceaccount: tenant: %w", err))
+	}
+
+	if _, ok := names[tenantID]; !ok {
+		return apperr.BadRequest("tenant_id: no such tenant")
+	}
+
+	if tenants.Confine != nil {
+		return tenants.Confine(ctx, accountID, tenantID)
+	}
+
+	return nil
+}
+
+// keyTarget is the person who may mint a key, and the active account it is for.
+func (s *Service) keyTarget(ctx context.Context, accountID int, name string) (authz.Principal, Summary, error) {
+	if name == "" || utf8.RuneCountInString(name) > NameMax {
+		return authz.Principal{}, Summary{}, apperr.BadRequest("name: required, at most 100 characters")
+	}
+
+	actor, err := s.manager(ctx)
+	if err != nil {
+		return authz.Principal{}, Summary{}, err
+	}
+
+	found, err := s.find(ctx, accountID)
+	if err != nil {
+		return authz.Principal{}, Summary{}, err
+	}
+
+	if !found.Active() {
+		return authz.Principal{}, Summary{}, apperr.BadRequest("the service account is deactivated")
+	}
+
+	return actor, found, nil
+}
+
+// storeKey stores the key and records it in the trail, in one transaction.
+func (s *Service) storeKey(ctx context.Context, actor authz.Principal, key *Key) error {
+	err := s.deps.Transact.WithinTransaction(ctx, func(ctx context.Context) error {
+		err := s.deps.Store.CreateKey(ctx, key)
+		if err != nil {
+			return fmt.Errorf("create key: %w", err)
+		}
+
+		// the trail never holds the hash, let alone the secret
+		trailed := *key
+		trailed.Hash = ""
+
+		return s.deps.Trail.Write(ctx, audit.NewEntry(KeyEntity, key.ID, actor.ID, "create").WithAfter(trailed))
+	})
+	if err != nil {
+		return apperr.Internal(fmt.Errorf("serviceaccount: create key: %w", err))
+	}
+
+	return nil
+}
+
+// revoker is the principal who may revoke keys: anybody holding the permission, a service account included.
+func (s *Service) revoker(ctx context.Context) (authz.Principal, error) {
+	err := s.require(ctx, Revoke)
+	if err != nil {
+		return authz.Principal{}, err
+	}
+
+	actor, ok := authz.PrincipalFrom(ctx)
+	if !ok {
+		return authz.Principal{}, apperr.Unauthorized("not authenticated")
+	}
+
+	return actor, nil
+}
+
+// keyToRevoke reads the key of an account the actor may see.
+func (s *Service) keyToRevoke(ctx context.Context, accountID, keyID int) (Key, error) {
+	_, err := s.find(ctx, accountID)
+	if err != nil {
+		return Key{}, err
+	}
+
+	key, err := s.deps.Store.FindKey(ctx, accountID, keyID)
+	if errors.Is(err, ErrKeyNotFound) {
+		return Key{}, apperr.NotFound("key not found")
+	}
+
+	if err != nil {
+		return Key{}, apperr.Internal(fmt.Errorf("serviceaccount: read key %d: %w", keyID, err))
+	}
+
+	return key, nil
+}
+
 // newSecret is a new API key secret: 256 random bits behind the recognisable prefix.
 func (s *Service) newSecret() (string, error) {
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
+	raw := make([]byte, secretBytes)
+
+	_, err := rand.Read(raw)
+	if err != nil {
 		return "", apperr.Internal(fmt.Errorf("serviceaccount: secret: %w", err))
 	}
 
@@ -662,21 +748,23 @@ func (s *Service) newSecret() (string, error) {
 // describe names the tenants and the people of the accounts, in one lookup each.
 func (s *Service) describe(ctx context.Context, found []Summary) ([]AccountView, error) {
 	tenantIDs := make([]int, 0, len(found))
-	personIDs := make([]int, 0, 2*len(found))
+	personIDs := make([]int, 0, personsPerAccount*len(found))
 
-	for _, f := range found {
-		if f.TenantID > 0 {
-			tenantIDs = append(tenantIDs, f.TenantID)
+	for _, item := range found {
+		if item.TenantID > 0 {
+			tenantIDs = append(tenantIDs, item.TenantID)
 		}
 
-		personIDs = append(personIDs, f.OwnerID, f.CreatedBy)
+		personIDs = append(personIDs, item.OwnerID, item.CreatedBy)
 	}
 
 	var tenants map[int]string
 
 	if len(tenantIDs) > 0 && s.cfg.Tenants != nil {
 		var err error
-		if tenants, err = s.cfg.Tenants.Names(ctx, tenantIDs); err != nil {
+
+		tenants, err = s.cfg.Tenants.Names(ctx, tenantIDs)
+		if err != nil {
 			return nil, apperr.Internal(fmt.Errorf("serviceaccount: tenant names: %w", err))
 		}
 	}
@@ -688,16 +776,17 @@ func (s *Service) describe(ctx context.Context, found []Summary) ([]AccountView,
 
 	out := make([]AccountView, 0, len(found))
 
-	for _, f := range found {
+	for _, item := range found {
 		view := AccountView{
-			ID: f.ID, Name: f.Name, Description: f.Description,
-			Owner:     Person{ID: f.OwnerID, Name: people[f.OwnerID]},
-			CreatedBy: Person{ID: f.CreatedBy, Name: people[f.CreatedBy]},
-			CreatedAt: f.CreatedAt, ActiveKeys: f.ActiveKeys, LastUsedAt: f.LastUsedAt, DeactivatedAt: f.DeactivatedAt,
+			ID: item.ID, Name: item.Name, Description: item.Description, Tenant: nil,
+			Owner:     Person{ID: item.OwnerID, Name: people[item.OwnerID]},
+			CreatedBy: Person{ID: item.CreatedBy, Name: people[item.CreatedBy]},
+			CreatedAt: item.CreatedAt, ActiveKeys: item.ActiveKeys, LastUsedAt: item.LastUsedAt,
+			DeactivatedAt: item.DeactivatedAt,
 		}
 
-		if f.TenantID > 0 {
-			view.Tenant = &TenantRef{ID: f.TenantID, Name: tenants[f.TenantID]}
+		if item.TenantID > 0 {
+			view.Tenant = &TenantRef{ID: item.TenantID, Name: tenants[item.TenantID]}
 		}
 
 		out = append(out, view)
@@ -735,4 +824,29 @@ func (s *Service) describeKeys(ctx context.Context, keys []Key) ([]KeyView, erro
 	}
 
 	return out, nil
+}
+
+func tenantOf(input SaveInput) int {
+	if input.TenantID == nil {
+		return 0
+	}
+
+	return *input.TenantID
+}
+
+// keyExpiry is the expiry a key is given: nothing for a key that never expires, otherwise a time in the future
+// and within maxKeyLife.
+func keyExpiry(requested *time.Time, now time.Time) (*time.Time, error) {
+	var never *time.Time
+
+	if requested == nil || requested.IsZero() {
+		return never, nil
+	}
+
+	expiry := requested.UTC()
+	if !expiry.After(now) || expiry.After(now.Add(maxKeyLife)) {
+		return never, apperr.BadRequest("expires_at must be in the future, within five years")
+	}
+
+	return &expiry, nil
 }

@@ -109,7 +109,8 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory
 	robots, hasRobots := users.(serviceAccounts)
 	hasRobots = hasRobots && robots.HasServiceAccounts()
 
-	if err := s.define(catalogue, hasRobots); err != nil {
+	err := s.define(catalogue, hasRobots)
+	if err != nil {
 		app.Fail("access cannot define its permissions: "+err.Error(), "define the five permissions yourself before Install, or leave them to it")
 
 		return &Access{}
@@ -311,7 +312,7 @@ const viewActivity = "iam.user.activity:view"
 
 // define adds the module's permissions the catalogue lacks. Managing needs
 // viewing, so a role that grants one grants the other.
-func (s settings) define(c *authz.Catalogue, robots bool) error {
+func (s settings) define(catalogue *authz.Catalogue, robots bool) error {
 	type definition struct {
 		id   string
 		opts []authz.DefineOption
@@ -329,17 +330,20 @@ func (s settings) define(c *authz.Catalogue, robots bool) error {
 	if robots { // access/accesshttp serves the routes these guard
 		defs = append(defs,
 			definition{serviceaccount.View, nil},
-			definition{serviceaccount.Manage, []authz.DefineOption{authz.Sensitive(), authz.OrganizationOnly(), authz.Requires(serviceaccount.View)}},
+			definition{serviceaccount.Manage, []authz.DefineOption{
+				authz.Sensitive(), authz.OrganizationOnly(), authz.Requires(serviceaccount.View),
+			}},
 			definition{serviceaccount.Revoke, []authz.DefineOption{authz.Requires(serviceaccount.View)}},
 		)
 	}
 
 	for _, def := range defs {
-		if _, ok := c.Lookup(def.id); ok {
+		if _, ok := catalogue.Lookup(def.id); ok {
 			continue
 		}
 
-		if err := c.Define(def.id, def.opts...); err != nil {
+		err := catalogue.Define(def.id, def.opts...)
+		if err != nil {
 			return err
 		}
 	}

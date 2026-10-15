@@ -3,6 +3,7 @@ package account
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -37,24 +38,30 @@ type Users struct {
 type ServiceAccounts interface {
 	// Names returns the name of each service account among ids that exists.
 	Names(ctx context.Context, ids []int) (map[int]string, error)
-	// Reach reports whether the actor may see the service account (false for one of another tenant, or that does not exist).
+	// Reach reports whether the actor may see the service account (false for one of another tenant, or that
+	// does not exist).
 	Reach(ctx context.Context, id int) (bool, error)
 }
 
 // SetServiceAccounts tells Users about the service accounts of the application. identity.Install calls it.
 func (u *Users) SetServiceAccounts(s ServiceAccounts) { u.robots = s }
 
-// HasServiceAccounts reports whether the application has service accounts (identity.WithServiceAccounts). access.Install
-// asks it, to serve their access routes and name them as subjects.
+// HasServiceAccounts reports whether the application has service accounts (identity.WithServiceAccounts).
+// access.Install asks it, to serve their access routes and name them as subjects.
 func (u *Users) HasServiceAccounts() bool { return u.robots != nil }
 
 // ServiceAccountReach says whether the actor may see the service account; false when there are none.
-func (u *Users) ServiceAccountReach(ctx context.Context, id int) (bool, error) {
+func (u *Users) ServiceAccountReach(ctx context.Context, accountID int) (bool, error) {
 	if u.robots == nil {
 		return false, nil
 	}
 
-	return u.robots.Reach(ctx, id)
+	reach, err := u.robots.Reach(ctx, accountID)
+	if err != nil {
+		return false, fmt.Errorf("identity: reach of service account %d: %w", accountID, err)
+	}
+
+	return reach, nil
 }
 
 // Mail returns where identity's mail goes, and false when identity runs WithoutMail (or Users was built
@@ -166,7 +173,7 @@ func (u *Users) SubjectNames(ctx context.Context, subjects []authz.Subject) (map
 	if u.robots != nil && len(robotIDs) > 0 {
 		robots, err := u.robots.Names(ctx, robotIDs)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("identity: names of service accounts: %w", err)
 		}
 
 		for id, name := range robots {

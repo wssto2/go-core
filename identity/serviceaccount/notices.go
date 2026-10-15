@@ -24,22 +24,22 @@ const (
 type NoticeKind string
 
 const (
-	// NoticeExpiring: the key expires within ExpiryWarning.
+	// NoticeExpiring is the condition of a key that expires within ExpiryWarning.
 	NoticeExpiring NoticeKind = "expiring"
-	// NoticeUnused: the key is active and has not been used for UnusedAfter.
+	// NoticeUnused is the condition of an active key that has not been used for UnusedAfter.
 	NoticeUnused NoticeKind = "unused"
 )
 
 // Notices are the conditions the key is in at the moment. A key that is revoked or expired is in none: it
 // cannot be used, so there is nothing to warn about. Whether its account is active is the account's to say.
-func (k Key) Notices(at time.Time) []NoticeKind {
-	if !k.Usable(at) {
+func (k Key) Notices(when time.Time) []NoticeKind {
+	if !k.Usable(when) {
 		return nil
 	}
 
 	var out []NoticeKind
 
-	if k.ExpiresAt != nil && k.ExpiresAt.Sub(at) <= ExpiryWarning {
+	if k.ExpiresAt != nil && k.ExpiresAt.Sub(when) <= ExpiryWarning {
 		out = append(out, NoticeExpiring)
 	}
 
@@ -48,7 +48,7 @@ func (k Key) Notices(at time.Time) []NoticeKind {
 		since = *k.LastUsedAt
 	}
 
-	if at.Sub(since) >= UnusedAfter {
+	if when.Sub(since) >= UnusedAfter {
 		out = append(out, NoticeUnused)
 	}
 
@@ -78,10 +78,10 @@ type NoticeStore interface {
 // whoever sends it (keynotice).
 type KeyNotice struct {
 	// OwnerID is the account's owner, who is told.
-	OwnerID   int    `json:"owner_id"`
-	AccountID int    `json:"account_id"`
+	OwnerID   int    `json:"owner_id"`   //nolint:tagliatelle // snake_case wire
+	AccountID int    `json:"account_id"` //nolint:tagliatelle // snake_case wire
 	Account   string `json:"account"`
-	KeyID     int    `json:"key_id"`
+	KeyID     int    `json:"key_id"` //nolint:tagliatelle // snake_case wire
 	Key       string `json:"key"`
 	// Kind is "expiring" or "unused".
 	Kind NoticeKind `json:"kind"`
@@ -93,7 +93,8 @@ type KeyNotice struct {
 
 // KeyNoticed is the event the daily run publishes for each notice, in the transaction that records it. The
 // consumer is keynotice's; an application that wants its own can consume the event.
-var KeyNoticed = event.Define[KeyNotice]("serviceaccount.key-noticed")
+var KeyNoticed = event.Define[KeyNotice]( //nolint:gochecknoglobals // an event is declared once, as a value
+	"serviceaccount.key-noticed")
 
 // Notices tells the owner of each service account about its keys that expire soon or went unused, at most
 // once per key and condition.
@@ -121,8 +122,8 @@ func (n *Notices) Send(ctx context.Context) (int, error) {
 	}
 
 	ids := make([]int, 0, len(working))
-	for _, w := range working {
-		ids = append(ids, w.Key.ID)
+	for _, item := range working {
+		ids = append(ids, item.Key.ID)
 	}
 
 	told, err := n.store.NoticesSent(ctx, ids)
@@ -132,15 +133,15 @@ func (n *Notices) Send(ctx context.Context) (int, error) {
 
 	sent := 0
 
-	for _, w := range working {
-		for _, kind := range w.Key.Notices(now) {
-			if slices.Contains(told[w.Key.ID], kind) {
+	for _, item := range working {
+		for _, kind := range item.Key.Notices(now) {
+			if slices.Contains(told[item.Key.ID], kind) {
 				continue
 			}
 
-			recorded, err := n.tell(ctx, w, kind, now)
+			recorded, err := n.tell(ctx, item, kind, now)
 			if err != nil {
-				n.log.WarnContext(ctx, "service key notice not recorded", "key_id", w.Key.ID, "kind", kind, "error", err)
+				n.log.WarnContext(ctx, "service key notice not recorded", "key_id", item.Key.ID, "kind", kind, "error", err)
 
 				continue
 			}
@@ -154,16 +155,21 @@ func (n *Notices) Send(ctx context.Context) (int, error) {
 	return sent, nil
 }
 
-func (n *Notices) tell(ctx context.Context, w KeyWithAccount, kind NoticeKind, now time.Time) (bool, error) {
+func (n *Notices) tell(ctx context.Context, item KeyWithAccount, kind NoticeKind, now time.Time) (bool, error) {
 	recorded := false
 
-	err := n.transact.WithinTransaction(ctx, func(tx context.Context) error {
-		claimed, err := n.store.ClaimNotice(tx, w.Key.ID, kind, now)
-		if err != nil || !claimed {
-			return err
+	err := n.transact.WithinTransaction(ctx, func(txCtx context.Context) error {
+		claimed, err := n.store.ClaimNotice(txCtx, item.Key.ID, kind, now)
+		if err != nil {
+			return fmt.Errorf("serviceaccount: claim the notice: %w", err)
 		}
 
-		if err := KeyNoticed.Publish(tx, noticeOf(w, kind, now)); err != nil {
+		if !claimed {
+			return nil
+		}
+
+		err = KeyNoticed.Publish(txCtx, noticeOf(item, kind, now))
+		if err != nil {
 			return fmt.Errorf("publish the notice: %w", err)
 		}
 
@@ -172,31 +178,35 @@ func (n *Notices) tell(ctx context.Context, w KeyWithAccount, kind NoticeKind, n
 		return nil
 	})
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("serviceaccount: tell: %w", err)
 	}
 
 	return recorded, nil
 }
 
-func noticeOf(w KeyWithAccount, kind NoticeKind, now time.Time) KeyNotice {
+// hoursPerDay turns the hours of a duration into the days a notice states.
+const hoursPerDay = 24
+
+func noticeOf(item KeyWithAccount, kind NoticeKind, now time.Time) KeyNotice {
 	evt := KeyNotice{
-		OwnerID: w.Account.OwnerID, AccountID: w.Account.ID, Account: w.Account.Name, KeyID: w.Key.ID, Key: w.Key.Name, Kind: kind,
+		OwnerID: item.Account.OwnerID, AccountID: item.Account.ID, Account: item.Account.Name,
+		KeyID: item.Key.ID, Key: item.Key.Name, Kind: kind, Date: "", Days: 0,
 	}
 
 	switch kind {
 	case NoticeExpiring:
-		if w.Key.ExpiresAt != nil {
-			evt.Date = w.Key.ExpiresAt.Format(time.DateOnly)
-			evt.Days = max(0, int(w.Key.ExpiresAt.Sub(now).Hours()/24))
+		if item.Key.ExpiresAt != nil {
+			evt.Date = item.Key.ExpiresAt.Format(time.DateOnly)
+			evt.Days = max(0, int(item.Key.ExpiresAt.Sub(now).Hours()/hoursPerDay))
 		}
 	case NoticeUnused:
-		since := w.Key.CreatedAt
-		if w.Key.LastUsedAt != nil {
-			since = *w.Key.LastUsedAt
+		since := item.Key.CreatedAt
+		if item.Key.LastUsedAt != nil {
+			since = *item.Key.LastUsedAt
 		}
 
 		evt.Date = since.Format(time.DateOnly)
-		evt.Days = int(now.Sub(since).Hours() / 24)
+		evt.Days = int(now.Sub(since).Hours() / hoursPerDay)
 	}
 
 	return evt

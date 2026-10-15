@@ -36,7 +36,8 @@ func (b *Bindings) Access(ctx context.Context, subject authz.Subject) (SubjectAc
 		return SubjectAccess{}, err
 	}
 
-	if err := b.cfg.Engine.Require(ctx, guard.view); err != nil {
+	err = b.cfg.Engine.Require(ctx, guard.view)
+	if err != nil {
 		return SubjectAccess{}, err
 	}
 
@@ -197,7 +198,8 @@ func (b *Bindings) Bind(ctx context.Context, subject authz.Subject, draft Bindin
 		return Binding{}, err
 	}
 
-	if err := b.cfg.Engine.Require(ctx, guard.manage); err != nil {
+	err = b.cfg.Engine.Require(ctx, guard.manage)
+	if err != nil {
 		return Binding{}, err
 	}
 
@@ -243,7 +245,8 @@ func (b *Bindings) Unbind(ctx context.Context, subject authz.Subject, bindingID 
 		return err
 	}
 
-	if err := b.cfg.Engine.Require(ctx, guard.manage); err != nil {
+	err = b.cfg.Engine.Require(ctx, guard.manage)
+	if err != nil {
 		return err
 	}
 
@@ -269,7 +272,12 @@ func (b *Bindings) Unbind(ctx context.Context, subject authz.Subject, bindingID 
 		return err
 	}
 
-	return guard.delegation.Unbind(ctx, bindingID)
+	err = guard.delegation.Unbind(ctx, bindingID)
+	if err != nil {
+		return fmt.Errorf("access: unbind %d: %w", bindingID, err)
+	}
+
+	return nil
 }
 
 // Scopes are the places the actor may give this subject roles at: where they
@@ -289,7 +297,8 @@ func (b *Bindings) Scopes(ctx context.Context, subject authz.Subject) (ScopeOpti
 		return ScopeOptions{}, err
 	}
 
-	if err := b.cfg.Engine.Require(ctx, guard.manage); err != nil {
+	err = b.cfg.Engine.Require(ctx, guard.manage)
+	if err != nil {
 		return ScopeOptions{}, err
 	}
 
@@ -369,20 +378,9 @@ func (b *Bindings) BindableRolesFor(ctx context.Context, kind authz.Kind, scope 
 		return nil, err
 	}
 
-	h := b.cfg.Engine.Hierarchy()
-	if err := h.Check(scope); err != nil {
-		return nil, apperr.BadRequestErr(err)
-	}
-
-	if !h.IsRoot(scope) {
-		names, err := b.cfg.Scopes.Names(ctx, []authz.Scope{scope})
-		if err != nil {
-			return nil, apperr.Internal(fmt.Errorf("access: place %s: %w", scope, err))
-		}
-
-		if _, ok := names[scope]; !ok {
-			return nil, apperr.NotFound("place not found")
-		}
+	err = b.requirePlace(ctx, scope)
+	if err != nil {
+		return nil, err
 	}
 
 	custom, err := b.cfg.Store.ListRoles(ctx)
@@ -407,6 +405,32 @@ func (b *Bindings) BindableRolesFor(ctx context.Context, kind authz.Kind, scope 
 	}
 
 	return out, nil
+}
+
+// requirePlace answers a bad request for a scope the hierarchy does not have, and a not-found for a place
+// that does not exist.
+func (b *Bindings) requirePlace(ctx context.Context, scope authz.Scope) error {
+	levels := b.cfg.Engine.Hierarchy()
+
+	err := levels.Check(scope)
+	if err != nil {
+		return apperr.BadRequestErr(err)
+	}
+
+	if levels.IsRoot(scope) {
+		return nil
+	}
+
+	names, err := b.cfg.Scopes.Names(ctx, []authz.Scope{scope})
+	if err != nil {
+		return apperr.Internal(fmt.Errorf("access: place %s: %w", scope, err))
+	}
+
+	if _, ok := names[scope]; !ok {
+		return apperr.NotFound("place not found")
+	}
+
+	return nil
 }
 
 // bindable asks the BindingCheck about a candidate binding at the scope. A

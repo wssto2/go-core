@@ -195,15 +195,16 @@ func (s Security) guard(spec Spec) []gin.HandlerFunc {
 var errPersonOnly = errors.New("this is for a person; a service account cannot use it")
 
 // refuseServiceAccount answers 403 to a request made as a service account.
-func refuseServiceAccount(c *gin.Context) {
-	if p, ok := authz.PrincipalFrom(c.Request.Context()); ok && p.Kind == authz.KindServiceAccount {
-		_ = c.Error(apperr.ForbiddenErr(errPersonOnly).WithReason(authz.ReasonForbidden, map[string]any{"why": "person_only"}))
-		c.Abort()
+func refuseServiceAccount(ctx *gin.Context) {
+	if who, ok := authz.PrincipalFrom(ctx.Request.Context()); ok && who.Kind == authz.KindServiceAccount {
+		why := map[string]any{"why": "person_only"}
+		_ = ctx.Error(apperr.ForbiddenErr(errPersonOnly).WithReason(authz.ReasonForbidden, why))
+		ctx.Abort()
 
 		return
 	}
 
-	c.Next()
+	ctx.Next()
 }
 
 // problem is a mount error that names the route it is about.
@@ -222,7 +223,8 @@ func (s Security) check(spec Spec) error {
 		return problem("route " + spec.String() + " is Public but also requires " + strings.Join(needs, ", ") +
 			": remove .Public() so it needs sign-in, or remove .Requires(...)")
 	case spec.Public && spec.PersonOnly:
-		return problem("route " + spec.String() + " is Public but also PersonOnly: a public route is not authenticated, so it has no service account to refuse")
+		return problem("route " + spec.String() + " is Public but also PersonOnly: " +
+			"a public route is not authenticated, so it has no service account to refuse")
 	case spec.Public:
 		return nil
 	case len(s.Authenticate) == 0:

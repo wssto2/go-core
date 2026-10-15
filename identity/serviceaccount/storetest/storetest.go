@@ -218,6 +218,7 @@ func listFollowsTheVisibility(t *testing.T, store serviceaccount.Store) {
 
 	all := serviceaccount.Visibility{All: true, Tenants: nil}
 	chk.equal([]string{"alpha", nameBeta, "mid", nameZeta}, names(all), "all, by name")
+
 	one := serviceaccount.Visibility{All: false, Tenants: []int{tenantA}}
 	two := serviceaccount.Visibility{All: false, Tenants: []int{tenantA, tenantB}}
 

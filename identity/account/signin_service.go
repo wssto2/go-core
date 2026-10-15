@@ -108,7 +108,7 @@ func (s *SignIn) Login(ctx context.Context, in LoginInput) (Signed, error) {
 		return Signed{}, err
 	}
 
-	return Signed{Account: acc, Credentials: creds}, nil
+	return Signed{Account: acc, Credentials: creds, Actor: nil}, nil
 }
 
 // RefreshInput is a request for new tokens. Token is the refresh token.
@@ -430,8 +430,8 @@ type EmbedInput struct {
 // access token is the credential the page keeps and sends as a bearer token. The session lasts EmbedTTL and
 // cannot be refreshed: the refresh token of the new session is not handed out, so nobody holds it. The person's
 // history records the sign-in. An unknown or deactivated account is ReasonSessionInvalid.
-func (s *SignIn) Embed(ctx context.Context, in EmbedInput) (Signed, error) {
-	acc, err := s.deps.Accounts.Find(ctx, in.AccountID)
+func (s *SignIn) Embed(ctx context.Context, embed EmbedInput) (Signed, error) {
+	acc, err := s.deps.Accounts.Find(ctx, embed.AccountID)
 	if errors.Is(err, ErrNotFound) || (err == nil && !acc.Active) {
 		return Signed{}, sessionInvalid()
 	}
@@ -443,8 +443,8 @@ func (s *SignIn) Embed(ctx context.Context, in EmbedInput) (Signed, error) {
 	now := s.deps.Clock.Now()
 
 	creds, err := s.deps.Sessions.Open(ctx, NewSession{
-		AccountID: acc.ID, Device: cut(strings.TrimSpace(in.Device), DeviceMax), IP: cut(strings.TrimSpace(in.IP), IPMax),
-		At: now, ExpiresAt: now.Add(EmbedTTL),
+		AccountID: acc.ID, ActorID: 0, Device: cut(strings.TrimSpace(embed.Device), DeviceMax),
+		IP: cut(strings.TrimSpace(embed.IP), IPMax), At: now, ExpiresAt: now.Add(EmbedTTL),
 	})
 	if err != nil {
 		return Signed{}, apperr.Internal(err)
@@ -452,9 +452,10 @@ func (s *SignIn) Embed(ctx context.Context, in EmbedInput) (Signed, error) {
 
 	creds.Refresh = ""
 
-	if err := s.record(ctx, acc.ID, SignedIn, 0, in.Device, in.IP); err != nil {
+	err = s.record(ctx, acc.ID, SignedIn, 0, embed.Device, embed.IP)
+	if err != nil {
 		return Signed{}, err
 	}
 
-	return Signed{Account: acc, Credentials: creds}, nil
+	return Signed{Account: acc, Credentials: creds, Actor: nil}, nil
 }

@@ -24,6 +24,12 @@ const EmbedPath = "/embed"
 // MinEmbedSecret is the shortest secret the embed token is signed with.
 const MinEmbedSecret = 32
 
+const (
+	errorKey     = "error"
+	invalidToken = "invalid token"
+	tokenParts   = 3 // header.payload.signature
+)
+
 // Embed is GET /embed?token=...&redirect=...: the page an application embeds in an iframe of another host opens first.
 // The host signs a token for the person (an HMAC-SHA256 JWT with sub, the account id, exp and jti) and the page
 // exchanges it for a session of EmbedTTL with no refresh. iOS blocks third-party storage in cross-origin iframes,
@@ -43,7 +49,9 @@ type Embed struct {
 
 // NewEmbed returns the embed page's handler; the secret is shared with the host that signs the tokens.
 func NewEmbed(signIn *account.SignIn, secret string, clock interface{ Now() time.Time }) *Embed {
-	return &Embed{signIn: signIn, secret: []byte(secret), clock: clock, used: &jtis{seen: map[string]time.Time{}}}
+	used := &jtis{mu: sync.Mutex{}, seen: map[string]time.Time{}}
+
+	return &Embed{signIn: signIn, secret: []byte(secret), clock: clock, used: used}
 }
 
 // Route is GET /embed, public: the token is the credential.
@@ -51,53 +59,53 @@ func (e *Embed) Route() route.Bound {
 	return route.Raw(nethttp.MethodGet, EmbedPath).Name("identity.embed").Public().To(e.handle)
 }
 
-func (e *Embed) handle(c *gin.Context) {
-	token := c.Query("token")
+func (e *Embed) handle(ctx *gin.Context) {
+	token := ctx.Query("token")
 	if token == "" {
-		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "token is required"})
+		ctx.JSON(nethttp.StatusBadRequest, gin.H{errorKey: "token is required"})
 
 		return
 	}
 
 	claims, err := e.verify(token)
 	if err != nil {
-		c.JSON(nethttp.StatusUnauthorized, gin.H{"error": "invalid token"})
+		ctx.JSON(nethttp.StatusUnauthorized, gin.H{errorKey: invalidToken})
 
 		return
 	}
 
 	if !e.used.firstUse(claims.JTI, time.Unix(claims.Exp, 0), e.clock.Now()) {
-		c.JSON(nethttp.StatusUnauthorized, gin.H{"error": "token already used"})
+		ctx.JSON(nethttp.StatusUnauthorized, gin.H{errorKey: "token already used"})
 
 		return
 	}
 
-	id, err := strconv.Atoi(claims.Sub)
+	accountID, err := strconv.Atoi(claims.Sub)
 	if err != nil {
-		c.JSON(nethttp.StatusUnauthorized, gin.H{"error": "invalid token"})
+		ctx.JSON(nethttp.StatusUnauthorized, gin.H{errorKey: invalidToken})
 
 		return
 	}
 
-	signed, err := e.signIn.Embed(c.Request.Context(), account.EmbedInput{
-		AccountID: id, Device: account.DeviceLabel(c.GetHeader("User-Agent")), IP: c.ClientIP(),
+	signed, err := e.signIn.Embed(ctx.Request.Context(), account.EmbedInput{
+		AccountID: accountID, Device: account.DeviceLabel(ctx.GetHeader("User-Agent")), IP: ctx.ClientIP(),
 	})
 	if err != nil {
-		c.JSON(nethttp.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		ctx.JSON(nethttp.StatusUnauthorized, gin.H{errorKey: "unauthorized"})
 
 		return
 	}
 
-	target := c.Query("redirect")
+	target := ctx.Query("redirect")
 	if !samePath(target) {
 		target = "/"
 	}
 
 	// The three values are JSON strings, which a script can hold as they are: JSON escapes the characters that end one.
-	accessJSON, _ := json.Marshal(signed.Credentials.Access)                          //nolint:errchkjson // a string cannot fail to marshal
-	expiresJSON, _ := json.Marshal(signed.Credentials.ExpiresAt.Format(time.RFC3339)) //nolint:errchkjson // a string cannot fail to marshal
-	targetJSON, _ := json.Marshal(target)                                             //nolint:errchkjson // a string cannot fail to marshal
-	nonce := c.GetString("nonce")                                                     // the CSP middleware's; the script needs it to run under the policy
+	accessJSON := jsonString(signed.Credentials.Access)
+	expiresJSON := jsonString(signed.Credentials.ExpiresAt.Format(time.RFC3339))
+	targetJSON := jsonString(target)
+	nonce := ctx.GetString("nonce") // the CSP middleware's; the script needs it to run under the policy
 
 	page := fmt.Sprintf(`<!DOCTYPE html>
 <html><head><script nonce="%s">(function(){try{
@@ -106,9 +114,15 @@ sessionStorage.setItem('embed_expires_at',%s);
 }catch(e){}window.location.replace(%s);})();</script></head>
 <body></body></html>`, nonce, accessJSON, expiresJSON, targetJSON)
 
-	c.Header("Content-Type", "text/html; charset=utf-8")
-	c.Header("Cache-Control", "no-store") // the page holds a credential
-	c.String(nethttp.StatusOK, page)
+	ctx.Header("Content-Type", "text/html; charset=utf-8")
+	ctx.Header("Cache-Control", "no-store") // the page holds a credential
+	ctx.String(nethttp.StatusOK, page)
+}
+
+func jsonString(value string) string {
+	encoded, _ := json.Marshal(value) //nolint:errchkjson // a string cannot fail to marshal
+
+	return string(encoded)
 }
 
 // samePath reports whether target is a path of this site: it starts with one slash, and has no scheme, host, backslash
@@ -138,7 +152,7 @@ var errEmbedToken = errors.New("identity: the embed token is not valid")
 // verify checks the signature (constant time), the lifetime and the jti.
 func (e *Embed) verify(token string) (embedClaims, error) {
 	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
+	if len(parts) != tokenParts {
 		return embedClaims{}, errEmbedToken
 	}
 
@@ -155,7 +169,9 @@ func (e *Embed) verify(token string) (embedClaims, error) {
 	}
 
 	var claims embedClaims
-	if err := json.Unmarshal(payload, &claims); err != nil {
+
+	err = json.Unmarshal(payload, &claims)
+	if err != nil {
 		return embedClaims{}, errEmbedToken
 	}
 

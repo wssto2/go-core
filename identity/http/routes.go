@@ -23,17 +23,24 @@ var (
 	// Refresh swaps the refresh token, from the body or the cookie, for new tokens.
 	Refresh = route.Post[RefreshInput, SessionResponse](base + "/refresh").Name("identity.refresh").Public()
 	// Logout ends the session the request came with.
+	//nolint:gochecknoglobals // a route is declared once, as a value
 	Logout = route.Post[route.None, route.Empty](base + "/logout").Name("identity.logout").PersonOnly()
 	// Me answers the session payload of whoever is signed in.
+	//nolint:gochecknoglobals,varnamelen // a route is declared once, as a value
 	Me = route.Get[route.None, SessionResponse](base + "/me").Name("identity.me").PersonOnly()
 	// ChangeLocale sets the signed-in person's language.
-	ChangeLocale = route.Post[ChangeLocaleInput, route.Empty](base + "/change-locale").Name("identity.change-locale").PersonOnly()
+	//nolint:gochecknoglobals // a route is declared once, as a value
+	ChangeLocale = route.Post[ChangeLocaleInput, route.Empty](base + "/change-locale").
+			Name("identity.change-locale").PersonOnly()
 	// LoginAs signs in as somebody else, when the application has said who may.
+	//nolint:gochecknoglobals // a route is declared once, as a value
 	LoginAs = route.Post[LoginAsInput, SessionResponse](base + "/login-as").Name("identity.login-as").PersonOnly()
 	// ReturnToOwn ends a session opened by signing in as somebody and signs the
 	// person in as themselves again, with no password; any other session is refused
 	// with identity.impersonation.not_active.
-	ReturnToOwn = route.Post[route.None, SessionResponse](base + "/login-as/return").Name("identity.login-as.return").PersonOnly()
+	//nolint:gochecknoglobals // a route is declared once, as a value
+	ReturnToOwn = route.Post[route.None, SessionResponse](base + "/login-as/return").
+			Name("identity.login-as.return").PersonOnly()
 
 	// Routes is identity's contract: contract.Generate(dir, identity.Routes) writes
 	// its TypeScript. User is the default projection of an account, listed because

@@ -59,7 +59,12 @@ func (noticeModel) TableName() string { return "service_account_key_notices" }
 
 // Migrate creates the tables from the models, for tests on SQLite; production runs the files in migrations.
 func Migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&accountModel{}, &keyModel{}, &noticeModel{}) //nolint:wrapcheck // the migrator's error is the caller's
+	err := db.AutoMigrate(new(accountModel), new(keyModel), new(noticeModel))
+	if err != nil {
+		return fmt.Errorf("service accounts: migrate: %w", err)
+	}
+
+	return nil
 }
 
 // Store is the SQL store of service accounts.
@@ -69,16 +74,6 @@ var _ serviceaccount.Store = (*Store)(nil)
 
 // New returns the store over db.
 func New(db *gorm.DB) *Store { return &Store{db: db} }
-
-// conn is the transaction in ctx (database.Transactor puts it there), else the store's own connection, so an
-// account's change and its audit row commit together.
-func (s *Store) conn(ctx context.Context) *gorm.DB {
-	if tx, ok := database.TxFromContext(ctx); ok {
-		return tx
-	}
-
-	return s.db.WithContext(ctx)
-}
 
 // whole is a time as the DATETIME columns keep it: UTC, to the second.
 func whole(t time.Time) time.Time { return t.UTC().Truncate(time.Second) }
@@ -116,31 +111,34 @@ func utcPtr(t *time.Time) *time.Time {
 	return &u
 }
 
-func modelOf(a serviceaccount.Account) accountModel {
-	m := accountModel{
-		ID: a.ID, Name: a.Name, Description: a.Description, OwnerID: a.OwnerID, CreatedBy: a.CreatedBy,
-		CreatedAt: whole(a.CreatedAt), UpdatedBy: a.UpdatedBy, UpdatedAt: wholePtr(a.UpdatedAt),
-		DeactivatedAt: wholePtr(a.DeactivatedAt), DeactivatedBy: a.DeactivatedBy,
+func modelOf(acc serviceaccount.Account) accountModel {
+	var tenantID *int
+
+	if acc.TenantID > 0 {
+		tenant := acc.TenantID
+		tenantID = &tenant
 	}
 
-	if a.TenantID > 0 {
-		m.TenantID = &a.TenantID
+	return accountModel{
+		ID: acc.ID, Name: acc.Name, Description: acc.Description, OwnerID: acc.OwnerID, CreatedBy: acc.CreatedBy,
+		CreatedAt: whole(acc.CreatedAt), UpdatedBy: acc.UpdatedBy, UpdatedAt: wholePtr(acc.UpdatedAt),
+		DeactivatedAt: wholePtr(acc.DeactivatedAt), DeactivatedBy: acc.DeactivatedBy, TenantID: tenantID,
 	}
-
-	return m
 }
 
 func (m keyModel) key() serviceaccount.Key {
 	return serviceaccount.Key{
-		ID: m.ID, ServiceAccountID: m.ServiceAccountID, Name: m.Name, Prefix: m.Prefix, CreatedBy: m.CreatedBy,
+		ID: m.ID, ServiceAccountID: m.ServiceAccountID, Name: m.Name, Prefix: m.Prefix, Hash: "", CreatedBy: m.CreatedBy,
 		CreatedAt: m.CreatedAt.UTC(), LastUsedAt: utcPtr(m.LastUsedAt), ExpiresAt: utcPtr(m.ExpiresAt),
 		RevokedAt: utcPtr(m.RevokedAt), RevokedBy: m.RevokedBy,
 	}
 }
 
 // List implements serviceaccount.Store.
-func (s *Store) List(ctx context.Context, visible serviceaccount.Visibility, at time.Time) ([]serviceaccount.Summary, error) {
-	query := s.conn(ctx).Model(&accountModel{}).Order("name ASC, id ASC")
+func (s *Store) List(
+	ctx context.Context, visible serviceaccount.Visibility, when time.Time,
+) ([]serviceaccount.Summary, error) {
+	query := s.conn(ctx).Model(new(accountModel)).Order("name ASC, id ASC")
 
 	switch {
 	case visible.All:
@@ -151,27 +149,29 @@ func (s *Store) List(ctx context.Context, visible serviceaccount.Visibility, at 
 	}
 
 	var rows []accountModel
-	if err := query.Find(&rows).Error; err != nil {
+
+	err := query.Find(&rows).Error
+	if err != nil {
 		return nil, fmt.Errorf("list service accounts: %w", err)
 	}
 
-	return s.summaries(ctx, rows, at)
+	return s.summaries(ctx, rows, when)
 }
 
 // Find implements serviceaccount.Store.
-func (s *Store) Find(ctx context.Context, id int, at time.Time) (serviceaccount.Summary, error) {
+func (s *Store) Find(ctx context.Context, accountID int, when time.Time) (serviceaccount.Summary, error) {
 	var row accountModel
 
-	err := s.conn(ctx).Where("id = ?", id).Take(&row).Error
+	err := s.conn(ctx).Where("id = ?", accountID).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return serviceaccount.Summary{}, serviceaccount.ErrNotFound
 	}
 
 	if err != nil {
-		return serviceaccount.Summary{}, fmt.Errorf("read service account %d: %w", id, err)
+		return serviceaccount.Summary{}, fmt.Errorf("read service account %d: %w", accountID, err)
 	}
 
-	out, err := s.summaries(ctx, []accountModel{row}, at)
+	out, err := s.summaries(ctx, []accountModel{row}, when)
 	if err != nil {
 		return serviceaccount.Summary{}, err
 	}
@@ -179,66 +179,13 @@ func (s *Store) Find(ctx context.Context, id int, at time.Time) (serviceaccount.
 	return out[0], nil
 }
 
-// summaries adds the key counts and last use to the accounts.
-func (s *Store) summaries(ctx context.Context, rows []accountModel, at time.Time) ([]serviceaccount.Summary, error) {
-	out := make([]serviceaccount.Summary, 0, len(rows))
-	if len(rows) == 0 {
-		return out, nil
-	}
-
-	ids := make([]int, 0, len(rows))
-	for _, row := range rows {
-		ids = append(ids, row.ID)
-	}
-
-	var active []struct {
-		ServiceAccountID int
-		ActiveKeys       int
-	}
-
-	// The alias is active_keys: KEYS is a reserved word in MySQL and MariaDB.
-	err := s.conn(ctx).Model(&keyModel{}).
-		Select("service_account_id, COUNT(*) AS active_keys").
-		Where("service_account_id IN ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)", ids, whole(at)).
-		Group("service_account_id").Scan(&active).Error
-	if err != nil {
-		return nil, fmt.Errorf("count active keys: %w", err)
-	}
-
-	// The last use is read per key and folded here: MAX() of a DATETIME comes back as text on some drivers.
-	var keys []keyModel
-
-	err = s.conn(ctx).Select("service_account_id, last_used_at").Where("service_account_id IN ? AND last_used_at IS NOT NULL", ids).Find(&keys).Error
-	if err != nil {
-		return nil, fmt.Errorf("read last use of keys: %w", err)
-	}
-
-	counts := map[int]int{}
-	for _, a := range active {
-		counts[a.ServiceAccountID] = a.ActiveKeys
-	}
-
-	lastUsed := map[int]*time.Time{}
-
-	for _, k := range keys {
-		if cur := lastUsed[k.ServiceAccountID]; cur == nil || k.LastUsedAt.After(*cur) {
-			lastUsed[k.ServiceAccountID] = utcPtr(k.LastUsedAt)
-		}
-	}
-
-	for _, row := range rows {
-		out = append(out, serviceaccount.Summary{Account: row.account(), ActiveKeys: counts[row.ID], LastUsedAt: lastUsed[row.ID]})
-	}
-
-	return out, nil
-}
-
 // Create implements serviceaccount.Store.
 func (s *Store) Create(ctx context.Context, account *serviceaccount.Account) error {
 	row := modelOf(*account)
 	row.ID = 0
 
-	if err := s.conn(ctx).Create(&row).Error; err != nil {
+	err := s.conn(ctx).Create(&row).Error
+	if err != nil {
 		return fmt.Errorf("create service account: %w", err)
 	}
 
@@ -251,8 +198,9 @@ func (s *Store) Create(ctx context.Context, account *serviceaccount.Account) err
 func (s *Store) Update(ctx context.Context, account serviceaccount.Account) error {
 	row := modelOf(account)
 
-	err := s.conn(ctx).Model(&accountModel{}).Where("id = ?", account.ID).
-		Select("name", "description", "tenant_id", "owner_id", "updated_by", "updated_at", "deactivated_at", "deactivated_by").
+	err := s.conn(ctx).Model(new(accountModel)).Where("id = ?", account.ID).
+		Select("name", "description", "tenant_id", "owner_id", "updated_by", "updated_at", "deactivated_at",
+			"deactivated_by").
 		Updates(&row).Error
 	if err != nil {
 		return fmt.Errorf("update service account %d: %w", account.ID, err)
@@ -265,7 +213,8 @@ func (s *Store) Update(ctx context.Context, account serviceaccount.Account) erro
 func (s *Store) Keys(ctx context.Context, accountID int) ([]serviceaccount.Key, error) {
 	var rows []keyModel
 
-	if err := s.conn(ctx).Where("service_account_id = ?", accountID).Order("id DESC").Find(&rows).Error; err != nil {
+	err := s.conn(ctx).Where("service_account_id = ?", accountID).Order("id DESC").Find(&rows).Error
+	if err != nil {
 		return nil, fmt.Errorf("list keys of service account %d: %w", accountID, err)
 	}
 
@@ -296,11 +245,13 @@ func (s *Store) FindKey(ctx context.Context, accountID, keyID int) (serviceaccou
 // CreateKey implements serviceaccount.Store.
 func (s *Store) CreateKey(ctx context.Context, key *serviceaccount.Key) error {
 	row := keyModel{
-		ServiceAccountID: key.ServiceAccountID, Name: key.Name, Prefix: key.Prefix, KeyHash: key.Hash, CreatedBy: key.CreatedBy,
-		CreatedAt: whole(key.CreatedAt), ExpiresAt: wholePtr(key.ExpiresAt),
+		ID: 0, ServiceAccountID: key.ServiceAccountID, Name: key.Name, Prefix: key.Prefix, KeyHash: key.Hash,
+		CreatedBy: key.CreatedBy, CreatedAt: whole(key.CreatedAt), LastUsedAt: nil, ExpiresAt: wholePtr(key.ExpiresAt),
+		RevokedAt: nil, RevokedBy: 0,
 	}
 
-	if err := s.conn(ctx).Create(&row).Error; err != nil {
+	err := s.conn(ctx).Create(&row).Error
+	if err != nil {
 		return fmt.Errorf("create key: %w", err)
 	}
 
@@ -311,7 +262,7 @@ func (s *Store) CreateKey(ctx context.Context, key *serviceaccount.Key) error {
 
 // RevokeKey implements serviceaccount.Store.
 func (s *Store) RevokeKey(ctx context.Context, keyID int, at time.Time, by int) error {
-	err := s.conn(ctx).Model(&keyModel{}).Where("id = ? AND revoked_at IS NULL", keyID).
+	err := s.conn(ctx).Model(new(keyModel)).Where("id = ? AND revoked_at IS NULL", keyID).
 		Updates(map[string]any{"revoked_at": whole(at), "revoked_by": by}).Error
 	if err != nil {
 		return fmt.Errorf("revoke key %d: %w", keyID, err)
@@ -349,7 +300,7 @@ func (s *Store) FindByKeyHash(ctx context.Context, hash string) (serviceaccount.
 
 // TouchKey implements serviceaccount.Store.
 func (s *Store) TouchKey(ctx context.Context, keyID int, at time.Time) error {
-	err := s.conn(ctx).Model(&keyModel{}).Where("id = ?", keyID).Update("last_used_at", whole(at)).Error
+	err := s.conn(ctx).Model(new(keyModel)).Where("id = ?", keyID).Update("last_used_at", whole(at)).Error
 	if err != nil {
 		return fmt.Errorf("touch key %d: %w", keyID, err)
 	}
@@ -363,7 +314,7 @@ func (s *Store) WorkingKeys(ctx context.Context, at time.Time) ([]serviceaccount
 
 	err := s.conn(ctx).
 		Where("revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)", whole(at)).
-		Where("service_account_id IN (?)", s.conn(ctx).Model(&accountModel{}).Select("id").Where("deactivated_at IS NULL")).
+		Where("service_account_id IN (?)", s.conn(ctx).Model(new(accountModel)).Select("id").Where("deactivated_at IS NULL")).
 		Order("id ASC").Find(&keys).Error
 	if err != nil {
 		return nil, fmt.Errorf("read working keys: %w", err)
@@ -379,7 +330,9 @@ func (s *Store) WorkingKeys(ctx context.Context, at time.Time) ([]serviceaccount
 	}
 
 	var accounts []accountModel
-	if err := s.conn(ctx).Where("id IN ?", accountIDs).Find(&accounts).Error; err != nil {
+
+	err = s.conn(ctx).Where("id IN ?", accountIDs).Find(&accounts).Error
+	if err != nil {
 		return nil, fmt.Errorf("read accounts of working keys: %w", err)
 	}
 
@@ -408,7 +361,8 @@ func (s *Store) NoticesSent(ctx context.Context, keyIDs []int) (map[int][]servic
 
 	var rows []noticeModel
 
-	if err := s.conn(ctx).Where("key_id IN ?", keyIDs).Find(&rows).Error; err != nil {
+	err := s.conn(ctx).Where("key_id IN ?", keyIDs).Find(&rows).Error
+	if err != nil {
 		return nil, fmt.Errorf("read sent key notices: %w", err)
 	}
 
@@ -420,11 +374,88 @@ func (s *Store) NoticesSent(ctx context.Context, keyIDs []int) (map[int][]servic
 }
 
 // ClaimNotice implements serviceaccount.NoticeStore.
-func (s *Store) ClaimNotice(ctx context.Context, keyID int, kind serviceaccount.NoticeKind, at time.Time) (bool, error) {
-	res := s.conn(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&noticeModel{KeyID: keyID, Kind: string(kind), SentAt: whole(at)})
+func (s *Store) ClaimNotice(
+	ctx context.Context, keyID int, kind serviceaccount.NoticeKind, when time.Time,
+) (bool, error) {
+	claim := noticeModel{ID: 0, KeyID: keyID, Kind: string(kind), SentAt: whole(when)}
+
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	ignoreDuplicate := clause.OnConflict{DoNothing: true}
+
+	res := s.conn(ctx).Clauses(ignoreDuplicate).Create(&claim)
 	if res.Error != nil {
 		return false, fmt.Errorf("claim %s notice of key %d: %w", kind, keyID, res.Error)
 	}
 
 	return res.RowsAffected == 1, nil
+}
+
+// conn is the transaction in ctx (database.Transactor puts it there), else the store's own connection, so an
+// account's change and its audit row commit together.
+func (s *Store) conn(ctx context.Context) *gorm.DB {
+	if tx, ok := database.TxFromContext(ctx); ok {
+		return tx
+	}
+
+	return s.db.WithContext(ctx)
+}
+
+// summaries adds the key counts and last use to the accounts.
+func (s *Store) summaries(
+	ctx context.Context, rows []accountModel, when time.Time,
+) ([]serviceaccount.Summary, error) {
+	out := make([]serviceaccount.Summary, 0, len(rows))
+	if len(rows) == 0 {
+		return out, nil
+	}
+
+	ids := make([]int, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+
+	var active []struct {
+		ServiceAccountID int
+		ActiveKeys       int
+	}
+
+	// The alias is active_keys: KEYS is a reserved word in MySQL and MariaDB.
+	err := s.conn(ctx).Model(new(keyModel)).
+		Select("service_account_id, COUNT(*) AS active_keys").
+		Where("service_account_id IN ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)", ids, whole(when)).
+		Group("service_account_id").Scan(&active).Error
+	if err != nil {
+		return nil, fmt.Errorf("count active keys: %w", err)
+	}
+
+	// The last use is read per key and folded here: MAX() of a DATETIME comes back as text on some drivers.
+	var keys []keyModel
+
+	err = s.conn(ctx).Select("service_account_id, last_used_at").
+		Where("service_account_id IN ? AND last_used_at IS NOT NULL", ids).Find(&keys).Error
+	if err != nil {
+		return nil, fmt.Errorf("read last use of keys: %w", err)
+	}
+
+	counts := map[int]int{}
+	for _, count := range active {
+		counts[count.ServiceAccountID] = count.ActiveKeys
+	}
+
+	lastUsed := map[int]*time.Time{}
+
+	for _, used := range keys {
+		current := lastUsed[used.ServiceAccountID]
+		if current == nil || used.LastUsedAt.After(*current) {
+			lastUsed[used.ServiceAccountID] = utcPtr(used.LastUsedAt)
+		}
+	}
+
+	for _, row := range rows {
+		out = append(out, serviceaccount.Summary{
+			Account: row.account(), ActiveKeys: counts[row.ID], LastUsedAt: lastUsed[row.ID],
+		})
+	}
+
+	return out, nil
 }
