@@ -1,0 +1,40 @@
+// Package dto holds the HTTP wire shapes for the {{.Feature}} endpoints. The
+// domain entity never crosses the wire directly: map it here.
+package dto
+
+import (
+	"time"
+
+	{{.DomainAlias}} "{{.Module}}/internal/domain/{{.Domain}}/{{.Feature}}"
+)
+
+// {{.Entity}}Response is the wire shape of {{.DomainAlias}}.{{.Entity}}.
+type {{.Entity}}Response struct {
+	ID        int        `json:"id"`
+	Name      string     `json:"name"`
+	CreatedBy int        `json:"created_by"`
+	CreatedAt *time.Time `json:"created_at"`
+	UpdatedAt *time.Time `json:"updated_at"`
+}
+
+// From{{.Entity}} projects a domain {{.Feature}} record onto its wire shape.
+func From{{.Entity}}(record {{.DomainAlias}}.{{.Entity}}) {{.Entity}}Response {
+	return {{.Entity}}Response{
+		ID:        record.ID,
+		Name:      record.Name,
+		CreatedBy: record.CreatedBy,
+		CreatedAt: record.CreatedAt,
+		UpdatedAt: record.UpdatedAt,
+	}
+}
+
+// From{{.Entity}}List projects a slice of domain {{.Feature}} records onto their
+// wire shape.
+func From{{.Entity}}List(records []{{.DomainAlias}}.{{.Entity}}) []{{.Entity}}Response {
+	out := make([]{{.Entity}}Response, 0, len(records))
+	for _, record := range records {
+		out = append(out, From{{.Entity}}(record))
+	}
+
+	return out
+}

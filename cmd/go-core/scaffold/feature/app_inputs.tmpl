@@ -1,0 +1,25 @@
+package {{.Feature}}
+
+import (
+	"strings"
+
+	"github.com/wssto2/go-core/validation"
+)
+
+// {{.InputType}} is the request body for creating a {{.Feature}} record.
+//
+// Scaffold: every string field carries a max: bound sized to its column; keep
+// that as fields grow.
+type {{.InputType}} struct {
+	Name string `json:"name" validation:"required|max:150"`
+}
+
+// Validate runs the struct's validation: tags.
+func (i *{{.InputType}}) Validate() error {
+	return validation.ValidateInput(i)
+}
+
+// Sanitize trims leading and trailing whitespace from user-supplied strings.
+func (i *{{.InputType}}) Sanitize() {
+	i.Name = strings.TrimSpace(i.Name)
+}

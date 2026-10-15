@@ -1,0 +1,24 @@
+package note
+
+import "github.com/wssto2/go-core/authz"
+
+// Namespace is the permission and route namespace of the note feature.
+const Namespace = "crm.note"
+
+// The feature's permissions. manage is create + update; delete is its own
+// permission, added with a delete route.
+const (
+	PolicyView   = Namespace + ":view"
+	PolicyManage = Namespace + ":manage"
+)
+
+// Permissions is the catalogue of the feature's permissions. Install hands it to
+// the app, which refuses to start when a route requires a permission no
+// catalogue defines.
+func Permissions() *authz.Catalogue {
+	catalogue := authz.NewCatalogue()
+	catalogue.MustDefine(PolicyView)
+	catalogue.MustDefine(PolicyManage)
+
+	return catalogue
+}

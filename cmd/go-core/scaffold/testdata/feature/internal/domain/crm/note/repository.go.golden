@@ -1,0 +1,12 @@
+package note
+
+import "context"
+
+// Repository is the persistence port for the note aggregate. ctx is
+// always the first parameter; the infrastructure layer implements it and the
+// bootstrap package wires the implementation.
+type Repository interface {
+	FindAll(ctx context.Context) ([]Note, error)
+	FindByID(ctx context.Context, id int) (Note, error)
+	Create(ctx context.Context, record *Note) error
+}

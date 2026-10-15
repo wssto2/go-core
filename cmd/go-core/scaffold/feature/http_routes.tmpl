@@ -1,0 +1,35 @@
+package {{.Feature}}
+
+import (
+	"net/http"
+	"net/url"
+
+	{{.AppAlias}} "{{.Module}}/internal/application/{{.Domain}}/{{.Feature}}"
+	"{{.Module}}/internal/infrastructure/http/{{.Domain}}/{{.Feature}}/dto"
+	"github.com/wssto2/go-core/route"
+)
+
+// base is the feature's path under the API prefix. URL paths are kebab-case.
+const base = "/v1/{{.Domain}}/{{.Feature}}"
+
+// {{.Entity}}Path names the record a request is about. A malformed id (not a number) answers 400 for the whole group.
+type {{.Entity}}Path struct {
+	ID int `path:"id"`
+}
+
+// ListRequest is the list's query: paging, search, order, and every other parameter is a filter (web.PageFromValues reads it).
+type ListRequest struct {
+	Query url.Values `json:"-" query:"*"`
+}
+
+// The {{.Feature}} routes: read with :view, written with :manage. A typed route answers a malformed body with go-core's
+// standard 400/422.
+var (
+	List   = route.Get[ListRequest, route.Page[dto.{{.Entity}}Response]](base).Name("{{.Feature}}.list").Requires({{.AppAlias}}.PolicyView)
+	Show   = route.Get[{{.Entity}}Path, dto.{{.Entity}}Response](base + "/:id").Name("{{.Feature}}.show").Requires({{.AppAlias}}.PolicyView)
+	Create = route.Post[{{.AppAlias}}.{{.InputType}}, dto.{{.Entity}}Response](base).Name("{{.Feature}}.create").Requires({{.AppAlias}}.PolicyManage)
+)
+
+// Contract is what the feature offers the outside: the frontend's route table is generated from the contracts of the
+// routes the app installs.
+var Contract = route.Group("{{.Feature}}", List, Show, Create).MalformedPath(http.StatusBadRequest)

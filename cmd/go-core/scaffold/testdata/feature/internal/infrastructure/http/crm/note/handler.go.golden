@@ -1,0 +1,56 @@
+package note
+
+import (
+	"context"
+
+	appnote "example.com/shop/internal/application/crm/note"
+	"example.com/shop/internal/infrastructure/http/crm/note/dto"
+	"github.com/wssto2/go-core/pagination"
+	"github.com/wssto2/go-core/route"
+	"github.com/wssto2/go-core/web"
+	"github.com/wssto2/go-core/web/typed"
+)
+
+type handler struct {
+	service appnote.Service
+}
+
+// Routes binds the handlers of Contract to the service; hand them to gocore.App.Routes.
+func Routes(service appnote.Service) []route.Handled {
+	h := &handler{service: service}
+
+	return []route.Handled{List.To(h.list), Show.To(h.show), Create.To(h.create)}
+}
+
+func (h *handler) list(ctx context.Context, _ ListRequest) (route.Page[dto.NoteResponse], error) {
+	records, err := h.service.List(ctx)
+	if err != nil {
+		return route.Page[dto.NoteResponse]{}, err
+	}
+
+	rows := dto.FromNoteList(records)
+	n := len(rows)
+
+	// Scaffold: one page with every row. Take the page from the request (web.PageFromValues over the input's Query)
+	// once the repository pages.
+	return typed.ToPage(&pagination.PageResult[dto.NoteResponse]{
+		Items: rows, Total: int64(n), PerPage: n, Page: 1, LastPage: 1, From: min(n, 1), To: n,
+	}), nil
+}
+
+func (h *handler) show(ctx context.Context, in NotePath) (dto.NoteResponse, error) {
+	if err := web.PositiveID("id", in.ID); err != nil {
+		return dto.NoteResponse{}, err
+	}
+
+	return web.Mapped(dto.FromNote)(h.service.Get(ctx, in.ID))
+}
+
+func (h *handler) create(ctx context.Context, in appnote.CreateNoteInput) (dto.NoteResponse, error) {
+	who, err := web.SignedIn(ctx)
+	if err != nil {
+		return dto.NoteResponse{}, err
+	}
+
+	return web.Mapped(dto.FromNote)(h.service.Create(ctx, in, who))
+}

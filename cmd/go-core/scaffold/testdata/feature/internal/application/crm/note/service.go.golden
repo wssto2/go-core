@@ -1,0 +1,80 @@
+// Package note is the application service for the note aggregate.
+package note
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	domainnote "example.com/shop/internal/domain/crm/note"
+	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/auth"
+)
+
+// Service is the application API for the note aggregate.
+type Service interface {
+	List(ctx context.Context) ([]domainnote.Note, error)
+	Get(ctx context.Context, id int) (domainnote.Note, error)
+	Create(ctx context.Context, in CreateNoteInput, actor auth.Identifiable) (domainnote.Note, error)
+}
+
+// AppService is the default Service implementation.
+type AppService struct {
+	repo domainnote.Repository
+}
+
+// NewService wires an AppService over the note repository port.
+func NewService(repo domainnote.Repository) *AppService {
+	return &AppService{repo: repo}
+}
+
+// List returns every note record.
+func (s *AppService) List(ctx context.Context) ([]domainnote.Note, error) {
+	records, err := s.repo.FindAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("note: list: %w", err)
+	}
+
+	return records, nil
+}
+
+// Get returns a single note record by ID.
+func (s *AppService) Get(ctx context.Context, id int) (domainnote.Note, error) {
+	record, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, domainnote.ErrNotFound) {
+			return domainnote.Note{}, apperr.NotFound("note not found")
+		}
+
+		return domainnote.Note{}, fmt.Errorf("note: get %d: %w", id, err)
+	}
+
+	return record, nil
+}
+
+// Create validates the input and persists a new note record.
+func (s *AppService) Create(
+	ctx context.Context,
+	in CreateNoteInput,
+	actor auth.Identifiable,
+) (domainnote.Note, error) {
+	if err := in.Validate(); err != nil {
+		return domainnote.Note{}, err
+	}
+
+	in.Sanitize()
+
+	record := domainnote.Note{
+		Name:      in.Name,
+		CreatedBy: actor.GetID(),
+	}
+
+	if err := s.repo.Create(ctx, &record); err != nil {
+		return domainnote.Note{}, fmt.Errorf("note: create: %w", err)
+	}
+
+	return record, nil
+}
+
+// Ensure AppService satisfies Service at compile time.
+var _ Service = (*AppService)(nil)

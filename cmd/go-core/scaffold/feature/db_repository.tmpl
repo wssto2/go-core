@@ -1,0 +1,54 @@
+package repository
+
+import (
+	"context"
+
+	{{.DomainAlias}} "{{.Module}}/internal/domain/{{.Domain}}/{{.Feature}}"
+)
+
+// {{.RepoType}} is a scaffold implementation of {{.DomainAlias}}.Repository.
+//
+// It keeps rows in memory so the feature compiles and its unit tests run before
+// a table exists. Replace it with a GORM implementation over the feature's
+// table once the schema exists: map the domain entity to a row type here, keep
+// the entity free of gorm tags, and return {{.DomainAlias}}.ErrNotFound for a
+// missing row.
+type {{.RepoType}} struct {
+	rows   map[int]{{.DomainAlias}}.{{.Entity}}
+	nextID int
+}
+
+// New{{.RepoType}} returns an empty in-memory {{.RepoType}}.
+func New{{.RepoType}}() *{{.RepoType}} {
+	return &{{.RepoType}}{rows: make(map[int]{{.DomainAlias}}.{{.Entity}}), nextID: 1}
+}
+
+// FindAll returns every stored {{.Feature}} record.
+func (r *{{.RepoType}}) FindAll(_ context.Context) ([]{{.DomainAlias}}.{{.Entity}}, error) {
+	out := make([]{{.DomainAlias}}.{{.Entity}}, 0, len(r.rows))
+	for _, row := range r.rows {
+		out = append(out, row)
+	}
+
+	return out, nil
+}
+
+// FindByID returns the {{.Feature}} record with the given ID, or
+// {{.DomainAlias}}.ErrNotFound.
+func (r *{{.RepoType}}) FindByID(_ context.Context, id int) ({{.DomainAlias}}.{{.Entity}}, error) {
+	row, ok := r.rows[id]
+	if !ok {
+		return {{.DomainAlias}}.{{.Entity}}{}, {{.DomainAlias}}.ErrNotFound
+	}
+
+	return row, nil
+}
+
+// Create assigns an ID and stores the {{.Feature}} record.
+func (r *{{.RepoType}}) Create(_ context.Context, {{.Recv}} *{{.DomainAlias}}.{{.Entity}}) error {
+	{{.Recv}}.ID = r.nextID
+	r.nextID++
+	r.rows[{{.Recv}}.ID] = *{{.Recv}}
+
+	return nil
+}
