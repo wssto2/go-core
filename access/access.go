@@ -12,6 +12,12 @@
 // migrations of the three authz tables and makes the engine the application's
 // authorizer.
 //
+// When identity has service accounts (identity.WithServiceAccounts, and the users given to Install are its Users),
+// the access of a service account is administered the same way, under /v1/iam/service-accounts/:id: access, scopes,
+// bindings and the bindable roles, with the subject kind authz.KindServiceAccount, guarded by
+// iam.serviceaccount:view and :manage (accesshttp.ServiceAccountRoutes). An administrator of a tenant sees the
+// service accounts of that tenant.
+//
 // Delegation is the engine's: a person may give a role only where they hold
 // the binding permission, never one that holds more than they do, never to
 // themselves, and nobody removes their own last binding permission. The

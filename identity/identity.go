@@ -48,6 +48,18 @@
 // Its routes live under /v1/auth; the application's own prefix goes in front
 // (gocore.WithPrefix("/api") serves /api/v1/auth/login).
 //
+// identity is the application's one authentication chain, for every route that is not Public: a session (the
+// access token as a cookie or a bearer token), or, with WithServiceAccounts, an API key in the X-API-Key header.
+// The per-user rate limit the application armed (bootstrap's WithRateLimit) counts the account in both.
+// WithRequestUser turns the signed-in account into the application's own user type on every request:
+//
+//	identity.WithRequestUser(func(ctx context.Context, who identity.Authenticated) (auth.Identifiable, error) {
+//		return shop.UserOf(ctx, who.Account.ID) // read fresh: nothing a cache holds decides the user
+//	})
+//
+// A route declared PersonOnly (identity's own sign-in, session and profile routes are) refuses a service account
+// with 403. WithEmbed serves GET /embed at the site root, for a page embedded in another host's iframe.
+//
 // The framework-free core is identity/account (its types are aliased here);
 // identity/gormstore is the default store, identity/http the routes, whose
 // contract is Routes, and identity/identitytest what tests use.

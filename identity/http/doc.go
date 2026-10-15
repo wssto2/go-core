@@ -23,6 +23,15 @@
 // down to what they may reach. The client reads it with vue-core's
 // parseSessionPayload.
 //
+// Authentication (Authenticator, which Authentication wraps) resolves the access token to a live session of an
+// active account and makes the account the request's user, or the application's own type with the RequestUser
+// function. A request with the X-API-Key header (Keys) is a service account's instead, authenticated by the key
+// alone, and a request made with a key that is not a read is audited. The per-user rate limit of the application
+// counts either.
+//
+// GET /embed (Embed, served by identity.WithEmbed at the site root) opens a session of 24 hours that cannot be
+// refreshed for a person a host application vouches for with a signed single-use token.
+//
 // Tokens travel in HttpOnly cookies (access_token for the whole site,
 // refresh_token for the refresh route only, wherever the application serves it) and an access token is also
 // accepted as "Authorization: Bearer".
