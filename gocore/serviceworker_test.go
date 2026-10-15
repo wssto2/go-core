@@ -12,12 +12,13 @@ func TestWithServiceWorkerServesTheFileAtTheRootOutsideThePrefix(t *testing.T) {
 	t.Parallel()
 
 	file := filepath.Join(t.TempDir(), "worker.js")
-	if err := os.WriteFile(file, []byte("self.addEventListener('fetch', () => {})"), 0o600); err != nil {
+	err := os.WriteFile(file, []byte("self.addEventListener('fetch', () => {})"), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	app, _ := twoChains(t, nil)
-	app.prefix = "/api"
+	app.prefix = apiPrefix
 	WithServiceWorker(file)(app)
 
 	handler, err := app.Handler()

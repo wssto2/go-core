@@ -1,4 +1,4 @@
-//nolint:testpackage // uses the package's runnable helper
+//nolint:testpackage,paralleltest // uses the package's runnable helper; a real server
 package gocore
 
 import (
@@ -49,8 +49,7 @@ func TestUseRunsBeforeEveryRouteInTheOrderGivenWheneverItIsCalled(t *testing.T) 
 		"/up":     {"one", "two", "three", "auth"},
 		"/module": {"one", "two", "three"},
 	} {
-		resp, _ := fetch(t, base+path)
-		if got := resp.Header.Values("X-Order"); !slices.Equal(got, want) {
+		if got := fetch(t, base+path).header.Values("X-Order"); !slices.Equal(got, want) {
 			t.Errorf("%s: ran %v, want %v", path, got, want)
 		}
 	}

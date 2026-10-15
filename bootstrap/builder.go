@@ -194,6 +194,7 @@ func (b *AppBuilder) WithLogger(log *slog.Logger) *AppBuilder {
 // DefaultInfrastructure.
 func (b *AppBuilder) WithTelemetry(tel *observability.Telemetry) *AppBuilder {
 	b.telemetry = tel
+
 	return b
 }
 
@@ -364,6 +365,7 @@ func (b *AppBuilder) WithIdempotency(ttl time.Duration) *AppBuilder {
 // at any point of the chain.
 func (b *AppBuilder) Use(middleware ...gin.HandlerFunc) *AppBuilder {
 	b.engineMiddleware = append(b.engineMiddleware, middleware...)
+
 	return b
 }
 
@@ -455,6 +457,7 @@ func (b *AppBuilder) WithTrustedOrigins(origins ...string) *AppBuilder {
 //	    WithCSP("frame-src", "'self'", "https://www.google.com/maps/")
 func (b *AppBuilder) WithCSP(directive string, sources ...string) *AppBuilder {
 	b.csp = append(b.csp, middlewares.CSPSources(directive, sources...))
+
 	return b
 }
 

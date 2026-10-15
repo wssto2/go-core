@@ -22,7 +22,8 @@ func serving(t *testing.T, app *App, port int) string {
 	t.Cleanup(func() {
 		cancel()
 
-		if err := <-done; err != nil {
+		err := <-done
+		if err != nil {
 			t.Errorf("run: %v", err)
 		}
 	})
@@ -49,8 +50,15 @@ func serving(t *testing.T, app *App, port int) string {
 	return base
 }
 
-// fetch returns the status, headers and body of GET url.
-func fetch(t *testing.T, url string, headers ...string) (*http.Response, string) {
+// reply is what a request got back.
+type reply struct {
+	status int
+	header http.Header
+	body   string
+}
+
+// fetch returns the answer to GET url.
+func fetch(t *testing.T, url string) reply {
 	t.Helper()
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
@@ -58,21 +66,20 @@ func fetch(t *testing.T, url string, headers ...string) (*http.Response, string)
 		t.Fatal(err)
 	}
 
-	for i := 0; i+1 < len(headers); i += 2 {
-		req.Header.Set(headers[i], headers[i+1])
-	}
-
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	return resp, strings.TrimSpace(string(body))
+	err = resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return reply{status: resp.StatusCode, header: resp.Header, body: strings.TrimSpace(string(body))}
 }

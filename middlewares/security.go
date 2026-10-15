@@ -90,7 +90,7 @@ func CSPSources(directive string, sources ...string) gin.HandlerFunc {
 func addCSPSources(csp, directive string, sources []string) string {
 	parts := strings.Split(csp, ";")
 
-	for i, part := range parts {
+	for idx, part := range parts {
 		fields := strings.Fields(part)
 		if len(fields) == 0 || !strings.EqualFold(fields[0], directive) {
 			continue
@@ -98,14 +98,16 @@ func addCSPSources(csp, directive string, sources []string) string {
 
 		for _, source := range sources {
 			if !slices.Contains(fields[1:], source) {
-				parts[i] = strings.TrimRight(parts[i], " ") + " " + source
+				parts[idx] = strings.TrimRight(parts[idx], " ") + " " + source
 			}
 		}
 
 		return strings.Join(parts, ";")
 	}
 
-	return strings.TrimRight(strings.TrimSpace(csp), ";") + "; " + strings.Join(append([]string{directive}, sources...), " ") + ";"
+	created := strings.Join(append([]string{directive}, sources...), " ")
+
+	return strings.TrimRight(strings.TrimSpace(csp), ";") + "; " + created + ";"
 }
 
 // patchCSP appends origins to the img-src directive and adds a frame-ancestors

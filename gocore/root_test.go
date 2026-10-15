@@ -7,11 +7,13 @@ import (
 	"testing"
 )
 
+const apiPrefix = "/api"
+
 func TestRootServesOutsideThePrefixBehindTheAppsSecurity(t *testing.T) {
 	t.Parallel()
 
 	app, _ := twoChains(t, nil)
-	app.prefix = "/api"
+	app.prefix = apiPrefix
 	app.Routes(okRoute("/inside").To(serve("inside")))
 	app.Root(okRoute("/outside").To(serve("outside")), okRoute("/open").Public().To(serve("open")))
 
@@ -42,17 +44,19 @@ func TestRootAndPrefixedRoutesDoNotClash(t *testing.T) {
 	t.Parallel()
 
 	app, _ := twoChains(t, nil)
-	app.prefix = "/api"
+	app.prefix = apiPrefix
 	app.Routes(okRoute("/same").To(serve("inside")))
 	app.Root(okRoute("/same").To(serve("outside")))
 
-	if err := app.Check(); err != nil {
+	err := app.Check()
+	if err != nil {
 		t.Fatalf("different paths once the prefix is counted: %v", err)
 	}
 
 	app.Root(okRoute("/same").To(serve("again")))
 
-	if err := app.Check(); err == nil || !strings.Contains(err.Error(), "installed twice") {
+	err = app.Check()
+	if err == nil || !strings.Contains(err.Error(), "installed twice") {
 		t.Fatalf("two root routes on one path must clash, got %v", err)
 	}
 }

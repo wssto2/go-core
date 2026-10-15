@@ -111,28 +111,33 @@ rec.Header().Get("Strict-Transport-Security"))
 }
 
 // cspOf serves one request through Security and the given middleware and returns the policy.
-func cspOf(isDev bool, mw ...gin.HandlerFunc) string {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.Use(middlewares.Security(isDev))
-	r.Use(mw...)
-	r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+func cspOf(t *testing.T, isDev bool, mw ...gin.HandlerFunc) string {
+	t.Helper()
+
+	engine := gin.New()
+	engine.Use(middlewares.Security(isDev))
+	engine.Use(mw...)
+	engine.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	engine.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
 
 	return rec.Header().Get("Content-Security-Policy")
 }
 
 func TestCSPSources_CreatesAMissingDirective(t *testing.T) {
-	csp := cspOf(false, middlewares.CSPSources("frame-src", "'self'", "https://www.google.com/maps/"))
+	t.Parallel()
+
+	csp := cspOf(t, false, middlewares.CSPSources("frame-src", "'self'", "https://www.google.com/maps/"))
 
 	require.Contains(t, csp, "; frame-src 'self' https://www.google.com/maps/;")
 	require.Contains(t, csp, "default-src 'self'")
 }
 
 func TestCSPSources_ExtendsAnExistingDirectiveOnce(t *testing.T) {
-	csp := cspOf(false,
+	t.Parallel()
+
+	csp := cspOf(t, false,
 		middlewares.CSPSources("img-src", "https://a.example", "data:"),
 		middlewares.CSPSources("img-src", "https://a.example", "https://b.example"))
 
@@ -142,16 +147,20 @@ func TestCSPSources_ExtendsAnExistingDirectiveOnce(t *testing.T) {
 }
 
 func TestCSPSources_NoSourcesChangesNothing(t *testing.T) {
+	t.Parallel()
+
 	nonce := regexp.MustCompile(`'nonce-[^']*'`)
 
-	require.Equal(t, nonce.ReplaceAllString(cspOf(false), ""),
-		nonce.ReplaceAllString(cspOf(false, middlewares.CSPSources("frame-src")), ""))
+	require.Equal(t, nonce.ReplaceAllString(cspOf(t, false), ""),
+		nonce.ReplaceAllString(cspOf(t, false, middlewares.CSPSources("frame-src")), ""))
 }
 
 func TestSecurity_DevAllowsUnsafeEvalForZodAndProductionDoesNot(t *testing.T) {
-	require.Contains(t, cspOf(true), "'unsafe-eval'")
+	t.Parallel()
 
-	prod := cspOf(false)
+	require.Contains(t, cspOf(t, true), "'unsafe-eval'")
+
+	prod := cspOf(t, false)
 	require.NotContains(t, prod, "unsafe-eval")
 	require.NotContains(t, prod, "script-src 'self' 'unsafe-inline'")
 	require.Contains(t, prod, "script-src 'self' 'nonce-")

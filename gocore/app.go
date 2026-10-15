@@ -356,7 +356,7 @@ func (a *App) Routes(routes ...route.Handled) {
 // the same security as Routes, unless a route is Public.
 func (a *App) Root(routes ...route.Handled) {
 	for _, r := range routes {
-		a.routes = append(a.routes, mounted{Handled: r, root: true})
+		a.routes = append(a.routes, mounted{Handled: r, own: nil, root: true})
 	}
 }
 
@@ -407,15 +407,6 @@ type mounted struct {
 	root bool
 }
 
-// group is where the route is mounted: under the prefix, or at the site root.
-func (m mounted) group(engine gin.IRouter, prefix string) gin.IRoutes {
-	if m.root {
-		return engine
-	}
-
-	return engine.Group(prefix)
-}
-
 // path is the route's path as served.
 func (m mounted) path(prefix string) string {
 	if m.root {
@@ -425,8 +416,13 @@ func (m mounted) path(prefix string) string {
 	return prefix + m.Spec().Path
 }
 
-// mount registers the route behind the application's security, or its own.
-func (m mounted) mount(group gin.IRoutes, app route.Security) error {
+// mount registers the route under the prefix, or at the site root, behind the application's security, or its own.
+func (m mounted) mount(engine gin.IRouter, prefix string, app route.Security) error {
+	var group gin.IRoutes = engine
+	if !m.root {
+		group = engine.Group(prefix)
+	}
+
 	if m.own == nil {
 		return m.Mount(group, app) //nolint:wrapcheck // the route's own message names the route
 	}

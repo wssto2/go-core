@@ -125,7 +125,7 @@ func (a *App) dryMount(scratch *gin.Engine, entry mounted) (err error) {
 		}
 	}()
 
-	return entry.mount(entry.group(scratch, a.prefix), a.security())
+	return entry.mount(scratch, a.prefix, a.security())
 }
 
 func (a *App) catalogued(permission string) bool {
@@ -193,21 +193,21 @@ func (a *App) closeDatabase() {
 }
 
 func (a *App) build() (*bootstrap.App, error) {
-	b := bootstrap.New(a.cfg).WithLogger(a.log).WithTelemetry(a.tel)
+	builder := bootstrap.New(a.cfg).WithLogger(a.log).WithTelemetry(a.tel)
 	if a.registry != nil {
-		b.WithRegistry(a.registry)
+		builder.WithRegistry(a.registry)
 	}
 
-	b.DefaultInfrastructure().Use(a.middleware...)
+	builder.DefaultInfrastructure().Use(a.middleware...)
 
 	for _, configure := range a.customize {
-		configure(b)
+		configure(builder)
 	}
 
 	modules := append([]bootstrap.Module(nil), a.modules...)
 	modules = append(modules, &featuresModule{app: a})
 
-	booted, err := b.WithModules(modules...).WithHttp().Build()
+	booted, err := builder.WithModules(modules...).WithHttp().Build()
 	if err != nil {
 		return nil, fmt.Errorf("gocore: %w", err)
 	}
@@ -242,7 +242,7 @@ func (m *featuresModule) Register(c *bootstrap.Container) error {
 	}
 
 	for _, r := range m.app.routes {
-		err := r.mount(r.group(engine, m.app.prefix), m.app.security())
+		err := r.mount(engine, m.app.prefix, m.app.security())
 		if err != nil {
 			return err
 		}
@@ -309,7 +309,7 @@ func (a *App) Handler() (http.Handler, error) {
 	engine.Use(a.middleware...)
 
 	for _, r := range a.routes {
-		err := r.mount(r.group(engine, a.prefix), a.security())
+		err := r.mount(engine, a.prefix, a.security())
 		if err != nil {
 			return nil, err
 		}

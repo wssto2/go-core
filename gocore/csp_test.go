@@ -1,4 +1,4 @@
-//nolint:testpackage // uses the package's runnable helper
+//nolint:testpackage,paralleltest // uses the package's runnable helper; a real server, and production sets gin's global mode
 package gocore
 
 import (
@@ -18,10 +18,12 @@ func TestWithCSPAddsSourcesAndCreatesDirectivesInDevAndProduction(t *testing.T) 
 			app.authenticate = []gin.HandlerFunc{passthrough}
 			app.Routes(upRoute.To(pong))
 
-			resp, _ := fetch(t, serving(t, app, port)+"/up")
-			csp := resp.Header.Get("Content-Security-Policy")
+			csp := fetch(t, serving(t, app, port)+"/up").header.Get("Content-Security-Policy")
 
-			for _, want := range []string{"frame-src 'self' https://www.google.com/maps/;", "img-src 'self' data: https://tiles.example;"} {
+			for _, want := range []string{
+				"frame-src 'self' https://www.google.com/maps/;",
+				"img-src 'self' data: https://tiles.example;",
+			} {
 				if !strings.Contains(csp, want) {
 					t.Errorf("%q is missing from %s", want, csp)
 				}

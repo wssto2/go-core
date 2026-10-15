@@ -1,8 +1,9 @@
-//nolint:testpackage // uses the package's runnable helper
+//nolint:testpackage,paralleltest,cyclop // uses the package's runnable helper; a real server, one flow
 package gocore
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -36,8 +37,8 @@ func TestTelemetryIsTheHandleTheBuilderRecordsHTTPMetricsTo(t *testing.T) {
 
 	base := serving(t, app, port)
 
-	if resp, _ := fetch(t, base+"/up"); resp.StatusCode != 200 {
-		t.Fatalf("/up: %d", resp.StatusCode)
+	if status := fetch(t, base+"/up").status; status != http.StatusOK {
+		t.Fatalf("/up: %d", status)
 	}
 
 	if seen.got != tel {
@@ -67,7 +68,7 @@ func TestTelemetryIsTheHandleTheBuilderRecordsHTTPMetricsTo(t *testing.T) {
 		t.Fatal("the request to /up is not in app.Telemetry()'s registry")
 	}
 
-	if _, body := fetch(t, base+"/metrics"); !strings.Contains(body, `"/up"`) {
+	if !strings.Contains(fetch(t, base+"/metrics").body, `"/up"`) {
 		t.Fatal("/metrics does not serve app.Telemetry()'s registry")
 	}
 }
@@ -76,7 +77,9 @@ func TestTelemetryIsOneHandle(t *testing.T) {
 	t.Parallel()
 
 	app := testApp(t, "local")
-	if app.Telemetry() == nil || app.Telemetry() != app.Telemetry() {
+
+	first := app.Telemetry()
+	if first == nil || first != app.Telemetry() {
 		t.Fatal("Telemetry must return the same non-nil handle every time")
 	}
 }
