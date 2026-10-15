@@ -414,3 +414,47 @@ func reasoned(err error) error {
 
 	return err
 }
+
+// EmbedTTL is how long a session opened for an embedded page lasts. It has no refresh: the page is opened
+// again from the host that embeds it.
+const EmbedTTL = 24 * time.Hour
+
+// EmbedInput is the person a host application vouches for, and the device and address the page was opened from.
+type EmbedInput struct {
+	AccountID int
+	Device    string
+	IP        string
+}
+
+// Embed opens a session for an active person who a host application vouched for, with no password: the
+// access token is the credential the page keeps and sends as a bearer token. The session lasts EmbedTTL and
+// cannot be refreshed: the refresh token of the new session is not handed out, so nobody holds it. The person's
+// history records the sign-in. An unknown or deactivated account is ReasonSessionInvalid.
+func (s *SignIn) Embed(ctx context.Context, in EmbedInput) (Signed, error) {
+	acc, err := s.deps.Accounts.Find(ctx, in.AccountID)
+	if errors.Is(err, ErrNotFound) || (err == nil && !acc.Active) {
+		return Signed{}, sessionInvalid()
+	}
+
+	if err != nil {
+		return Signed{}, apperr.Internal(err)
+	}
+
+	now := s.deps.Clock.Now()
+
+	creds, err := s.deps.Sessions.Open(ctx, NewSession{
+		AccountID: acc.ID, Device: cut(strings.TrimSpace(in.Device), DeviceMax), IP: cut(strings.TrimSpace(in.IP), IPMax),
+		At: now, ExpiresAt: now.Add(EmbedTTL),
+	})
+	if err != nil {
+		return Signed{}, apperr.Internal(err)
+	}
+
+	creds.Refresh = ""
+
+	if err := s.record(ctx, acc.ID, SignedIn, 0, in.Device, in.IP); err != nil {
+		return Signed{}, err
+	}
+
+	return Signed{Account: acc, Credentials: creds}, nil
+}

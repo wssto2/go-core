@@ -1,0 +1,128 @@
+{
+  "expired": {
+    "request": {
+      "method": "GET",
+      "path": "/embed?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjEwMDAwMDAwMDAsImp0aSI6ImoyIiwic3ViIjoiNyJ9.SB6wDGDZbbc42UclRYToIjzvJWK7C6QgI1vVrZtMCCU"
+    },
+    "response": {
+      "status": 401,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "error": "invalid token"
+      }
+    }
+  },
+  "no jti": {
+    "request": {
+      "method": "GET",
+      "path": "/embed?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsInN1YiI6IjcifQ.yWY1myXV5017rwMrCU435W_SZ9lwagZzJ4fPhW4IX40"
+    },
+    "response": {
+      "status": 401,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "error": "invalid token"
+      }
+    }
+  },
+  "no token": {
+    "request": {
+      "method": "GET",
+      "path": "/embed"
+    },
+    "response": {
+      "status": 400,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "error": "token is required"
+      }
+    }
+  },
+  "not a token": {
+    "request": {
+      "method": "GET",
+      "path": "/embed?token=abc"
+    },
+    "response": {
+      "status": 401,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "error": "invalid token"
+      }
+    }
+  },
+  "ok": {
+    "request": {
+      "method": "GET",
+      "path": "/embed?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImp0aSI6Imo1Iiwic3ViIjoiNyJ9.skp3x-mx8Hjf_QMcd1zHwy6f7HsxgH5HLyqo8DENUkk&redirect=%2Fleads"
+    },
+    "response": {
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "body": "<!DOCTYPE html>\n<html><head><script nonce=\"NONCE\">(function(){try{\nsessionStorage.setItem('embed_access_token',<redacted>);\nsessionStorage.setItem('embed_expires_at',<redacted>);\n}catch(e){}window.location.replace(\"/leads\");})();</script></head>\n<body></body></html>"
+    }
+  },
+  "ok without redirect": {
+    "request": {
+      "method": "GET",
+      "path": "/embed?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImp0aSI6Imo2Iiwic3ViIjoiNyJ9.8XVqI4kbOtbhihKiXAxQ4GO2wCspIVtSzW1KzuBgovQ"
+    },
+    "response": {
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "body": "<!DOCTYPE html>\n<html><head><script nonce=\"NONCE\">(function(){try{\nsessionStorage.setItem('embed_access_token',<redacted>);\nsessionStorage.setItem('embed_expires_at',<redacted>);\n}catch(e){}window.location.replace(\"/\");})();</script></head>\n<body></body></html>"
+    }
+  },
+  "replayed": {
+    "request": {
+      "method": "GET",
+      "path": "/embed?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImp0aSI6Imo1Iiwic3ViIjoiNyJ9.skp3x-mx8Hjf_QMcd1zHwy6f7HsxgH5HLyqo8DENUkk"
+    },
+    "response": {
+      "status": 401,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "error": "token already used"
+      }
+    }
+  },
+  "subject is not a number": {
+    "request": {
+      "method": "GET",
+      "path": "/embed?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImp0aSI6ImozIiwic3ViIjoic2V2ZW4ifQ.NUC1_dWOl4au_nlz0pAFcXaXXUcjNBLBcNWX1xewUQY"
+    },
+    "response": {
+      "status": 401,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "error": "invalid token"
+      }
+    }
+  },
+  "unknown user": {
+    "request": {
+      "method": "GET",
+      "path": "/embed?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImp0aSI6Imo0Iiwic3ViIjoiOCJ9.5jpND_WokNo9x3b1XiGKfQFuphas7I0QX72gis3dXsY"
+    },
+    "response": {
+      "status": 401,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "error": "unauthorized"
+      }
+    }
+  },
+  "wrong signature": {
+    "request": {
+      "method": "GET",
+      "path": "/embed?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDAsImp0aSI6ImoxIiwic3ViIjoiNyJ9.BOU73rjZ-Ea2rqJndX-Vi5mXef5oYSoO5YPY_xAfaqY"
+    },
+    "response": {
+      "status": 401,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "error": "invalid token"
+      }
+    }
+  }
+}

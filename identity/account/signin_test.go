@@ -412,3 +412,38 @@ func TestNewNamesTheMissingDependency(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Deps.Accounts is missing")
 }
+
+// A host vouched for the person: a session of EmbedTTL, no password, no refresh token handed out, the sign-in recorded.
+func TestEmbedOpensASessionOfADayWithoutARefreshToken(t *testing.T) {
+	k := seeded(t, identitytest.WithConfig(account.Config{TokenTTL: 2 * time.Hour})) // a day is not what a sign-in lasts here
+
+	signed, err := k.SignIn.Embed(t.Context(), account.EmbedInput{AccountID: 1, Device: "test", IP: "10.0.0.1"})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, signed.Account.ID)
+	assert.NotEmpty(t, signed.Credentials.Access)
+	assert.Empty(t, signed.Credentials.Refresh, "nobody is given the means to refresh it")
+	assert.Equal(t, identitytest.Epoch.Add(account.EmbedTTL), signed.Credentials.ExpiresAt)
+	assert.Equal(t, []account.SignInEvent{account.SignedIn}, events(k))
+
+	got, err := k.SignIn.Authenticate(t.Context(), signed.Credentials.Access)
+	require.NoError(t, err)
+	assert.Equal(t, 1, got.Account.ID)
+	assert.Nil(t, got.Actor)
+
+	k.Clock.Advance(account.EmbedTTL + time.Second)
+
+	_, err = k.SignIn.Authenticate(t.Context(), signed.Credentials.Access)
+	assert.True(t, apperr.HasReason(err, account.ReasonSessionInvalid), "it ends after a day")
+}
+
+func TestEmbedRefusesWhoCannotSignIn(t *testing.T) {
+	k := seeded(t)
+
+	for name, id := range map[string]int{"unknown": 99, "deactivated": 3} {
+		_, err := k.SignIn.Embed(t.Context(), account.EmbedInput{AccountID: id})
+		assert.True(t, apperr.HasReason(err, account.ReasonSessionInvalid), name)
+	}
+
+	assert.Empty(t, events(k), "nothing was recorded for them")
+}

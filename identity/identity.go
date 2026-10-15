@@ -171,6 +171,8 @@ type settings struct {
 	tenant                  identityhttp.TenantOf
 	requestUser             RequestUser
 	robots                  *serviceaccount.Config
+	embed                   bool
+	embedSecret             string
 	navigation              NavigationProvider
 	cookies                 Cookies
 	mail                    mail.Sender
@@ -295,6 +297,17 @@ func WithRequestUser(of RequestUser) Option { return func(s *settings) { s.reque
 //     users := identity.Install(app, identity.WithServiceAccounts(serviceaccount.Config{KeyPrefix: "acme_"}))
 func WithServiceAccounts(cfg serviceaccount.Config) Option {
 	return func(s *settings) { s.robots = &cfg }
+}
+
+// WithEmbed serves GET /embed at the root of the site (outside the application's prefix, see gocore.App.Root), the
+// page an application embedded in an iframe of another host opens first: the host signs a token for the person with
+// the secret (an HMAC-SHA256 JWT holding sub, the account id, exp and a jti), and the page exchanges it, once, for a
+// session of 24 hours that cannot be refreshed. It answers a page that keeps the session's access token in
+// sessionStorage (embed_access_token and embed_expires_at, which vue-core reads) and goes to the path in redirect
+// ("/" when it is missing or is not a path of this site). The secret is at least 32 characters, shared with the host.
+// See identityhttp.Embed for the answers.
+func WithEmbed(secret string) Option {
+	return func(s *settings) { s.embed, s.embedSecret = true, secret }
 }
 
 // WithNavigation sets the menu /auth/me carries, cut down to the permissions the
@@ -597,6 +610,16 @@ func Install(app *gocore.App, opts ...Option) *Users {
 
 	app.Authenticate(chain...)
 	app.Routes(identityhttp.NewHandler(cfg).Routes()...)
+
+	if s.embed {
+		if len(s.embedSecret) < identityhttp.MinEmbedSecret {
+			app.Fail("identity needs an embed secret of at least 32 characters", "pass identity.WithEmbed(secret), for example from an environment variable")
+
+			return svc.Users
+		}
+
+		app.Root(identityhttp.NewEmbed(svc.SignIn, s.embedSecret, app.Clock()).Route())
+	}
 
 	if s.mail != nil {
 		svc.Users.SetMail(account.Mail{Sender: s.mail, Renderer: s.mailRenderer()})
