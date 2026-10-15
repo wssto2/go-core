@@ -15,28 +15,44 @@ const (
 	RouteMax       = 255
 	ModuleMax      = 100
 	ClientRequests = 20
-	requestIDMax   = 100
+
+	requestIDMax = 100
+	classMax     = 255
+	codeMax      = 100
+	methodMax    = 10
+	addressMax   = 45
+	envMax       = 50
+	snippetMax   = 120
+	browserMax   = 500
+	versionMax   = 100
+	urlMax       = 1000
+	summaryMax   = 2000
+	ticketIDMax  = 100
+	ticketURLMax = 500
 )
 
 // ReportInput is a person's bug report.
+//
+//nolint:tagliatelle // snake_case wire
 type ReportInput struct {
-	Title                string `json:"title" validation:"max:255"`
-	Description          string `json:"description" validation:"max:20000"`
-	StepsToReproduce     string `json:"steps_to_reproduce" validation:"max:20000"`
-	ExpectedResult       string `json:"expected_result" validation:"max:20000"`
-	ActualResult         string `json:"actual_result" validation:"max:20000"`
-	Severity             string `json:"severity" validation:"max:8"`
-	AffectedModule       string `json:"affected_module" validation:"max:100"`
-	PageURL              string `json:"page_url" validation:"max:1000"`
-	BrowserInfo          string `json:"browser_info" validation:"max:500"`
-	AppVersion           string `json:"app_version" validation:"max:100"`
+	Title                string `json:"title"                  validation:"max:255"`
+	Description          string `json:"description"            validation:"max:20000"`
+	StepsToReproduce     string `json:"steps_to_reproduce"     validation:"max:20000"`
+	ExpectedResult       string `json:"expected_result"        validation:"max:20000"`
+	ActualResult         string `json:"actual_result"          validation:"max:20000"`
+	Severity             string `json:"severity"               validation:"max:8"`
+	AffectedModule       string `json:"affected_module"        validation:"max:100"`
+	PageURL              string `json:"page_url"               validation:"max:1000"`
+	BrowserInfo          string `json:"browser_info"           validation:"max:500"`
+	AppVersion           string `json:"app_version"            validation:"max:100"`
 	FrontendErrorMessage string `json:"frontend_error_message" validation:"max:2000"`
-	FrontendStacktrace   string `json:"frontend_stacktrace" validation:"max:20000"`
-	AttachmentJSON       string `json:"attachment_json" validation:"max:20000"`
-	ExtraJSON            string `json:"extra_json" validation:"max:20000"`
+	FrontendStacktrace   string `json:"frontend_stacktrace"    validation:"max:20000"`
+	AttachmentJSON       string `json:"attachment_json"        validation:"max:20000"`
+	ExtraJSON            string `json:"extra_json"             validation:"max:20000"`
 }
 
-// validate refuses a report without a title or a description, with a severity that is not one, or with JSON that is not.
+// validate refuses a report without a title or a description, with a severity that is not one, or with JSON that
+// is not.
 func (in *ReportInput) validate() error {
 	switch {
 	case strings.TrimSpace(in.Title) == "":
@@ -63,9 +79,9 @@ func (in *ReportInput) sanitize() {
 	in.ActualResult = clean(in.ActualResult, StackMax)
 	in.Severity = string(Severity(strings.TrimSpace(in.Severity)).OrDefault())
 	in.AffectedModule = clean(in.AffectedModule, ModuleMax)
-	in.PageURL = clean(in.PageURL, 1000)
-	in.BrowserInfo = clean(in.BrowserInfo, 500)
-	in.AppVersion = clean(in.AppVersion, 100)
+	in.PageURL = clean(in.PageURL, urlMax)
+	in.BrowserInfo = clean(in.BrowserInfo, browserMax)
+	in.AppVersion = clean(in.AppVersion, versionMax)
 	in.FrontendErrorMessage = clean(in.FrontendErrorMessage, MessageMax)
 	in.FrontendStacktrace = clean(in.FrontendStacktrace, StackMax)
 	in.AttachmentJSON = jsonOr(in.AttachmentJSON, "[]")
@@ -75,7 +91,7 @@ func (in *ReportInput) sanitize() {
 // CommentInput is a comment on an incident. Visibility is "public" (the default) or "internal"; only the staff can
 // write an internal one.
 type CommentInput struct {
-	Body       string `json:"body" validation:"max:20000"`
+	Body       string `json:"body"       validation:"max:20000"`
 	Visibility string `json:"visibility" validation:"max:8"`
 }
 
@@ -98,16 +114,18 @@ func (in *CommentInput) sanitize() {
 }
 
 // UpdateInput is a change of an incident; a field left out is left as it is.
+//
+//nolint:tagliatelle // snake_case wire
 type UpdateInput struct {
-	Status                 string `json:"status" validation:"max:11"`
-	Severity               string `json:"severity" validation:"max:8"`
-	Visibility             string `json:"visibility" validation:"max:18"`
+	Status                 string `json:"status"                   validation:"max:11"`
+	Severity               string `json:"severity"                 validation:"max:8"`
+	Visibility             string `json:"visibility"               validation:"max:18"`
 	AssignedToUserID       *int   `json:"assigned_to_user_id"`
 	DuplicateOfIncidentID  *int   `json:"duplicate_of_incident_id"`
-	ResolutionSummary      string `json:"resolution_summary" validation:"max:2000"`
+	ResolutionSummary      string `json:"resolution_summary"       validation:"max:2000"`
 	ExternalTicketProvider string `json:"external_ticket_provider" validation:"max:6"`
-	ExternalTicketID       string `json:"external_ticket_id" validation:"max:100"`
-	ExternalTicketURL      string `json:"external_ticket_url" validation:"max:500"`
+	ExternalTicketID       string `json:"external_ticket_id"       validation:"max:100"`
+	ExternalTicketURL      string `json:"external_ticket_url"      validation:"max:500"`
 }
 
 func (in *UpdateInput) validate() error {
@@ -129,10 +147,10 @@ func (in *UpdateInput) sanitize() {
 	in.Status = strings.TrimSpace(in.Status)
 	in.Severity = strings.TrimSpace(in.Severity)
 	in.Visibility = strings.TrimSpace(in.Visibility)
-	in.ResolutionSummary = clean(in.ResolutionSummary, 2000)
+	in.ResolutionSummary = clean(in.ResolutionSummary, summaryMax)
 	in.ExternalTicketProvider = strings.TrimSpace(in.ExternalTicketProvider)
-	in.ExternalTicketID = clean(in.ExternalTicketID, 100)
-	in.ExternalTicketURL = clean(in.ExternalTicketURL, 500)
+	in.ExternalTicketID = clean(in.ExternalTicketID, ticketIDMax)
+	in.ExternalTicketURL = clean(in.ExternalTicketURL, ticketURLMax)
 }
 
 func validProvider(p string) bool {
@@ -142,11 +160,13 @@ func validProvider(p string) bool {
 // ClientErrorInput is an error the browser reports: what the script threw and where the person was. Every field is
 // bounded; the request ids are those of the last API calls the page made, which link the browser error to the server
 // incident of a call that failed.
+//
+//nolint:tagliatelle // snake_case wire
 type ClientErrorInput struct {
-	Message    string   `json:"message" validation:"required|max:2000"`
-	Stack      string   `json:"stack" validation:"max:20000"`
-	Route      string   `json:"route" validation:"max:255"`
-	Browser    string   `json:"browser" validation:"max:500"`
+	Message    string   `json:"message"     validation:"required|max:2000"`
+	Stack      string   `json:"stack"       validation:"max:20000"`
+	Route      string   `json:"route"       validation:"max:255"`
+	Browser    string   `json:"browser"     validation:"max:500"`
 	AppVersion string   `json:"app_version" validation:"max:100"`
 	RequestIDs []string `json:"request_ids" validation:"max:20"`
 }

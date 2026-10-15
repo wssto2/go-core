@@ -1,4 +1,4 @@
-//nolint:exhaustruct,exhaustruct_v5,lll,paralleltest,thelper,varnamelen,gochecknoglobals,goconst,mnd,funlen,cyclop // tests in the style of the package's others
+//nolint:err113,exhaustruct,exhaustruct_v5,funcorder,gochecknoglobals,gosec,ireturn,lll,noinlineerr,varnamelen // tests in the style of the package's others
 package incident_test
 
 import (
@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -73,13 +74,7 @@ func (r rules) holds(ctx context.Context, permission string) bool {
 		return false
 	}
 
-	for _, p := range r[who.Subject] {
-		if p == permission {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(r[who.Subject], permission)
 }
 
 func (r rules) Require(ctx context.Context, permission string) error {
@@ -159,6 +154,7 @@ func newWorld(t *testing.T, opts ...incident.Option) *world {
 	t.Helper()
 
 	reg, cleanup := database.NewTestRegistry("local")
+
 	t.Cleanup(func() { _ = cleanup() })
 
 	w := &world{t: t, now: time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC)}

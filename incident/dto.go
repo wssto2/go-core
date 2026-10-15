@@ -49,8 +49,10 @@ func personOf(p *core.Person) *PersonResponse {
 	return &PersonResponse{ID: p.ID, Name: p.Name, Email: p.Email}
 }
 
-// IncidentResponse is an incident on the wire. The fingerprints never cross it.
-type IncidentResponse struct {
+// Incident is an incident on the wire. The fingerprints never cross it.
+//
+//nolint:tagliatelle // snake_case wire
+type Incident struct {
 	ID                     int             `json:"id"`
 	PublicCode             string          `json:"public_code"`
 	Source                 string          `json:"source"`
@@ -85,22 +87,27 @@ type IncidentResponse struct {
 	Assignee               *PersonResponse `json:"assignee,omitempty"`
 }
 
-func incidentOf(i core.Incident) IncidentResponse {
-	return IncidentResponse{
-		ID: i.ID, PublicCode: i.PublicCode, Source: string(i.Source), Status: string(i.Status), Severity: string(i.Severity),
-		Visibility: i.Visibility, Title: i.Title, Description: i.Description, AffectedModule: i.AffectedModule,
-		AffectedRoute: i.AffectedRoute, Environment: i.Environment, ErrorClass: i.ErrorClass, ErrorCode: i.ErrorCode,
-		ErrorMessageSample: i.ErrorMessageSample, StacktraceSample: i.StacktraceSample, FirstSeenAt: stamp(i.FirstSeenAt),
-		LastSeenAt: stamp(i.LastSeenAt), OccurrenceCount: i.OccurrenceCount, ReportCount: i.ReportCount,
-		CommentCount: i.CommentCount, ReporterUserID: i.ReporterUserID, AssignedToUserID: i.AssignedToUserID,
-		ExternalTicketProvider: i.ExternalTicketProvider, ExternalTicketID: i.ExternalTicketID,
-		ExternalTicketURL: i.ExternalTicketURL, DuplicateOfIncidentID: i.DuplicateOfIncidentID,
-		ResolutionSummary: i.ResolutionSummary, ResolvedAt: stampPtr(i.ResolvedAt), CreatedAt: stamp(i.CreatedAt),
-		UpdatedAt: stamp(i.UpdatedAt), Reporter: personOf(i.Reporter), Assignee: personOf(i.Assignee),
+func incidentOf(incident core.Incident) Incident {
+	return Incident{
+		ID: incident.ID, PublicCode: incident.PublicCode, Source: string(incident.Source),
+		Status: string(incident.Status), Severity: string(incident.Severity), Visibility: incident.Visibility,
+		Title: incident.Title, Description: incident.Description, AffectedModule: incident.AffectedModule,
+		AffectedRoute: incident.AffectedRoute, Environment: incident.Environment, ErrorClass: incident.ErrorClass,
+		ErrorCode: incident.ErrorCode, ErrorMessageSample: incident.ErrorMessageSample,
+		StacktraceSample: incident.StacktraceSample, FirstSeenAt: stamp(incident.FirstSeenAt),
+		LastSeenAt: stamp(incident.LastSeenAt), OccurrenceCount: incident.OccurrenceCount,
+		ReportCount: incident.ReportCount, CommentCount: incident.CommentCount, ReporterUserID: incident.ReporterUserID,
+		AssignedToUserID: incident.AssignedToUserID, ExternalTicketProvider: incident.ExternalTicketProvider,
+		ExternalTicketID: incident.ExternalTicketID, ExternalTicketURL: incident.ExternalTicketURL,
+		DuplicateOfIncidentID: incident.DuplicateOfIncidentID, ResolutionSummary: incident.ResolutionSummary,
+		ResolvedAt: stampPtr(incident.ResolvedAt), CreatedAt: stamp(incident.CreatedAt),
+		UpdatedAt: stamp(incident.UpdatedAt), Reporter: personOf(incident.Reporter), Assignee: personOf(incident.Assignee),
 	}
 }
 
 // CommentResponse is a comment on the wire.
+//
+//nolint:tagliatelle // snake_case wire
 type CommentResponse struct {
 	ID           int             `json:"id"`
 	IncidentID   int             `json:"incident_id"`
@@ -123,6 +130,8 @@ func commentOf(c core.Comment) CommentResponse {
 }
 
 // ReportResponse is one person's report behind an incident.
+//
+//nolint:tagliatelle // snake_case wire
 type ReportResponse struct {
 	ID                   int             `json:"id"`
 	IncidentID           *int            `json:"incident_id,omitempty"`
@@ -157,55 +166,60 @@ func document(raw []byte) any {
 	return json.RawMessage(raw)
 }
 
-func reportOf(r core.Report) ReportResponse {
+func reportOf(report core.Report) ReportResponse {
 	return ReportResponse{
-		ID: r.ID, IncidentID: r.IncidentID, ReportedByUserID: r.ReportedByUserID, ReportType: r.ReportType, Status: r.Status,
-		Title: r.Title, Description: r.Description, StepsToReproduce: r.StepsToReproduce, ExpectedResult: r.ExpectedResult,
-		ActualResult: r.ActualResult, Severity: r.Severity, AffectedModule: r.AffectedModule, PageURL: r.PageURL,
-		BrowserInfo: r.BrowserInfo, AppVersion: r.AppVersion, FrontendErrorMessage: r.FrontendErrorMessage,
-		FrontendStacktrace: r.FrontendStacktrace, AttachmentJSON: document(r.AttachmentJSON), ExtraJSON: document(r.ExtraJSON),
-		CreatedAt: stamp(r.CreatedAt), UpdatedAt: stamp(r.UpdatedAt), Reporter: personOf(r.Reporter),
+		ID: report.ID, IncidentID: report.IncidentID, ReportedByUserID: report.ReportedByUserID,
+		ReportType: report.ReportType, Status: report.Status,
+		Title: report.Title, Description: report.Description, StepsToReproduce: report.StepsToReproduce,
+		ExpectedResult: report.ExpectedResult,
+		ActualResult:   report.ActualResult, Severity: report.Severity, AffectedModule: report.AffectedModule,
+		PageURL:     report.PageURL,
+		BrowserInfo: report.BrowserInfo, AppVersion: report.AppVersion, FrontendErrorMessage: report.FrontendErrorMessage,
+		FrontendStacktrace: report.FrontendStacktrace, AttachmentJSON: document(report.AttachmentJSON),
+		ExtraJSON: document(report.ExtraJSON),
+		CreatedAt: stamp(report.CreatedAt), UpdatedAt: stamp(report.UpdatedAt), Reporter: personOf(report.Reporter),
 	}
 }
 
-// IncidentMeta is what an incident's answer carries beside it: the reports and comments the viewer may see and whether
-// they watch the incident. The fields are in the order of the keys sorted, which is how the first application wrote them.
-type IncidentMeta struct {
+// Meta is what an incident's answer carries beside it: the reports and comments the viewer may see and whether
+// they watch the incident. The fields are in the order of the keys sorted, which is how the first application wrote
+// them.
+type Meta struct {
 	Comments []CommentResponse `json:"comments"`
 	Reports  []ReportResponse  `json:"reports"`
 	Watching bool              `json:"watching"`
 }
 
-// IncidentRecord is one incident with its meta, the answer of the show and update routes.
-type IncidentRecord = route.WithMeta[IncidentResponse, IncidentMeta]
+// Shown is one incident with its meta, the answer of the show and update routes.
+type Shown = route.WithMeta[Incident, Meta]
 
-// IncidentCreated is a newly filed report's incident: the whole record is the 201's data, a nested data/meta envelope.
-type IncidentCreated struct {
-	Data IncidentResponse `json:"data"`
-	Meta IncidentMeta     `json:"meta"`
+// Created is a newly filed report's incident: the whole record is the 201's data, a nested data/meta envelope.
+type Created struct {
+	Data Incident `json:"data"`
+	Meta Meta     `json:"meta"`
 }
 
-func metaOf(d core.Detail) IncidentMeta {
-	meta := IncidentMeta{
-		Comments: make([]CommentResponse, 0, len(d.Comments)), Reports: make([]ReportResponse, 0, len(d.Reports)),
-		Watching: d.Watching,
+func metaOf(detail core.Detail) Meta {
+	meta := Meta{
+		Comments: make([]CommentResponse, 0, len(detail.Comments)), Reports: make([]ReportResponse, 0, len(detail.Reports)),
+		Watching: detail.Watching,
 	}
 
-	for _, c := range d.Comments {
+	for _, c := range detail.Comments {
 		meta.Comments = append(meta.Comments, commentOf(c))
 	}
 
-	for _, r := range d.Reports {
+	for _, r := range detail.Reports {
 		meta.Reports = append(meta.Reports, reportOf(r))
 	}
 
 	return meta
 }
 
-func recordOf(d core.Detail) IncidentRecord {
-	return IncidentRecord{Items: incidentOf(d.Incident), Info: metaOf(d)}
+func recordOf(detail core.Detail) Shown {
+	return Shown{Items: incidentOf(detail.Incident), Info: metaOf(detail)}
 }
 
-func pageOf(result *pagination.PageResult[core.Incident]) route.Page[IncidentResponse] {
+func pageOf(result *pagination.PageResult[core.Incident]) route.Page[Incident] {
 	return typed.ToPage(pagination.MapResult(result, incidentOf))
 }

@@ -1,4 +1,4 @@
-//nolint:exhaustruct,exhaustruct_v5,lll,paralleltest,thelper,varnamelen,gochecknoglobals,goconst,mnd,funlen,cyclop,maintidx // tests in the style of the package's others
+//nolint:err113,exhaustruct,exhaustruct_v5,forcetypeassert,funlen,gosec,lll,paralleltest,varnamelen // tests in the style of the package's others
 package incident_test
 
 import (
@@ -111,7 +111,7 @@ func TestTheStaffSeesTheCapturedIncidentAndNobodyElse(t *testing.T) {
 	w.as(ana, http.MethodGet, prefix+"/v1/test/boom", nil)
 
 	list := func(who int) int {
-		return len(decode[[]incident.IncidentResponse](t, w.as(who, http.MethodGet, incidents, nil).Data))
+		return len(decode[[]incident.Incident](t, w.as(who, http.MethodGet, incidents, nil).Data))
 	}
 
 	assert.Equal(t, 1, list(staff))
@@ -149,6 +149,7 @@ func panicWithoutTheModule(t *testing.T) answer {
 	t.Helper()
 
 	reg, cleanup := database.NewTestRegistry("local")
+
 	t.Cleanup(func() { _ = cleanup() })
 
 	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),

@@ -24,12 +24,20 @@ var (
 // Store keeps incidents. The gormstore package is the SQL implementation and storetest the suite every store passes.
 // A method joins the transaction in ctx when it carries one (database.TxFromContext).
 type Store interface {
+	Reader
+	Writer
+	Alerts
+	Housekeeping
+}
+
+// Reader is what a store answers about incidents.
+type Reader interface {
 	// List is a page of the incidents the viewer may see, last seen first unless the page orders otherwise. It
 	// filters on the page's status, severity and source filters, and searches the public code, title, message sample,
 	// module and route.
 	List(ctx context.Context, page pagination.Page, viewer Viewer) (*pagination.PageResult[Incident], error)
 	// Find returns the incident if the viewer may see it, else ErrNotFound.
-	Find(ctx context.Context, id int, viewer Viewer) (Incident, error)
+	Find(ctx context.Context, incidentID int, viewer Viewer) (Incident, error)
 	// Reports returns the reports of an incident, oldest first: all of them for the staff, the viewer's own for
 	// anybody else.
 	Reports(ctx context.Context, incidentID int, viewer Viewer) ([]Report, error)
@@ -38,11 +46,14 @@ type Store interface {
 	Comments(ctx context.Context, incidentID int, viewer Viewer) ([]Comment, error)
 	// Watching reports whether the person watches the incident.
 	Watching(ctx context.Context, incidentID, userID int) (bool, error)
-
 	// FindOpen returns the open incident with the fingerprint, else ErrNotFound.
 	FindOpen(ctx context.Context, fingerprint string) (Incident, error)
 	// FindLatest returns the most recently seen incident with the fingerprint, open or not, else ErrNotFound.
 	FindLatest(ctx context.Context, fingerprint string) (Incident, error)
+}
+
+// Writer is what a store changes about incidents.
+type Writer interface {
 	// CreateIncident stores a new incident and sets its ID. ErrDuplicate when the public code or the open
 	// fingerprint is taken.
 	CreateIncident(ctx context.Context, incident *Incident) error
@@ -60,11 +71,10 @@ type Store interface {
 	CountOccurrence(ctx context.Context, incidentID int, source Source, at time.Time, sample *Occurrence) error
 	// Watch makes the person a watcher of the incident from the time; watching twice changes nothing.
 	Watch(ctx context.Context, incidentID, userID int, at time.Time) error
+}
 
-	// PruneOccurrences deletes up to limit occurrences that happened before the time, except the newest one of each
-	// incident, and says how many it deleted.
-	PruneOccurrences(ctx context.Context, before time.Time, limit int) (int, error)
-
+// Alerts is the store of the alerts: the cooldown of each severity and the digest queue.
+type Alerts interface {
 	// LastAlert is when an immediate alert of the severity tier was last sent, false if never.
 	LastAlert(ctx context.Context, tier string) (time.Time, bool, error)
 	// StampAlert records that an immediate alert of the tier was sent at the time.
@@ -72,7 +82,15 @@ type Store interface {
 	// QueueDigest adds a new incident to the next digest, unless it is already waiting in it.
 	QueueDigest(ctx context.Context, item DigestItem) error
 	// ClaimDigest marks the waiting digest items as taken at the time and returns them, oldest first, at most limit.
+	// Call it in a transaction: the rows it takes are locked until it commits.
 	ClaimDigest(ctx context.Context, at time.Time, limit int) ([]DigestItem, error)
+}
+
+// Housekeeping is what a store deletes.
+type Housekeeping interface {
+	// PruneOccurrences deletes up to limit occurrences that happened before the time, except the newest one of each
+	// incident, and says how many it deleted.
+	PruneOccurrences(ctx context.Context, before time.Time, limit int) (int, error)
 	// PruneDigest deletes up to limit digest items that were claimed before the time and says how many.
 	PruneDigest(ctx context.Context, before time.Time, limit int) (int, error)
 }

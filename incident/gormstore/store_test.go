@@ -1,9 +1,10 @@
-//nolint:exhaustruct,exhaustruct_v5,lll,paralleltest,thelper,varnamelen // tests in the style of the package's others
+//nolint:exhaustruct,exhaustruct_v5,gochecknoglobals,lll,paralleltest,thelper,varnamelen // tests in the style of the package's others
 package gormstore_test
 
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -43,8 +44,8 @@ func tables(t *testing.T, db *gorm.DB) {
 func empty(t *testing.T, db *gorm.DB) {
 	t.Helper()
 
-	for i := len(allTables) - 1; i >= 0; i-- {
-		require.NoError(t, db.Exec("DELETE FROM "+allTables[i]).Error)
+	for _, allTable := range slices.Backward(allTables) {
+		require.NoError(t, db.Exec("DELETE FROM "+allTable).Error)
 	}
 }
 

@@ -51,7 +51,7 @@ func New(cfg Config) *Service {
 		opened = func(context.Context, Opened) error { return nil }
 	}
 
-	env := clean(cfg.Environment, 50)
+	env := clean(cfg.Environment, envMax)
 	if env == "" {
 		env = "unknown"
 	}
@@ -60,7 +60,9 @@ func New(cfg Config) *Service {
 }
 
 // List is a page of the incidents the viewer may see, with the people of each named.
-func (s *Service) List(ctx context.Context, page pagination.Page, viewer Viewer) (*pagination.PageResult[Incident], error) {
+func (s *Service) List(
+	ctx context.Context, page pagination.Page, viewer Viewer,
+) (*pagination.PageResult[Incident], error) {
 	result, err := s.store.List(ctx, page, viewer)
 	if err != nil {
 		return nil, apperr.Internal(err)
@@ -83,55 +85,37 @@ func (s *Service) List(ctx context.Context, page pagination.Page, viewer Viewer)
 	return result, nil
 }
 
-// Show is an incident with the reports and comments the viewer may see. An incident the viewer may not see is not found.
-func (s *Service) Show(ctx context.Context, id int, viewer Viewer) (Detail, error) {
-	if id <= 0 {
+// Show is an incident with the reports and comments the viewer may see. An incident the viewer may not see is not
+// found.
+func (s *Service) Show(ctx context.Context, incidentID int, viewer Viewer) (Detail, error) {
+	if incidentID <= 0 {
 		return Detail{}, apperr.BadRequest("invalid incident id")
 	}
 
-	incident, err := s.store.Find(ctx, id, viewer)
+	incident, err := s.store.Find(ctx, incidentID, viewer)
 	if err != nil {
 		return Detail{}, notFound(err)
 	}
 
-	reports, err := s.store.Reports(ctx, id, viewer)
+	reports, err := s.store.Reports(ctx, incidentID, viewer)
 	if err != nil {
 		return Detail{}, apperr.Internal(err)
 	}
 
-	comments, err := s.store.Comments(ctx, id, viewer)
+	comments, err := s.store.Comments(ctx, incidentID, viewer)
 	if err != nil {
 		return Detail{}, apperr.Internal(err)
 	}
 
-	ids := personIDs(incident)
-	for _, report := range reports {
-		ids = append(ids, report.ReportedByUserID)
-	}
+	detail := Detail{Incident: incident, Reports: reports, Comments: comments, Watching: false}
 
-	for _, comment := range comments {
-		ids = append(ids, comment.AuthorUserID)
-	}
-
-	names, err := s.names(ctx, ids)
+	err = s.name(ctx, &detail)
 	if err != nil {
 		return Detail{}, err
 	}
 
-	named(&incident, names)
-
-	for i := range reports {
-		reports[i].Reporter = names[reports[i].ReportedByUserID]
-	}
-
-	for i := range comments {
-		comments[i].Author = names[comments[i].AuthorUserID]
-	}
-
-	detail := Detail{Incident: incident, Reports: reports, Comments: comments}
-
 	if viewer.UserID > 0 {
-		detail.Watching, err = s.store.Watching(ctx, id, viewer.UserID)
+		detail.Watching, err = s.store.Watching(ctx, incidentID, viewer.UserID)
 		if err != nil {
 			return Detail{}, apperr.Internal(err)
 		}
@@ -141,16 +125,17 @@ func (s *Service) Show(ctx context.Context, id int, viewer Viewer) (Detail, erro
 }
 
 // Comments are the comments on an incident the viewer may see, with their authors named.
-func (s *Service) Comments(ctx context.Context, id int, viewer Viewer) ([]Comment, error) {
-	if id <= 0 {
+func (s *Service) Comments(ctx context.Context, incidentID int, viewer Viewer) ([]Comment, error) {
+	if incidentID <= 0 {
 		return nil, apperr.BadRequest("invalid incident id")
 	}
 
-	if _, err := s.store.Find(ctx, id, viewer); err != nil {
+	_, err := s.store.Find(ctx, incidentID, viewer)
+	if err != nil {
 		return nil, notFound(err)
 	}
 
-	comments, err := s.store.Comments(ctx, id, viewer)
+	comments, err := s.store.Comments(ctx, incidentID, viewer)
 	if err != nil {
 		return nil, apperr.Internal(err)
 	}
@@ -170,6 +155,36 @@ func (s *Service) Comments(ctx context.Context, id int, viewer Viewer) ([]Commen
 	}
 
 	return comments, nil
+}
+
+// name fills the people of the incident, its reports and its comments, in one look-up.
+func (s *Service) name(ctx context.Context, detail *Detail) error {
+	ids := personIDs(detail.Incident)
+
+	for _, report := range detail.Reports {
+		ids = append(ids, report.ReportedByUserID)
+	}
+
+	for _, comment := range detail.Comments {
+		ids = append(ids, comment.AuthorUserID)
+	}
+
+	people, err := s.names(ctx, ids)
+	if err != nil {
+		return err
+	}
+
+	named(&detail.Incident, people)
+
+	for i := range detail.Reports {
+		detail.Reports[i].Reporter = people[detail.Reports[i].ReportedByUserID]
+	}
+
+	for i := range detail.Comments {
+		detail.Comments[i].Author = people[detail.Comments[i].AuthorUserID]
+	}
+
+	return nil
 }
 
 // names looks the people up in one query.

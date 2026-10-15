@@ -1,4 +1,4 @@
-//nolint:exhaustruct,exhaustruct_v5,lll,paralleltest,thelper,varnamelen,gochecknoglobals,goconst,mnd,funlen,cyclop,maintidx // tests in the style of the package's others
+//nolint:exhaustruct,exhaustruct_v5,goconst,lll,paralleltest,thelper,varnamelen // tests in the style of the package's others
 package core_test
 
 import (

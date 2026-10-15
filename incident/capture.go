@@ -45,25 +45,29 @@ type capturer struct {
 }
 
 func newCapturer(app *gocore.App, service *core.Service, cfg Capture) *capturer {
-	c := &capturer{service: service, prefix: app.Prefix(), clock: app.Clock(), log: app.Logger(), module: cfg.Module, env: cfg.Environment}
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	capt := &capturer{
+		service: service, prefix: app.Prefix(), clock: app.Clock(), log: app.Logger(), module: cfg.Module,
+		env: cfg.Environment,
+	}
 
 	if cfg.TrailSize > 0 {
-		c.trail = newTrail(cfg.TrailSize)
+		capt.trail = newTrail(cfg.TrailSize)
 	}
 
-	if c.module == nil {
-		c.module = func(path string) string { return moduleOf(c.prefix, path) }
+	if capt.module == nil {
+		capt.module = func(path string) string { return moduleOf(capt.prefix, path) }
 	}
 
-	if c.env == "" {
-		c.env = strings.TrimSpace(app.Config().App.Env)
+	if capt.env == "" {
+		capt.env = strings.TrimSpace(app.Config().App.Env)
 	}
 
-	if c.env == "" {
-		c.env = strings.TrimSpace(os.Getenv("APP_ENV"))
+	if capt.env == "" {
+		capt.env = strings.TrimSpace(os.Getenv("APP_ENV"))
 	}
 
-	return c
+	return capt
 }
 
 // caller is who made the request.
@@ -76,13 +80,16 @@ type caller struct {
 // callerOf is the person or service account the request was authenticated as, once the routes' security has run.
 func callerOf(ctx *gin.Context) (caller, bool) {
 	if principal, ok := authz.PrincipalFrom(ctx.Request.Context()); ok {
-		return caller{key: principal.Subject.String(), kind: principal.Kind, id: principal.ID}, true
+		return caller{key: principal.String(), kind: principal.Kind, id: principal.ID}, true
 	}
 
 	if who, ok := auth.GetIdentifiable(ctx); ok && who.GetID() > 0 {
-		return caller{key: authz.Subject{Kind: authz.KindUser, ID: who.GetID()}.String(), kind: authz.KindUser, id: who.GetID()}, true
+		person := authz.Subject{Kind: authz.KindUser, ID: who.GetID()}
+
+		return caller{key: person.String(), kind: person.Kind, id: person.ID}, true
 	}
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	return caller{}, false
 }
 
@@ -99,7 +106,8 @@ func (c *capturer) handle(ctx *gin.Context) {
 		}
 
 		// A client that went away stops the handler with this panic on purpose: it is not a failure.
-		if err, ok := recovered.(error); !ok || !errors.Is(err, http.ErrAbortHandler) {
+		abort, isError := recovered.(error)
+		if !isError || !errors.Is(abort, http.ErrAbortHandler) {
 			c.capture(ctx, c.panicked(ctx, recovered))
 		}
 
@@ -136,16 +144,18 @@ func (c *capturer) remember(ctx *gin.Context, start time.Time, took time.Duratio
 	})
 }
 
-// failed is the failure of a request that ended in a server error: the last error the request collected, when it answers
-// 500 or more (the status ErrorHandler will write).
+// failed is the failure of a request that ended in a server error: the last error the request collected, when it
+// answers 500 or more (the status ErrorHandler will write).
 func (c *capturer) failed(ctx *gin.Context) (core.Failure, bool) {
 	last := ctx.Errors.Last()
 	if last == nil || last.Err == nil {
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
 		return core.Failure{}, false
 	}
 
 	status := apperr.GetHTTPStatus(last.Err)
 	if status < http.StatusInternalServerError {
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
 		return core.Failure{}, false
 	}
 
@@ -155,7 +165,8 @@ func (c *capturer) failed(ctx *gin.Context) (core.Failure, bool) {
 	failure.ErrorCode = errorCode(last.Err)
 	failure.Stacktrace = errorStack(last.Err)
 
-	if appErr := asAppError(last.Err); appErr != nil && len(appErr.Fields) > 0 {
+	appErr := asAppError(last.Err)
+	if appErr != nil && len(appErr.Fields) > 0 {
 		failure.ContextJSON = marshal(map[string]any{
 			"handler": routeOf(ctx), "error_fields": appErr.Fields, "principal": principalOf(ctx),
 			"recent_requests": c.recent(ctx),
@@ -185,9 +196,11 @@ func (c *capturer) describe(ctx *gin.Context, status int) core.Failure {
 	route := routeOf(ctx)
 	reqCtx := request.Context()
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	failure := core.Failure{
 		Source: core.SourceRuntimeError, AffectedModule: c.module(request.URL.Path), AffectedRoute: route,
-		RequestMethod: request.Method, IPAddress: ctx.ClientIP(), RequestID: middlewares.GetRequestID(ctx), Environment: c.env,
+		RequestMethod: request.Method, IPAddress: ctx.ClientIP(), RequestID: middlewares.GetRequestID(ctx),
+		Environment: c.env,
 	}
 
 	failure.RequestJSON = marshal(map[string]any{
@@ -291,9 +304,9 @@ var versionSegment = regexp.MustCompile(`^v[0-9]+$`)
 // moduleOf is the first segment of the path after the application's prefix and the version ("/api/v1/vehicles/12" is
 // "vehicles").
 func moduleOf(prefix, path string) string {
-	segments := strings.Split(strings.Trim(strings.TrimPrefix(path, prefix), "/"), "/")
+	segments := strings.SplitSeq(strings.Trim(strings.TrimPrefix(path, prefix), "/"), "/")
 
-	for _, segment := range segments {
+	for segment := range segments {
 		if segment != "" && !versionSegment.MatchString(segment) {
 			return segment
 		}
@@ -323,7 +336,8 @@ func errorClass(err error) string {
 }
 
 func errorCode(err error) string {
-	if appErr := asAppError(err); appErr != nil {
+	appErr := asAppError(err)
+	if appErr != nil {
 		return string(appErr.Code)
 	}
 
@@ -362,7 +376,7 @@ var stackLine = regexp.MustCompile(`^\t(\S+\.go:[0-9]+)`)
 func panicSignature(stack []byte) string {
 	var frames []string
 
-	for _, line := range strings.Split(string(stack), "\n") {
+	for line := range strings.SplitSeq(string(stack), "\n") {
 		match := stackLine.FindStringSubmatch(line)
 		if match == nil || strings.Contains(match[1], "/runtime/") || strings.Contains(match[1], "/incident/capture.go") {
 			continue

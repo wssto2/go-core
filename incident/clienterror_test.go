@@ -1,4 +1,4 @@
-//nolint:exhaustruct,exhaustruct_v5,lll,paralleltest,thelper,varnamelen,gochecknoglobals,goconst,mnd,funlen,cyclop,maintidx // tests in the style of the package's others
+//nolint:exhaustruct,exhaustruct_v5,goconst,lll,paralleltest,varnamelen // tests in the style of the package's others
 package incident_test
 
 import (
@@ -49,8 +49,8 @@ func TestABrowserErrorBecomesALowSeverityIncidentOfItsOwn(t *testing.T) {
 	assert.Equal(t, []any{"req-a", "req-b"}, context["request_ids"])
 
 	// The staff reads it with the other incidents, and the person who reported it does not.
-	assert.Len(t, decode[[]incident.IncidentResponse](t, w.as(staff, http.MethodGet, incidents+"?source=client_error", nil).Data), 1)
-	assert.Empty(t, decode[[]incident.IncidentResponse](t, w.as(ana, http.MethodGet, incidents, nil).Data))
+	assert.Len(t, decode[[]incident.Incident](t, w.as(staff, http.MethodGet, incidents+"?source=client_error", nil).Data), 1)
+	assert.Empty(t, decode[[]incident.Incident](t, w.as(ana, http.MethodGet, incidents, nil).Data))
 }
 
 func TestBrowserErrorsAreGroupedByMessageAndTopFrame(t *testing.T) {

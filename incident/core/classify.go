@@ -1,15 +1,14 @@
 package core
 
+import "slices"
+
 // Valid reports whether s is a known status.
 //
 // INC-CLASSIFY-001.
 func (s Status) Valid() bool {
-	switch s {
-	case StatusNew, StatusTriaged, StatusInProgress, StatusResolved, StatusIgnored, StatusDuplicate:
-		return true
-	default:
-		return false
-	}
+	return slices.Contains(
+		[]Status{StatusNew, StatusTriaged, StatusInProgress, StatusResolved, StatusIgnored, StatusDuplicate}, s,
+	)
 }
 
 // IsOpen reports whether an incident in this status is still being worked, as opposed to resolved, ignored or a
@@ -18,24 +17,14 @@ func (s Status) Valid() bool {
 //
 // INC-CLASSIFY-001.
 func (s Status) IsOpen() bool {
-	switch s {
-	case StatusNew, StatusTriaged, StatusInProgress:
-		return true
-	default:
-		return false
-	}
+	return slices.Contains([]Status{StatusNew, StatusTriaged, StatusInProgress}, s)
 }
 
 // Valid reports whether s is a known severity.
 //
 // INC-CLASSIFY-001.
 func (s Severity) Valid() bool {
-	switch s {
-	case SeverityLow, SeverityMedium, SeverityHigh, SeverityCritical:
-		return true
-	default:
-		return false
-	}
+	return slices.Contains([]Severity{SeverityLow, SeverityMedium, SeverityHigh, SeverityCritical}, s)
 }
 
 // OrDefault returns s when it is a known severity, else SeverityMedium: a severity a caller may leave out or get wrong

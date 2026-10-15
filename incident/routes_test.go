@@ -1,4 +1,4 @@
-//nolint:exhaustruct,exhaustruct_v5,lll,paralleltest,thelper,varnamelen,gochecknoglobals,goconst,mnd,funlen,cyclop,maintidx // tests in the style of the package's others
+//nolint:goconst,lll,paralleltest,prealloc,varnamelen // tests in the style of the package's others
 package incident_test
 
 import (
@@ -24,7 +24,7 @@ func TestAReportIsFiledAndSeenByItsReporter(t *testing.T) {
 	res := w.as(ana, http.MethodPost, incidents+"/reports", report("The list is empty"))
 	require.Equal(t, http.StatusCreated, res.Code, string(res.Body))
 
-	created := decode[incident.IncidentCreated](t, res.Data)
+	created := decode[incident.Created](t, res.Data)
 	assert.Equal(t, "The list is empty", created.Data.Title)
 	assert.Equal(t, "user_report", created.Data.Source)
 	assert.Equal(t, "high", created.Data.Severity)
@@ -40,25 +40,25 @@ func TestAReportIsFiledAndSeenByItsReporter(t *testing.T) {
 
 	shown := w.as(ana, http.MethodGet, incidents+"/"+strconv.Itoa(created.Data.ID), nil)
 	require.Equal(t, http.StatusOK, shown.Code, string(shown.Body))
-	assert.Equal(t, "The list is empty", decode[incident.IncidentResponse](t, shown.Data).Title)
-	assert.Len(t, decode[incident.IncidentMeta](t, shown.Meta).Reports, 1)
+	assert.Equal(t, "The list is empty", decode[incident.Incident](t, shown.Data).Title)
+	assert.Len(t, decode[incident.Meta](t, shown.Meta).Reports, 1)
 }
 
 func TestARepeatedReportJoinsTheOpenIncident(t *testing.T) {
 	w := newWorld(t)
 
-	first := decode[incident.IncidentCreated](t, w.as(ana, http.MethodPost, incidents+"/reports", report("Same problem")).Data)
+	first := decode[incident.Created](t, w.as(ana, http.MethodPost, incidents+"/reports", report("Same problem")).Data)
 	second := w.as(ivo, http.MethodPost, incidents+"/reports", report("Same problem"))
 	require.Equal(t, http.StatusCreated, second.Code, string(second.Body))
 
-	joined := decode[incident.IncidentCreated](t, second.Data)
+	joined := decode[incident.Created](t, second.Data)
 	assert.Equal(t, first.Data.ID, joined.Data.ID)
 	assert.Equal(t, 2, joined.Data.ReportCount)
 	assert.Len(t, w.rows("incidents"), 1)
 	assert.Len(t, w.rows("incident_reports"), 2)
 	assert.Len(t, joined.Meta.Reports, 1, "a person sees their own report only")
 
-	staffView := decode[incident.IncidentMeta](t, w.as(staff, http.MethodGet, incidents+"/"+strconv.Itoa(first.Data.ID), nil).Meta)
+	staffView := decode[incident.Meta](t, w.as(staff, http.MethodGet, incidents+"/"+strconv.Itoa(first.Data.ID), nil).Meta)
 	assert.Len(t, staffView.Reports, 2)
 }
 
@@ -91,15 +91,15 @@ func TestOnlyTheAllowedFileAReport(t *testing.T) {
 func TestWhoSeesWhat(t *testing.T) {
 	w := newWorld(t)
 
-	mine := decode[incident.IncidentCreated](t, w.as(ana, http.MethodPost, incidents+"/reports", report("Ana's problem")).Data).Data.ID
-	_ = decode[incident.IncidentCreated](t, w.as(ivo, http.MethodPost, incidents+"/reports", report("Ivo's problem")).Data).Data.ID
+	mine := decode[incident.Created](t, w.as(ana, http.MethodPost, incidents+"/reports", report("Ana's problem")).Data).Data.ID
+	_ = decode[incident.Created](t, w.as(ivo, http.MethodPost, incidents+"/reports", report("Ivo's problem")).Data).Data.ID
 
 	titles := func(who int) []string {
 		res := w.as(who, http.MethodGet, incidents, nil)
 		require.Equal(t, http.StatusOK, res.Code, string(res.Body))
 
 		var out []string
-		for _, i := range decode[[]incident.IncidentResponse](t, res.Data) {
+		for _, i := range decode[[]incident.Incident](t, res.Data) {
 			out = append(out, i.Title)
 		}
 
@@ -121,7 +121,7 @@ func TestWhoSeesWhat(t *testing.T) {
 
 func TestCommentsFollowTheirVisibility(t *testing.T) {
 	w := newWorld(t)
-	id := strconv.Itoa(decode[incident.IncidentCreated](t, w.as(ana, http.MethodPost, incidents+"/reports", report("Commented")).Data).Data.ID)
+	id := strconv.Itoa(decode[incident.Created](t, w.as(ana, http.MethodPost, incidents+"/reports", report("Commented")).Data).Data.ID)
 
 	res := w.as(ana, http.MethodPost, incidents+"/"+id+"/comments", reportBody{"body": "Still broken", "visibility": "internal"})
 	require.Equal(t, http.StatusCreated, res.Code, string(res.Body))
@@ -142,7 +142,7 @@ func TestCommentsFollowTheirVisibility(t *testing.T) {
 	require.Len(t, seen, 1)
 	assert.Equal(t, "Still broken", seen[0].Body)
 
-	shown := decode[incident.IncidentResponse](t, w.as(ana, http.MethodGet, incidents+"/"+id, nil).Data)
+	shown := decode[incident.Incident](t, w.as(ana, http.MethodGet, incidents+"/"+id, nil).Data)
 	assert.Equal(t, 2, shown.CommentCount)
 
 	assert.Equal(t, http.StatusBadRequest, w.as(ana, http.MethodPost, incidents+"/"+id+"/comments", reportBody{"body": "  "}).Code)
@@ -152,7 +152,7 @@ func TestCommentsFollowTheirVisibility(t *testing.T) {
 
 func TestAnIncidentIsChanged(t *testing.T) {
 	w := newWorld(t)
-	id := strconv.Itoa(decode[incident.IncidentCreated](t, w.as(ana, http.MethodPost, incidents+"/reports", report("To triage")).Data).Data.ID)
+	id := strconv.Itoa(decode[incident.Created](t, w.as(ana, http.MethodPost, incidents+"/reports", report("To triage")).Data).Data.ID)
 
 	res := w.as(staff, http.MethodPatch, incidents+"/"+id, reportBody{
 		"status": "resolved", "severity": "low", "assigned_to_user_id": petra, "resolution_summary": "fixed in 1.2",
@@ -160,7 +160,7 @@ func TestAnIncidentIsChanged(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, res.Code, string(res.Body))
 
-	changed := decode[incident.IncidentResponse](t, res.Data)
+	changed := decode[incident.Incident](t, res.Data)
 	assert.Equal(t, "resolved", changed.Status)
 	assert.Equal(t, "low", changed.Severity)
 	require.NotNil(t, changed.ResolvedAt)
@@ -169,13 +169,13 @@ func TestAnIncidentIsChanged(t *testing.T) {
 	assert.Equal(t, "GH-7", changed.ExternalTicketID)
 
 	// A resolved incident no longer groups repeats: the same report opens a new one.
-	again := decode[incident.IncidentCreated](t, w.as(ana, http.MethodPost, incidents+"/reports", report("To triage")).Data)
+	again := decode[incident.Created](t, w.as(ana, http.MethodPost, incidents+"/reports", report("To triage")).Data)
 	assert.Equal(t, "new", again.Data.Status, "a resolved incident that is reported again is reopened")
 	assert.Equal(t, id, strconv.Itoa(again.Data.ID))
 
 	res = w.as(staff, http.MethodPatch, incidents+"/"+id, reportBody{"external_ticket_provider": "none"})
 	require.Equal(t, http.StatusOK, res.Code)
-	assert.Empty(t, decode[incident.IncidentResponse](t, res.Data).ExternalTicketID, "no provider clears the ticket")
+	assert.Empty(t, decode[incident.Incident](t, res.Data).ExternalTicketID, "no provider clears the ticket")
 
 	assert.Equal(t, http.StatusBadRequest, w.as(staff, http.MethodPatch, incidents+"/"+id, reportBody{"status": "done"}).Code)
 	assert.Equal(t, http.StatusNotFound, w.as(staff, http.MethodPatch, incidents+"/999", reportBody{"status": "triaged"}).Code)
@@ -192,14 +192,14 @@ func TestTheListPagesFiltersAndSearches(t *testing.T) {
 
 	res := w.as(staff, http.MethodGet, incidents+"?per_page=2&page=2", nil)
 	require.Equal(t, http.StatusOK, res.Code, string(res.Body))
-	assert.Len(t, decode[[]incident.IncidentResponse](t, res.Data), 1)
+	assert.Len(t, decode[[]incident.Incident](t, res.Data), 1)
 	assert.JSONEq(t, `{"total":3,"per_page":2,"page":2,"last_page":2,"from":3,"to":3}`, string(res.Meta))
 
 	res = w.as(staff, http.MethodGet, incidents+"?search=crash&status=new&severity=high&source=user_report", nil)
-	assert.Len(t, decode[[]incident.IncidentResponse](t, res.Data), 2)
+	assert.Len(t, decode[[]incident.Incident](t, res.Data), 2)
 
 	res = w.as(staff, http.MethodGet, incidents+"?status=resolved", nil)
-	assert.Empty(t, decode[[]incident.IncidentResponse](t, res.Data))
+	assert.Empty(t, decode[[]incident.Incident](t, res.Data))
 }
 
 func TestThePermissionsAreDefinedOnce(t *testing.T) {

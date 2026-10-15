@@ -77,4 +77,3 @@ func runInteractiveMenu() error {
 	}
 	return nil
 }
-

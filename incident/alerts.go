@@ -35,9 +35,11 @@ var AlertCategory = notification.Category("incident.alert").EmailByDefault().Hig
 var Opened = event.Define[NewIncident]("incident.opened")
 
 // NewIncident is the payload of Opened.
+//
+//nolint:tagliatelle // snake_case wire
 type NewIncident struct {
-	IncidentID int    `json:"incident_id"` //nolint:tagliatelle // snake_case wire
-	PublicCode string `json:"public_code"` //nolint:tagliatelle // snake_case wire
+	IncidentID int    `json:"incident_id"`
+	PublicCode string `json:"public_code"`
 	Title      string `json:"title"`
 	Severity   string `json:"severity"`
 	Source     string `json:"source"`
@@ -93,27 +95,13 @@ func (a *alerter) onOpened(ctx context.Context, incident NewIncident) error {
 	severity := core.Severity(strings.ToLower(incident.Severity))
 
 	if a.cfg.immediate(severity) {
-		cool, err := a.cooling(ctx, string(severity))
-		if err != nil {
+		sent, err := a.sendNow(ctx, severity, incident)
+		if err != nil || sent {
 			return err
-		}
-
-		if !cool {
-			sent, err := a.send(ctx, func(locale string) (string, string) {
-				return mailtext.Opened(locale, alertOf(incident))
-			}, incident)
-			if err != nil {
-				return err
-			}
-
-			if !sent {
-				return nil
-			}
-
-			return a.stamp(ctx, string(severity))
 		}
 	}
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	err := a.store.QueueDigest(ctx, core.DigestItem{
 		IncidentID: incident.IncidentID, PublicCode: incident.PublicCode, Title: incident.Title, Severity: severity,
 		CreatedAt: a.clock.Now(),
@@ -123,6 +111,28 @@ func (a *alerter) onOpened(ctx context.Context, incident NewIncident) error {
 	}
 
 	return nil
+}
+
+// sendNow sends the alert of an incident of an immediate severity unless the severity is cooling. It says whether the
+// alert was dealt with: sent now, or dropped because nobody is to be told (and no cooldown starts).
+func (a *alerter) sendNow(ctx context.Context, severity core.Severity, incident NewIncident) (bool, error) {
+	cool, err := a.cooling(ctx, string(severity))
+	if err != nil || cool {
+		return false, err
+	}
+
+	sent, err := a.send(ctx, func(locale string) (string, string) {
+		return mailtext.Opened(locale, alertOf(incident))
+	}, incident)
+	if err != nil {
+		return false, err
+	}
+
+	if sent {
+		err = a.stamp(ctx, string(severity))
+	}
+
+	return true, err
 }
 
 // cooling reports whether an immediate alert of the severity was sent within the cooldown.
@@ -151,6 +161,7 @@ func (a *alerter) onDigest(ctx context.Context, batch digest) error {
 		alerts[i] = alertOf(item)
 	}
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	linked := NewIncident{}
 	if len(batch.Items) == 1 {
 		linked = batch.Items[0]
@@ -178,7 +189,8 @@ func (a *alerter) send(
 	}
 
 	if len(people) == 0 {
-		a.log.WarnContext(ctx, "incident: nobody holds the permission, so the alert is dropped", "permission", ManageIncidents)
+		a.log.WarnContext(ctx, "incident: nobody holds the permission, so the alert is dropped",
+			"permission", ManageIncidents)
 
 		return false, nil
 	}
@@ -193,11 +205,13 @@ func (a *alerter) send(
 		}
 	}
 
-	err = a.cfg.Notices.Send(ctx, AlertCategory, notification.To(people...), func(who notification.Recipient) notification.Message {
+	render := func(who notification.Recipient) notification.Message {
 		title, body := words(who.Locale)
 
 		return notification.Message{Title: title, Body: body, Link: link, Data: data}
-	})
+	}
+
+	err = a.cfg.Notices.Send(ctx, AlertCategory, notification.To(people...), render)
 	if err != nil {
 		return false, fmt.Errorf("incident: send the alert: %w", err)
 	}
@@ -255,6 +269,7 @@ func (w digestWorker) flush(ctx context.Context) error {
 
 			batch := digest{Items: make([]NewIncident, 0, taken)}
 			for _, item := range items {
+				//nolint:exhaustruct,exhaustruct_v5 // zero by design
 				batch.Items = append(batch.Items, NewIncident{
 					IncidentID: item.IncidentID, PublicCode: item.PublicCode, Title: item.Title, Severity: string(item.Severity),
 				})
@@ -272,8 +287,8 @@ func (w digestWorker) flush(ctx context.Context) error {
 	}
 }
 
-var errNoEngine = errors.New("incident: the application's authorizer is not the access module's engine, so it cannot say who holds a permission: " +
-	"give incident.Alerts a Holders function")
+var errNoEngine = errors.New("incident: the application's authorizer is not the access module's engine, " +
+	"so it cannot say who holds a permission: give incident.Alerts a Holders function")
 
 // roleEngine is what the access module's authz.Engine offers.
 type roleEngine interface {

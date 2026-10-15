@@ -38,16 +38,18 @@ import (
 	"github.com/wssto2/go-core/incident/gormstore"
 	"github.com/wssto2/go-core/incident/migrations"
 	"github.com/wssto2/go-core/ratelimit"
+	"gorm.io/gorm"
 )
 
-// People is what the module asks of the application's users: the accounts of many ids, to name the reporter, the assignee
-// and the authors. *identity.Users is one.
+// People is what the module asks of the application's users: the accounts of many ids, to name the reporter, the
+// assignee and the authors. *identity.Users is one.
 type People interface {
 	// Find returns the accounts that exist among ids, active or not, in one query.
 	Find(ctx context.Context, ids []int) ([]account.Account, error)
 }
 
-// Incidents is what Install built. After Install reported a problem to the application (Run lists it) the value is empty.
+// Incidents is what Install built. After Install reported a problem to the application (Run lists it) the value is
+// empty.
 type Incidents struct {
 	// Service lists, shows, files, comments, changes and captures incidents. Its Capture records a failure an
 	// application found by itself (a failed job), the same way the middleware does a failed request.
@@ -62,14 +64,15 @@ type Incidents struct {
 // people on an incident.
 //
 //	incidents := incident.Install(app, users)
-//	incidents := incident.Install(app, users, incident.Capture{TrailSize: 50}, incident.Alerts{Enabled: true, Notices: notices})
+//	incidents := incident.Install(app, users,
+//		incident.Capture{TrailSize: 50}, incident.Alerts{Enabled: true, Notices: notices})
 //
 // A bad option is a start-up problem Run lists with the fix.
 func Install(app *gocore.App, people People, opts ...Option) *Incidents {
 	if people == nil {
 		app.Fail("incident needs the people to name", "pass the users as the second argument: incident.Install(app, users)")
 
-		return &Incidents{}
+		return new(Incidents)
 	}
 
 	cfg := collect(opts)
@@ -78,18 +81,17 @@ func Install(app *gocore.App, people People, opts ...Option) *Incidents {
 			app.Fail(p.What, p.Fix)
 		}
 
-		return &Incidents{}
+		return new(Incidents)
 	}
 
-	db := app.Database()
-	store := gormstore.New(db)
-	tx := database.NewTransactor(db)
+	conn := app.Database()
+	store := gormstore.New(conn)
 
 	app.Schema(gocore.Schema{Files: migrations.Files, Models: gormstore.Migrate})
 
 	service := core.New(core.Config{
-		Store: store, Transactor: tx, People: directory{people}, Clock: app.Clock(), Opened: publishOpened,
-		Environment: cfg.capture.Environment,
+		Store: store, Transactor: database.NewTransactor(conn), People: directory{people}, Clock: app.Clock(),
+		Opened: publishOpened, Environment: cfg.capture.Environment,
 	})
 
 	app.Use(newCapturer(app, service, cfg.capture).handle)
@@ -106,36 +108,46 @@ func Install(app *gocore.App, people People, opts ...Option) *Incidents {
 	house := housekeeper{store: store, retain: cfg.retain, clock: app.Clock(), log: app.Logger()}
 	app.Background(house)
 
-	var (
-		consumers []event.Consumer
-		digest    digestWorker
-	)
-
-	if cfg.alerts.Enabled {
-		holders := cfg.alerts.Holders
-		if holders == nil {
-			holders = accessHolders(app, db)
-		}
-
-		alerts := &alerter{cfg: cfg.alerts, store: store, clock: app.Clock(), log: app.Logger(), holders: holders, link: cfg.link}
-		consumers = alerts.consumers()
-
-		digest = digestWorker{every: cfg.alerts.DigestEvery, store: store, tx: tx, clock: app.Clock(), log: app.Logger()}
-
-		app.Background(digest)
-	}
-
+	consumers, digest := installAlerts(app, cfg, conn, store)
 	app.Events(consumers...)
 
 	return &Incidents{Service: service, housekeeper: house, digest: digest}
 }
 
+// installAlerts starts the digest worker and returns the consumers of the alerts, none when they are off.
+func installAlerts(app *gocore.App, cfg *config, conn *gorm.DB, store core.Store) ([]event.Consumer, digestWorker) {
+	if !cfg.alerts.Enabled {
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
+		return nil, digestWorker{}
+	}
+
+	holders := cfg.alerts.Holders
+	if holders == nil {
+		holders = accessHolders(app, conn)
+	}
+
+	alerts := &alerter{
+		cfg: cfg.alerts, store: store, clock: app.Clock(), log: app.Logger(), holders: holders, link: cfg.link,
+	}
+
+	digest := digestWorker{
+		every: cfg.alerts.DigestEvery, store: store, tx: database.NewTransactor(conn), clock: app.Clock(),
+		log: app.Logger(),
+	}
+
+	app.Background(digest)
+
+	return alerts.consumers(), digest
+}
+
 // Sweep deletes the old rows now: occurrences older than the retention except the newest of each incident, and the
-// digest items that were sent. The housekeeper Install starts does it every hour; a command can call this to prune at once.
+// digest items that were sent. The housekeeper Install starts does it every hour; a command can call this to prune at
+// once.
 func (i *Incidents) Sweep(ctx context.Context) (Swept, error) { return i.housekeeper.sweep(ctx) }
 
-// FlushDigest sends the digest now: the incidents that wait are taken out of the queue and queued as one alert. The worker
-// Install starts does it every Alerts.DigestEvery; a command can call this to send at once. Without Alerts it does nothing.
+// FlushDigest sends the digest now: the incidents that wait are taken out of the queue and queued as one alert. The
+// worker Install starts does it every Alerts.DigestEvery; a command can call this to send at once. Without Alerts it
+// does nothing.
 func (i *Incidents) FlushDigest(ctx context.Context) error {
 	if i.digest.store == nil {
 		return nil
@@ -156,13 +168,13 @@ func (d directory) Find(ctx context.Context, ids []int) ([]core.Person, error) {
 
 	out := make([]core.Person, 0, len(accounts))
 
-	for _, a := range accounts {
-		name := a.Name
+	for _, person := range accounts {
+		name := person.Name
 		if name == "" {
-			name = a.Login
+			name = person.Login
 		}
 
-		out = append(out, core.Person{ID: a.ID, Name: name, Email: a.Email})
+		out = append(out, core.Person{ID: person.ID, Name: name, Email: person.Email})
 	}
 
 	return out, nil

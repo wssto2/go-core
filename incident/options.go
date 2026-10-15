@@ -12,9 +12,9 @@ import (
 	"github.com/wssto2/go-core/ratelimit"
 )
 
-// Option is what Install takes after the people: Capture, Alerts, or one of the functions ClientErrors, Retain and Link.
-// They go in one list, in any order, each at most once.
-type Option interface{ apply(*config) }
+// Option is what Install takes after the people: Capture, Alerts, or one of the functions ClientErrors, Retain and
+// Link. They go in one list, in any order, each at most once.
+type Option interface{ apply(cfg *config) }
 
 type optionFunc func(*config)
 
@@ -99,11 +99,14 @@ func (a Alerts) apply(cfg *config) { cfg.alerts = a }
 // ClientErrors sets the limit of the browser error report (POST /v1/incidents/client-errors): a person's reports are
 // counted by the limiter under their id, and the ones over the limit are dropped with the same 204 as the others,
 // since the browser has nothing to do about them. The default is DefaultClientErrorLimit per minute, in memory.
+//
+//nolint:ireturn // Option is the type of every option of Install
 func ClientErrors(limiter ratelimit.Limiter) Option {
 	return optionFunc(func(cfg *config) {
 		switch {
 		case limiter == nil:
-			cfg.problem("incident.ClientErrors was given no limiter", "pass one, such as ratelimit.NewInMemoryLimiter(20, time.Minute)")
+			cfg.problem("incident.ClientErrors was given no limiter",
+				"pass one, such as ratelimit.NewInMemoryLimiter(20, time.Minute)")
 		case cfg.limiter != nil:
 			cfg.problem("incident.ClientErrors was given twice", "keep one")
 		default:
@@ -114,6 +117,8 @@ func ClientErrors(limiter ratelimit.Limiter) Option {
 
 // Retain sets how long the occurrences of an incident are kept, except the newest of each; the default is
 // DefaultOccurrenceRetention.
+//
+//nolint:ireturn // Option is the type of every option of Install
 func Retain(occurrences time.Duration) Option {
 	return optionFunc(func(cfg *config) {
 		if occurrences <= 0 {
@@ -126,7 +131,10 @@ func Retain(occurrences time.Duration) Option {
 	})
 }
 
-// Link says where an incident opens in the application, as the path an alert links to: the default is "/incidents/<id>".
+// Link says where an incident opens in the application, as the path an alert links to: the default is
+// "/incidents/<id>".
+//
+//nolint:ireturn // Option is the type of every option of Install
 func Link(path func(incidentID int) string) Option {
 	return optionFunc(func(cfg *config) {
 		if path == nil {
@@ -154,6 +162,7 @@ func (c *config) problem(what, fix string) { c.problems = append(c.problems, pro
 
 // collect reads the options, fills the defaults and says what is wrong with them.
 func collect(opts []Option) *config {
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	cfg := &config{retain: DefaultOccurrenceRetention, link: defaultLink}
 
 	for _, o := range opts {

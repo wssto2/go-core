@@ -31,7 +31,9 @@ func (s *Store) LastAlert(ctx context.Context, tier string) (time.Time, bool, er
 func (s *Store) StampAlert(ctx context.Context, tier string, at time.Time) error {
 	row := cooldownModel{SeverityTier: tier, LastSentAt: at.UTC().Truncate(time.Millisecond)}
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	err := s.conn(ctx).Clauses(clause.OnConflict{
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
 		Columns: []clause.Column{{Name: "severity_tier"}}, DoUpdates: clause.AssignmentColumns([]string{"last_sent_at"}),
 	}).Create(&row).Error
 	if err != nil {
@@ -45,7 +47,8 @@ func (s *Store) StampAlert(ctx context.Context, tier string, at time.Time) error
 func (s *Store) QueueDigest(ctx context.Context, item core.DigestItem) error {
 	var waiting int64
 
-	err := s.conn(ctx).Model(&digestModel{}).Where("incident_id = ? AND digested_at IS NULL", item.IncidentID).Count(&waiting).Error
+	err := s.conn(ctx).Model(new(digestModel)).Where("incident_id = ? AND digested_at IS NULL", item.IncidentID).
+		Count(&waiting).Error
 	if err != nil {
 		return fmt.Errorf("read digest queue: %w", err)
 	}
@@ -54,13 +57,15 @@ func (s *Store) QueueDigest(ctx context.Context, item core.DigestItem) error {
 		return nil
 	}
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	row := digestModel{
 		IncidentID: item.IncidentID, PublicCode: item.PublicCode, Title: item.Title, Severity: string(item.Severity),
 		CreatedAt: item.CreatedAt.UTC().Truncate(time.Millisecond),
 	}
 
-	if err := s.conn(ctx).Create(&row).Error; err != nil {
-		return fmt.Errorf("queue digest item: %w", err)
+	err = s.conn(ctx).Create(&row).Error
+	if err != nil {
+		return failed("queue digest item", err)
 	}
 
 	return nil
@@ -68,9 +73,10 @@ func (s *Store) QueueDigest(ctx context.Context, item core.DigestItem) error {
 
 // ClaimDigest implements core.Store. Run it in a transaction: the rows are locked by the select and marked by the
 // update, so two workers never take the same item.
-func (s *Store) ClaimDigest(ctx context.Context, at time.Time, limit int) ([]core.DigestItem, error) {
+func (s *Store) ClaimDigest(ctx context.Context, when time.Time, limit int) ([]core.DigestItem, error) {
 	var rows []digestModel
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	err := s.conn(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("digested_at IS NULL").Order("id ASC").Limit(limit).Find(&rows).Error
 	if err != nil {
@@ -92,9 +98,10 @@ func (s *Store) ClaimDigest(ctx context.Context, at time.Time, limit int) ([]cor
 		}
 	}
 
-	stamped := at.UTC().Truncate(time.Millisecond)
+	stamped := when.UTC().Truncate(time.Millisecond)
 
-	err = s.conn(ctx).Model(&digestModel{}).Where("id IN ? AND digested_at IS NULL", ids).Update("digested_at", stamped).Error
+	err = s.conn(ctx).Model(new(digestModel)).Where("id IN ? AND digested_at IS NULL", ids).
+		Update("digested_at", stamped).Error
 	if err != nil {
 		return nil, fmt.Errorf("claim digest items: %w", err)
 	}
@@ -106,7 +113,7 @@ func (s *Store) ClaimDigest(ctx context.Context, at time.Time, limit int) ([]cor
 func (s *Store) PruneDigest(ctx context.Context, before time.Time, limit int) (int, error) {
 	var ids []int
 
-	err := s.conn(ctx).Model(&digestModel{}).Where("digested_at < ?", before.UTC().Truncate(time.Millisecond)).
+	err := s.conn(ctx).Model(new(digestModel)).Where("digested_at < ?", before.UTC().Truncate(time.Millisecond)).
 		Order("id ASC").Limit(limit).Pluck("id", &ids).Error
 	if err != nil {
 		return 0, fmt.Errorf("select old digest items: %w", err)
@@ -116,7 +123,7 @@ func (s *Store) PruneDigest(ctx context.Context, before time.Time, limit int) (i
 		return 0, nil
 	}
 
-	res := s.conn(ctx).Where("id IN ?", ids).Delete(&digestModel{})
+	res := s.conn(ctx).Where("id IN ?", ids).Delete(new(digestModel))
 	if res.Error != nil {
 		return 0, fmt.Errorf("delete old digest items: %w", res.Error)
 	}

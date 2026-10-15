@@ -37,6 +37,30 @@ type housekeeper struct {
 // Name identifies the worker in logs and metrics.
 func (housekeeper) Name() string { return "incident.housekeeping" }
 
+// Run sweeps once at start and then every hour, until ctx is cancelled.
+func (h housekeeper) Run(ctx context.Context) error {
+	ticker := time.NewTicker(housekeepingInterval)
+	defer ticker.Stop()
+
+	for {
+		swept, err := h.sweep(ctx)
+
+		switch {
+		case err != nil && ctx.Err() == nil:
+			h.log.ErrorContext(ctx, "incident: housekeeping failed", "error", err)
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
+		case swept != Swept{}:
+			h.log.InfoContext(ctx, "incident: deleted old rows", "occurrences", swept.Occurrences, "digest", swept.Digest)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+
 // sweep deletes in batches of pruneBatch until a batch is not full.
 func (h housekeeper) sweep(ctx context.Context) (Swept, error) {
 	var swept Swept
@@ -66,29 +90,6 @@ func (h housekeeper) sweep(ctx context.Context) (Swept, error) {
 
 		if deleted < pruneBatch {
 			return swept, nil
-		}
-	}
-}
-
-// Run sweeps once at start and then every hour, until ctx is cancelled.
-func (h housekeeper) Run(ctx context.Context) error {
-	ticker := time.NewTicker(housekeepingInterval)
-	defer ticker.Stop()
-
-	for {
-		swept, err := h.sweep(ctx)
-
-		switch {
-		case err != nil && ctx.Err() == nil:
-			h.log.ErrorContext(ctx, "incident: housekeeping failed", "error", err)
-		case swept != Swept{}:
-			h.log.InfoContext(ctx, "incident: deleted old rows", "occurrences", swept.Occurrences, "digest", swept.Digest)
-		}
-
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
 		}
 	}
 }

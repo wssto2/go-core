@@ -2,6 +2,7 @@ package incident
 
 import (
 	"net/url"
+	"slices"
 	"sync"
 	"time"
 )
@@ -29,6 +30,7 @@ type trail struct {
 }
 
 func newTrail(size int) *trail {
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	return &trail{size: size, callers: map[string][]TrailEntry{}}
 }
 
@@ -53,7 +55,7 @@ func (t *trail) add(caller string, entry TrailEntry) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	entries := append(t.callers[caller], entry)
+	entries := append(slices.Clone(t.callers[caller]), entry)
 	if len(entries) > t.size {
 		entries = append([]TrailEntry(nil), entries[len(entries)-t.size:]...)
 	}

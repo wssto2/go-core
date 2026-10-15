@@ -27,6 +27,19 @@ const (
 	maxListed = 8
 )
 
+// The keys of the words: the severities and the sources of an incident.
+const (
+	low, medium, high, critical = "low", "medium", "high", "critical"
+	userReport, runtimeError    = "user_report", "runtime_error"
+	clientError, mixed          = "client_error", "mixed"
+)
+
+const (
+	newIncidents = "Novi incidenti: %d"
+	moderate     = "srednji"
+	visok        = "visok"
+)
+
 type words struct {
 	opened   string            // "New %s incident: %s", the severity and the title
 	digest   string            // "New incidents: %d"
@@ -40,34 +53,34 @@ type words struct {
 var languages = map[string]words{ //nolint:gochecknoglobals // fixed text
 	"en": {
 		opened: "New %s incident: %s", digest: "New incidents: %d", code: "Code", source: "Source", more: "and %d more",
-		severity: map[string]string{"low": "low", "medium": "medium", "high": "high", "critical": "critical"},
+		severity: map[string]string{low: "low", medium: "medium", high: "high", critical: "critical"},
 		sourceOf: map[string]string{
-			"user_report": "a person's report", "runtime_error": "server error", "client_error": "browser error",
-			"mixed": "several sources",
+			userReport: "a person's report", runtimeError: "server error", clientError: "browser error",
+			mixed: "several sources",
 		},
 	},
 	"hr": {
-		opened: "Novi %s incident: %s", digest: "Novi incidenti: %d", code: "Šifra", source: "Izvor", more: "i još %d",
-		severity: map[string]string{"low": "nizak", "medium": "srednji", "high": "visok", "critical": "kritičan"},
+		opened: "Novi %s incident: %s", digest: newIncidents, code: "Šifra", source: "Izvor", more: "i još %d",
+		severity: map[string]string{low: "nizak", medium: moderate, high: visok, critical: "kritičan"},
 		sourceOf: map[string]string{
-			"user_report": "prijava korisnika", "runtime_error": "greška poslužitelja", "client_error": "greška preglednika",
-			"mixed": "više izvora",
+			userReport: "prijava korisnika", runtimeError: "greška poslužitelja", clientError: "greška preglednika",
+			mixed: "više izvora",
 		},
 	},
 	"bs": {
-		opened: "Novi %s incident: %s", digest: "Novi incidenti: %d", code: "Šifra", source: "Izvor", more: "i još %d",
-		severity: map[string]string{"low": "nizak", "medium": "srednji", "high": "visok", "critical": "kritičan"},
+		opened: "Novi %s incident: %s", digest: newIncidents, code: "Šifra", source: "Izvor", more: "i još %d",
+		severity: map[string]string{low: "nizak", medium: moderate, high: visok, critical: "kritičan"},
 		sourceOf: map[string]string{
-			"user_report": "prijava korisnika", "runtime_error": "greška servera", "client_error": "greška preglednika",
-			"mixed": "više izvora",
+			userReport: "prijava korisnika", runtimeError: "greška servera", clientError: "greška preglednika",
+			mixed: "više izvora",
 		},
 	},
 	"sl": {
-		opened: "Nov %s incident: %s", digest: "Novi incidenti: %d", code: "Koda", source: "Vir", more: "in še %d",
-		severity: map[string]string{"low": "nizek", "medium": "srednji", "high": "visok", "critical": "kritičen"},
+		opened: "Nov %s incident: %s", digest: newIncidents, code: "Koda", source: "Vir", more: "in še %d",
+		severity: map[string]string{low: "nizek", medium: moderate, high: visok, critical: "kritičen"},
 		sourceOf: map[string]string{
-			"user_report": "prijava uporabnika", "runtime_error": "napaka strežnika", "client_error": "napaka brskalnika",
-			"mixed": "več virov",
+			userReport: "prijava uporabnika", runtimeError: "napaka strežnika", clientError: "napaka brskalnika",
+			mixed: "več virov",
 		},
 	},
 }
@@ -101,22 +114,22 @@ func (w words) sourceName(source string) string {
 // Opened is the title and body of the alert of one new incident: "New critical incident: Title" and the incident's code
 // and source.
 func Opened(locale string, alert Alert) (string, string) {
-	w := wordsOf(locale)
+	text := wordsOf(locale)
 
-	return fmt.Sprintf(w.opened, w.severityOf(alert.Severity), alert.Title),
-		fmt.Sprintf("%s: %s · %s: %s", w.code, alert.PublicCode, w.source, w.sourceName(alert.Source))
+	return fmt.Sprintf(text.opened, text.severityOf(alert.Severity), alert.Title),
+		fmt.Sprintf("%s: %s · %s: %s", text.code, alert.PublicCode, text.source, text.sourceName(alert.Source))
 }
 
 // Digest is the title and body of the alert of the incidents that waited for the digest: how many, and a line each
 // (severity, title, code) for the first few.
 func Digest(locale string, alerts []Alert) (string, string) {
-	w := wordsOf(locale)
+	text := wordsOf(locale)
 
 	var body strings.Builder
 
 	for i, alert := range alerts {
 		if i == maxListed {
-			fmt.Fprintf(&body, "… %s", fmt.Sprintf(w.more, len(alerts)-maxListed))
+			fmt.Fprintf(&body, "… %s", fmt.Sprintf(text.more, len(alerts)-maxListed))
 
 			break
 		}
@@ -124,7 +137,7 @@ func Digest(locale string, alerts []Alert) (string, string) {
 		fmt.Fprintf(&body, "- [%s] %s (%s)\n", strings.ToUpper(alert.Severity), shorten(alert.Title), alert.PublicCode)
 	}
 
-	return fmt.Sprintf(w.digest, len(alerts)), strings.TrimSpace(body.String())
+	return fmt.Sprintf(text.digest, len(alerts)), strings.TrimSpace(body.String())
 }
 
 // shorten cuts a title to maxTitle characters.

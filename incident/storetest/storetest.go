@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 // Factory returns a new empty store for one subtest.
 type Factory func(t *testing.T) core.Store
 
-// The people of the suite: the staff, three people and a stranger.
+// The people of the suite: the staff, three people with a part in an incident and a stranger.
 const (
 	staffID    = 1
 	reporterID = 2
@@ -30,16 +31,33 @@ const (
 	strangerID = 5
 )
 
+// The repeated words of the suite.
+const (
+	testEnv  = "test"
+	ticketID = "GH-1"
+	summary  = "fixed"
+	public   = "public"
+	internal = "internal"
+)
+
+// The sizes the suite uses.
+const (
+	retentionDays = 90
+	oldDays       = 100
+	wide          = 100
+	pageOfTwo     = 2
+	third         = 3
+	hoursInDay    = 24
+)
+
 func base() time.Time { return time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC) }
 
-var (
-	staff    = core.Viewer{UserID: staffID, Staff: true}
-	reporter = core.Viewer{UserID: reporterID}
-	author   = core.Viewer{UserID: authorID}
-	watcher  = core.Viewer{UserID: watcherID}
-	stranger = core.Viewer{UserID: strangerID}
-	nobody   = core.Viewer{}
-)
+func staff() core.Viewer    { return core.Viewer{UserID: staffID, Staff: true} }
+func reporter() core.Viewer { return core.Viewer{UserID: reporterID, Staff: false} }
+func author() core.Viewer   { return core.Viewer{UserID: authorID, Staff: false} }
+func watcher() core.Viewer  { return core.Viewer{UserID: watcherID, Staff: false} }
+func stranger() core.Viewer { return core.Viewer{UserID: strangerID, Staff: false} }
+func nobody() core.Viewer   { return core.Viewer{UserID: 0, Staff: false} }
 
 // Run runs the whole suite.
 func Run(t *testing.T, factory Factory) {
@@ -54,7 +72,8 @@ func Run(t *testing.T, factory Factory) {
 		"the latest incident of a fingerprint is found": latestIsFound,
 		"visibility follows reporter, author, watcher":  visibilityRules,
 		"a staff-only incident is for the staff":        staffOnlyIncident,
-		"reports and comments honour the viewer":        reportsAndCommentsVisibility,
+		"reports honour the viewer":                     reportsVisibility,
+		"comments honour the viewer":                    commentsVisibility,
 		"counting adds to the incident":                 countingAdds,
 		"a sighting updates the samples":                sightingSamples,
 		"the list pages, filters, searches and orders":  listFeatures,
@@ -74,41 +93,8 @@ func Run(t *testing.T, factory Factory) {
 	}
 }
 
-// incidentOf is a runtime incident that is open and visible to the staff only.
-func incidentOf(code string, mod func(*core.Incident)) core.Incident {
-	fp := "fp-" + code
-	in := core.Incident{
-		PublicCode: code, Fingerprint: fp, OpenFingerprint: &fp, Source: core.SourceRuntimeError, Status: core.StatusNew,
-		Severity: core.SeverityHigh, Visibility: core.VisibilityInternal, Title: "Title " + code, Description: "described",
-		AffectedModule: "vehicles", AffectedRoute: "/v1/vehicles/:id", Environment: "test", ErrorClass: "*errors.errorString",
-		ErrorCode: "internal", ErrorMessageSample: "boom " + code, StacktraceSample: "a.go:1", FirstSeenAt: base(),
-		LastSeenAt: base(), OccurrenceCount: 1, ExternalTicketProvider: core.TicketProviderNone, CreatedAt: base(),
-		UpdatedAt: base(),
-	}
-
-	if mod != nil {
-		mod(&in)
-	}
-
-	return in
-}
-
-func create(t *testing.T, s core.Store, code string, mod func(*core.Incident)) core.Incident {
-	t.Helper()
-
-	in := incidentOf(code, mod)
-	if err := s.CreateIncident(t.Context(), &in); err != nil {
-		t.Fatalf("create %s: %v", code, err)
-	}
-
-	if in.ID == 0 {
-		t.Fatalf("create %s: no id was set", code)
-	}
-
-	return in
-}
-
-func must(t *testing.T, err error) {
+// check fails the test with the error, if there is one.
+func check(t *testing.T, err error) {
 	t.Helper()
 
 	if err != nil {
@@ -116,522 +102,633 @@ func must(t *testing.T, err error) {
 	}
 }
 
-func wantIDs(t *testing.T, what string, got []core.Incident, want ...int) {
+// equal fails the test when the two values differ.
+func equal[T comparable](t *testing.T, what string, got, want T) {
 	t.Helper()
 
-	ids := make([]int, len(got))
-	for i, in := range got {
-		ids[i] = in.ID
-	}
-
-	if len(ids) != len(want) {
-		t.Fatalf("%s: got incidents %v, want %v", what, ids, want)
-	}
-
-	for i := range ids {
-		if ids[i] != want[i] {
-			t.Fatalf("%s: got incidents %v, want %v", what, ids, want)
-		}
+	if got != want {
+		t.Fatalf("%s: got %v, want %v", what, got, want)
 	}
 }
 
-func list(t *testing.T, s core.Store, page pagination.Page, who core.Viewer) *pagination.PageResult[core.Incident] {
+// same fails the test when the two values are not deeply equal.
+func same(t *testing.T, what string, got, want any) {
 	t.Helper()
 
-	res, err := s.List(t.Context(), page, who)
-	must(t, err)
-
-	return res
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("%s: got %v, want %v", what, got, want)
+	}
 }
 
-func incidentRoundTrips(t *testing.T, s core.Store) {
-	reporterRef, assignee := reporterID, authorID
-	resolved := base().Add(time.Hour)
-	created := create(t, s, "INC-A", func(in *core.Incident) {
-		in.ReporterUserID, in.AssignedToUserID, in.ResolvedAt = &reporterRef, &assignee, &resolved
-		in.ExternalTicketProvider, in.ExternalTicketID, in.ExternalTicketURL = core.TicketProviderGitHub, "GH-1", "https://example.com/1"
-		in.ResolutionSummary = "fixed"
+// sameTime fails the test when the two times are not the same instant.
+func sameTime(t *testing.T, what string, got, want time.Time) {
+	t.Helper()
+
+	if !got.Equal(want) {
+		t.Fatalf("%s: got %v, want %v", what, got, want)
+	}
+}
+
+// refused fails the test unless err is target.
+func refused(t *testing.T, what string, err, target error) {
+	t.Helper()
+
+	if !errors.Is(err, target) {
+		t.Fatalf("%s: got %v, want %v", what, err, target)
+	}
+}
+
+// incidentOf is a runtime incident that is open and visible to the staff only.
+func incidentOf(code string, mod func(*core.Incident)) core.Incident {
+	key := "fp-" + code
+
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	incident := core.Incident{
+		PublicCode: code, Fingerprint: key, OpenFingerprint: &key, Source: core.SourceRuntimeError, Status: core.StatusNew,
+		Severity: core.SeverityHigh, Visibility: core.VisibilityInternal, Title: "Title " + code, Description: "described",
+		AffectedModule: "vehicles", AffectedRoute: "/v1/vehicles/:id", Environment: testEnv,
+		ErrorClass: "*errors.errorString", ErrorCode: internal, ErrorMessageSample: "boom " + code,
+		StacktraceSample: "a.go:1", FirstSeenAt: base(), LastSeenAt: base(), OccurrenceCount: 1,
+		ExternalTicketProvider: core.TicketProviderNone, CreatedAt: base(), UpdatedAt: base(),
+	}
+
+	if mod != nil {
+		mod(&incident)
+	}
+
+	return incident
+}
+
+func create(t *testing.T, store core.Store, code string, mod func(*core.Incident)) core.Incident {
+	t.Helper()
+
+	incident := incidentOf(code, mod)
+	check(t, store.CreateIncident(t.Context(), &incident))
+
+	if incident.ID == 0 {
+		t.Fatalf("create %s: no id was set", code)
+	}
+
+	return incident
+}
+
+// ids are the ids of the incidents.
+func ids(incidents []core.Incident) []int {
+	out := make([]int, len(incidents))
+	for i, incident := range incidents {
+		out[i] = incident.ID
+	}
+
+	return out
+}
+
+func list(t *testing.T, store core.Store, page pagination.Page, who core.Viewer) *pagination.PageResult[core.Incident] {
+	t.Helper()
+
+	result, err := store.List(t.Context(), page, who)
+	check(t, err)
+
+	return result
+}
+
+func find(t *testing.T, store core.Store, incidentID int) core.Incident {
+	t.Helper()
+
+	incident, err := store.Find(t.Context(), incidentID, staff())
+	check(t, err)
+
+	return incident
+}
+
+func incidentRoundTrips(t *testing.T, store core.Store) {
+	t.Helper()
+
+	reportedBy, assignee, resolved := reporterID, authorID, base().Add(time.Hour)
+	created := create(t, store, "INC-A", func(incident *core.Incident) {
+		incident.ReporterUserID, incident.AssignedToUserID, incident.ResolvedAt = &reportedBy, &assignee, &resolved
+		incident.ExternalTicketProvider, incident.ExternalTicketID = core.TicketProviderGitHub, ticketID
+		incident.ExternalTicketURL, incident.ResolutionSummary = "https://example.com/1", summary
 	})
 
-	got, err := s.Find(t.Context(), created.ID, staff)
-	must(t, err)
+	got := find(t, store, created.ID)
 
-	if got.PublicCode != "INC-A" || got.Title != "Title INC-A" || got.Source != core.SourceRuntimeError ||
-		got.Status != core.StatusNew || got.Severity != core.SeverityHigh || got.Visibility != core.VisibilityInternal {
-		t.Fatalf("the basics did not round-trip: %+v", got)
-	}
+	equal(t, "public code", got.PublicCode, "INC-A")
+	equal(t, "title", got.Title, "Title INC-A")
+	equal(t, "source", got.Source, core.SourceRuntimeError)
+	equal(t, "status", got.Status, core.StatusNew)
+	equal(t, "severity", got.Severity, core.SeverityHigh)
+	equal(t, "visibility", got.Visibility, core.VisibilityInternal)
+	equal(t, "description", got.Description, "described")
+	equal(t, "module", got.AffectedModule, "vehicles")
+	equal(t, "route", got.AffectedRoute, "/v1/vehicles/:id")
+	equal(t, "environment", got.Environment, testEnv)
+	equal(t, "class", got.ErrorClass, "*errors.errorString")
+	equal(t, "code", got.ErrorCode, internal)
+	equal(t, "message sample", got.ErrorMessageSample, "boom INC-A")
+	equal(t, "stack sample", got.StacktraceSample, "a.go:1")
+	equal(t, "occurrences", got.OccurrenceCount, 1)
+	equal(t, "provider", got.ExternalTicketProvider, core.TicketProviderGitHub)
+	equal(t, "ticket", got.ExternalTicketID, ticketID)
+	equal(t, "resolution", got.ResolutionSummary, summary)
+	sameTime(t, "first seen", got.FirstSeenAt, base())
+	sameTime(t, "last seen", got.LastSeenAt, base())
+	same(t, "reporter", got.ReporterUserID, &reportedBy)
+	same(t, "assignee", got.AssignedToUserID, &assignee)
+	same(t, "fingerprint", got.OpenFingerprint, created.OpenFingerprint)
+	equal(t, "closing time is set", got.ResolvedAt != nil, true)
+	sameTime(t, "resolved", *got.ResolvedAt, resolved)
 
-	if got.Description != "described" || got.AffectedModule != "vehicles" || got.AffectedRoute != "/v1/vehicles/:id" ||
-		got.Environment != "test" || got.ErrorClass != "*errors.errorString" || got.ErrorCode != "internal" ||
-		got.ErrorMessageSample != "boom INC-A" || got.StacktraceSample != "a.go:1" {
-		t.Fatalf("the texts did not round-trip: %+v", got)
-	}
-
-	if !got.FirstSeenAt.Equal(base()) || !got.LastSeenAt.Equal(base()) || got.OccurrenceCount != 1 ||
-		got.ResolvedAt == nil || !got.ResolvedAt.Equal(resolved) {
-		t.Fatalf("the times and counts did not round-trip: %+v", got)
-	}
-
-	if got.ReporterUserID == nil || *got.ReporterUserID != reporterID || got.AssignedToUserID == nil || *got.AssignedToUserID != authorID {
-		t.Fatalf("the people did not round-trip: %+v", got)
-	}
-
-	if got.ExternalTicketProvider != core.TicketProviderGitHub || got.ExternalTicketID != "GH-1" || got.ResolutionSummary != "fixed" {
-		t.Fatalf("the ticket did not round-trip: %+v", got)
-	}
-
-	if got.OpenFingerprint == nil || *got.OpenFingerprint != "fp-INC-A" || got.Fingerprint != "fp-INC-A" {
-		t.Fatalf("the fingerprints did not round-trip: %+v", got)
-	}
-
-	if _, err := s.Find(t.Context(), created.ID+100, staff); !errors.Is(err, core.ErrNotFound) {
-		t.Fatalf("a missing incident: got %v, want ErrNotFound", err)
-	}
+	_, err := store.Find(t.Context(), created.ID+wide, staff())
+	refused(t, "a missing incident", err, core.ErrNotFound)
 }
 
-func updateWritesEverything(t *testing.T, s core.Store) {
-	in := create(t, s, "INC-A", func(in *core.Incident) { in.ResolutionSummary, in.ExternalTicketID = "fixed", "GH-1" })
+func updateWritesEverything(t *testing.T, store core.Store) {
+	t.Helper()
 
-	in.Status, in.OpenFingerprint, in.ResolutionSummary, in.ExternalTicketID = core.StatusIgnored, nil, "", ""
-	in.Title = "Renamed"
-	in.UpdatedAt = base().Add(time.Hour)
+	incident := create(t, store, "INC-A", func(incident *core.Incident) {
+		incident.ResolutionSummary, incident.ExternalTicketID = summary, ticketID
+	})
 
-	must(t, s.UpdateIncident(t.Context(), in))
+	incident.Status, incident.OpenFingerprint, incident.ResolutionSummary, incident.ExternalTicketID =
+		core.StatusIgnored, nil, "", ""
+	incident.Title = "Renamed"
+	incident.UpdatedAt = base().Add(time.Hour)
 
-	got, err := s.Find(t.Context(), in.ID, staff)
-	must(t, err)
+	check(t, store.UpdateIncident(t.Context(), incident))
 
-	if got.Title != "Renamed" || got.Status != core.StatusIgnored || got.OpenFingerprint != nil ||
-		got.ResolutionSummary != "" || got.ExternalTicketID != "" || !got.UpdatedAt.Equal(base().Add(time.Hour)) {
-		t.Fatalf("the update did not write every column, zero values included: %+v", got)
-	}
+	got := find(t, store, incident.ID)
 
-	if !got.CreatedAt.Equal(base()) {
-		t.Fatalf("the update changed the creation time: %v", got.CreatedAt)
-	}
+	equal(t, "title", got.Title, "Renamed")
+	equal(t, "status", got.Status, core.StatusIgnored)
+	equal(t, "open fingerprint is cleared", got.OpenFingerprint == nil, true)
+	equal(t, "resolution is cleared", got.ResolutionSummary, "")
+	equal(t, "ticket is cleared", got.ExternalTicketID, "")
+	sameTime(t, "updated", got.UpdatedAt, base().Add(time.Hour))
+	sameTime(t, "created", got.CreatedAt, base())
 }
 
-func openFingerprintUnique(t *testing.T, s core.Store) {
-	first := create(t, s, "INC-A", nil)
+func openFingerprintUnique(t *testing.T, store core.Store) {
+	t.Helper()
 
-	again := incidentOf("INC-B", func(in *core.Incident) { in.Fingerprint, in.OpenFingerprint = first.Fingerprint, first.OpenFingerprint })
-	if err := s.CreateIncident(t.Context(), &again); !errors.Is(err, core.ErrDuplicate) {
-		t.Fatalf("a second open incident with one fingerprint: got %v, want ErrDuplicate", err)
-	}
+	first := create(t, store, "INC-A", nil)
 
-	open, err := s.FindOpen(t.Context(), first.Fingerprint)
-	must(t, err)
+	again := incidentOf("INC-B", func(incident *core.Incident) {
+		incident.Fingerprint, incident.OpenFingerprint = first.Fingerprint, first.OpenFingerprint
+	})
+	refused(t, "a second open incident with one fingerprint", store.CreateIncident(t.Context(), &again), core.ErrDuplicate)
 
-	if open.ID != first.ID {
-		t.Fatalf("FindOpen: got incident %d, want %d", open.ID, first.ID)
-	}
+	open, err := store.FindOpen(t.Context(), first.Fingerprint)
+	check(t, err)
+	equal(t, "the open incident", open.ID, first.ID)
 
-	if _, err := s.FindOpen(t.Context(), "nothing"); !errors.Is(err, core.ErrNotFound) {
-		t.Fatalf("FindOpen of an unknown fingerprint: got %v, want ErrNotFound", err)
-	}
+	_, err = store.FindOpen(t.Context(), "nothing")
+	refused(t, "an unknown fingerprint", err, core.ErrNotFound)
 }
 
-func closedFreesFingerprint(t *testing.T, s core.Store) {
-	first := create(t, s, "INC-A", nil)
+func closedFreesFingerprint(t *testing.T, store core.Store) {
+	t.Helper()
+
+	first := create(t, store, "INC-A", nil)
 	first.Status, first.OpenFingerprint = core.StatusResolved, nil
-	must(t, s.UpdateIncident(t.Context(), first))
+	check(t, store.UpdateIncident(t.Context(), first))
 
-	if _, err := s.FindOpen(t.Context(), first.Fingerprint); !errors.Is(err, core.ErrNotFound) {
-		t.Fatalf("FindOpen of a resolved incident: got %v, want ErrNotFound", err)
-	}
+	_, err := store.FindOpen(t.Context(), first.Fingerprint)
+	refused(t, "a resolved incident is not open", err, core.ErrNotFound)
 
-	again := incidentOf("INC-B", func(in *core.Incident) { in.Fingerprint, in.OpenFingerprint = first.Fingerprint, &first.Fingerprint })
-	must(t, s.CreateIncident(t.Context(), &again))
+	again := incidentOf("INC-B", func(incident *core.Incident) {
+		incident.Fingerprint, incident.OpenFingerprint = first.Fingerprint, &first.Fingerprint
+	})
+	check(t, store.CreateIncident(t.Context(), &again))
 }
 
-func publicCodeUnique(t *testing.T, s core.Store) {
-	create(t, s, "INC-A", nil)
+func publicCodeUnique(t *testing.T, store core.Store) {
+	t.Helper()
 
-	again := incidentOf("INC-A", func(in *core.Incident) { fp := "other"; in.Fingerprint, in.OpenFingerprint = fp, &fp })
-	if err := s.CreateIncident(t.Context(), &again); !errors.Is(err, core.ErrDuplicate) {
-		t.Fatalf("a second incident with one public code: got %v, want ErrDuplicate", err)
-	}
+	create(t, store, "INC-A", nil)
+
+	other := "other"
+	again := incidentOf("INC-A", func(incident *core.Incident) {
+		incident.Fingerprint, incident.OpenFingerprint = other, &other
+	})
+	refused(t, "a second incident with one public code", store.CreateIncident(t.Context(), &again), core.ErrDuplicate)
 }
 
-func latestIsFound(t *testing.T, s core.Store) {
-	older := create(t, s, "INC-A", func(in *core.Incident) {
-		in.Fingerprint, in.OpenFingerprint, in.Status = "same", nil, core.StatusResolved
-		in.LastSeenAt = base()
+func latestIsFound(t *testing.T, store core.Store) {
+	t.Helper()
+
+	closed := func(incident *core.Incident) { incident.Fingerprint, incident.OpenFingerprint = "same", nil }
+
+	create(t, store, "INC-A", func(incident *core.Incident) {
+		closed(incident)
+		incident.Status = core.StatusResolved
 	})
-	newer := create(t, s, "INC-B", func(in *core.Incident) {
-		in.Fingerprint, in.OpenFingerprint, in.Status = "same", nil, core.StatusIgnored
-		in.LastSeenAt = base().Add(time.Hour)
+	newer := create(t, store, "INC-B", func(incident *core.Incident) {
+		closed(incident)
+		incident.Status, incident.LastSeenAt = core.StatusIgnored, base().Add(time.Hour)
 	})
 
-	got, err := s.FindLatest(t.Context(), "same")
-	must(t, err)
+	got, err := store.FindLatest(t.Context(), "same")
+	check(t, err)
+	equal(t, "the more recently seen", got.ID, newer.ID)
 
-	if got.ID != newer.ID || older.ID == newer.ID {
-		t.Fatalf("FindLatest: got incident %d, want the more recently seen %d", got.ID, newer.ID)
-	}
-
-	if _, err := s.FindLatest(t.Context(), "unknown"); !errors.Is(err, core.ErrNotFound) {
-		t.Fatalf("FindLatest of an unknown fingerprint: got %v, want ErrNotFound", err)
-	}
+	_, err = store.FindLatest(t.Context(), "unknown")
+	refused(t, "an unknown fingerprint", err, core.ErrNotFound)
 }
 
 // shared makes an incident that is visible to the people who have a part in it.
-func shared(t *testing.T, s core.Store) core.Incident {
+func shared(t *testing.T, store core.Store) core.Incident {
 	t.Helper()
 
-	reporterRef := reporterID
-	in := create(t, s, "INC-S", func(in *core.Incident) {
-		in.Visibility, in.Source, in.ReporterUserID = core.VisibilityShared, core.SourceUserReport, &reporterRef
+	reportedBy := reporterID
+	incident := create(t, store, "INC-S", func(incident *core.Incident) {
+		incident.Visibility, incident.Source = core.VisibilityShared, core.SourceUserReport
+		incident.ReporterUserID = &reportedBy
 	})
 
-	incidentID := in.ID
-	must(t, s.CreateReport(t.Context(), &core.Report{
-		IncidentID: &incidentID, ReportedByUserID: authorID, ReportType: "manual", Status: "linked", Title: "T", Description: "D",
-		Severity: "medium", CreatedAt: base(), UpdatedAt: base(),
-	}))
-	must(t, s.Watch(t.Context(), in.ID, watcherID, base()))
+	incidentID := incident.ID
 
-	return in
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	check(t, store.CreateReport(t.Context(), &core.Report{
+		ID: 0, IncidentID: &incidentID, ReportedByUserID: authorID, ReportType: "manual", Status: "linked", Title: "T",
+		Description: "D", Severity: "medium", CreatedAt: base(), UpdatedAt: base(),
+	}))
+	check(t, store.Watch(t.Context(), incident.ID, watcherID, base()))
+
+	return incident
 }
 
-func visibilityRules(t *testing.T, s core.Store) {
-	in := shared(t, s)
+func visibilityRules(t *testing.T, store core.Store) {
+	t.Helper()
+
+	incident := shared(t, store)
 
 	for name, who := range map[string]core.Viewer{
-		"the staff": staff, "the reporter": reporter, "a report author": author, "a watcher": watcher,
+		"the staff": staff(), "the reporter": reporter(), "a report author": author(), "a watcher": watcher(),
 	} {
-		if _, err := s.Find(t.Context(), in.ID, who); err != nil {
+		_, err := store.Find(t.Context(), incident.ID, who)
+		if err != nil {
 			t.Errorf("%s sees a shared incident: got %v", name, err)
 		}
 	}
 
-	for name, who := range map[string]core.Viewer{"a stranger": stranger, "nobody": nobody} {
-		if _, err := s.Find(t.Context(), in.ID, who); !errors.Is(err, core.ErrNotFound) {
-			t.Errorf("%s does not see a shared incident: got %v, want ErrNotFound", name, err)
-		}
+	for name, who := range map[string]core.Viewer{"a stranger": stranger(), "nobody": nobody()} {
+		_, err := store.Find(t.Context(), incident.ID, who)
+		refused(t, name+" does not see a shared incident", err, core.ErrNotFound)
 	}
 }
 
-func staffOnlyIncident(t *testing.T, s core.Store) {
-	reporterRef := reporterID
-	in := create(t, s, "INC-I", func(in *core.Incident) { in.ReporterUserID = &reporterRef })
-	must(t, s.Watch(t.Context(), in.ID, watcherID, base()))
+func staffOnlyIncident(t *testing.T, store core.Store) {
+	t.Helper()
 
-	if _, err := s.Find(t.Context(), in.ID, staff); err != nil {
-		t.Fatalf("the staff sees a staff-only incident: %v", err)
-	}
+	reportedBy := reporterID
+	incident := create(t, store, "INC-I", func(incident *core.Incident) { incident.ReporterUserID = &reportedBy })
+	check(t, store.Watch(t.Context(), incident.ID, watcherID, base()))
 
-	for name, who := range map[string]core.Viewer{"its reporter": reporter, "its watcher": watcher} {
-		if _, err := s.Find(t.Context(), in.ID, who); !errors.Is(err, core.ErrNotFound) {
-			t.Errorf("%s does not see a staff-only incident: got %v, want ErrNotFound", name, err)
-		}
+	_, err := store.Find(t.Context(), incident.ID, staff())
+	check(t, err)
+
+	for name, who := range map[string]core.Viewer{"its reporter": reporter(), "its watcher": watcher()} {
+		_, err = store.Find(t.Context(), incident.ID, who)
+		refused(t, name+" does not see a staff-only incident", err, core.ErrNotFound)
 	}
 }
 
-func reportsAndCommentsVisibility(t *testing.T, s core.Store) {
-	in := shared(t, s)
-	incidentID := in.ID
+func reportsVisibility(t *testing.T, store core.Store) {
+	t.Helper()
 
-	must(t, s.CreateReport(t.Context(), &core.Report{
-		IncidentID: &incidentID, ReportedByUserID: reporterID, ReportType: "manual", Status: "linked", Title: "T2", Description: "D2",
-		Severity: "high", AttachmentJSON: []byte("[]"), ExtraJSON: []byte(`{"a":1}`), CreatedAt: base().Add(time.Minute),
-		UpdatedAt: base().Add(time.Minute),
+	incident := shared(t, store)
+	incidentID := incident.ID
+	later := base().Add(time.Minute)
+
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	check(t, store.CreateReport(t.Context(), &core.Report{
+		ID: 0, IncidentID: &incidentID, ReportedByUserID: reporterID, ReportType: "manual", Status: "linked", Title: "T2",
+		Description: "D2", Severity: "high", AttachmentJSON: []byte("[]"), ExtraJSON: []byte(`{"a":1}`), CreatedAt: later,
+		UpdatedAt: later,
 	}))
 
-	for _, c := range []core.Comment{
-		{IncidentID: incidentID, AuthorUserID: authorID, Visibility: core.CommentPublic, Body: "public", CreatedAt: base(), UpdatedAt: base()},
-		{IncidentID: incidentID, AuthorUserID: staffID, Visibility: core.CommentInternal, Body: "internal", CreatedAt: base().Add(time.Minute), UpdatedAt: base().Add(time.Minute)},
+	reports, err := store.Reports(t.Context(), incidentID, staff())
+	check(t, err)
+	equal(t, "the staff sees every report", len(reports), pageOfTwo)
+	equal(t, "oldest first", reports[0].ReportedByUserID, authorID)
+	equal(t, "newest last", reports[1].ReportedByUserID, reporterID)
+	equal(t, "extra document", sameJSON(reports[1].ExtraJSON, `{"a":1}`), true)
+	equal(t, "attachment document", sameJSON(reports[1].AttachmentJSON, "[]"), true)
+
+	own, err := store.Reports(t.Context(), incidentID, reporter())
+	check(t, err)
+	equal(t, "a person sees their own reports only", len(own), 1)
+	equal(t, "and it is theirs", own[0].ReportedByUserID, reporterID)
+}
+
+func commentsVisibility(t *testing.T, store core.Store) {
+	t.Helper()
+
+	incident := shared(t, store)
+	later, deleted := base().Add(time.Minute), base()
+
+	remark := func(author int, visibility core.CommentVisibility, body string, at time.Time) core.Comment {
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
+		return core.Comment{
+			IncidentID: incident.ID, AuthorUserID: author, Visibility: visibility, Body: body, CreatedAt: at, UpdatedAt: at,
+		}
+	}
+
+	gone := remark(staffID, public, "gone", base())
+	gone.DeletedAt = &deleted
+
+	for _, comment := range []core.Comment{
+		remark(authorID, public, public, base()), remark(staffID, internal, internal, later), gone,
 	} {
-		must(t, s.CreateComment(t.Context(), &c))
+		check(t, store.CreateComment(t.Context(), &comment))
 	}
 
-	deleted := base()
-	gone := core.Comment{IncidentID: incidentID, AuthorUserID: staffID, Visibility: core.CommentPublic, Body: "gone", DeletedAt: &deleted, CreatedAt: base(), UpdatedAt: base()}
-	must(t, s.CreateComment(t.Context(), &gone))
+	all, err := store.Comments(t.Context(), incident.ID, staff())
+	check(t, err)
+	equal(t, "the staff sees the comments that are not deleted", len(all), pageOfTwo)
+	equal(t, "oldest first", all[0].Body, public)
+	equal(t, "internal last", all[1].Body, internal)
 
-	reports, err := s.Reports(t.Context(), incidentID, staff)
-	must(t, err)
-
-	if len(reports) != 2 || reports[0].ReportedByUserID != authorID || reports[1].ReportedByUserID != reporterID {
-		t.Fatalf("the staff sees every report, oldest first: %+v", reports)
-	}
-
-	if !sameJSON(reports[1].ExtraJSON, `{"a":1}`) || !sameJSON(reports[1].AttachmentJSON, "[]") {
-		t.Fatalf("the JSON documents of a report did not round-trip: %s, %s", reports[1].AttachmentJSON, reports[1].ExtraJSON)
-	}
-
-	own, err := s.Reports(t.Context(), incidentID, reporter)
-	must(t, err)
-
-	if len(own) != 1 || own[0].ReportedByUserID != reporterID {
-		t.Fatalf("a person sees their own reports only: %+v", own)
-	}
-
-	all, err := s.Comments(t.Context(), incidentID, staff)
-	must(t, err)
-
-	if len(all) != 2 || all[0].Body != "public" || all[1].Body != "internal" {
-		t.Fatalf("the staff sees the comments that are not deleted: %+v", all)
-	}
-
-	public, err := s.Comments(t.Context(), incidentID, author)
-	must(t, err)
-
-	if len(public) != 1 || public[0].Body != "public" {
-		t.Fatalf("a person sees the public comments only: %+v", public)
-	}
+	seen, err := store.Comments(t.Context(), incident.ID, author())
+	check(t, err)
+	equal(t, "a person sees the public comments only", len(seen), 1)
+	equal(t, "and it is public", seen[0].Body, public)
 }
 
 // sameJSON reports whether the document is the one wanted, whatever the database did to its white space (MySQL's JSON
 // type normalises it).
 func sameJSON(got []byte, want string) bool {
-	var a, b any
+	var have, wanted any
 
-	return json.Unmarshal(got, &a) == nil && json.Unmarshal([]byte(want), &b) == nil && reflect.DeepEqual(a, b)
+	return json.Unmarshal(got, &have) == nil && json.Unmarshal([]byte(want), &wanted) == nil &&
+		reflect.DeepEqual(have, wanted)
 }
 
-func countingAdds(t *testing.T, s core.Store) {
-	in := create(t, s, "INC-A", func(in *core.Incident) { in.Visibility = core.VisibilityShared })
+func countingAdds(t *testing.T, store core.Store) {
+	t.Helper()
+
+	incident := create(t, store, "INC-A", func(incident *core.Incident) { incident.Visibility = core.VisibilityShared })
 	later := base().Add(time.Hour)
+	first, second := reporterID, authorID
 
-	must(t, s.CountComment(t.Context(), in.ID, later))
-	must(t, s.CountComment(t.Context(), in.ID, later))
+	check(t, store.CountComment(t.Context(), incident.ID, later))
+	check(t, store.CountComment(t.Context(), incident.ID, later))
+	check(t, store.CountReport(t.Context(), incident.ID, core.SourceMixed, core.VisibilityShared, &first, later))
+	check(t, store.CountReport(t.Context(), incident.ID, core.SourceMixed, core.VisibilityShared, &second, later))
 
-	reporterRef := reporterID
-	must(t, s.CountReport(t.Context(), in.ID, core.SourceMixed, core.VisibilityShared, &reporterRef, later))
+	got := find(t, store, incident.ID)
 
-	other := authorID
-	must(t, s.CountReport(t.Context(), in.ID, core.SourceMixed, core.VisibilityShared, &other, later))
-
-	got, err := s.Find(t.Context(), in.ID, staff)
-	must(t, err)
-
-	if got.CommentCount != 2 || got.ReportCount != 2 || got.Source != core.SourceMixed || !got.LastSeenAt.Equal(later) {
-		t.Fatalf("counts: %+v", got)
-	}
-
-	if got.ReporterUserID == nil || *got.ReporterUserID != reporterID {
-		t.Fatalf("the first reporter stays: %v", got.ReporterUserID)
-	}
+	equal(t, "comments", got.CommentCount, pageOfTwo)
+	equal(t, "reports", got.ReportCount, pageOfTwo)
+	equal(t, "source", got.Source, core.SourceMixed)
+	sameTime(t, "last seen", got.LastSeenAt, later)
+	same(t, "the first reporter stays", got.ReporterUserID, &first)
 }
 
-func sightingSamples(t *testing.T, s core.Store) {
-	in := create(t, s, "INC-A", func(in *core.Incident) { in.Environment, in.AffectedRoute = "test", "/old" })
+func sightingSamples(t *testing.T, store core.Store) {
+	t.Helper()
+
+	incident := create(t, store, "INC-A", func(incident *core.Incident) {
+		incident.Environment, incident.AffectedRoute = testEnv, "/old"
+	})
 	later := base().Add(time.Hour)
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	sample := core.Occurrence{
-		IncidentID: in.ID, Fingerprint: in.Fingerprint, Environment: "production", AffectedRoute: "/new", ErrorClass: "*other",
-		ErrorCode: "x", Message: "newer message", Stacktrace: "b.go:2", OccurredAt: later, CreatedAt: later,
+		IncidentID: incident.ID, Fingerprint: incident.Fingerprint, Environment: "production", AffectedRoute: "/new",
+		ErrorClass: "*other", ErrorCode: "x", Message: "newer message", Stacktrace: "b.go:2", OccurredAt: later,
+		CreatedAt: later,
 	}
-	must(t, s.CreateOccurrence(t.Context(), &sample))
-	must(t, s.CountOccurrence(t.Context(), in.ID, core.SourceRuntimeError, later, &sample))
+	check(t, store.CreateOccurrence(t.Context(), &sample))
+	check(t, store.CountOccurrence(t.Context(), incident.ID, core.SourceRuntimeError, later, &sample))
 
-	got, err := s.Find(t.Context(), in.ID, staff)
-	must(t, err)
+	got := find(t, store, incident.ID)
 
-	if got.OccurrenceCount != 2 || got.ErrorMessageSample != "newer message" || got.StacktraceSample != "b.go:2" ||
-		got.ErrorClass != "*other" || got.AffectedRoute != "/new" || got.Environment != "production" || got.AffectedModule != "vehicles" {
-		t.Fatalf("the samples follow the latest sighting, a module it leaves out stays: %+v", got)
-	}
+	equal(t, "occurrences", got.OccurrenceCount, pageOfTwo)
+	equal(t, "message sample", got.ErrorMessageSample, "newer message")
+	equal(t, "stack sample", got.StacktraceSample, "b.go:2")
+	equal(t, "class", got.ErrorClass, "*other")
+	equal(t, "route", got.AffectedRoute, "/new")
+	equal(t, "environment", got.Environment, "production")
+	equal(t, "a module the sighting leaves out stays", got.AffectedModule, "vehicles")
 }
 
-func listFeatures(t *testing.T, s core.Store) {
-	a := create(t, s, "INC-A", func(in *core.Incident) { in.LastSeenAt, in.Title = base().Add(3*time.Hour), "Alpha crash" })
-	b := create(t, s, "INC-B", func(in *core.Incident) {
-		in.LastSeenAt, in.Title, in.Severity, in.Source = base().Add(2*time.Hour), "Beta crash", core.SeverityLow, core.SourceClientError
+func listFeatures(t *testing.T, store core.Store) {
+	t.Helper()
+
+	alpha := create(t, store, "INC-A", func(incident *core.Incident) {
+		incident.LastSeenAt, incident.Title = base().Add(third*time.Hour), "Alpha crash"
 	})
-	c := create(t, s, "INC-C", func(in *core.Incident) {
-		in.LastSeenAt, in.Title, in.Status, in.OpenFingerprint = base().Add(time.Hour), "Gamma slow", core.StatusResolved, nil
+	beta := create(t, store, "INC-B", func(incident *core.Incident) {
+		incident.LastSeenAt, incident.Title = base().Add(pageOfTwo*time.Hour), "Beta crash"
+		incident.Severity, incident.Source = core.SeverityLow, core.SourceClientError
+	})
+	gamma := create(t, store, "INC-C", func(incident *core.Incident) {
+		incident.LastSeenAt, incident.Title = base().Add(time.Hour), "Gamma slow"
+		incident.Status, incident.OpenFingerprint = core.StatusResolved, nil
 	})
 
-	wantIDs(t, "the default order is last seen first", list(t, s, pagination.Page{}, staff).Items, a.ID, b.ID, c.ID)
+	all := []int{alpha.ID, beta.ID, gamma.ID}
+	byPage := func(page pagination.Page) []int { return ids(list(t, store, page, staff()).Items) }
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	filtered := func(key, value string) []int { return byPage(pagination.Page{Filters: map[string]string{key: value}}) }
 
-	res := list(t, s, pagination.Page{Number: 2, Size: 2}, staff)
-	wantIDs(t, "the second page of two", res.Items, c.ID)
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	same(t, "the default order is last seen first", byPage(pagination.Page{}), all)
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	same(t, "the second page of two", byPage(pagination.Page{Number: pageOfTwo, Size: pageOfTwo}), []int{gamma.ID})
+	same(t, "status filter", filtered("status", "resolved"), []int{gamma.ID})
+	same(t, "severity filter", filtered("severity", "low"), []int{beta.ID})
+	same(t, "source filter", filtered("source", "client_error"), []int{beta.ID})
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	same(t, "search by title", byPage(pagination.Page{Search: "crash"}), []int{alpha.ID, beta.ID})
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	same(t, "search by public code", byPage(pagination.Page{Search: "INC-C"}), []int{gamma.ID})
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	same(t, "order by title", byPage(pagination.Page{OrderCol: "title", OrderDir: "asc"}), all)
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	same(t, "an unknown column falls back to the id", byPage(pagination.Page{OrderCol: "nope", OrderDir: "asc"}), all)
 
-	if res.Total != 3 || res.LastPage != 2 {
-		t.Fatalf("paging numbers: total %d, last page %d", res.Total, res.LastPage)
-	}
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	paged := list(t, store, pagination.Page{Number: pageOfTwo, Size: pageOfTwo}, staff())
 
-	filtered := func(key, value string) []core.Incident {
-		return list(t, s, pagination.Page{Filters: map[string]string{key: value}}, staff).Items
-	}
+	equal(t, "total", int(paged.Total), len(all))
+	equal(t, "last page", paged.LastPage, pageOfTwo)
 
-	wantIDs(t, "status filter", filtered("status", "resolved"), c.ID)
-	wantIDs(t, "severity filter", filtered("severity", "low"), b.ID)
-	wantIDs(t, "source filter", filtered("source", "client_error"), b.ID)
-	wantIDs(t, "search by title", list(t, s, pagination.Page{Search: "crash"}, staff).Items, a.ID, b.ID)
-	wantIDs(t, "search by public code", list(t, s, pagination.Page{Search: "INC-C"}, staff).Items, c.ID)
-	wantIDs(t, "order by title ascending", list(t, s, pagination.Page{OrderCol: "title", OrderDir: "asc"}, staff).Items, a.ID, b.ID, c.ID)
-	wantIDs(t, "order by an unknown column falls back to the id", list(t, s, pagination.Page{OrderCol: "nope", OrderDir: "asc"}, staff).Items, a.ID, b.ID, c.ID)
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	row := list(t, store, pagination.Page{}, staff()).Items[0]
 
-	if got := list(t, s, pagination.Page{}, staff).Items[0]; got.Description != "" || got.StacktraceSample != "" {
-		t.Fatalf("a list row carries no description or stack: %+v", got)
+	equal(t, "a list row carries no description", row.Description, "")
+	equal(t, "a list row carries no stack", row.StacktraceSample, "")
+}
+
+func listVisibility(t *testing.T, store core.Store) {
+	t.Helper()
+
+	mine := shared(t, store)
+	other := create(t, store, "INC-I", func(incident *core.Incident) { incident.LastSeenAt = base().Add(time.Hour) })
+
+	for _, scenario := range []struct {
+		name string
+		who  core.Viewer
+		want []int
+	}{
+		{"the staff sees both", staff(), []int{other.ID, mine.ID}},
+		{"the reporter sees the shared one", reporter(), []int{mine.ID}},
+		{"a report author sees it", author(), []int{mine.ID}},
+		{"a watcher sees it", watcher(), []int{mine.ID}},
+		{"a stranger sees none", stranger(), []int{}},
+		{"nobody sees none", nobody(), []int{}},
+	} {
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
+		result := list(t, store, pagination.Page{}, scenario.who)
+
+		same(t, scenario.name, ids(result.Items), scenario.want)
+		equal(t, scenario.name+": the total is counted over what they see", int(result.Total), len(scenario.want))
 	}
 }
 
-func listVisibility(t *testing.T, s core.Store) {
-	mine := shared(t, s)
-	create(t, s, "INC-I", func(in *core.Incident) { in.LastSeenAt = base().Add(time.Hour) })
+func watchOnce(t *testing.T, store core.Store) {
+	t.Helper()
 
-	wantIDs(t, "the staff sees both", list(t, s, pagination.Page{}, staff).Items, mine.ID+1, mine.ID)
-	wantIDs(t, "the reporter sees the shared one", list(t, s, pagination.Page{}, reporter).Items, mine.ID)
-	wantIDs(t, "a report author sees it", list(t, s, pagination.Page{}, author).Items, mine.ID)
-	wantIDs(t, "a watcher sees it", list(t, s, pagination.Page{}, watcher).Items, mine.ID)
-	wantIDs(t, "a stranger sees none", list(t, s, pagination.Page{}, stranger).Items)
-	wantIDs(t, "nobody sees none", list(t, s, pagination.Page{}, nobody).Items)
+	incident := create(t, store, "INC-A", nil)
 
-	if res := list(t, s, pagination.Page{}, stranger); res.Total != 0 {
-		t.Fatalf("the total of a stranger is counted over what they see: %d", res.Total)
+	for range pageOfTwo {
+		check(t, store.Watch(t.Context(), incident.ID, watcherID, base()))
 	}
+
+	check(t, store.Watch(t.Context(), incident.ID, 0, base()))
+
+	watching, err := store.Watching(t.Context(), incident.ID, watcherID)
+	check(t, err)
+	equal(t, "the watcher watches", watching, true)
+
+	watching, err = store.Watching(t.Context(), incident.ID, strangerID)
+	check(t, err)
+	equal(t, "a stranger does not", watching, false)
 }
 
-func watchOnce(t *testing.T, s core.Store) {
-	in := create(t, s, "INC-A", nil)
+func pruneKeepsNewest(t *testing.T, store core.Store) {
+	t.Helper()
 
-	for range 2 {
-		must(t, s.Watch(t.Context(), in.ID, watcherID, base()))
-	}
+	alpha, beta := create(t, store, "INC-A", nil), create(t, store, "INC-B", nil)
 
-	must(t, s.Watch(t.Context(), in.ID, 0, base()))
-
-	if on, err := s.Watching(t.Context(), in.ID, watcherID); err != nil || !on {
-		t.Fatalf("watching: got %v, %v", on, err)
-	}
-
-	if on, err := s.Watching(t.Context(), in.ID, strangerID); err != nil || on {
-		t.Fatalf("a stranger does not watch: got %v, %v", on, err)
-	}
-}
-
-func pruneKeepsNewest(t *testing.T, s core.Store) {
-	a := create(t, s, "INC-A", nil)
-	b := create(t, s, "INC-B", nil)
-
-	add := func(in core.Incident, at time.Time) {
-		must(t, s.CreateOccurrence(t.Context(), &core.Occurrence{
-			IncidentID: in.ID, Fingerprint: in.Fingerprint, Environment: "test", Message: "m", OccurredAt: at, CreatedAt: at,
+	add := func(incident core.Incident, at time.Time) {
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
+		check(t, store.CreateOccurrence(t.Context(), &core.Occurrence{
+			IncidentID: incident.ID, Fingerprint: incident.Fingerprint, Environment: testEnv, Message: "m", OccurredAt: at,
+			CreatedAt: at,
 		}))
 	}
 
-	old := base().Add(-100 * 24 * time.Hour)
-	add(a, old)
-	add(a, old.Add(time.Hour)) // a's newest, old too: kept
-	add(b, old)
-	add(b, base()) // recent: kept
-	add(b, base().Add(time.Hour))
+	old := base().Add(-oldDays * hoursInDay * time.Hour)
 
-	cutoff := base().Add(-90 * 24 * time.Hour)
+	add(alpha, old)
+	add(alpha, old.Add(time.Hour)) // alpha's newest, old too: kept
+	add(beta, old)
+	add(beta, base()) // recent: kept
+	add(beta, base().Add(time.Hour))
 
-	n, err := s.PruneOccurrences(t.Context(), cutoff, 100)
-	must(t, err)
+	cutoff := base().Add(-retentionDays * hoursInDay * time.Hour)
 
-	if n != 2 {
-		t.Fatalf("pruned %d occurrences, want 2 (a's older one and b's old one)", n)
-	}
+	pruned, err := store.PruneOccurrences(t.Context(), cutoff, wide)
+	check(t, err)
+	equal(t, "alpha's older one and beta's old one", pruned, pageOfTwo)
 
-	n, err = s.PruneOccurrences(t.Context(), cutoff, 100)
-	must(t, err)
-
-	if n != 0 {
-		t.Fatalf("a second prune deleted %d occurrences, want 0: the newest of an incident stays", n)
-	}
+	pruned, err = store.PruneOccurrences(t.Context(), cutoff, wide)
+	check(t, err)
+	equal(t, "the newest of an incident stays, whatever its age", pruned, 0)
 }
 
-func cooldownStamp(t *testing.T, s core.Store) {
-	if _, ok, err := s.LastAlert(t.Context(), "critical"); err != nil || ok {
-		t.Fatalf("no alert yet: got %v, %v", ok, err)
-	}
+func cooldownStamp(t *testing.T, store core.Store) {
+	t.Helper()
 
-	must(t, s.StampAlert(t.Context(), "critical", base()))
-	must(t, s.StampAlert(t.Context(), "critical", base().Add(time.Hour)))
-	must(t, s.StampAlert(t.Context(), "high", base()))
+	_, found, err := store.LastAlert(t.Context(), "critical")
+	check(t, err)
+	equal(t, "no alert yet", found, false)
 
-	at, ok, err := s.LastAlert(t.Context(), "critical")
-	must(t, err)
+	check(t, store.StampAlert(t.Context(), "critical", base()))
+	check(t, store.StampAlert(t.Context(), "critical", base().Add(time.Hour)))
+	check(t, store.StampAlert(t.Context(), "high", base()))
 
-	if !ok || !at.Equal(base().Add(time.Hour)) {
-		t.Fatalf("the stamp is the latest: got %v, %v", at, ok)
-	}
+	stamped, found, err := store.LastAlert(t.Context(), "critical")
+	check(t, err)
+	equal(t, "an alert was sent", found, true)
+	sameTime(t, "the stamp is the latest", stamped, base().Add(time.Hour))
 
-	if at, ok, err = s.LastAlert(t.Context(), "high"); err != nil || !ok || !at.Equal(base()) {
-		t.Fatalf("a tier has its own stamp: got %v, %v, %v", at, ok, err)
-	}
+	stamped, found, err = store.LastAlert(t.Context(), "high")
+	check(t, err)
+	equal(t, "a tier has its own stamp", found, true)
+	sameTime(t, "the other tier", stamped, base())
 }
 
-func item(id int) core.DigestItem {
+func item(incidentID int) core.DigestItem {
 	return core.DigestItem{
-		IncidentID: id, PublicCode: "INC-" + string(rune('A'+id)), Title: "Title", Severity: core.SeverityMedium,
-		CreatedAt: base().Add(time.Duration(id) * time.Minute),
+		ID: 0, IncidentID: incidentID, PublicCode: "INC-" + strconv.Itoa(incidentID), Title: "Title",
+		Severity: core.SeverityMedium, CreatedAt: base().Add(time.Duration(incidentID) * time.Minute),
 	}
 }
 
-func digestQueuedOnce(t *testing.T, s core.Store) {
-	must(t, s.QueueDigest(t.Context(), item(1)))
-	must(t, s.QueueDigest(t.Context(), item(1)))
-	must(t, s.QueueDigest(t.Context(), item(2)))
+func queue(t *testing.T, store core.Store, incidentIDs ...int) {
+	t.Helper()
 
-	items, err := s.ClaimDigest(t.Context(), base().Add(time.Hour), 10)
-	must(t, err)
-
-	if len(items) != 2 || items[0].IncidentID != 1 || items[1].IncidentID != 2 || items[0].Severity != core.SeverityMedium ||
-		items[0].PublicCode != "INC-B" || !items[1].CreatedAt.Equal(item(2).CreatedAt) {
-		t.Fatalf("an incident waits once, oldest first: %+v", items)
+	for _, incidentID := range incidentIDs {
+		check(t, store.QueueDigest(t.Context(), item(incidentID)))
 	}
 }
 
-func digestClaimedOnce(t *testing.T, s core.Store) {
-	for id := 1; id <= 3; id++ {
-		must(t, s.QueueDigest(t.Context(), item(id)))
+func claimed(t *testing.T, store core.Store, at time.Time, limit int) []int {
+	t.Helper()
+
+	items, err := store.ClaimDigest(t.Context(), at, limit)
+	check(t, err)
+
+	out := make([]int, len(items))
+	for i, taken := range items {
+		out[i] = taken.IncidentID
 	}
 
-	first, err := s.ClaimDigest(t.Context(), base().Add(time.Hour), 2)
-	must(t, err)
+	return out
+}
 
-	if len(first) != 2 {
-		t.Fatalf("the limit: claimed %d, want 2", len(first))
-	}
+func digestQueuedOnce(t *testing.T, store core.Store) {
+	t.Helper()
 
-	second, err := s.ClaimDigest(t.Context(), base().Add(time.Hour), 10)
-	must(t, err)
+	queue(t, store, 1, 1, pageOfTwo)
 
-	if len(second) != 1 || second[0].IncidentID != 3 {
-		t.Fatalf("a claimed item is not claimed again: %+v", second)
-	}
+	items, err := store.ClaimDigest(t.Context(), base().Add(time.Hour), wide)
+	check(t, err)
+	equal(t, "an incident waits once", len(items), pageOfTwo)
+	equal(t, "oldest first", items[0].IncidentID, 1)
+	equal(t, "severity", items[0].Severity, core.SeverityMedium)
+	equal(t, "public code", items[0].PublicCode, "INC-1")
+	sameTime(t, "queued at", items[1].CreatedAt, item(pageOfTwo).CreatedAt)
+}
 
-	if third, err := s.ClaimDigest(t.Context(), base().Add(time.Hour), 10); err != nil || len(third) != 0 {
-		t.Fatalf("nothing is left: %+v, %v", third, err)
-	}
+func digestClaimedOnce(t *testing.T, store core.Store) {
+	t.Helper()
+
+	queue(t, store, 1, pageOfTwo, third)
+
+	same(t, "the limit", claimed(t, store, base().Add(time.Hour), pageOfTwo), []int{1, pageOfTwo})
+	same(t, "a claimed item is not claimed again", claimed(t, store, base().Add(time.Hour), wide), []int{third})
+	same(t, "nothing is left", claimed(t, store, base().Add(time.Hour), wide), []int{})
 
 	// Once claimed, an incident may wait again: it is a new alert.
-	must(t, s.QueueDigest(t.Context(), item(1)))
-
-	again, err := s.ClaimDigest(t.Context(), base().Add(2*time.Hour), 10)
-	must(t, err)
-
-	if len(again) != 1 || again[0].IncidentID != 1 {
-		t.Fatalf("a claimed incident can wait for another digest: %+v", again)
-	}
+	queue(t, store, 1)
+	again := claimed(t, store, base().Add(pageOfTwo*time.Hour), wide)
+	same(t, "a claimed incident can wait for another digest", again, []int{1})
 }
 
-func digestPruned(t *testing.T, s core.Store) {
-	must(t, s.QueueDigest(t.Context(), item(1)))
-	must(t, s.QueueDigest(t.Context(), item(2)))
+func digestPruned(t *testing.T, store core.Store) {
+	t.Helper()
 
-	_, err := s.ClaimDigest(t.Context(), base(), 1) // takes item 1 at base
-	must(t, err)
+	queue(t, store, 1, pageOfTwo)
+	same(t, "the first is taken", claimed(t, store, base(), 1), []int{1})
 
-	n, err := s.PruneDigest(t.Context(), base().Add(time.Hour), 10)
-	must(t, err)
+	pruned, err := store.PruneDigest(t.Context(), base().Add(time.Hour), wide)
+	check(t, err)
+	equal(t, "the one claimed before the cutoff", pruned, 1)
 
-	if n != 1 {
-		t.Fatalf("pruned %d, want the one claimed before the cutoff", n)
-	}
-
-	left, err := s.ClaimDigest(t.Context(), base().Add(2*time.Hour), 10)
-	must(t, err)
-
-	if len(left) != 1 || left[0].IncidentID != 2 {
-		t.Fatalf("a waiting item is never pruned: %+v", left)
-	}
+	same(t, "a waiting item is never pruned", claimed(t, store, base().Add(pageOfTwo*time.Hour), wide), []int{pageOfTwo})
 }

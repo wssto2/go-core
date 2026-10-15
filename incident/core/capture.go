@@ -46,63 +46,65 @@ type Failure struct {
 //
 // A server error is a high severity incident only the staff sees. A browser error is a low one, grouped by its message
 // and top stack frame. Two sources seen on one incident make it SourceMixed.
-func (s *Service) Capture(ctx context.Context, f Failure) error {
-	if strings.TrimSpace(f.Message) == "" {
+func (s *Service) Capture(ctx context.Context, failure Failure) error {
+	if strings.TrimSpace(failure.Message) == "" {
 		return nil
 	}
 
-	f = s.normalized(f)
+	failure = s.normalized(failure)
 
-	return s.transact(ctx, func(ctx context.Context) error { return s.record(ctx, f) })
+	return s.transact(ctx, func(ctx context.Context) error { return s.record(ctx, failure) })
 }
 
 // normalized cuts the failure to what the columns hold and fills what it leaves out.
-func (s *Service) normalized(f Failure) Failure {
-	if f.Source == "" {
-		f.Source = SourceRuntimeError
+func (s *Service) normalized(failure Failure) Failure {
+	if failure.Source == "" {
+		failure.Source = SourceRuntimeError
 	}
 
-	f.Message = clean(f.Message, StackMax)
-	f.ErrorClass = clean(f.ErrorClass, 255)
-	f.ErrorCode = clean(f.ErrorCode, 100)
-	f.Stacktrace = clean(f.Stacktrace, StackMax)
-	f.Signature = clean(f.Signature, StackMax)
-	f.AffectedModule = clean(f.AffectedModule, ModuleMax)
-	f.AffectedRoute = clean(f.AffectedRoute, RouteMax)
-	f.RequestMethod = clean(f.RequestMethod, 10)
-	f.IPAddress = clean(f.IPAddress, 45)
-	f.RequestID = clean(f.RequestID, requestIDMax)
-	f.Environment = clean(f.Environment, 50)
+	failure.Message = clean(failure.Message, StackMax)
+	failure.ErrorClass = clean(failure.ErrorClass, classMax)
+	failure.ErrorCode = clean(failure.ErrorCode, codeMax)
+	failure.Stacktrace = clean(failure.Stacktrace, StackMax)
+	failure.Signature = clean(failure.Signature, StackMax)
+	failure.AffectedModule = clean(failure.AffectedModule, ModuleMax)
+	failure.AffectedRoute = clean(failure.AffectedRoute, RouteMax)
+	failure.RequestMethod = clean(failure.RequestMethod, methodMax)
+	failure.IPAddress = clean(failure.IPAddress, addressMax)
+	failure.RequestID = clean(failure.RequestID, requestIDMax)
+	failure.Environment = clean(failure.Environment, envMax)
 
-	if f.Environment == "" {
-		f.Environment = s.env
+	if failure.Environment == "" {
+		failure.Environment = s.env
 	}
 
-	f.ContextJSON = jsonOr(f.ContextJSON, "{}")
-	f.RequestJSON = jsonOr(f.RequestJSON, "{}")
+	failure.ContextJSON = jsonOr(failure.ContextJSON, "{}")
+	failure.RequestJSON = jsonOr(failure.RequestJSON, "{}")
 
-	return f
+	return failure
 }
 
 // fingerprint groups a failure with its repeats: a server error by where it happened and what it was, a browser error
 // by its message and the frame it was thrown from.
-func (f Failure) fingerprint() string {
-	if f.Source == SourceClientError {
-		return Fingerprint("client", f.Message, topFrame(f.Stacktrace))
+func (failure Failure) fingerprint() string {
+	if failure.Source == SourceClientError {
+		return Fingerprint("client", failure.Message, topFrame(failure.Stacktrace))
 	}
 
-	where := f.Stacktrace
-	if f.Signature != "" {
-		where = f.Signature
+	where := failure.Stacktrace
+	if failure.Signature != "" {
+		where = failure.Signature
 	}
 
-	return Fingerprint("runtime", f.AffectedModule, f.AffectedRoute, f.ErrorClass, f.Message, where)
+	return Fingerprint(
+		"runtime", failure.AffectedModule, failure.AffectedRoute, failure.ErrorClass, failure.Message, where,
+	)
 }
 
 // topFrame is the first stack frame of a browser stack: "at fn (file:1:2)" in Chrome, "fn@file:1:2" in Firefox and
 // Safari. The message line Chrome starts its stack with is not one.
 func topFrame(stack string) string {
-	for _, line := range strings.Split(stack, "\n") {
+	for line := range strings.SplitSeq(stack, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "at ") || strings.Contains(line, "@") {
 			return line
@@ -112,31 +114,30 @@ func topFrame(stack string) string {
 	return ""
 }
 
-func (f Failure) title() string {
+func (failure Failure) title() string {
 	switch {
-	case f.Source == SourceClientError:
-		return "Browser error: " + clip(firstLine(f.Message), 120)
-	case f.ErrorClass != "" && f.AffectedModule != "":
-		return clip(fmt.Sprintf("%s error in %s", f.ErrorClass, f.AffectedModule), TitleMax)
-	case f.ErrorClass != "":
-		return clip(f.ErrorClass+" error", TitleMax)
-	case f.AffectedModule != "":
-		return clip("Unhandled error in "+f.AffectedModule, TitleMax)
+	case failure.Source == SourceClientError:
+		return "Browser error: " + clip(firstLine(failure.Message), snippetMax)
+	case failure.ErrorClass != "" && failure.AffectedModule != "":
+		return clip(fmt.Sprintf("%s error in %s", failure.ErrorClass, failure.AffectedModule), TitleMax)
+	case failure.ErrorClass != "":
+		return clip(failure.ErrorClass+" error", TitleMax)
+	case failure.AffectedModule != "":
+		return clip("Unhandled error in "+failure.AffectedModule, TitleMax)
 	default:
 		return "Unhandled server error"
 	}
 }
 
-func (f Failure) severity() Severity {
-	if f.Severity.Valid() {
-		return f.Severity
-	}
-
-	if f.Source == SourceClientError {
+func (failure Failure) severity() Severity {
+	switch {
+	case failure.Severity.Valid():
+		return failure.Severity
+	case failure.Source == SourceClientError:
 		return SeverityLow
+	default:
+		return SeverityHigh
 	}
-
-	return SeverityHigh
 }
 
 func firstLine(text string) string {
@@ -146,37 +147,41 @@ func firstLine(text string) string {
 }
 
 // record writes one occurrence in the transaction of ctx.
-func (s *Service) record(ctx context.Context, f Failure) error {
+func (s *Service) record(ctx context.Context, failure Failure) error {
 	now := s.now()
-	fp := f.fingerprint()
+	key := failure.fingerprint()
 
-	incident, created, err := s.sighted(ctx, fp, f, now)
+	incident, created, err := s.sighted(ctx, key, failure, now)
 	if err != nil {
 		return err
 	}
 
 	occurrence := Occurrence{
-		IncidentID: incident.ID, Fingerprint: fp, Environment: f.Environment, AffectedModule: f.AffectedModule,
-		AffectedRoute: f.AffectedRoute, RequestMethod: f.RequestMethod, UserID: f.UserID, TenantID: f.TenantID,
-		IPAddress: f.IPAddress, RequestID: f.RequestID, ErrorClass: f.ErrorClass, ErrorCode: f.ErrorCode, Message: f.Message,
-		NormalizedMessage: clip(NormalizeText(f.Message), StackMax), Stacktrace: f.Stacktrace, ContextJSON: f.ContextJSON,
-		RequestJSON: f.RequestJSON, OccurredAt: now, CreatedAt: now,
+		IncidentID: incident.ID, Fingerprint: key, Environment: failure.Environment, AffectedModule: failure.AffectedModule,
+		AffectedRoute: failure.AffectedRoute, RequestMethod: failure.RequestMethod, UserID: failure.UserID,
+		TenantID: failure.TenantID, IPAddress: failure.IPAddress, RequestID: failure.RequestID,
+		ErrorClass: failure.ErrorClass, ErrorCode: failure.ErrorCode, Message: failure.Message,
+		NormalizedMessage: clip(NormalizeText(failure.Message), StackMax), Stacktrace: failure.Stacktrace,
+		ContextJSON: failure.ContextJSON, RequestJSON: failure.RequestJSON, OccurredAt: now, CreatedAt: now,
 	}
 
 	// The incident is written before the occurrence: the occurrence's foreign key takes a shared lock on the incident, and
 	// concurrent captures of one error that each hold one and wait for the exclusive lock of the count deadlock.
 	if !created {
-		if err := s.store.CountOccurrence(ctx, incident.ID, incident.Source, now, &occurrence); err != nil {
+		err = s.store.CountOccurrence(ctx, incident.ID, incident.Source, now, &occurrence)
+		if err != nil {
 			return apperr.Internal(err)
 		}
 	}
 
-	if err := s.store.CreateOccurrence(ctx, &occurrence); err != nil {
+	err = s.store.CreateOccurrence(ctx, &occurrence)
+	if err != nil {
 		return apperr.Internal(err)
 	}
 
 	if created {
-		if err := s.opened(ctx, openedOf(*incident)); err != nil {
+		err = s.opened(ctx, openedOf(*incident))
+		if err != nil {
 			return apperr.Internal(err)
 		}
 	}
@@ -186,26 +191,27 @@ func (s *Service) record(ctx context.Context, f Failure) error {
 
 // sighted is the incident a failure is an occurrence of: the open one with its fingerprint, else the latest closed one,
 // reopened, else a new one. It says whether the incident is new.
-func (s *Service) sighted(ctx context.Context, fp string, f Failure, now time.Time) (*Incident, bool, error) {
-	open, err := s.store.FindOpen(ctx, fp)
+func (s *Service) sighted(ctx context.Context, key string, failure Failure, now time.Time) (*Incident, bool, error) {
+	open, err := s.store.FindOpen(ctx, key)
 
 	switch {
 	case err == nil:
-		open.Source = open.Source.Merge(f.Source)
+		open.Source = open.Source.Merge(failure.Source)
 
 		return &open, false, nil
 	case !errors.Is(err, ErrNotFound):
 		return nil, false, apperr.Internal(err)
 	}
 
-	latest, err := s.store.FindLatest(ctx, fp)
+	latest, err := s.store.FindLatest(ctx, key)
 
 	switch {
 	case err == nil:
-		latest.Source = latest.Source.Merge(f.Source)
-		reopen(&latest, fp, now)
+		latest.Source = latest.Source.Merge(failure.Source)
+		reopen(&latest, key, now)
 
-		if err := s.store.UpdateIncident(ctx, latest); err != nil {
+		err = s.store.UpdateIncident(ctx, latest)
+		if err != nil {
 			return nil, false, apperr.Internal(err)
 		}
 
@@ -214,20 +220,28 @@ func (s *Service) sighted(ctx context.Context, fp string, f Failure, now time.Ti
 		return nil, false, apperr.Internal(err)
 	}
 
+	return s.opening(ctx, key, failure, now)
+}
+
+// opening creates the incident of a failure that has none.
+func (s *Service) opening(ctx context.Context, key string, failure Failure, now time.Time) (*Incident, bool, error) {
 	code, err := publicCode()
 	if err != nil {
 		return nil, false, apperr.Internal(err)
 	}
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	incident := Incident{
-		PublicCode: code, Fingerprint: fp, OpenFingerprint: &fp, Source: f.Source, Status: StatusNew, Severity: f.severity(),
-		Visibility: VisibilityInternal, Title: f.title(), Description: f.Message, AffectedModule: f.AffectedModule,
-		AffectedRoute: f.AffectedRoute, Environment: f.Environment, ErrorClass: f.ErrorClass, ErrorCode: f.ErrorCode,
-		ErrorMessageSample: f.Message, StacktraceSample: f.Stacktrace, FirstSeenAt: now, LastSeenAt: now, OccurrenceCount: 1,
+		PublicCode: code, Fingerprint: key, OpenFingerprint: &key, Source: failure.Source, Status: StatusNew,
+		Severity: failure.severity(), Visibility: VisibilityInternal, Title: failure.title(), Description: failure.Message,
+		AffectedModule: failure.AffectedModule, AffectedRoute: failure.AffectedRoute, Environment: failure.Environment,
+		ErrorClass: failure.ErrorClass, ErrorCode: failure.ErrorCode, ErrorMessageSample: failure.Message,
+		StacktraceSample: failure.Stacktrace, FirstSeenAt: now, LastSeenAt: now, OccurrenceCount: 1,
 		ExternalTicketProvider: TicketProviderNone, CreatedAt: now, UpdatedAt: now,
 	}
 
-	if err := s.store.CreateIncident(ctx, &incident); err != nil {
+	err = s.store.CreateIncident(ctx, &incident)
+	if err != nil {
 		return nil, false, createFailed(err)
 	}
 
@@ -237,34 +251,35 @@ func (s *Service) sighted(ctx context.Context, fp string, f Failure, now time.Ti
 // ClientError records an error the browser reported, as a low severity incident of SourceClientError. who is the
 // signed-in person; the request ids are cut to ClientRequests of at most requestIDMax characters. The module's route
 // rate-limits the person before it calls this.
-func (s *Service) ClientError(ctx context.Context, who Viewer, tenantID *int, in ClientErrorInput) error {
+func (s *Service) ClientError(ctx context.Context, who Viewer, tenantID *int, input ClientErrorInput) error {
 	person, err := signedIn(who)
 	if err != nil {
 		return err
 	}
 
-	if strings.TrimSpace(in.Message) == "" {
+	if strings.TrimSpace(input.Message) == "" {
 		return apperr.BadRequest("message is required")
 	}
 
-	ids := make([]string, 0, min(len(in.RequestIDs), ClientRequests))
+	requests := make([]string, 0, min(len(input.RequestIDs), ClientRequests))
 
-	for _, id := range in.RequestIDs {
-		if id = clean(id, requestIDMax); id != "" && len(ids) < ClientRequests {
-			ids = append(ids, id)
+	for _, requestID := range input.RequestIDs {
+		if requestID = clean(requestID, requestIDMax); requestID != "" && len(requests) < ClientRequests {
+			requests = append(requests, requestID)
 		}
 	}
 
-	ctxJSON, err := Marshal(map[string]any{
-		"route": clean(in.Route, RouteMax), "browser": clean(in.Browser, 500), "app_version": clean(in.AppVersion, 100),
-		"request_ids": ids,
+	details, err := Marshal(map[string]any{
+		"route": clean(input.Route, RouteMax), "browser": clean(input.Browser, browserMax),
+		"app_version": clean(input.AppVersion, versionMax), "request_ids": requests,
 	})
 	if err != nil {
 		return apperr.Internal(err)
 	}
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	return s.Capture(ctx, Failure{
-		Source: SourceClientError, Message: in.Message, ErrorClass: "client", Stacktrace: in.Stack,
-		AffectedModule: "client", AffectedRoute: in.Route, UserID: &person, TenantID: tenantID, ContextJSON: ctxJSON,
+		Source: SourceClientError, Message: input.Message, ErrorClass: "client", Stacktrace: input.Stack,
+		AffectedModule: "client", AffectedRoute: input.Route, UserID: &person, TenantID: tenantID, ContextJSON: details,
 	})
 }

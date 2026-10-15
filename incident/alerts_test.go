@@ -1,4 +1,4 @@
-//nolint:exhaustruct,exhaustruct_v5,lll,paralleltest,thelper,varnamelen,gochecknoglobals,goconst,mnd,funlen,cyclop,maintidx // tests in the style of the package's others
+//nolint:err113,exhaustruct,exhaustruct_v5,goconst,lll,paralleltest,varnamelen // tests in the style of the package's others
 package incident_test
 
 import (
@@ -69,6 +69,7 @@ func newAlertWorld(t *testing.T, alerts incident.Alerts) *alertWorld {
 	t.Helper()
 
 	reg, cleanup := database.NewTestRegistry("local")
+
 	t.Cleanup(func() { _ = cleanup() })
 
 	w := &alertWorld{t: t, now: time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC), holders: []int{managerHr, managerEn}}
@@ -264,6 +265,7 @@ func TestNobodyToTellIsNotACooldown(t *testing.T) {
 
 func TestTheAlertsAreOffByDefaultButTheEventIsPublished(t *testing.T) {
 	reg, cleanup := database.NewTestRegistry("local")
+
 	t.Cleanup(func() { _ = cleanup() })
 
 	now := time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC)
@@ -297,6 +299,7 @@ func TestTheAlertsAreOffByDefaultButTheEventIsPublished(t *testing.T) {
 
 func TestAnEnabledAlertNeedsNotices(t *testing.T) {
 	reg, cleanup := database.NewTestRegistry("local")
+
 	t.Cleanup(func() { _ = cleanup() })
 
 	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()),
@@ -311,7 +314,6 @@ func TestAnEnabledAlertNeedsNotices(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "incident.Alerts is enabled but has no Notices")
 	assert.Contains(t, err.Error(), `"bogus"`)
-
 }
 
 // team is the SubjectDirectory of the access test: people 1 to 20.
@@ -331,6 +333,7 @@ func (team) SubjectNames(_ context.Context, subjects []authz.Subject) (map[authz
 // a predefined role or a custom one, never a service account and never a role without it.
 func TestTheDefaultRecipientsAreTheHoldersOfManageInTheAccessRoles(t *testing.T) {
 	reg, cleanup := database.NewTestRegistry("local")
+
 	t.Cleanup(func() { _ = cleanup() })
 
 	now := time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC)
