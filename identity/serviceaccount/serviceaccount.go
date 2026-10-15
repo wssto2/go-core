@@ -173,5 +173,11 @@ type Caller struct {
 // GetID implements auth.Identifiable. A service account is not a user: it has no user ID.
 func (Caller) GetID() int { return 0 }
 
+// GetTenantID implements tenancy.TenantAware: the tenant the account is confined to.
+func (c Caller) GetTenantID() int { return c.TenantID }
+
+// HasTenant implements tenancy.TenantAware. The organization's account has no tenant, so it crosses them.
+func (c Caller) HasTenant() bool { return c.TenantID > 0 }
+
 // RateLimitKey implements auth.RateLimitKeyer: each service account has a bucket of its own.
 func (c Caller) RateLimitKey() string { return "service:" + strconv.Itoa(c.AccountID) }

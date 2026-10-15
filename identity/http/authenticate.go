@@ -3,12 +3,17 @@ package http
 import (
 	"context"
 	"errors"
+	"log/slog"
+	nethttp "net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/audit"
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/identity/account"
+	"github.com/wssto2/go-core/identity/serviceaccount"
 	"github.com/wssto2/go-core/tenancy"
 )
 
@@ -29,6 +34,27 @@ func AuthenticatedFrom(ctx context.Context) (account.Authenticated, bool) {
 // cache holds decides the user.
 type RequestUser func(ctx context.Context, who account.Authenticated) (auth.Identifiable, error)
 
+// KeyHeader is the header a service account sends its API key in.
+const KeyHeader = "X-API-Key"
+
+// maxKeyLength bounds what is looked at: a secret is 48 characters.
+const maxKeyLength = 256
+
+// KeyAuthenticator is what authentication asks of the service accounts: which account and key a secret
+// belongs to. *serviceaccount.Service is one.
+type KeyAuthenticator interface {
+	Authenticate(ctx context.Context, secret string) (serviceaccount.Caller, error)
+}
+
+// Keys is the authentication of API keys: a request with the X-API-Key header is a service account's.
+type Keys struct {
+	Auth KeyAuthenticator
+	// Trail records what a request made with a key changed: one row per request that is not a read.
+	Trail serviceaccount.Trail
+	Clock interface{ Now() time.Time }
+	Log   *slog.Logger
+}
+
 // Authenticator is the authentication of every route that is not Public.
 type Authenticator struct {
 	SignIn  *account.SignIn
@@ -37,6 +63,8 @@ type Authenticator struct {
 	Principal PrincipalOf
 	// User makes the request's user of the account; nil leaves the account itself.
 	User RequestUser
+	// Keys, when set, authenticates the requests that carry an API key; without it the header is ignored.
+	Keys *Keys
 }
 
 // Authentication is the middleware that authenticates every route that is not
@@ -63,6 +91,12 @@ func (a Authenticator) Middleware() gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
+		if a.Keys != nil && c.GetHeader(KeyHeader) != "" {
+			a.Keys.authenticate(c)
+
+			return
+		}
+
 		ctx := c.Request.Context()
 
 		cookie, _ := c.Cookie(cookies.Access)
@@ -107,6 +141,63 @@ func (a Authenticator) Middleware() gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+// authenticate is the chain of a request that presents an API key. The key is the only credential looked at: a
+// session cookie or a bearer token sent with it is not. The principal is the service account; AuthenticatedFrom
+// has nobody, since a service account is no account of identity's.
+func (k *Keys) authenticate(c *gin.Context) {
+	secret := c.GetHeader(KeyHeader)
+	c.Request.Header.Del(KeyHeader) // nothing after this reads, logs or forwards the secret
+
+	if len(secret) > maxKeyLength {
+		_ = c.Error(apperr.Unauthorized("invalid API key"))
+		c.Abort()
+
+		return
+	}
+
+	caller, err := k.Auth.Authenticate(c.Request.Context(), secret)
+	if err != nil {
+		_ = c.Error(err)
+		c.Abort()
+
+		return
+	}
+
+	c.Request = c.Request.WithContext(authz.WithPrincipal(c.Request.Context(), authz.ServiceAccount(caller.AccountID)))
+	auth.SetUser(c, caller)
+
+	if !auth.EnforceUserRateLimit(c, caller) {
+		return
+	}
+
+	c.Next()
+
+	k.record(c, caller)
+}
+
+// record leaves a row in the audit trail for a request made with a key that was not a read: which account and
+// key, what was asked for, and whether it failed (the error handler renders the response after this runs, so the
+// status is not known yet). A failure to record is logged, never returned: the change has been made.
+func (k *Keys) record(c *gin.Context, caller serviceaccount.Caller) {
+	switch c.Request.Method {
+	case nethttp.MethodGet, nethttp.MethodHead, nethttp.MethodOptions:
+		return
+	}
+
+	if k.Trail == nil {
+		return
+	}
+
+	entry := audit.NewEntry(serviceaccount.AccountEntity, caller.AccountID, 0, "request").WithAfter(map[string]any{
+		"method": c.Request.Method, "route": c.FullPath(), "key_id": caller.KeyID, "failed": len(c.Errors) > 0,
+		"at": k.Clock.Now().UTC().Format(time.RFC3339),
+	})
+
+	if err := k.Trail.Write(c.Request.Context(), entry); err != nil && k.Log != nil {
+		k.Log.ErrorContext(c.Request.Context(), "service account request trail failed", "service_account", caller.AccountID, "error", err)
 	}
 }
 

@@ -31,6 +31,7 @@ import (
 	"github.com/wssto2/go-core/authz/migrations"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/gocore"
+	"github.com/wssto2/go-core/identity/serviceaccount"
 )
 
 // The types an application names when it configures the module.
@@ -99,7 +100,10 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory
 		return &Access{}
 	}
 
-	if err := s.define(catalogue); err != nil {
+	robots, hasRobots := users.(serviceAccounts)
+	hasRobots = hasRobots && robots.HasServiceAccounts()
+
+	if err := s.define(catalogue, hasRobots); err != nil {
 		app.Fail("access cannot define its permissions: "+err.Error(), "define the five permissions yourself before Install, or leave them to it")
 
 		return &Access{}
@@ -129,7 +133,7 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory
 	roles, bindings, err := admin.New(admin.Config{
 		Engine: engine, Store: store, Scopes: s.scopes, Subjects: users,
 		Transactor: database.NewTransactor(db),
-		RoleCheck:  s.roleCheck, BindingCheck: s.bindingCheck, Reach: s.reach,
+		RoleCheck:  s.roleCheck, BindingCheck: s.bindingCheck, Reach: s.reachWith(robots, hasRobots),
 	})
 	if err != nil {
 		app.Fail(err.Error(), "see the message")
@@ -140,6 +144,10 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory
 	app.Authorize(engine)
 	app.Schema(gocore.Schema{Files: migrations.Files, Models: gormstore.Migrate}, conn...)
 	app.Routes(accesshttp.Declare().To(roles, bindings, engine)...)
+
+	if hasRobots {
+		app.Routes(accesshttp.ServiceAccountRoutes(bindings)...)
+	}
 
 	return &Access{Engine: engine, Roles: roles, Bindings: bindings, store: store}
 }
@@ -234,6 +242,33 @@ func WithCache(cache *authz.Cache) Option { return func(s *settings) { s.cache =
 // than the application's primary one.
 func On(conn database.Connection) Option { return func(s *settings) { s.connection = conn } }
 
+// serviceAccounts is what the SubjectDirectory is asked, when it is identity's Users: whether the application has
+// service accounts (identity.WithServiceAccounts), which brings their access routes, and whether the actor may see one.
+type serviceAccounts interface {
+	HasServiceAccounts() bool
+	ServiceAccountReach(ctx context.Context, id int) (bool, error)
+}
+
+// reachWith is the rule for whom the actor may see: the application's, and for a service account its own (an
+// administrator of a tenant sees the service accounts of that tenant).
+func (s settings) reachWith(robots serviceAccounts, hasRobots bool) SubjectReach {
+	if !hasRobots {
+		return s.reach
+	}
+
+	return func(ctx context.Context, subject authz.Subject) (bool, error) {
+		if subject.Kind == authz.KindServiceAccount {
+			return robots.ServiceAccountReach(ctx, subject.ID)
+		}
+
+		if s.reach == nil {
+			return true, nil
+		}
+
+		return s.reach(ctx, subject)
+	}
+}
+
 func (s settings) hierarchy() *authz.Hierarchy {
 	if s.levels != nil {
 		return s.levels
@@ -270,18 +305,30 @@ const viewActivity = "iam.user.activity:view"
 
 // define adds the module's permissions the catalogue lacks. Managing needs
 // viewing, so a role that grants one grants the other.
-func (s settings) define(c *authz.Catalogue) error {
-	for _, def := range []struct {
+func (s settings) define(c *authz.Catalogue, robots bool) error {
+	type definition struct {
 		id   string
 		opts []authz.DefineOption
-	}{
+	}
+
+	defs := []definition{
 		{admin.ViewRoles, nil},
 		{admin.ManageRoles, []authz.DefineOption{authz.Sensitive(), authz.Requires(admin.ViewRoles)}},
 		{admin.DeleteRoles, []authz.DefineOption{authz.Sensitive(), authz.Requires(admin.ViewRoles)}},
 		{admin.ViewAccess, nil},
 		{admin.ManageBindings, []authz.DefineOption{authz.Sensitive(), authz.Requires(admin.ViewAccess)}},
 		{viewActivity, []authz.DefineOption{authz.System()}},
-	} {
+	}
+
+	if robots { // access/accesshttp serves the routes these guard
+		defs = append(defs,
+			definition{serviceaccount.View, nil},
+			definition{serviceaccount.Manage, []authz.DefineOption{authz.Sensitive(), authz.OrganizationOnly(), authz.Requires(serviceaccount.View)}},
+			definition{serviceaccount.Revoke, []authz.DefineOption{authz.Requires(serviceaccount.View)}},
+		)
+	}
+
+	for _, def := range defs {
 		if _, ok := c.Lookup(def.id); ok {
 			continue
 		}

@@ -70,8 +70,13 @@ import (
 	identityhttp "github.com/wssto2/go-core/identity/http"
 	"github.com/wssto2/go-core/identity/mailtext"
 	"github.com/wssto2/go-core/identity/migrations"
+	"github.com/wssto2/go-core/identity/serviceaccount"
+	sagormstore "github.com/wssto2/go-core/identity/serviceaccount/gormstore"
+	sahttp "github.com/wssto2/go-core/identity/serviceaccount/http"
+	samigrations "github.com/wssto2/go-core/identity/serviceaccount/migrations"
 	"github.com/wssto2/go-core/mail"
 	"github.com/wssto2/go-core/navigation"
+	"gorm.io/gorm"
 )
 
 // The types an application names, aliases of the core's.
@@ -138,6 +143,9 @@ const (
 	ChangeProfile     = account.ChangeProfile
 )
 
+// KeyHeader is the header a service account sends its API key in.
+const KeyHeader = identityhttp.KeyHeader
+
 // Routes is identity's declared contract: the routes it serves, for
 // contract.Generate and for reading without an application.
 var Routes = identityhttp.Routes
@@ -162,6 +170,7 @@ type settings struct {
 	principal               PrincipalOf
 	tenant                  identityhttp.TenantOf
 	requestUser             RequestUser
+	robots                  *serviceaccount.Config
 	navigation              NavigationProvider
 	cookies                 Cookies
 	mail                    mail.Sender
@@ -264,6 +273,29 @@ func WithTenant(of identityhttp.TenantOf) Option { return func(s *settings) { s.
 // data, builds it here. An error answers the request as it is (apperr.Unauthorized for a person who may no longer
 // act). The authz principal is still the account's (WithPrincipal).
 func WithRequestUser(of RequestUser) Option { return func(s *settings) { s.requestUser = of } }
+
+// WithServiceAccounts installs service accounts: systems that only ever call the API, with keys (the package
+// identity/serviceaccount). It adds
+//
+//   - the tables service_accounts, service_account_keys and service_account_key_notices (migrations, run with
+//     "./app migrate"), and /v1/iam/service-accounts: list, record, create, update, deactivate, and the keys of an
+//     account (list, create, revoke), with the permissions iam.serviceaccount:view, :manage and :revoke
+//     (DefinePermissions);
+//
+//   - the authentication of the X-API-Key header on every route that is not Public, as a service account
+//     (authz.ServiceAccount) that holds the roles it was bound to; a revoked or expired key, or one of a
+//     deactivated account, answers 401, and a route declared PersonOnly refuses it with 403. A request made with
+//     a key that is not a read leaves a row in the audit trail naming the account and the key;
+//
+//   - the access routes of an account under the same path, when access.Install is part of the application;
+//
+//   - the daily notice to the owner of a key that expires within 14 days or has not been used for 60 days, which
+//     keynotice.Install sends in the owner's language.
+//
+//     users := identity.Install(app, identity.WithServiceAccounts(serviceaccount.Config{KeyPrefix: "acme_"}))
+func WithServiceAccounts(cfg serviceaccount.Config) Option {
+	return func(s *settings) { s.robots = &cfg }
+}
 
 // WithNavigation sets the menu /auth/me carries, cut down to the permissions the
 // person holds. The tree is yours; identity only filters it.
@@ -371,7 +403,8 @@ const (
 )
 
 // DefinePermissions adds ViewUsers, ManageUsers and ViewActivity to the catalogue when it lacks
-// them, as access.Install does for the catalogue it is given: an application that
+// them, and the service accounts' iam.serviceaccount:view, :manage and :revoke (an application without service
+// accounts has no use for them, and leaves them unheld), as access.Install does for the catalogue it is given: an application that
 // installs both needs not call it. An application without access calls it on
 // its catalogue, since start-up checks that every route's permission is defined.
 // Managing needs viewing, so a role that grants one grants the other.
@@ -383,6 +416,9 @@ func DefinePermissions(c *authz.Catalogue) error {
 		{ViewUsers, nil},
 		{ManageUsers, []authz.DefineOption{authz.Sensitive(), authz.Requires(ViewUsers)}},
 		{ViewActivity, []authz.DefineOption{authz.System()}},
+		{serviceaccount.View, nil},
+		{serviceaccount.Manage, []authz.DefineOption{authz.Sensitive(), authz.OrganizationOnly(), authz.Requires(serviceaccount.View)}},
+		{serviceaccount.Revoke, []authz.DefineOption{authz.Requires(serviceaccount.View)}},
 	} {
 		if _, ok := c.Lookup(def.id); ok {
 			continue
@@ -548,9 +584,13 @@ func Install(app *gocore.App, opts ...Option) *Users {
 
 	cfg.Access = s.accessOf(app)
 
-	chain := []gin.HandlerFunc{identityhttp.Authenticator{
-		SignIn: svc.SignIn, Cookies: s.cookies, Principal: s.principal, User: s.requestUser,
-	}.Middleware()}
+	authenticator := identityhttp.Authenticator{SignIn: svc.SignIn, Cookies: s.cookies, Principal: s.principal, User: s.requestUser}
+
+	if s.robots != nil {
+		authenticator.Keys = s.installServiceAccounts(app, svc.Users, db, transact)
+	}
+
+	chain := []gin.HandlerFunc{authenticator.Middleware()}
 	if s.tenant != nil {
 		chain = append(chain, identityhttp.Tenant(s.tenant))
 	}
@@ -563,6 +603,26 @@ func Install(app *gocore.App, opts ...Option) *Users {
 	}
 
 	return svc.Users
+}
+
+// installServiceAccounts puts the service accounts in: tables, routes, the notices, and what Users and the
+// authentication need of them. It returns the authentication of API keys.
+func (s settings) installServiceAccounts(app *gocore.App, users *account.Users, db *gorm.DB, transact database.Transactor) *identityhttp.Keys {
+	app.Schema(gocore.Schema{Files: samigrations.Files, Models: sagormstore.Migrate}, s.conn...)
+	app.Events() // the notices to owners are events: the queue's tables, whether or not a consumer is installed
+
+	store := sagormstore.New(db)
+	trail := audit.NewRepository(transact)
+
+	service := serviceaccount.New(serviceaccount.Deps{
+		Store: store, Transact: transact, Trail: trail, Clock: app.Clock(), People: users, Authorizer: app.Authorizer,
+	}, *s.robots)
+
+	users.SetServiceAccounts(service)
+	app.Routes(sahttp.Routes(service)...)
+	app.Background(serviceaccount.NewNoticeWorker(serviceaccount.NewNotices(store, transact, app.Logger(), app.Clock()), app.Consumers, app.Logger()))
+
+	return &identityhttp.Keys{Auth: service, Trail: trail, Clock: app.Clock(), Log: app.Logger()}
 }
 
 // mailConfigured says, to Run, what to do when identity has no say on e-mail, or

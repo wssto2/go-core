@@ -28,6 +28,33 @@ type Users struct {
 	admin   *Admin
 	profile *Profile
 	mail    *Mail
+	// set by identity.Install when it has service accounts.
+	robots ServiceAccounts
+}
+
+// ServiceAccounts is what Users asks of the service accounts identity installs (identity.WithServiceAccounts): their
+// names, for access.SubjectDirectory, and whether the actor may see one at all.
+type ServiceAccounts interface {
+	// Names returns the name of each service account among ids that exists.
+	Names(ctx context.Context, ids []int) (map[int]string, error)
+	// Reach reports whether the actor may see the service account (false for one of another tenant, or that does not exist).
+	Reach(ctx context.Context, id int) (bool, error)
+}
+
+// SetServiceAccounts tells Users about the service accounts of the application. identity.Install calls it.
+func (u *Users) SetServiceAccounts(s ServiceAccounts) { u.robots = s }
+
+// HasServiceAccounts reports whether the application has service accounts (identity.WithServiceAccounts). access.Install
+// asks it, to serve their access routes and name them as subjects.
+func (u *Users) HasServiceAccounts() bool { return u.robots != nil }
+
+// ServiceAccountReach says whether the actor may see the service account; false when there are none.
+func (u *Users) ServiceAccountReach(ctx context.Context, id int) (bool, error) {
+	if u.robots == nil {
+		return false, nil
+	}
+
+	return u.robots.Reach(ctx, id)
 }
 
 // Mail returns where identity's mail goes, and false when identity runs WithoutMail (or Users was built
@@ -113,13 +140,16 @@ func (u *Users) Names(ctx context.Context, ids []int) (map[int]string, error) {
 // SubjectNames returns the display name of each person among subjects that
 // exists, which is what access.SubjectDirectory asks: *Users satisfies it as it
 // is. The name is the account's name, or its login when it has none. Service
-// accounts are not identity's, and are left out.
+// accounts are named when identity has them (WithServiceAccounts), and left out otherwise.
 func (u *Users) SubjectNames(ctx context.Context, subjects []authz.Subject) (map[authz.Subject]string, error) {
-	var ids []int
+	var ids, robotIDs []int
 
 	for _, s := range subjects {
-		if s.Kind == authz.KindUser {
+		switch s.Kind {
+		case authz.KindUser:
 			ids = append(ids, s.ID)
+		case authz.KindServiceAccount:
+			robotIDs = append(robotIDs, s.ID)
 		}
 	}
 
@@ -131,6 +161,17 @@ func (u *Users) SubjectNames(ctx context.Context, subjects []authz.Subject) (map
 	out := make(map[authz.Subject]string, len(names))
 	for id, name := range names {
 		out[authz.Subject{Kind: authz.KindUser, ID: id}] = name
+	}
+
+	if u.robots != nil && len(robotIDs) > 0 {
+		robots, err := u.robots.Names(ctx, robotIDs)
+		if err != nil {
+			return nil, err
+		}
+
+		for id, name := range robots {
+			out[authz.Subject{Kind: authz.KindServiceAccount, ID: id}] = name
+		}
 	}
 
 	return out, nil

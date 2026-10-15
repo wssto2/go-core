@@ -201,3 +201,61 @@ func noticeOf(w KeyWithAccount, kind NoticeKind, now time.Time) KeyNotice {
 
 	return evt
 }
+
+// NoticeConsumer is the durable name of the consumer of KeyNoticed that tells the owner (keynotice.Install). The
+// daily run sends notices only while a consumer of that name is installed, so a key's notice is never queued with
+// nobody to read it.
+const NoticeConsumer = "serviceaccount.key-notice"
+
+// noticeInterval is how often the worker runs the notices: a day. A key is told about a condition once, whatever
+// the number of runs, so a restart runs it again without telling anybody twice.
+const noticeInterval = 24 * time.Hour
+
+// NoticeWorker is the background work that runs the notices: once at start and then every day.
+type NoticeWorker struct {
+	notices   *Notices
+	consumers func() []string
+	log       *slog.Logger
+}
+
+// NewNoticeWorker returns the worker; consumers lists the durable names of the installed event consumers
+// (gocore.App.Consumers). identity.WithServiceAccounts starts it.
+func NewNoticeWorker(notices *Notices, consumers func() []string, log *slog.Logger) *NoticeWorker {
+	return &NoticeWorker{notices: notices, consumers: consumers, log: log}
+}
+
+// Name identifies the worker in logs and metrics.
+func (*NoticeWorker) Name() string { return "serviceaccount.key-notices" }
+
+// Run sends the notices until ctx is cancelled.
+func (w *NoticeWorker) Run(ctx context.Context) error {
+	ticker := time.NewTicker(noticeInterval)
+	defer ticker.Stop()
+
+	for {
+		w.once(ctx)
+
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+
+func (w *NoticeWorker) once(ctx context.Context) {
+	if !slices.Contains(w.consumers(), NoticeConsumer) {
+		w.log.DebugContext(ctx, "service key notices skipped: no consumer is installed (keynotice.Install)")
+
+		return
+	}
+
+	sent, err := w.notices.Send(ctx)
+
+	switch {
+	case err != nil && ctx.Err() == nil:
+		w.log.ErrorContext(ctx, "service key notices failed", "error", err)
+	case sent > 0:
+		w.log.InfoContext(ctx, "service key notices queued", "notices", sent)
+	}
+}
