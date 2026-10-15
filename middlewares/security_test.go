@@ -1,9 +1,9 @@
 package middlewares_test
 
 import (
+	"regexp"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -82,32 +82,32 @@ func TestSecurity_CustomCSP(t *testing.T) {
 }
 
 func TestSecurityMiddleware_HTTP_NoHSTSHeader(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.Use(middlewares.Security(false))
-	r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+gin.SetMode(gin.TestMode)
+r := gin.New()
+r.Use(middlewares.Security(false))
+r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.ServeHTTP(rec, req)
+rec := httptest.NewRecorder()
+req := httptest.NewRequest(http.MethodGet, "/", nil)
+r.ServeHTTP(rec, req)
 
-	require.Empty(t, rec.Header().Get("Strict-Transport-Security"),
-		"HSTS must not be sent on plain HTTP")
+require.Empty(t, rec.Header().Get("Strict-Transport-Security"),
+"HSTS must not be sent on plain HTTP")
 }
 
 func TestSecurityMiddleware_HTTPS_HSTSPresent(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.Use(middlewares.Security(false, middlewares.SecurityConfig{TrustProxy: true}))
-	r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+gin.SetMode(gin.TestMode)
+r := gin.New()
+r.Use(middlewares.Security(false, middlewares.SecurityConfig{TrustProxy: true}))
+r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("X-Forwarded-Proto", "https")
-	r.ServeHTTP(rec, req)
+rec := httptest.NewRecorder()
+req := httptest.NewRequest(http.MethodGet, "/", nil)
+req.Header.Set("X-Forwarded-Proto", "https")
+r.ServeHTTP(rec, req)
 
-	require.Equal(t, "max-age=31536000; includeSubDomains; preload",
-		rec.Header().Get("Strict-Transport-Security"))
+require.Equal(t, "max-age=31536000; includeSubDomains; preload",
+rec.Header().Get("Strict-Transport-Security"))
 }
 
 // cspOf serves one request through Security and the given middleware and returns the policy.
