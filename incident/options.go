@@ -63,8 +63,8 @@ const (
 	SeverityCritical = core.SeverityCritical
 )
 
-// Holders names the people who hold a permission: the people an alert goes to. The default reads the access
-// module's roles and bindings (see Alerts).
+// Holders names the people who hold a permission: the people an alert goes to. The default asks the access module's
+// engine (authz.Engine.HoldersOf; see Alerts).
 type Holders func(ctx context.Context, permission string) ([]int, error)
 
 // Alerts configures the alert a new incident raises. The zero Alerts is off: nothing is queued or sent. Pass one to
@@ -89,8 +89,8 @@ type Alerts struct {
 	Cooldown time.Duration
 	// DigestEvery is how often the digest is sent; the default is DefaultDigestEvery.
 	DigestEvery time.Duration
-	// Holders names the people who hold the permission. The default finds them through the application's
-	// authorizer, when it is the access module's engine, and the roles and bindings in the primary database.
+	// Holders names the people who hold the permission. The default asks the application's authorizer, when it is
+	// the access module's engine (authz.Engine.HoldersOf), and keeps the people among the subjects.
 	Holders Holders
 }
 

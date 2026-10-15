@@ -10,14 +10,12 @@ import (
 	"time"
 
 	"github.com/wssto2/go-core/authz"
-	authzstore "github.com/wssto2/go-core/authz/gormstore"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/incident/core"
 	"github.com/wssto2/go-core/incident/mailtext"
 	"github.com/wssto2/go-core/notification"
-	"gorm.io/gorm"
 )
 
 // AlertCategory is the notification category of the alerts. Register it with notification.Install, beside the
@@ -287,81 +285,36 @@ func (w digestWorker) flush(ctx context.Context) error {
 	}
 }
 
-var errNoEngine = errors.New("incident: the application's authorizer is not the access module's engine, " +
-	"so it cannot say who holds a permission: give incident.Alerts a Holders function")
+var errNoEngine = errors.New("incident: the application's authorizer cannot say who holds a permission " +
+	"(it is not the access module's engine): give incident.Alerts a Holders function")
 
-// roleEngine is what the access module's authz.Engine offers.
-type roleEngine interface {
-	PredefinedRoles() []authz.Role
-	Catalogue() *authz.Catalogue
+// holderLister is what the access module's authz.Engine answers: who holds a permission.
+type holderLister interface {
+	HoldersOf(ctx context.Context, permission string) ([]authz.Subject, error)
 }
 
-// accessHolders finds the people who hold a permission in the roles and bindings of the access module: the predefined
-// roles come from the engine, the custom roles and every role's bindings from the primary database. A person who holds
-// it at any place counts, as for the check of a request. Service accounts are not people and are left out.
-func accessHolders(app *gocore.App, db *gorm.DB) Holders {
-	store := authzstore.New(db)
-
+// engineHolders finds the people who hold a permission through the application's authorizer, when it is the access
+// module's engine (authz.Engine.HoldersOf). Service accounts are not people and are left out.
+func engineHolders(app *gocore.App) Holders {
 	return func(ctx context.Context, permission string) ([]int, error) {
-		engine, ok := app.Authorizer().(roleEngine)
+		engine, ok := app.Authorizer().(holderLister)
 		if !ok {
 			return nil, errNoEngine
 		}
 
-		catalogue := engine.Catalogue()
-
-		var refs []authz.RoleRef
-
-		for _, role := range engine.PredefinedRoles() {
-			if grants(role, catalogue, permission) {
-				refs = append(refs, role.Ref())
-			}
-		}
-
-		custom, err := store.ListRoles(ctx)
+		subjects, err := engine.HoldersOf(ctx, permission)
 		if err != nil {
-			return nil, fmt.Errorf("list the custom roles: %w", err)
+			return nil, fmt.Errorf("find the holders: %w", err)
 		}
 
-		for _, role := range custom {
-			if grants(role, catalogue, permission) {
-				refs = append(refs, role.Ref())
+		people := make([]int, 0, len(subjects))
+
+		for _, subject := range subjects {
+			if subject.Kind == authz.KindUser {
+				people = append(people, subject.ID)
 			}
 		}
 
-		return holdersOf(ctx, store, refs)
+		return people, nil
 	}
-}
-
-func grants(role authz.Role, catalogue *authz.Catalogue, permission string) bool {
-	for _, grant := range role.Resolve(catalogue) {
-		if grant.Permission == permission {
-			return true
-		}
-	}
-
-	return false
-}
-
-// holdersOf are the people bound to any of the roles, each once, in the order of the bindings.
-func holdersOf(ctx context.Context, store *authzstore.Store, refs []authz.RoleRef) ([]int, error) {
-	var people []int
-
-	seen := map[int]bool{}
-
-	for _, ref := range refs {
-		bindings, err := store.HoldersOf(ctx, ref)
-		if err != nil {
-			return nil, fmt.Errorf("list the holders of a role: %w", err)
-		}
-
-		for _, binding := range bindings {
-			if binding.Subject.Kind == authz.KindUser && !seen[binding.Subject.ID] {
-				seen[binding.Subject.ID] = true
-				people = append(people, binding.Subject.ID)
-			}
-		}
-	}
-
-	return people, nil
 }

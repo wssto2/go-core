@@ -149,8 +149,8 @@ Specific prohibitions:
 - `auth`     MUST NOT import `database`, `bootstrap`, or `event`
 - `event`    MUST NOT import `bootstrap` or `auth`. It imports `database` (the transaction `Publish` joins, the outbox worker) and never `gocore`; `gocore` imports `event` and `event/migrations` for `App.Events`
 - `incident/core` MUST NOT import `gocore`, `route`, `gin`, GORM or `database/sql`: it is the service and the ports, which `gormstore`
-  implements and the facade wires. `incident` imports `notification` (the alerts) and `authz/gormstore` (who holds a permission);
-  neither imports it
+  implements and the facade wires. `incident` imports `notification` (the alerts); neither imports it. Who holds a permission is
+  `authz.Engine.HoldersOf`, which `incident` reaches through the application's authorizer
 - `notification` imports `event`, `identity/account` (the people it notifies; `identity/http` for the stream's session re-check), `gocore`, `route`, `database` and `authz`; neither `event` nor `identity` imports it
 - `audit`    MUST NOT import `bootstrap` or `auth`
 - `database` MUST NOT import `event`, `auth`, or `bootstrap`

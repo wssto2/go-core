@@ -123,7 +123,7 @@ func installAlerts(app *gocore.App, cfg *config, conn *gorm.DB, store core.Store
 
 	holders := cfg.alerts.Holders
 	if holders == nil {
-		holders = accessHolders(app, conn)
+		holders = engineHolders(app)
 	}
 
 	alerts := &alerter{
