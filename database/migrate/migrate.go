@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -225,6 +226,21 @@ func (m *Migrator) MarkApplied(ctx context.Context, conn string, versions []int6
 
 		return nil
 	})
+}
+
+// Version reads a migration version from what an operator types: the number itself
+// (20261015000000) or the file name, with or without its directory
+// (local/20261015000000_authz_roles.sql). It does not check that the migration exists; MarkApplied does.
+func Version(arg string) (int64, error) {
+	base := strings.TrimSuffix(path.Base(arg), ".sql")
+	digits, _, _ := strings.Cut(base, "_")
+
+	v, err := strconv.ParseInt(digits, 10, 64)
+	if err != nil || v <= 0 {
+		return 0, fmt.Errorf("%q is not a migration version: give the number or the file name, such as 20261015000000_authz_roles.sql", arg)
+	}
+
+	return v, nil
 }
 
 // each runs fn for every connection that has a migrations directory, in name order.

@@ -197,3 +197,23 @@ func TestPendingListsWhatHasNotRun(t *testing.T) {
 		t.Fatalf("pending after Up = %d, %v", len(pending), err)
 	}
 }
+
+func TestVersionReadsANumberOrAFileName(t *testing.T) {
+	for arg, want := range map[string]int64{
+		"20261015000000":                        20261015000000,
+		"20261015000000_authz_roles.sql":        20261015000000,
+		"migrations/local/20261015000000_x.sql": 20261015000000,
+		"7_a_b":                                 7,
+	} {
+		got, err := migrate.Version(arg)
+		if err != nil || got != want {
+			t.Errorf("Version(%q) = %d, %v; want %d", arg, got, err, want)
+		}
+	}
+
+	for _, arg := range []string{"", "authz_roles.sql", "0", "-3_a.sql", "12ab_x.sql"} {
+		if _, err := migrate.Version(arg); err == nil {
+			t.Errorf("Version(%q): want an error", arg)
+		}
+	}
+}
