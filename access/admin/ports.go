@@ -84,6 +84,16 @@ const (
 	ManageBindings = "iam.user:manage"
 )
 
+// The permissions that gate the access of a service account, in place of ViewAccess and ManageBindings, which are for
+// people. identity.WithServiceAccounts defines them (identity/serviceaccount.View and Manage); the ids are fixed.
+// A catalogue without them has no service accounts: their access answers not-found.
+const (
+	// ViewServiceAccountAccess reads what a service account may do and why.
+	ViewServiceAccountAccess = "iam.serviceaccount:view"
+	// ManageServiceAccountBindings gives and takes away the roles of a service account, at the scope it is held at.
+	ManageServiceAccountBindings = "iam.serviceaccount:manage"
+)
+
 // PermissionIDs returns the five ids.
 func PermissionIDs() []string {
 	return []string{ViewRoles, ManageRoles, DeleteRoles, ViewAccess, ManageBindings}

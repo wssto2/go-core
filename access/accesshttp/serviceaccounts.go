@@ -38,7 +38,7 @@ func ServiceAccountRoutes(bindings *admin.Bindings) []route.Handled {
 	h := handlers{bindings: bindings}
 
 	return []route.Handled{
-		ServiceAccountBindableRoles.To(h.bindableRoles),
+		ServiceAccountBindableRoles.To(h.serviceBindable),
 		ServiceAccountAccess.To(h.serviceAccess),
 		ServiceAccountScopes.To(h.serviceScopes),
 		ServiceAccountBind.To(h.serviceBind),
@@ -112,4 +112,20 @@ func (h handlers) serviceUnbind(ctx context.Context, in UnbindInput) (route.Empt
 	}
 
 	return route.Empty{}, h.bindings.Unbind(ctx, service(in.ID), in.BindingID)
+}
+
+func (h handlers) serviceBindable(ctx context.Context, in BindableInput) (BindableRoles, error) {
+	scope := authz.Scope{Level: strings.ToLower(strings.TrimSpace(in.Level)), ID: in.ScopeID}
+
+	views, err := h.bindings.BindableRolesFor(ctx, authz.KindServiceAccount, scope)
+	if err != nil {
+		return BindableRoles{}, err
+	}
+
+	out := BindableRoles{Roles: make([]Role, len(views))}
+	for i, v := range views {
+		out.Roles[i] = RoleOf(v)
+	}
+
+	return out, nil
 }

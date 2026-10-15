@@ -31,7 +31,12 @@ type Bindings struct {
 // Access describes the subject's bindings and, for each permission they hold,
 // how they hold it.
 func (b *Bindings) Access(ctx context.Context, subject authz.Subject) (SubjectAccess, error) {
-	if err := b.cfg.Engine.Require(ctx, ViewAccess); err != nil {
+	guard, err := b.gateOf(subject.Kind)
+	if err != nil {
+		return SubjectAccess{}, err
+	}
+
+	if err := b.cfg.Engine.Require(ctx, guard.view); err != nil {
 		return SubjectAccess{}, err
 	}
 
@@ -96,7 +101,7 @@ func (b *Bindings) Access(ctx context.Context, subject authz.Subject) (SubjectAc
 	}
 
 	actor, _ := authz.PrincipalFrom(ctx)
-	canManage := actor.Subject != subject && b.cfg.Engine.Require(ctx, ManageBindings) == nil
+	canManage := actor.Subject != subject && b.cfg.Engine.Require(ctx, guard.manage) == nil
 
 	return SubjectAccess{Subject: subject, Bindings: bindings, Effective: effective, CanManage: canManage}, nil
 }
@@ -187,7 +192,12 @@ func (b *Bindings) describe(ctx context.Context, stored []authz.Binding, placeOf
 // actor may: ManageBindings at a scope containing the target, no escalation,
 // never to themselves.
 func (b *Bindings) Bind(ctx context.Context, subject authz.Subject, draft BindingDraft) (Binding, error) {
-	if err := b.cfg.Engine.Require(ctx, ManageBindings); err != nil {
+	guard, err := b.gateOf(subject.Kind)
+	if err != nil {
+		return Binding{}, err
+	}
+
+	if err := b.cfg.Engine.Require(ctx, guard.manage); err != nil {
 		return Binding{}, err
 	}
 
@@ -207,7 +217,7 @@ func (b *Bindings) Bind(ctx context.Context, subject authz.Subject, draft Bindin
 		return Binding{}, err
 	}
 
-	saved, err := b.delegation.Bind(ctx, binding)
+	saved, err := guard.delegation.Bind(ctx, binding)
 	if err != nil {
 		return Binding{}, err
 	}
@@ -228,7 +238,12 @@ func (b *Bindings) Bind(ctx context.Context, subject authz.Subject, draft Bindin
 // Unbind removes one of the subject's bindings; a binding of somebody else is a
 // not-found.
 func (b *Bindings) Unbind(ctx context.Context, subject authz.Subject, bindingID int) error {
-	if err := b.cfg.Engine.Require(ctx, ManageBindings); err != nil {
+	guard, err := b.gateOf(subject.Kind)
+	if err != nil {
+		return err
+	}
+
+	if err := b.cfg.Engine.Require(ctx, guard.manage); err != nil {
 		return err
 	}
 
@@ -254,7 +269,7 @@ func (b *Bindings) Unbind(ctx context.Context, subject authz.Subject, bindingID 
 		return err
 	}
 
-	return b.delegation.Unbind(ctx, bindingID)
+	return guard.delegation.Unbind(ctx, bindingID)
 }
 
 // Scopes are the places the actor may give this subject roles at: where they
@@ -269,7 +284,12 @@ func (b *Bindings) Scopes(ctx context.Context, subject authz.Subject) (ScopeOpti
 		return ScopeOptions{}, err
 	}
 
-	if err := b.cfg.Engine.Require(ctx, ManageBindings); err != nil {
+	guard, err := b.gateOf(subject.Kind)
+	if err != nil {
+		return ScopeOptions{}, err
+	}
+
+	if err := b.cfg.Engine.Require(ctx, guard.manage); err != nil {
 		return ScopeOptions{}, err
 	}
 
@@ -288,7 +308,7 @@ func (b *Bindings) Scopes(ctx context.Context, subject authz.Subject) (ScopeOpti
 	}
 
 	h := b.cfg.Engine.Hierarchy()
-	clauses := eff.Clauses(ManageBindings)
+	clauses := eff.Clauses(guard.manage)
 
 	out := ScopeOptions{RootLevel: h.RootLevel(), Places: []ScopeOption{}}
 
@@ -333,7 +353,18 @@ func (b *Bindings) Scopes(ctx context.Context, subject authz.Subject) (ScopeOpti
 // BindableRoles are the roles the actor may give at the scope: every role for
 // which delegation would accept the binding, so a sheet only offers allowed ones.
 func (b *Bindings) BindableRoles(ctx context.Context, scope authz.Scope) ([]RoleView, error) {
+	return b.BindableRolesFor(ctx, authz.KindUser, scope)
+}
+
+// BindableRolesFor is BindableRoles for the kind of subject the roles are for: the actor's rights to give a person's
+// roles are iam.user:manage, to give a service account's iam.serviceaccount:manage.
+func (b *Bindings) BindableRolesFor(ctx context.Context, kind authz.Kind, scope authz.Scope) ([]RoleView, error) {
 	actor, err := b.actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	guard, err := b.gateOf(kind)
 	if err != nil {
 		return nil, err
 	}
@@ -370,7 +401,7 @@ func (b *Bindings) BindableRoles(ctx context.Context, scope authz.Scope) ([]Role
 	out := []RoleView{}
 
 	for _, role := range append(b.cfg.Engine.PredefinedRoles(), custom...) {
-		if b.cfg.Engine.CanBind(ctx, actor, role, scope, ManageBindings) == nil {
+		if b.cfg.Engine.CanBind(ctx, actor, role, scope, guard.manage) == nil {
 			out = append(out, viewOf(role, cat, counts.Of(role.Ref()), true))
 		}
 	}

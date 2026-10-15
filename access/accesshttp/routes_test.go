@@ -81,6 +81,7 @@ func newServer(t *testing.T, prefix string) *server {
 			{Key: "seller", Name: "Seller", Grants: authz.Grants(authz.QualifierAll, "crm.customer:view")},
 			{Key: "admin", Name: "Administrator", Grants: authz.Grants(authz.QualifierAll,
 				"iam.role:view", "iam.role:manage", "iam.role:delete", "iam.user:view", "iam.user:manage")},
+			{Key: "robots", Name: "Robot administrator", Grants: authz.Grants(authz.QualifierAll, serviceaccount.View, serviceaccount.Manage)},
 			authz.ComputedRole("webmaster", "Webmaster", authz.All()),
 		},
 	})
@@ -223,7 +224,7 @@ func TestRolesOverHTTP(t *testing.T) {
 		assert.Nil(t, role.Key)
 
 		list := decode[accesshttp.RoleList](t, s.do(1, "GET", "/v1/iam/roles", nil))
-		require.Len(t, list.Roles, 4)
+		require.Len(t, list.Roles, 5)
 		assert.Equal(t, "webmaster", list.Roles[0].Ref)
 		assert.Nil(t, list.Roles[0].ID)
 		assert.True(t, list.Roles[0].Predefined && list.Roles[0].Computed)

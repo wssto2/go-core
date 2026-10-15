@@ -302,13 +302,12 @@ func TestAccessExplainsWhatASubjectMayDo(t *testing.T) {
 		assert.True(t, apperr.HasCode(err, apperr.CodeNotFound))
 	})
 
-	t.Run("service accounts are subjects too", func(t *testing.T) {
+	t.Run("service accounts are not subjects of a catalogue without their permissions", func(t *testing.T) {
 		bot := authz.Subject{Kind: authz.KindServiceAccount, ID: 1}
 		_, err := f.Bindings.Bind(as(1), bot, admin.BindingDraft{Role: "seller", Scope: authztest.Dealer(10)})
-		require.NoError(t, err)
-		got, err := f.Bindings.Access(as(1), bot)
-		require.NoError(t, err)
-		assert.Len(t, got.Bindings, 1)
+		assert.True(t, apperr.HasCode(err, apperr.CodeNotFound))
+		_, err = f.Bindings.Access(as(1), bot)
+		assert.True(t, apperr.HasCode(err, apperr.CodeNotFound))
 	})
 }
 

@@ -178,6 +178,9 @@ func newBindings(t *testing.T) *admin.Bindings {
 		cat.MustDefine(id)
 	}
 
+	cat.MustDefine(serviceaccount.View)
+	cat.MustDefine(serviceaccount.Manage)
+
 	reg, cleanup := database.NewTestRegistry("local")
 
 	t.Cleanup(func() { _ = cleanup() })

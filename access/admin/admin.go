@@ -75,7 +75,16 @@ func New(cfg Config) (*Roles, *Bindings, error) {
 		return nil, nil, fmt.Errorf("access: %w", err)
 	}
 
-	b := base{cfg: cfg, delegation: delegation}
+	b := base{cfg: cfg, delegation: delegation, serviceDelegation: nil}
+
+	if _, ok := cfg.Engine.Catalogue().Lookup(ManageServiceAccountBindings); ok {
+		b.serviceDelegation, err = authz.NewAdmin(authz.AdminConfig{
+			Engine: cfg.Engine, Store: cfg.Store, ManageRoles: ManageRoles, ManageBindings: ManageServiceAccountBindings, Protected: nil,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("access: %w", err)
+		}
+	}
 
 	return &Roles{base: b}, &Bindings{base: b}, nil
 }
@@ -84,6 +93,30 @@ func New(cfg Config) (*Roles, *Bindings, error) {
 type base struct {
 	cfg        Config
 	delegation *authz.Admin
+	// serviceDelegation is the rules for giving roles to service accounts, keyed on iam.serviceaccount:manage; nil
+	// when the catalogue has no service account permissions.
+	serviceDelegation *authz.Admin
+}
+
+// gate is what guards the access of one kind of subject: the permission to read it, the permission to change it,
+// and the delegation rules that go with the second.
+type gate struct {
+	view, manage string
+	delegation   *authz.Admin
+}
+
+// gateOf is the gate of the subject's kind: a person's access is guarded by iam.user:*, a service account's by
+// iam.serviceaccount:* and never by iam.user:*. A service account in an application without them, and a subject of
+// no kind, are not found.
+func (b base) gateOf(kind authz.Kind) (gate, error) {
+	switch {
+	case kind == authz.KindUser:
+		return gate{view: ViewAccess, manage: ManageBindings, delegation: b.delegation}, nil
+	case kind == authz.KindServiceAccount && b.serviceDelegation != nil:
+		return gate{view: ViewServiceAccountAccess, manage: ManageServiceAccountBindings, delegation: b.serviceDelegation}, nil
+	default:
+		return gate{}, apperr.NotFound("subject not found")
+	}
 }
 
 func (b base) places(ctx context.Context, scopes []authz.Scope) (func(authz.Scope) Place, error) {

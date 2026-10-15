@@ -8,8 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/access/accesshttp"
+	"github.com/wssto2/go-core/access/admin"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
+	"github.com/wssto2/go-core/identity/serviceaccount"
 )
 
 const robots = "/v1/iam/service-accounts"
@@ -78,4 +80,59 @@ func TestServiceAccountAccessOverHTTP(t *testing.T) {
 		assert.Equal(t, http.StatusUnprocessableEntity, s.do(1, "DELETE", robots+"/5/bindings/0", nil).Status, "a binding id of zero")
 		assert.Equal(t, http.StatusBadRequest, s.do(1, "DELETE", robots+"/0/bindings/1", nil).Status)
 	})
+}
+
+// A service account's access is guarded by iam.serviceaccount:*, a person's by iam.user:*: each way round, the one
+// permission does not open the other's.
+func TestTheAccessOfEachKindOfSubjectHasItsOwnPermissions(t *testing.T) {
+	s := newServer(t, "")
+	s.seed(1, "webmaster", authztest.Org())
+	s.seed(3, "robots", authztest.Org()) // iam.serviceaccount:view and :manage, nothing of iam.user:*
+
+	give := accesshttp.BindInput{RoleRef: "seller", Level: "dealer", ScopeID: new(10)}
+
+	t.Run("who manages service accounts gives a role to one", func(t *testing.T) {
+		bound := s.do(3, "POST", robots+"/5/bindings", give)
+		require.Equal(t, http.StatusCreated, bound.Status, string(bound.Data))
+
+		assert.Equal(t, http.StatusOK, s.do(3, "GET", robots+"/5/access", nil).Status)
+		assert.Equal(t, http.StatusOK, s.do(3, "GET", robots+"/5/scopes", nil).Status)
+
+		roles := s.do(3, "GET", robots+"/bindable-roles?level=dealer&scope_id=10", nil)
+		require.Equal(t, http.StatusOK, roles.Status, string(roles.Data))
+
+		refs := []string{}
+		for _, role := range decode[accesshttp.BindableRoles](t, roles).Roles {
+			refs = append(refs, role.Ref)
+		}
+
+		assert.Contains(t, refs, "seller")
+
+		binding := decode[accesshttp.Binding](t, bound)
+		assert.Equal(t, http.StatusNoContent, s.do(3, "DELETE", robots+"/5/bindings/"+strconv.Itoa(binding.ID), nil).Status)
+	})
+
+	t.Run("and cannot touch a person's", func(t *testing.T) {
+		assert.Equal(t, http.StatusForbidden, s.do(3, "POST", "/v1/iam/users/5/bindings", give).Status)
+		assert.Equal(t, http.StatusForbidden, s.do(3, "GET", "/v1/iam/users/5/access", nil).Status)
+		assert.Equal(t, http.StatusForbidden, s.do(3, "GET", "/v1/iam/users/5/scopes", nil).Status)
+
+		roles := s.do(3, "GET", "/v1/iam/bindable-roles?level=dealer&scope_id=10", nil)
+		require.Equal(t, http.StatusOK, roles.Status)
+		assert.Empty(t, decode[accesshttp.BindableRoles](t, roles).Roles, "none a person may be given by somebody who gives none")
+	})
+
+	t.Run("who manages people cannot touch a service account's", func(t *testing.T) {
+		s.seed(2, "admin", authztest.Org())
+
+		assert.Equal(t, http.StatusForbidden, s.do(2, "POST", robots+"/5/bindings", give).Status)
+		assert.Equal(t, http.StatusForbidden, s.do(2, "GET", robots+"/5/access", nil).Status)
+		assert.Equal(t, http.StatusOK, s.do(1, "POST", "/v1/iam/users/5/bindings", give).Status, "the webmaster holds both")
+	})
+}
+
+// The permission ids the service layer asks are the ones the module's routes and catalogue define.
+func TestTheServiceAccountPermissionIDsAgree(t *testing.T) {
+	assert.Equal(t, serviceaccount.View, admin.ViewServiceAccountAccess)
+	assert.Equal(t, serviceaccount.Manage, admin.ManageServiceAccountBindings)
 }

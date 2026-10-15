@@ -161,11 +161,15 @@ func onEveryDatabase(t *testing.T, fn func(t *testing.T, f *fixture)) {
 }
 
 func fixtureOn(conn *gorm.DB, tweak ...func(*admin.Config)) (*fixture, error) {
+	return fixtureWith(conn, catalogue(), predefined(), tweak...)
+}
+
+func fixtureWith(conn *gorm.DB, cat *authz.Catalogue, roles []authz.Role, tweak ...func(*admin.Config)) (*fixture, error) {
 	store := gormstore.New(conn)
 	dir := newDirectory()
 
 	engine, err := authz.NewEngine(authz.Config{
-		Catalogue: catalogue(), Hierarchy: authztest.Hierarchy(), Roles: predefined(), Store: store, Resolver: dir,
+		Catalogue: cat, Hierarchy: authztest.Hierarchy(), Roles: roles, Store: store, Resolver: dir,
 	})
 	if err != nil {
 		return nil, err
@@ -180,12 +184,12 @@ func fixtureOn(conn *gorm.DB, tweak ...func(*admin.Config)) (*fixture, error) {
 		t(&cfg)
 	}
 
-	roles, bindings, err := admin.New(cfg)
+	roleAdmin, bindings, err := admin.New(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	return &fixture{Engine: engine, Store: store, Roles: roles, Bindings: bindings}, nil
+	return &fixture{Engine: engine, Store: store, Roles: roleAdmin, Bindings: bindings}, nil
 }
 
 func user(id int) authz.Subject { return authz.Subject{Kind: authz.KindUser, ID: id} }
