@@ -25,6 +25,7 @@ One authentication chain: go-core identity authenticates every route, whether th
 - `access/admin`: a service account's access is guarded by `iam.serviceaccount:view` and `:manage`, a person's still by `iam.user:*`. New `Bindings.BindableRolesFor(ctx, kind, scope)` and the constants `ViewServiceAccountAccess` and `ManageServiceAccountBindings`.
 - `identity.WithEmbed(secret)`: `GET /embed` at the site root. A signed, single-use token opens a 24-hour session with no refresh, for an application shown in another host's iframe. The `redirect` must be a path of this site; any other value becomes `/`. The secret must be at least 32 characters. `account.SignIn.Embed` is the sign-in behind it.
 - `auth.EnforceUserRateLimit`.
+- `cmd/modulets` writes `serviceaccount/` (the service-account routes, their keys and their access) next to the other module folders.
 
 ### Changed
 
