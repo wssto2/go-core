@@ -12,8 +12,38 @@ import (
 	"github.com/wssto2/go-core/apperr"
 )
 
-// maxAttempts bounds the retry of a write that lost a race to create the same incident.
-const maxAttempts = 3
+// maxAttempts bounds the retry of a write that lost a race: to create the same incident, or to the database's locks.
+const maxAttempts = 5
+
+// retryWait is the wait before the second attempt; it doubles with each.
+const retryWait = 5 * time.Millisecond
+
+// lostRace reports whether a write should be tried again in a transaction of its own.
+func lostRace(err error) bool { return errors.Is(err, ErrDuplicate) || errors.Is(err, ErrConflict) }
+
+// transact runs fn in a transaction, again when it lost a race (a concurrent request created the same incident, or the
+// database chose it to resolve a deadlock), up to maxAttempts times.
+func (s *Service) transact(ctx context.Context, fn func(ctx context.Context) error) error {
+	var err error
+
+	wait := retryWait
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err = s.tx.WithinTransaction(ctx, fn)
+		if !lostRace(err) {
+			return err
+		}
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("incident: %w", ctx.Err())
+		case <-time.After(wait):
+			wait *= 2
+		}
+	}
+
+	return apperr.Internal(fmt.Errorf("incident: gave up after %d attempts: %w", maxAttempts, err))
+}
 
 // signedIn is the person's id, or 401 for a viewer who is not a person.
 func signedIn(who Viewer) (int, error) {
@@ -41,19 +71,13 @@ func (s *Service) Report(ctx context.Context, who Viewer, in ReportInput) (Detai
 
 	var id int
 
-	for attempt := 1; ; attempt++ {
-		err = s.tx.WithinTransaction(ctx, func(ctx context.Context) error {
-			var err error
+	err = s.transact(ctx, func(ctx context.Context) error {
+		var err error
 
-			id, err = s.fileReport(ctx, reporter, in)
+		id, err = s.fileReport(ctx, reporter, in)
 
-			return err
-		})
-		if !errors.Is(err, ErrDuplicate) || attempt == maxAttempts {
-			break
-		}
-	}
-
+		return err
+	})
 	if err != nil {
 		return Detail{}, err
 	}
@@ -216,7 +240,7 @@ func (s *Service) Comment(ctx context.Context, incidentID int, who Viewer, in Co
 
 	var created Comment
 
-	err = s.tx.WithinTransaction(ctx, func(ctx context.Context) error {
+	err = s.transact(ctx, func(ctx context.Context) error {
 		if _, err := s.store.Find(ctx, incidentID, who); err != nil {
 			return err
 		}
@@ -226,11 +250,13 @@ func (s *Service) Comment(ctx context.Context, incidentID int, who Viewer, in Co
 			IncidentID: incidentID, AuthorUserID: author, Visibility: visibility, Body: in.Body, CreatedAt: now, UpdatedAt: now,
 		}
 
-		if err := s.store.CreateComment(ctx, &created); err != nil {
+		// Count first: the comment's foreign key takes a shared lock on the incident, and two comments that each hold one
+		// and wait for the exclusive lock of the count deadlock.
+		if err := s.store.CountComment(ctx, incidentID, now); err != nil {
 			return apperr.Internal(err)
 		}
 
-		if err := s.store.CountComment(ctx, incidentID, now); err != nil {
+		if err := s.store.CreateComment(ctx, &created); err != nil {
 			return apperr.Internal(err)
 		}
 

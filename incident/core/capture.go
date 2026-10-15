@@ -53,16 +53,7 @@ func (s *Service) Capture(ctx context.Context, f Failure) error {
 
 	f = s.normalized(f)
 
-	var err error
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		err = s.tx.WithinTransaction(ctx, func(ctx context.Context) error { return s.record(ctx, f) })
-		if !errors.Is(err, ErrDuplicate) {
-			return err
-		}
-	}
-
-	return apperr.Internal(fmt.Errorf("capture: gave up after %d attempts: %w", maxAttempts, err))
+	return s.transact(ctx, func(ctx context.Context) error { return s.record(ctx, f) })
 }
 
 // normalized cuts the failure to what the columns hold and fills what it leaves out.
@@ -172,6 +163,14 @@ func (s *Service) record(ctx context.Context, f Failure) error {
 		RequestJSON: f.RequestJSON, OccurredAt: now, CreatedAt: now,
 	}
 
+	// The incident is written before the occurrence: the occurrence's foreign key takes a shared lock on the incident, and
+	// concurrent captures of one error that each hold one and wait for the exclusive lock of the count deadlock.
+	if !created {
+		if err := s.store.CountOccurrence(ctx, incident.ID, incident.Source, now, &occurrence); err != nil {
+			return apperr.Internal(err)
+		}
+	}
+
 	if err := s.store.CreateOccurrence(ctx, &occurrence); err != nil {
 		return apperr.Internal(err)
 	}
@@ -180,12 +179,6 @@ func (s *Service) record(ctx context.Context, f Failure) error {
 		if err := s.opened(ctx, openedOf(*incident)); err != nil {
 			return apperr.Internal(err)
 		}
-
-		return nil
-	}
-
-	if err := s.store.CountOccurrence(ctx, incident.ID, incident.Source, now, &occurrence); err != nil {
-		return apperr.Internal(err)
 	}
 
 	return nil

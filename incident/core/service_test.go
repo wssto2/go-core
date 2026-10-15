@@ -161,3 +161,49 @@ func TestANewIncidentIsAnnouncedInItsTransaction(t *testing.T) {
 		assert.Equal(t, core.SourceRuntimeError, opened[1].Source)
 	})
 }
+
+// Comments and reports that arrive together on one incident are all kept and counted: the writes are ordered so that
+// the database does not choose a victim among them, and a deadlock it chooses anyway is retried.
+func TestConcurrentCommentsAndReportsAreAllKept(t *testing.T) {
+	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+		service, _ := serviceOn(t, db)
+
+		first, err := service.Report(t.Context(), core.Viewer{UserID: 1}, core.ReportInput{Title: "Same", Description: "problem"})
+		require.NoError(t, err)
+
+		const workers = 8
+
+		var wg sync.WaitGroup
+
+		errs := make(chan error, 2*workers)
+
+		for worker := range workers {
+			who := core.Viewer{UserID: 10 + worker, Staff: true}
+
+			wg.Go(func() {
+				_, err := service.Comment(t.Context(), first.Incident.ID, who, core.CommentInput{Body: "me too"})
+				errs <- err
+			})
+			wg.Go(func() {
+				_, err := service.Report(t.Context(), who, core.ReportInput{Title: "Same", Description: "problem"})
+				errs <- err
+			})
+		}
+
+		wg.Wait()
+		close(errs)
+
+		for err := range errs {
+			require.NoError(t, err)
+		}
+
+		shown, err := service.Show(t.Context(), first.Incident.ID, core.Viewer{UserID: 1, Staff: true})
+		require.NoError(t, err)
+
+		assert.Equal(t, 1, count(t, db, "incidents"))
+		assert.Equal(t, workers, shown.Incident.CommentCount)
+		assert.Equal(t, workers+1, shown.Incident.ReportCount)
+		assert.Len(t, shown.Comments, workers)
+		assert.Len(t, shown.Reports, workers+1)
+	})
+}

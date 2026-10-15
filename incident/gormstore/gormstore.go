@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -228,6 +229,24 @@ func (s *Store) byFingerprint(_ context.Context, q *gorm.DB) (core.Incident, err
 	return row.incident(), nil
 }
 
+// isConflict recognises a write the database gave up on, because of a deadlock or a lock wait that ran out (MySQL and
+// MariaDB: 1213 and 1205; SQLite: the database is locked).
+func isConflict(err error) bool {
+	lower := strings.ToLower(err.Error())
+
+	return strings.Contains(lower, "deadlock found") || strings.Contains(lower, "lock wait timeout") ||
+		strings.Contains(lower, "database is locked") || strings.Contains(lower, "database table is locked")
+}
+
+// failed is the error of a write: one that lost a race to the database's locks says so, for the Service to try again.
+func failed(what string, err error) error {
+	if isConflict(err) {
+		return fmt.Errorf("%s: %w: %w", what, core.ErrConflict, err)
+	}
+
+	return fmt.Errorf("%s: %w", what, err)
+}
+
 // isDuplicate recognises a unique-key violation on SQLite, MySQL and MariaDB.
 func isDuplicate(err error) bool {
 	lower := strings.ToLower(err.Error())
@@ -245,7 +264,7 @@ func (s *Store) CreateIncident(ctx context.Context, incident *core.Incident) err
 			return fmt.Errorf("create incident: %w", core.ErrDuplicate)
 		}
 
-		return fmt.Errorf("create incident: %w", err)
+		return failed("create incident", err)
 	}
 
 	incident.ID = row.ID
@@ -260,7 +279,7 @@ func (s *Store) UpdateIncident(ctx context.Context, incident core.Incident) erro
 	err := s.conn(ctx).Model(&incidentModel{}).Where("id = ?", incident.ID).
 		Select("*").Omit("id", "created_at").Updates(&row).Error
 	if err != nil {
-		return fmt.Errorf("update incident %d: %w", incident.ID, err)
+		return failed("update incident "+strconv.Itoa(incident.ID), err)
 	}
 
 	return nil
@@ -272,7 +291,7 @@ func (s *Store) CreateReport(ctx context.Context, report *core.Report) error {
 	row.ID = 0
 
 	if err := s.conn(ctx).Create(&row).Error; err != nil {
-		return fmt.Errorf("create report: %w", err)
+		return failed("create report", err)
 	}
 
 	report.ID = row.ID
@@ -289,7 +308,7 @@ func (s *Store) CreateComment(ctx context.Context, comment *core.Comment) error 
 	}
 
 	if err := s.conn(ctx).Create(&row).Error; err != nil {
-		return fmt.Errorf("create comment: %w", err)
+		return failed("create comment", err)
 	}
 
 	comment.ID = row.ID
@@ -309,7 +328,7 @@ func (s *Store) CreateOccurrence(ctx context.Context, o *core.Occurrence) error 
 	}
 
 	if err := s.conn(ctx).Create(&row).Error; err != nil {
-		return fmt.Errorf("create occurrence: %w", err)
+		return failed("create occurrence", err)
 	}
 
 	return nil
@@ -318,7 +337,7 @@ func (s *Store) CreateOccurrence(ctx context.Context, o *core.Occurrence) error 
 func (s *Store) bump(ctx context.Context, incidentID int, set map[string]any) error {
 	err := s.conn(ctx).Model(&incidentModel{}).Where("id = ?", incidentID).Updates(set).Error
 	if err != nil {
-		return fmt.Errorf("update counts of incident %d: %w", incidentID, err)
+		return failed("update counts of incident "+strconv.Itoa(incidentID), err)
 	}
 
 	return nil
@@ -380,7 +399,7 @@ func (s *Store) Watch(ctx context.Context, incidentID, userID int, at time.Time)
 
 	err := s.conn(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error
 	if err != nil {
-		return fmt.Errorf("watch incident %d: %w", incidentID, err)
+		return failed("watch incident "+strconv.Itoa(incidentID), err)
 	}
 
 	return nil

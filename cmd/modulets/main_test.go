@@ -13,7 +13,7 @@ func TestGenerateWritesAFolderPerModule(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, module := range []string{"identity", "access", "notification", "events", "serviceaccount"} {
+	for _, module := range []string{"identity", "access", "notification", "events", "serviceaccount", "incident"} {
 		src, err := os.ReadFile(filepath.Join(dir, module, "routes.ts")) //nolint:gosec // a temp dir of this test
 		if err != nil {
 			t.Fatal(err)
@@ -48,6 +48,7 @@ func TestTheContractHasThePreferencesQuietHoursAndConsumers(t *testing.T) {
 		"events/routes.ts":         {`"/v1/events/consumers", { permission: "events.deadletter:view" }`},
 		"events/entities.ts":       {"export type ConsumerNames"},
 		"serviceaccount/routes.ts": {`"/v1/iam/service-accounts/:id/keys"`, `"/v1/iam/service-accounts/:id/bindings"`},
+		"incident/routes.ts":       {`"/v1/incidents/client-errors"`, `"/v1/incidents/:incidentID/comments"`, `"POST", "/v1/incidents/reports"`},
 	} {
 		src, err := os.ReadFile(filepath.Join(dir, file)) //nolint:gosec // a temp dir of this test
 		if err != nil {

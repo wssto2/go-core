@@ -132,6 +132,10 @@ Modules — features go-core ships, each a facade that imports gocore (section 4
   identity/serviceaccount (service accounts and API keys; imports apperr, audit, authz and event;
   its gormstore imports database, its http route and access/accesshttp, and keynotice imports
   notification and gocore, which identity cannot, since notification imports identity/http)
+  incident (the incident log: the facade imports gocore, notification, identity/account (the people), route, tenancy,
+  audit, authz and its own sub-packages; incident/core is framework-free and takes apperr, pagination and the
+  standard library; gormstore imports database, datatable and core; storetest, mailtext and migrations hold the
+  conformance suite, the alert wording and the goose files)
 
 Layer 7 — example only:
   go-core-example
@@ -144,6 +148,9 @@ validation only; go-core's section 4 is checked with it, section 4.0):
 Specific prohibitions:
 - `auth`     MUST NOT import `database`, `bootstrap`, or `event`
 - `event`    MUST NOT import `bootstrap` or `auth`. It imports `database` (the transaction `Publish` joins, the outbox worker) and never `gocore`; `gocore` imports `event` and `event/migrations` for `App.Events`
+- `incident/core` MUST NOT import `gocore`, `route`, `gin`, GORM or `database/sql`: it is the service and the ports, which `gormstore`
+  implements and the facade wires. `incident` imports `notification` (the alerts) and `authz/gormstore` (who holds a permission);
+  neither imports it
 - `notification` imports `event`, `identity/account` (the people it notifies; `identity/http` for the stream's session re-check), `gocore`, `route`, `database` and `authz`; neither `event` nor `identity` imports it
 - `audit`    MUST NOT import `bootstrap` or `auth`
 - `database` MUST NOT import `event`, `auth`, or `bootstrap`
@@ -178,7 +185,7 @@ production files (`_test.go` files and `*test` support packages are exempt):
 - `identity/account` taking the standard library, `apperr`, `authz`, `mail` and bcrypt only.
 
 It also holds `archtest`'s route-access rule on go-core's own routes (every route
-says who may call it). Not checked: `fmt.Errorf` wrapping (two `%v` wraps of an
+says who may call it). Not checked: that `incident/core` stays free of HTTP and SQL packages, `fmt.Errorf` wrapping (two `%v` wraps of an
 error that may be nil remain in `datatable` and `resource`), the route naming
 rules (modules build some paths at run time), that an `Install` builds only
 its own services (`gocore` has its own test) and the import cycle, which the compiler refuses.

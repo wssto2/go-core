@@ -16,6 +16,9 @@ var (
 	// ErrDuplicate is CreateIncident meeting an incident that is already there: the public code, or the open
 	// fingerprint of an incident created a moment before by a concurrent request.
 	ErrDuplicate = errors.New("incident already exists")
+	// ErrConflict is a write that lost a race with another transaction to the database (a deadlock, a lock wait that
+	// ran out). Nothing was written; the Service tries again.
+	ErrConflict = errors.New("write conflict")
 )
 
 // Store keeps incidents. The gormstore package is the SQL implementation and storetest the suite every store passes.

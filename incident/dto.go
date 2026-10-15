@@ -10,28 +10,28 @@ import (
 	"github.com/wssto2/go-core/web/typed"
 )
 
-// Stamp is a time on the wire: RFC 3339, or null for a time that is not set.
-type Stamp struct{ time.Time }
+// DateTime is a time on the wire: RFC 3339, or null for a time that is not set. The generator writes it as a string.
+type DateTime struct{ time.Time }
 
 // MarshalJSON writes the time as RFC 3339.
-func (s Stamp) MarshalJSON() ([]byte, error) {
-	if s.IsZero() {
+func (d DateTime) MarshalJSON() ([]byte, error) {
+	if d.IsZero() {
 		return []byte("null"), nil
 	}
 
-	return json.Marshal(s.Format(time.RFC3339)) //nolint:wrapcheck // a string cannot fail to encode
+	return json.Marshal(d.Format(time.RFC3339)) //nolint:wrapcheck // a string cannot fail to encode
 }
 
-func stamp(t time.Time) Stamp { return Stamp{Time: t} }
+func stamp(t time.Time) DateTime { return DateTime{Time: t} }
 
-func stampPtr(t *time.Time) *Stamp {
+func stampPtr(t *time.Time) *DateTime {
 	if t == nil {
 		return nil
 	}
 
-	s := stamp(*t)
+	d := stamp(*t)
 
-	return &s
+	return &d
 }
 
 // PersonResponse is a person named on an incident: the reporter, the assignee, an author.
@@ -66,8 +66,8 @@ type IncidentResponse struct {
 	ErrorCode              string          `json:"error_code,omitempty"`
 	ErrorMessageSample     string          `json:"error_message_sample,omitempty"`
 	StacktraceSample       string          `json:"stacktrace_sample,omitempty"`
-	FirstSeenAt            Stamp           `json:"first_seen_at"`
-	LastSeenAt             Stamp           `json:"last_seen_at"`
+	FirstSeenAt            DateTime        `json:"first_seen_at"`
+	LastSeenAt             DateTime        `json:"last_seen_at"`
 	OccurrenceCount        int             `json:"occurrence_count"`
 	ReportCount            int             `json:"report_count"`
 	CommentCount           int             `json:"comment_count"`
@@ -78,9 +78,9 @@ type IncidentResponse struct {
 	ExternalTicketURL      string          `json:"external_ticket_url,omitempty"`
 	DuplicateOfIncidentID  *int            `json:"duplicate_of_incident_id,omitempty"`
 	ResolutionSummary      string          `json:"resolution_summary,omitempty"`
-	ResolvedAt             *Stamp          `json:"resolved_at,omitempty"`
-	CreatedAt              Stamp           `json:"created_at"`
-	UpdatedAt              Stamp           `json:"updated_at"`
+	ResolvedAt             *DateTime       `json:"resolved_at,omitempty"`
+	CreatedAt              DateTime        `json:"created_at"`
+	UpdatedAt              DateTime        `json:"updated_at"`
 	Reporter               *PersonResponse `json:"reporter,omitempty"`
 	Assignee               *PersonResponse `json:"assignee,omitempty"`
 }
@@ -107,10 +107,10 @@ type CommentResponse struct {
 	AuthorUserID int             `json:"author_user_id"`
 	Visibility   string          `json:"visibility"`
 	Body         string          `json:"body"`
-	EditedAt     *Stamp          `json:"edited_at,omitempty"`
-	DeletedAt    *Stamp          `json:"deleted_at,omitempty"`
-	CreatedAt    Stamp           `json:"created_at"`
-	UpdatedAt    Stamp           `json:"updated_at"`
+	EditedAt     *DateTime       `json:"edited_at,omitempty"`
+	DeletedAt    *DateTime       `json:"deleted_at,omitempty"`
+	CreatedAt    DateTime        `json:"created_at"`
+	UpdatedAt    DateTime        `json:"updated_at"`
 	Author       *PersonResponse `json:"author,omitempty"`
 }
 
@@ -141,11 +141,20 @@ type ReportResponse struct {
 	AppVersion           string          `json:"app_version,omitempty"`
 	FrontendErrorMessage string          `json:"frontend_error_message,omitempty"`
 	FrontendStacktrace   string          `json:"frontend_stacktrace,omitempty"`
-	AttachmentJSON       json.RawMessage `json:"attachment_json,omitempty"`
-	ExtraJSON            json.RawMessage `json:"extra_json,omitempty"`
-	CreatedAt            Stamp           `json:"created_at"`
-	UpdatedAt            Stamp           `json:"updated_at"`
+	AttachmentJSON       any             `json:"attachment_json,omitempty"` // a JSON document (json.RawMessage)
+	ExtraJSON            any             `json:"extra_json,omitempty"`      // a JSON document (json.RawMessage)
+	CreatedAt            DateTime        `json:"created_at"`
+	UpdatedAt            DateTime        `json:"updated_at"`
 	Reporter             *PersonResponse `json:"reporter,omitempty"`
+}
+
+// document is a stored JSON document as the response carries it: raw, or absent.
+func document(raw []byte) any {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	return json.RawMessage(raw)
 }
 
 func reportOf(r core.Report) ReportResponse {
@@ -154,7 +163,7 @@ func reportOf(r core.Report) ReportResponse {
 		Title: r.Title, Description: r.Description, StepsToReproduce: r.StepsToReproduce, ExpectedResult: r.ExpectedResult,
 		ActualResult: r.ActualResult, Severity: r.Severity, AffectedModule: r.AffectedModule, PageURL: r.PageURL,
 		BrowserInfo: r.BrowserInfo, AppVersion: r.AppVersion, FrontendErrorMessage: r.FrontendErrorMessage,
-		FrontendStacktrace: r.FrontendStacktrace, AttachmentJSON: r.AttachmentJSON, ExtraJSON: r.ExtraJSON,
+		FrontendStacktrace: r.FrontendStacktrace, AttachmentJSON: document(r.AttachmentJSON), ExtraJSON: document(r.ExtraJSON),
 		CreatedAt: stamp(r.CreatedAt), UpdatedAt: stamp(r.UpdatedAt), Reporter: personOf(r.Reporter),
 	}
 }
