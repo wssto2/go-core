@@ -1,0 +1,80 @@
+// Package {{.Feature}} is the application service for the {{.Feature}} aggregate.
+package {{.Feature}}
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	{{.DomainAlias}} "{{.Module}}/internal/domain/{{.Domain}}/{{.Feature}}"
+	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/auth"
+)
+
+// Service is the application API for the {{.Feature}} aggregate.
+type Service interface {
+	List(ctx context.Context) ([]{{.DomainAlias}}.{{.Entity}}, error)
+	Get(ctx context.Context, id int) ({{.DomainAlias}}.{{.Entity}}, error)
+	Create(ctx context.Context, in {{.InputType}}, actor auth.Identifiable) ({{.DomainAlias}}.{{.Entity}}, error)
+}
+
+// AppService is the default Service implementation.
+type AppService struct {
+	repo {{.DomainAlias}}.Repository
+}
+
+// NewService wires an AppService over the {{.Feature}} repository port.
+func NewService(repo {{.DomainAlias}}.Repository) *AppService {
+	return &AppService{repo: repo}
+}
+
+// List returns every {{.Feature}} record.
+func (s *AppService) List(ctx context.Context) ([]{{.DomainAlias}}.{{.Entity}}, error) {
+	records, err := s.repo.FindAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("{{.Feature}}: list: %w", err)
+	}
+
+	return records, nil
+}
+
+// Get returns a single {{.Feature}} record by ID.
+func (s *AppService) Get(ctx context.Context, id int) ({{.DomainAlias}}.{{.Entity}}, error) {
+	record, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, {{.DomainAlias}}.ErrNotFound) {
+			return {{.DomainAlias}}.{{.Entity}}{}, apperr.NotFound("{{.Feature}} not found")
+		}
+
+		return {{.DomainAlias}}.{{.Entity}}{}, fmt.Errorf("{{.Feature}}: get %d: %w", id, err)
+	}
+
+	return record, nil
+}
+
+// Create validates the input and persists a new {{.Feature}} record.
+func (s *AppService) Create(
+	ctx context.Context,
+	in {{.InputType}},
+	actor auth.Identifiable,
+) ({{.DomainAlias}}.{{.Entity}}, error) {
+	if err := in.Validate(); err != nil {
+		return {{.DomainAlias}}.{{.Entity}}{}, err
+	}
+
+	in.Sanitize()
+
+	record := {{.DomainAlias}}.{{.Entity}}{
+		Name:      in.Name,
+		CreatedBy: actor.GetID(),
+	}
+
+	if err := s.repo.Create(ctx, &record); err != nil {
+		return {{.DomainAlias}}.{{.Entity}}{}, fmt.Errorf("{{.Feature}}: create: %w", err)
+	}
+
+	return record, nil
+}
+
+// Ensure AppService satisfies Service at compile time.
+var _ Service = (*AppService)(nil)

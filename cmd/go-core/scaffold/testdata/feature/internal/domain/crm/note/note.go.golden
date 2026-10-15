@@ -1,0 +1,18 @@
+// Package note is the note aggregate: the Note entity and
+// the Repository port the infrastructure layer implements.
+package note
+
+import "time"
+
+// Note is the note aggregate root.
+//
+// Scaffold: replace these placeholder fields with the real ones. Keep the type
+// framework-free: no json tags (map it to a DTO in the http layer), no gorm
+// tags (map it to a row type in the db layer).
+type Note struct {
+	ID        int
+	Name      string
+	CreatedBy int
+	CreatedAt *time.Time
+	UpdatedAt *time.Time
+}

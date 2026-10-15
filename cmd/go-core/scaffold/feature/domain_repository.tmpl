@@ -1,0 +1,12 @@
+package {{.Feature}}
+
+import "context"
+
+// Repository is the persistence port for the {{.Feature}} aggregate. ctx is
+// always the first parameter; the infrastructure layer implements it and the
+// bootstrap package wires the implementation.
+type Repository interface {
+	FindAll(ctx context.Context) ([]{{.Entity}}, error)
+	FindByID(ctx context.Context, id int) ({{.Entity}}, error)
+	Create(ctx context.Context, {{.Recv}} *{{.Entity}}) error
+}

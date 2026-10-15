@@ -1,0 +1,23 @@
+// Package note installs the note feature: it builds the feature's service, defines its permissions and
+// mounts its routes. No Register, no Bind, nothing resolved from a container.
+package note
+
+import (
+	appnote "example.com/shop/internal/application/crm/note"
+	"example.com/shop/internal/infrastructure/db/repository"
+	httpnote "example.com/shop/internal/infrastructure/http/crm/note"
+	"github.com/wssto2/go-core/gocore"
+)
+
+// Install builds the service over the App's collaborators and mounts the routes behind the app's security. It returns
+// the service for a feature that takes it as a plain argument.
+func Install(app *gocore.App) *appnote.AppService {
+	// Scaffold: an in-memory repository. Replace it with the GORM one over app.Database() (and a database.Transactor
+	// from database.NewTransactor(app.Database()) once a write spans repositories).
+	svc := appnote.NewService(repository.NewNoteRepository())
+
+	app.Permissions(appnote.Permissions())
+	app.Routes(httpnote.Routes(svc)...)
+
+	return svc
+}

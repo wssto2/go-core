@@ -1,0 +1,7 @@
+package {{.Feature}}
+
+import "errors"
+
+// ErrNotFound is returned by Repository lookups when no matching row exists.
+// The application layer translates it into apperr.NotFound at the boundary.
+var ErrNotFound = errors.New("{{.Feature}} not found")

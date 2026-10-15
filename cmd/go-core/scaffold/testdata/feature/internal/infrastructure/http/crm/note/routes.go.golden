@@ -1,0 +1,35 @@
+package note
+
+import (
+	"net/http"
+	"net/url"
+
+	appnote "example.com/shop/internal/application/crm/note"
+	"example.com/shop/internal/infrastructure/http/crm/note/dto"
+	"github.com/wssto2/go-core/route"
+)
+
+// base is the feature's path under the API prefix. URL paths are kebab-case.
+const base = "/v1/crm/note"
+
+// NotePath names the record a request is about. A malformed id (not a number) answers 400 for the whole group.
+type NotePath struct {
+	ID int `path:"id"`
+}
+
+// ListRequest is the list's query: paging, search, order, and every other parameter is a filter (web.PageFromValues reads it).
+type ListRequest struct {
+	Query url.Values `json:"-" query:"*"`
+}
+
+// The note routes: read with :view, written with :manage. A typed route answers a malformed body with go-core's
+// standard 400/422.
+var (
+	List   = route.Get[ListRequest, route.Page[dto.NoteResponse]](base).Name("note.list").Requires(appnote.PolicyView)
+	Show   = route.Get[NotePath, dto.NoteResponse](base + "/:id").Name("note.show").Requires(appnote.PolicyView)
+	Create = route.Post[appnote.CreateNoteInput, dto.NoteResponse](base).Name("note.create").Requires(appnote.PolicyManage)
+)
+
+// Contract is what the feature offers the outside: the frontend's route table is generated from the contracts of the
+// routes the app installs.
+var Contract = route.Group("note", List, Show, Create).MalformedPath(http.StatusBadRequest)

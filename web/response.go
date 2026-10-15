@@ -32,6 +32,12 @@ func Created(ctx *gin.Context, data any) {
 	JSON(ctx, http.StatusCreated, data)
 }
 
+// WriteAccepted sends a 202 Accepted standardized response, for an endpoint that queues background work and answers
+// with a receipt rather than the created resource.
+func WriteAccepted(ctx *gin.Context, data any) {
+	JSON(ctx, http.StatusAccepted, data)
+}
+
 // NoContent sends a 204 No Content response.
 func NoContent(ctx *gin.Context) {
 	ctx.Status(http.StatusNoContent)

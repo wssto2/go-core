@@ -1,0 +1,23 @@
+// Package {{.Feature}} installs the {{.Feature}} feature: it builds the feature's service, defines its permissions and
+// mounts its routes. No Register, no Bind, nothing resolved from a container.
+package {{.Feature}}
+
+import (
+	{{.AppAlias}} "{{.Module}}/internal/application/{{.Domain}}/{{.Feature}}"
+	"{{.Module}}/internal/infrastructure/db/repository"
+	{{.HTTPAlias}} "{{.Module}}/internal/infrastructure/http/{{.Domain}}/{{.Feature}}"
+	"github.com/wssto2/go-core/gocore"
+)
+
+// Install builds the service over the App's collaborators and mounts the routes behind the app's security. It returns
+// the service for a feature that takes it as a plain argument.
+func Install(app *gocore.App) *{{.AppAlias}}.AppService {
+	// Scaffold: an in-memory repository. Replace it with the GORM one over app.Database() (and a database.Transactor
+	// from database.NewTransactor(app.Database()) once a write spans repositories).
+	svc := {{.AppAlias}}.NewService(repository.New{{.RepoType}}())
+
+	app.Permissions({{.AppAlias}}.Permissions())
+	app.Routes({{.HTTPAlias}}.Routes(svc)...)
+
+	return svc
+}

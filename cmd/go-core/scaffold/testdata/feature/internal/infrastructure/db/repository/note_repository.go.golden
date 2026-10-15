@@ -1,0 +1,54 @@
+package repository
+
+import (
+	"context"
+
+	domainnote "example.com/shop/internal/domain/crm/note"
+)
+
+// NoteRepository is a scaffold implementation of domainnote.Repository.
+//
+// It keeps rows in memory so the feature compiles and its unit tests run before
+// a table exists. Replace it with a GORM implementation over the feature's
+// table once the schema exists: map the domain entity to a row type here, keep
+// the entity free of gorm tags, and return domainnote.ErrNotFound for a
+// missing row.
+type NoteRepository struct {
+	rows   map[int]domainnote.Note
+	nextID int
+}
+
+// NewNoteRepository returns an empty in-memory NoteRepository.
+func NewNoteRepository() *NoteRepository {
+	return &NoteRepository{rows: make(map[int]domainnote.Note), nextID: 1}
+}
+
+// FindAll returns every stored note record.
+func (r *NoteRepository) FindAll(_ context.Context) ([]domainnote.Note, error) {
+	out := make([]domainnote.Note, 0, len(r.rows))
+	for _, row := range r.rows {
+		out = append(out, row)
+	}
+
+	return out, nil
+}
+
+// FindByID returns the note record with the given ID, or
+// domainnote.ErrNotFound.
+func (r *NoteRepository) FindByID(_ context.Context, id int) (domainnote.Note, error) {
+	row, ok := r.rows[id]
+	if !ok {
+		return domainnote.Note{}, domainnote.ErrNotFound
+	}
+
+	return row, nil
+}
+
+// Create assigns an ID and stores the note record.
+func (r *NoteRepository) Create(_ context.Context, record *domainnote.Note) error {
+	record.ID = r.nextID
+	r.nextID++
+	r.rows[record.ID] = *record
+
+	return nil
+}
