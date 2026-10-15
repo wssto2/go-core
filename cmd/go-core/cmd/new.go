@@ -11,7 +11,7 @@ var newCmd = &cobra.Command{
 
 func init() {
 	newCmd.AddCommand(moduleCmd)
-	newCmd.AddCommand(featureCmd)
+	newCmd.AddCommand(newFeatureCmd())
 	newCmd.AddCommand(migrationCmd)
 	newCmd.AddCommand(eventCmd)
 }

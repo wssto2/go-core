@@ -1,5 +1,6 @@
-// Package typed holds the helpers of a typed route's handler that need the route package, which web itself cannot import:
-// the outputs that answer what web.WritePage and web.WriteResource write, and the session token of the exchange.
+// Package typed holds the helpers of a typed route's handler that need the route package, which web itself cannot
+// import: the outputs that answer what web.WritePage and web.WriteResource write, and the session token of the
+// exchange.
 package typed
 
 import (
@@ -55,8 +56,8 @@ func Record[T any](data T, meta map[string]any) route.WithMeta[T, RecordMeta] {
 	return route.WithMeta[T, RecordMeta]{Items: data, Info: RecordMeta{Values: meta}}
 }
 
-// AccessToken is the session's opaque token, from the cookie the SPA uses (access_token) or a bearer header. A JWT embed
-// session yields a JWT here, which matches no stored token.
+// AccessToken is the session's opaque token, from the cookie the SPA uses (access_token) or a bearer header. A JWT
+// embed session yields a JWT here, which matches no stored token.
 func AccessToken(ctx context.Context) string {
 	exchange := route.ExchangeOf(ctx)
 

@@ -16,9 +16,18 @@ import (
 	"github.com/wssto2/go-core/web/typed"
 )
 
+const (
+	fromCookie = "from-cookie"
+	fromHeader = "from-header"
+	cookieName = "access_token"
+)
+
 type row struct {
 	Name string `json:"name"`
 }
+
+// open is a security that adds no chain: the routes under test are public.
+func open() route.Security { return route.Security{Authenticate: nil, Authorizer: nil} }
 
 func engine(t *testing.T, mount func(*gin.Engine) error) *gin.Engine {
 	t.Helper()
@@ -31,14 +40,15 @@ func engine(t *testing.T, mount func(*gin.Engine) error) *gin.Engine {
 	return e
 }
 
-func get(h http.Handler, target string, set func(*http.Request)) *httptest.ResponseRecorder {
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)
+// get calls GET /x on h; set may change the request first.
+func get(handler http.Handler, set func(*http.Request)) *httptest.ResponseRecorder {
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/x", nil)
 	if set != nil {
 		set(req)
 	}
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
+	handler.ServeHTTP(rec, req)
 
 	return rec
 }
@@ -52,31 +62,38 @@ func samePage() *pagination.PageResult[row] {
 }
 
 func TestToPageAnswersWhatWritePageWrites(t *testing.T) {
+	t.Parallel()
+
 	old := engine(t, func(e *gin.Engine) error {
 		e.GET("/x", func(c *gin.Context) { web.WritePage(c, samePage()) })
 
 		return nil
 	})
 
-	r := route.Get[route.None, route.Page[row]]("/x").Public().To(func(context.Context, route.None) (route.Page[row], error) {
-		return typed.ToPage(samePage()), nil
-	})
-	typedEngine := engine(t, func(e *gin.Engine) error { return r.Mount(e, route.Security{}) })
+	show := route.Get[route.None, route.Page[row]]("/x").Public().To(
+		func(context.Context, route.None) (route.Page[row], error) { return typed.ToPage(samePage()), nil })
+	typedEngine := engine(t, func(e *gin.Engine) error { return show.Mount(e, open()) })
 
-	want, got := get(old, "/x", nil), get(typedEngine, "/x", nil)
+	want, got := get(old, nil), get(typedEngine, nil)
 
 	assert.Equal(t, http.StatusOK, got.Code)
 	assert.Equal(t, want.Body.String(), got.Body.String())
 }
 
 func TestToPageOfAResultWithoutMetaOrViews(t *testing.T) {
-	page := typed.ToPage(&pagination.PageResult[row]{Items: []row{}, Page: 1})
+	t.Parallel()
+
+	page := typed.ToPage(&pagination.PageResult[row]{
+		Items: []row{}, Meta: nil, Views: nil, Total: 0, PerPage: 0, Page: 1, LastPage: 0, From: 0, To: 0,
+	})
 
 	assert.Equal(t, map[string]any{}, page.Result.Meta, "a nil meta becomes an empty one the page merges into")
 	assert.Equal(t, []row{}, page.Result.Data)
 }
 
 func TestToPageDoesNotWriteIntoTheResultsMeta(t *testing.T) {
+	t.Parallel()
+
 	result := samePage()
 	typed.ToPage(result)
 
@@ -84,6 +101,8 @@ func TestToPageDoesNotWriteIntoTheResultsMeta(t *testing.T) {
 }
 
 func TestRecordAnswersWhatWriteResourceWrites(t *testing.T) {
+	t.Parallel()
+
 	meta := map[string]any{"author": "ann"}
 	old := engine(t, func(e *gin.Engine) error {
 		e.GET("/x", func(c *gin.Context) {
@@ -93,13 +112,13 @@ func TestRecordAnswersWhatWriteResourceWrites(t *testing.T) {
 		return nil
 	})
 
-	r := route.Get[route.None, route.WithMeta[row, typed.RecordMeta]]("/x").Public().To(
+	show := route.Get[route.None, route.WithMeta[row, typed.RecordMeta]]("/x").Public().To(
 		func(context.Context, route.None) (route.WithMeta[row, typed.RecordMeta], error) {
 			return typed.Record(row{"a"}, meta), nil
 		})
-	typedEngine := engine(t, func(e *gin.Engine) error { return r.Mount(e, route.Security{}) })
+	typedEngine := engine(t, func(e *gin.Engine) error { return show.Mount(e, open()) })
 
-	want, got := get(old, "/x", nil), get(typedEngine, "/x", nil)
+	want, got := get(old, nil), get(typedEngine, nil)
 
 	assert.Equal(t, http.StatusOK, got.Code)
 	assert.JSONEq(t, `{"success":true,"data":{"name":"a"},"meta":{"author":"ann"}}`, got.Body.String())
@@ -107,35 +126,40 @@ func TestRecordAnswersWhatWriteResourceWrites(t *testing.T) {
 }
 
 func TestAccessToken(t *testing.T) {
+	t.Parallel()
+
 	var seen string
 
-	r := route.Get[route.None, route.Empty]("/x").Public().To(func(ctx context.Context, _ route.None) (route.Empty, error) {
-		seen = typed.AccessToken(ctx)
+	show := route.Get[route.None, route.Empty]("/x").Public().To(
+		func(ctx context.Context, _ route.None) (route.Empty, error) {
+			seen = typed.AccessToken(ctx)
 
-		return route.Empty{}, nil
-	})
-	h := engine(t, func(e *gin.Engine) error { return r.Mount(e, route.Security{}) })
+			return route.Empty{}, nil
+		})
+	handler := engine(t, func(e *gin.Engine) error { return show.Mount(e, open()) })
+
+	cookie := func(req *http.Request) { req.Header.Set("Cookie", cookieName+"="+fromCookie) }
 
 	cases := map[string]struct {
 		set  func(*http.Request)
 		want string
 	}{
-		"cookie": {func(req *http.Request) { req.AddCookie(&http.Cookie{Name: "access_token", Value: "from-cookie"}) }, "from-cookie"},
-		"bearer": {func(req *http.Request) { req.Header.Set("Authorization", "Bearer  from-header ") }, "from-header"},
+		"cookie": {cookie, fromCookie},
+		"bearer": {func(req *http.Request) { req.Header.Set("Authorization", "Bearer  "+fromHeader+" ") }, fromHeader},
 		"cookie wins": {func(req *http.Request) {
-			req.AddCookie(&http.Cookie{Name: "access_token", Value: "from-cookie"})
-			req.Header.Set("Authorization", "Bearer from-header")
-		}, "from-cookie"},
+			cookie(req)
+			req.Header.Set("Authorization", "Bearer "+fromHeader)
+		}, fromCookie},
 		"other scheme": {func(req *http.Request) { req.Header.Set("Authorization", "Basic abc") }, ""},
 		"none":         {nil, ""},
 	}
 
-	for name, c := range cases {
+	for name, tc := range cases {
 		seen = "unset"
 
-		get(h, "/x", c.set)
+		get(handler, tc.set)
 
-		assert.Equal(t, c.want, seen, name)
+		assert.Equal(t, tc.want, seen, name)
 	}
 
 	assert.Empty(t, typed.AccessToken(context.Background()), "outside a route there is no exchange")

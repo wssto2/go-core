@@ -16,40 +16,46 @@ type tagged struct {
 	Name string `json:"name"`
 }
 
-// failsOn reports whether check fails the bare testing.T it runs on (a failed Fatalf ends its goroutine with Goexit).
-func failsOn(t *testing.T, check func(t *testing.T)) (failed bool) {
-	t.Helper()
-
-	ch := make(chan bool)
+// failsOn reports whether check fails the bare testing.T it runs on. A failed Fatalf ends the goroutine with Goexit,
+// so the verdict is read in a deferred send.
+func failsOn(check func(t *testing.T)) bool {
+	verdict := make(chan bool)
 
 	go func() {
-		inner := &testing.T{}
-		defer func() {
-			// FailNow and Fatalf on a bare testing.T end the goroutine with Goexit; recover the verdict from Failed.
-			ch <- inner.Failed()
-		}()
+		bare := &testing.T{}
 
-		check(inner)
+		defer func() { verdict <- bare.Failed() }()
+
+		check(bare)
 	}()
 
-	return <-ch
+	return <-verdict
 }
 
 func TestAssertGolden(t *testing.T) {
 	t.Parallel()
 
 	webtest.AssertGolden(t, shape{ID: 1, Name: "a"}, `{"id":1,"name":"a"}`)
-	webtest.AssertGolden(t, shape{ID: 1}, `{"id":1}`)
+	webtest.AssertGolden(t, shape{ID: 1, Name: ""}, `{"id":1}`)
 
-	if !failsOn(t, func(it *testing.T) { webtest.AssertGolden(it, shape{ID: 1}, `{"id":2}`) }) {
+	if !failsOn(func(t *testing.T) {
+		t.Helper()
+		webtest.AssertGolden(t, shape{ID: 1, Name: ""}, `{"id":2}`)
+	}) {
 		t.Error("a different byte must fail")
 	}
 
-	if !failsOn(t, func(it *testing.T) { webtest.AssertGolden(it, shape{ID: 1, Name: "a"}, `{"name":"a","id":1}`) }) {
+	if !failsOn(func(t *testing.T) {
+		t.Helper()
+		webtest.AssertGolden(t, shape{ID: 1, Name: "a"}, `{"name":"a","id":1}`)
+	}) {
 		t.Error("a reordered field must fail: the comparison is byte for byte")
 	}
 
-	if !failsOn(t, func(it *testing.T) { webtest.AssertGolden(it, make(chan int), `{}`) }) {
+	if !failsOn(func(t *testing.T) {
+		t.Helper()
+		webtest.AssertGolden(t, make(chan int), `{}`)
+	}) {
 		t.Error("an unmarshalable value must fail")
 	}
 }
@@ -59,7 +65,10 @@ func TestAssertSameWire(t *testing.T) {
 
 	webtest.AssertSameWire(t, tagged{ID: 1, Name: "a"}, tagged{ID: 1, Name: "a"})
 
-	if !failsOn(t, func(it *testing.T) { webtest.AssertSameWire(it, tagged{ID: 1}, tagged{ID: 2}) }) {
+	if !failsOn(func(t *testing.T) {
+		t.Helper()
+		webtest.AssertSameWire(t, tagged{ID: 1, Name: ""}, tagged{ID: 2, Name: ""})
+	}) {
 		t.Error("different bytes must fail")
 	}
 }
@@ -71,7 +80,10 @@ func TestCapture(t *testing.T) {
 		t.Errorf("captured %s", got)
 	}
 
-	if !failsOn(t, func(it *testing.T) { webtest.Capture(it, make(chan int)) }) {
+	if !failsOn(func(t *testing.T) {
+		t.Helper()
+		webtest.Capture(t, make(chan int))
+	}) {
 		t.Error("an unmarshalable value must fail")
 	}
 }

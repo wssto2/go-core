@@ -1,13 +1,14 @@
+// Package scaffold generates the files of a go-core project: modules, features, migrations and events.
 package scaffold
 
 import (
-	"bufio"
 	"bytes"
 	"embed"
 	"errors"
 	"fmt"
 	"go/format"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -21,6 +22,15 @@ var featureTemplates embed.FS
 var (
 	wordRe   = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
 	entityRe = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
+
+	errBadName   = errors.New("invalid name")
+	errOverwrite = errors.New("refusing to overwrite existing file(s)")
+	errNoModule  = errors.New("no module")
+)
+
+const (
+	dirMode  = 0o750
+	fileMode = 0o600
 )
 
 // FeatureData is what every file of a feature is rendered from.
@@ -45,11 +55,12 @@ func NewFeatureData(module, domain, feature, entity string) (FeatureData, error)
 
 	for name, value := range map[string]string{"domain": domain, "feature": feature} {
 		if !wordRe.MatchString(value) {
-			return FeatureData{}, fmt.Errorf("%s %q must match %s: a single lowercase word, no separators", name, value, wordRe)
+			return FeatureData{}, fmt.Errorf("%w: %s %q must match %s: a single lowercase word, no separators",
+				errBadName, name, value, wordRe)
 		}
 
 		if token.IsKeyword(value) {
-			return FeatureData{}, fmt.Errorf("%s %q is a Go keyword and cannot be a package name", name, value)
+			return FeatureData{}, fmt.Errorf("%w: %s %q is a Go keyword, not a package name", errBadName, name, value)
 		}
 	}
 
@@ -58,7 +69,7 @@ func NewFeatureData(module, domain, feature, entity string) (FeatureData, error)
 	}
 
 	if !entityRe.MatchString(entity) {
-		return FeatureData{}, fmt.Errorf("entity %q must match %s: a PascalCase type name", entity, entityRe)
+		return FeatureData{}, fmt.Errorf("%w: entity %q must match %s: a PascalCase type name", errBadName, entity, entityRe)
 	}
 
 	return FeatureData{
@@ -82,19 +93,21 @@ type featureFile struct {
 }
 
 // featureFiles is the layered layout of a feature, relative to the module root.
-func featureFiles(d FeatureData) []featureFile {
+func featureFiles(data FeatureData) []featureFile {
 	return []featureFile{
-		{"domain_entity.tmpl", filepath.Join("internal", "domain", d.Domain, d.Feature, d.Feature+".go")},
-		{"domain_repository.tmpl", filepath.Join("internal", "domain", d.Domain, d.Feature, "repository.go")},
-		{"domain_errors.tmpl", filepath.Join("internal", "domain", d.Domain, d.Feature, "errors.go")},
-		{"app_service.tmpl", filepath.Join("internal", "application", d.Domain, d.Feature, "service.go")},
-		{"app_inputs.tmpl", filepath.Join("internal", "application", d.Domain, d.Feature, "inputs.go")},
-		{"app_policies.tmpl", filepath.Join("internal", "application", d.Domain, d.Feature, "policies.go")},
-		{"db_repository.tmpl", filepath.Join("internal", "infrastructure", "db", "repository", d.Feature+"_repository.go")},
-		{"http_routes.tmpl", filepath.Join("internal", "infrastructure", "http", d.Domain, d.Feature, "routes.go")},
-		{"http_handler.tmpl", filepath.Join("internal", "infrastructure", "http", d.Domain, d.Feature, "handler.go")},
-		{"http_dto.tmpl", filepath.Join("internal", "infrastructure", "http", d.Domain, d.Feature, "dto", d.Feature+"_response.go")},
-		{"bootstrap_install.tmpl", filepath.Join("internal", "bootstrap", d.Feature, "install.go")},
+		{"domain_entity.tmpl", filepath.Join("internal", "domain", data.Domain, data.Feature, data.Feature+".go")},
+		{"domain_repository.tmpl", filepath.Join("internal", "domain", data.Domain, data.Feature, "repository.go")},
+		{"domain_errors.tmpl", filepath.Join("internal", "domain", data.Domain, data.Feature, "errors.go")},
+		{"app_service.tmpl", filepath.Join("internal", "application", data.Domain, data.Feature, "service.go")},
+		{"app_inputs.tmpl", filepath.Join("internal", "application", data.Domain, data.Feature, "inputs.go")},
+		{"app_policies.tmpl", filepath.Join("internal", "application", data.Domain, data.Feature, "policies.go")},
+		{"db_repository.tmpl", filepath.Join("internal", "infrastructure", "db", "repository",
+			data.Feature+"_repository.go")},
+		{"http_routes.tmpl", filepath.Join("internal", "infrastructure", "http", data.Domain, data.Feature, "routes.go")},
+		{"http_handler.tmpl", filepath.Join("internal", "infrastructure", "http", data.Domain, data.Feature, "handler.go")},
+		{"http_dto.tmpl", filepath.Join("internal", "infrastructure", "http", data.Domain, data.Feature, "dto",
+			data.Feature+"_response.go")},
+		{"bootstrap_install.tmpl", filepath.Join("internal", "bootstrap", data.Feature, "install.go")},
 	}
 }
 
@@ -105,16 +118,45 @@ func GenerateFeature(root string, data FeatureData) ([]string, error) {
 
 	var existing []string
 
-	for _, f := range files {
-		if _, err := os.Stat(filepath.Join(root, f.path)); err == nil {
-			existing = append(existing, f.path)
+	for _, file := range files {
+		_, err := os.Stat(filepath.Join(root, file.path))
+		if err == nil {
+			existing = append(existing, file.path)
 		}
 	}
 
 	if len(existing) > 0 {
-		return nil, fmt.Errorf("refusing to overwrite existing file(s):\n  %s", strings.Join(existing, "\n  "))
+		return nil, fmt.Errorf("%w:\n  %s", errOverwrite, strings.Join(existing, "\n  "))
 	}
 
+	rendered, err := renderFeature(files, data)
+	if err != nil {
+		return nil, err
+	}
+
+	written := make([]string, 0, len(files))
+
+	for index, file := range files {
+		abs := filepath.Join(root, file.path)
+
+		err := os.MkdirAll(filepath.Dir(abs), dirMode)
+		if err != nil {
+			return written, fmt.Errorf("mkdir %s: %w", filepath.Dir(file.path), err)
+		}
+
+		err = os.WriteFile(abs, rendered[index], fileMode)
+		if err != nil {
+			return written, fmt.Errorf("write %s: %w", file.path, err)
+		}
+
+		written = append(written, file.path)
+	}
+
+	return written, nil
+}
+
+// renderFeature renders and gofmts every file, so a template error leaves the tree untouched.
+func renderFeature(files []featureFile, data FeatureData) ([][]byte, error) {
 	tmpls, err := template.ParseFS(featureTemplates, "feature/*.tmpl")
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
@@ -122,38 +164,26 @@ func GenerateFeature(root string, data FeatureData) ([]string, error) {
 
 	rendered := make([][]byte, len(files))
 
-	for i, f := range files {
+	for index, file := range files {
 		var buf bytes.Buffer
-		if err := tmpls.ExecuteTemplate(&buf, f.template, data); err != nil {
-			return nil, fmt.Errorf("render %s: %w", f.template, err)
+
+		err := tmpls.ExecuteTemplate(&buf, file.template, data)
+		if err != nil {
+			return nil, fmt.Errorf("render %s: %w", file.template, err)
 		}
 
-		if rendered[i], err = format.Source(buf.Bytes()); err != nil {
-			return nil, fmt.Errorf("format %s: %w", f.path, err)
+		rendered[index], err = format.Source(buf.Bytes())
+		if err != nil {
+			return nil, fmt.Errorf("format %s: %w", file.path, err)
 		}
 	}
 
-	written := make([]string, 0, len(files))
-
-	for i, f := range files {
-		abs := filepath.Join(root, f.path)
-		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			return written, fmt.Errorf("mkdir %s: %w", filepath.Dir(f.path), err)
-		}
-
-		if err := os.WriteFile(abs, rendered[i], 0o644); err != nil {
-			return written, fmt.Errorf("write %s: %w", f.path, err)
-		}
-
-		written = append(written, f.path)
-	}
-
-	return written, nil
+	return rendered, nil
 }
 
 // FeatureSteps is what the app must still do by hand after GenerateFeature: the generator never edits the composition
 // root, so these show up in the diff for a reviewer.
-func FeatureSteps(d FeatureData) string {
+func FeatureSteps(data FeatureData) string {
 	return fmt.Sprintf(`Left to do by hand:
 
 1. Install the feature next to the others in the composition root:
@@ -168,30 +198,28 @@ func FeatureSteps(d FeatureData) string {
 Then run go build ./... && go test ./...
 
 Replace the in-memory %[2]s with a GORM implementation over the feature's table.
-`, d.Module, d.RepoType, d.Feature, d.Domain)
+`, data.Module, data.RepoType, data.Feature, data.Domain)
 }
 
 // FindModule walks up from dir to the nearest go.mod and returns its directory and module path.
-func FindModule(dir string) (root, module string, err error) {
-	for d := dir; ; d = filepath.Dir(d) {
-		f, openErr := os.Open(filepath.Join(d, "go.mod"))
-		if openErr == nil {
-			defer f.Close()
-
-			scanner := bufio.NewScanner(f)
-			for scanner.Scan() {
-				if path, ok := strings.CutPrefix(strings.TrimSpace(scanner.Text()), "module "); ok {
+func FindModule(dir string) (string, string, error) {
+	for current := dir; ; current = filepath.Dir(current) {
+		raw, err := fs.ReadFile(os.DirFS(current), "go.mod")
+		if err == nil {
+			for line := range strings.SplitSeq(string(raw), "\n") {
+				path, found := strings.CutPrefix(strings.TrimSpace(line), "module ")
+				if found {
 					path, _, _ = strings.Cut(path, "//") // a trailing comment
 
-					return d, strings.Trim(strings.TrimSpace(path), `"`), nil
+					return current, strings.Trim(strings.TrimSpace(path), `"`), nil
 				}
 			}
 
-			return "", "", fmt.Errorf("%s has no module line", filepath.Join(d, "go.mod"))
+			return "", "", fmt.Errorf("%w: %s has no module line", errNoModule, filepath.Join(current, "go.mod"))
 		}
 
-		if d == filepath.Dir(d) {
-			return "", "", errors.New("go.mod not found from " + dir + " upward")
+		if current == filepath.Dir(current) {
+			return "", "", fmt.Errorf("%w: go.mod not found from %s upward", errNoModule, dir)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 // Package pagination holds the framework-free paging primitives a domain or application layer can return and take:
 // the page a listing asks for, the page it answers and a single record with its meta. An adapter translates them to the
-// transport (web.WritePage, typed.ToPage) or the query builder (datatable), so no layer above the adapter imports either.
+// transport (web.WritePage, typed.ToPage) or the query builder (datatable), so no layer above the adapter imports
+// either.
 package pagination
 
 // Page describes the paging, ordering, search and named selections of a listing query, with no query-builder or
@@ -33,7 +34,8 @@ type ViewCount struct {
 type PageResult[T any] struct {
 	Items []T
 	Meta  map[string]any
-	// Views are the list's scopes with their counts, in the order they are offered; empty for a list without counted scopes.
+	// Views are the list's scopes with their counts, in the order they are offered; empty for a list without counted
+	// scopes.
 	Views    []ViewCount
 	Total    int64
 	PerPage  int

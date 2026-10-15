@@ -20,6 +20,8 @@ import (
 	"github.com/wssto2/go-core/web"
 )
 
+var errBoom = errors.New("boom")
+
 // serve runs handler on GET /x/:id behind the standard error handler and returns the response.
 func serve(t *testing.T, target string, handler gin.HandlerFunc) *httptest.ResponseRecorder {
 	t.Helper()
@@ -42,9 +44,8 @@ func TestMapped(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "7", got)
 
-	boom := errors.New("boom")
-	got, err = web.Mapped(strconv.Itoa)(7, boom)
-	require.ErrorIs(t, err, boom)
+	got, err = web.Mapped(strconv.Itoa)(7, errBoom)
+	require.ErrorIs(t, err, errBoom)
 	assert.Empty(t, got, "a failed call answers the zero value")
 }
 
@@ -139,7 +140,9 @@ func TestPageFromValues(t *testing.T) {
 	assert.Equal(t, "id", got.OrderCol)
 	assert.Empty(t, got.Filters, "reserved keys are not filters")
 
-	assert.Equal(t, pagination.Page{Number: 1, Filters: map[string]string{}}, web.PageFromValues(nil))
+	assert.Equal(t, pagination.Page{
+		Number: 1, Size: 0, Search: "", OrderCol: "", OrderDir: "", View: "", Filters: map[string]string{},
+	}, web.PageFromValues(nil))
 }
 
 func TestWritePage(t *testing.T) {
@@ -153,14 +156,17 @@ func TestWritePage(t *testing.T) {
 	})
 
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.JSONEq(t, `{"success":true,"data":["a"],"meta":{"total":4,"page":2,"per_page":1,"last_page":4,"from":2,"to":2,"by":"x","views":[{"key":"all","count":4}]}}`, rec.Body.String())
+	assert.JSONEq(t, `{"success":true,"data":["a"],"meta":{"total":4,"page":2,"per_page":1,"last_page":4,"from":2,"to":2,`+
+		`"by":"x","views":[{"key":"all","count":4}]}}`, rec.Body.String())
 }
 
 func TestWritePageOfNoRowsKeepsDataKey(t *testing.T) {
 	t.Parallel()
 
 	rec := serve(t, "/x/1", func(ctx *gin.Context) {
-		web.WritePage(ctx, &pagination.PageResult[string]{Items: []string{}})
+		web.WritePage(ctx, &pagination.PageResult[string]{
+			Items: []string{}, Meta: nil, Views: nil, Total: 0, PerPage: 0, Page: 0, LastPage: 0, From: 0, To: 0,
+		})
 	})
 
 	assert.Contains(t, rec.Body.String(), `"data":[]`)
@@ -176,7 +182,7 @@ func TestWriteResource(t *testing.T) {
 	assert.JSONEq(t, `{"success":true,"data":"row","meta":{"author":"ann"}}`, rec.Body.String())
 
 	rec = serve(t, "/x/1", func(ctx *gin.Context) {
-		web.WriteResource(ctx, pagination.Resource[string]{}, apperr.NotFound("gone"))
+		web.WriteResource(ctx, pagination.Resource[string]{Data: "", Meta: nil}, apperr.NotFound("gone"))
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

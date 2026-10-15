@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.10.0
+
+### Added
+
+- `pagination`: the framework-free paging primitives `Page`, `PageResult`, `ViewCount` and `Resource` (with `MapResult` and `MapResource`), for a domain or application layer that must not import `datatable`.
+- `web` helpers for typed routes, moved from an application's `httpx`:
+  - `Mapped(from)(value, err)` and `Value(record)` shape a service's answer into a route's output;
+  - `PositiveID(name, id)` answers 400 and `PositivePathInt(key, id)` answers PathInt's 422, for an id the typed route has already read (`PathInt` and `GetPathIDNamed` now build their answers from the same code);
+  - `SignedIn(ctx)` is the signed-in person or service account, or 401;
+  - `PageFromValues(url.Values)` builds a `pagination.Page` from the paging parameters `datatable.ParamsFromValues` reads;
+  - `WritePage`, `WriteResource` and `WriteAccepted` write a `pagination.PageResult`, a `pagination.Resource` and a 202.
+- `web/typed`, the helpers that need `route`: `ToPage` and `Record` (with `RecordMeta`) are the typed outputs that answer what `WritePage` and `WriteResource` write, and `AccessToken(ctx)` is the session's token from the cookie or the bearer header.
+- `web/upload.ValidateHeader(header, maxBytes, allowedMIME)`: size and content-sniffed type of a multipart header a typed route already holds.
+- `web/webtest`: `AssertGolden`, `AssertSameWire` and `Capture`, the golden-byte assertions for a DTO's wire shape.
+- `cmd/go-core new feature --domain d --feature f [--entity E]`: the layered skeleton of a feature in the module of the current directory (domain entity and repository port, application service, inputs and permissions, an in-memory repository, typed routes with handlers and DTO, and `Install`). It reads the module path from `go.mod`, never overwrites a file, and prints the steps left to do by hand.
+
+### Changed
+
+- `github.com/gabriel-vasile/mimetype` is a direct requirement (it was already in the module graph, through gin).
+
 ## v1.9.0
 
 One authentication chain: go-core identity authenticates every route, whether the caller signs in with a session, calls with a service account's API key, or arrives through an embed. An application keeps no auth plumbing of its own, and site-wide middleware and telemetry need no container.

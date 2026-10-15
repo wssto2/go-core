@@ -35,8 +35,8 @@ func pathIntFailure(key string, code validation.RuleCode) error {
 		map[string][]validation.Failure{key: {validation.Fail(code)}}, map[string][]string{key: {"path"}})
 }
 
-// PositivePathInt is PathInt for a typed route, whose handler receives the id already read: nil for a positive id, else the
-// error PathInt answers for a zero or negative one (422, must_be_positive_number, on the parameter's name).
+// PositivePathInt is PathInt for a typed route, whose handler receives the id already read: nil for a positive id,
+// else the error PathInt answers for a zero or negative one (422, must_be_positive_number, on the parameter's name).
 func PositivePathInt(key string, id int) error {
 	if id > 0 {
 		return nil
@@ -101,11 +101,15 @@ func GetPathID(ctx *gin.Context) (int, bool) {
 // on success, (0, false) after writing the error response — the handler must
 // return immediately on false.
 func GetPathIDNamed(ctx *gin.Context, key string) (int, bool) {
-	id, _ := GetParamInt(ctx, key)
-	if err := PositiveID(key, id); err != nil {
+	value, _ := GetParamInt(ctx, key)
+
+	err := PositiveID(key, value)
+	if err != nil {
 		_ = ctx.Error(err)
 		ctx.Abort()
+
 		return 0, false
 	}
-	return id, true
+
+	return value, true
 }

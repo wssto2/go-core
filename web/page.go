@@ -10,16 +10,25 @@ import (
 	"github.com/wssto2/go-core/pagination"
 )
 
-// reservedParams are the query keys that are not filters: the canonical names and the legacy aliases datatable accepts.
-var reservedParams = map[string]bool{
-	"page": true, "search": true, "view": true,
-	"per_page": true, "order_col": true, "order_dir": true,
-	"length": true, "order_column": true, "order_direction": true,
+const (
+	paramPage    = "page"
+	paramPerPage = "per_page"
+)
+
+// isFilterKey reports whether a query key is a filter: not one of the canonical paging names or the legacy aliases
+// datatable accepts.
+func isFilterKey(key string) bool {
+	switch key {
+	case paramPage, "search", "view", paramPerPage, "order_col", "order_dir", "length", "order_column", "order_direction":
+		return false
+	default:
+		return true
+	}
 }
 
 // PageFromValues builds the pagination.Page of a query string, such as the url.Values field (`query:"*"`) of a typed
-// route's input. It reads the parameters datatable.ParamsFromValues reads (canonical names and legacy aliases) and keeps
-// every other key as a filter.
+// route's input. It reads the parameters datatable.ParamsFromValues reads (canonical names and legacy aliases) and
+// keeps every other key as a filter.
 func PageFromValues(query url.Values) pagination.Page {
 	// get is gin's DefaultQuery: the first value of a key that is present, even empty, else the fallback.
 	get := func(key, fallback string) string {
@@ -30,13 +39,13 @@ func PageFromValues(query url.Values) pagination.Page {
 		return fallback
 	}
 
-	number, _ := strconv.Atoi(get("page", "1"))
-	size, _ := strconv.Atoi(get("per_page", get("length", "")))
+	number, _ := strconv.Atoi(get(paramPage, "1"))
+	size, _ := strconv.Atoi(get(paramPerPage, get("length", "")))
 
 	filters := make(map[string]string)
 
 	for key, values := range query {
-		if !reservedParams[key] && len(values) > 0 {
+		if isFilterKey(key) && len(values) > 0 {
 			filters[key] = values[0]
 		}
 	}
@@ -62,8 +71,8 @@ func ViewMeta(views []pagination.ViewCount) []gin.H {
 	return out
 }
 
-// WritePage answers a pagination.PageResult with a 200 in the envelope Paginated writes: the rows as data and the paging
-// numbers, the result's own Meta and its views' counts as meta.
+// WritePage answers a pagination.PageResult with a 200 in the envelope Paginated writes: the rows as data and the
+// paging numbers, the result's own Meta and its views' counts as meta.
 func WritePage[T any](ctx *gin.Context, result *pagination.PageResult[T]) {
 	meta := gin.H{
 		"total":     result.Total,
