@@ -8,9 +8,9 @@ import (
 )
 
 const (
-	ginImport      = "github.com/gin-gonic/gin"
+	ginImport       = "github.com/gin-gonic/gin"
 	datatableImport = "github.com/wssto2/go-core/datatable"
-	resourceImport = "github.com/wssto2/go-core/resource"
+	resourceImport  = "github.com/wssto2/go-core/resource"
 )
 
 // rules lists the checks Config enables, in a stable order.

@@ -154,11 +154,28 @@ Specific prohibitions:
 - `gocoretest` MUST be imported by `_test.go` files only; non-test code never
   imports it.
 - A module's framework-free core (`identity/account`) MUST NOT import gin, GORM,
-  `database/sql` or any other go-core package but `apperr` (a test holds it).
-  A module's `Install` builds only its own feature's services (a test in
-  `gocore` holds it).
+  `database/sql` or any other go-core package but `apperr`, `authz` (types) and
+  `mail` (a test holds it). A module's `Install` builds only its own feature's
+  services (a test in `gocore` holds it).
 
 Verify with: `go build ./...` — an import cycle produces "import cycle not allowed".
+
+### 4.0 What a test holds
+
+`archtest/dogfood_test.go` runs go-core's own `archtest` over this section, on
+production files (`_test.go` files and `*test` support packages are exempt):
+
+- the layers 0 to 6 of the diagram: a package never imports a layer above its own;
+- every specific prohibition above, `resilience` importing nothing from go-core,
+  `notification` imported by neither `event` nor `identity` (the key notice
+  excepted), and `gocore` imported only by a module's facade;
+- `gocoretest` imported by test code only;
+- `identity/account` taking the standard library, `apperr`, `authz`, `mail` and bcrypt only.
+
+One pair is left out because the code breaks it today: `database/types` is
+documented as layer 1 and imports `database` (layer 2) in 16 files. It is held
+against every other layer above it. Not checked: that an `Install` builds only
+its own services (`gocore` has its own test) and the import cycle, which the compiler refuses.
 
 ### 4.1 Module layout
 

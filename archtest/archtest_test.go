@@ -254,7 +254,7 @@ func TestGuardCatches(t *testing.T) {
 			"internal/application/order/r3.go": "package order\n\nimport c2 \"example.com/app/internal/domain/customer\"\n\ntype T struct{ r c2.Repository }\n",
 		}, []string{"r.go injects a Repository from internal/domain/customer", "r3.go injects"}, []string{"r2.go"}},
 		{RepositoryShape, map[string]string{
-			"internal/infrastructure/db/repository/bad.go": "package repository\n\nimport (\n\tdb \"github.com/wssto2/go-core/database\"\n\t\"github.com/wssto2/go-core/tenancy\"\n)\n\nfunc f() {\n\t_ = db.TxFromContext\n\t_ = tenancy.ScopeByTenant\n}\n",
+			"internal/infrastructure/db/repository/bad.go":    "package repository\n\nimport (\n\tdb \"github.com/wssto2/go-core/database\"\n\t\"github.com/wssto2/go-core/tenancy\"\n)\n\nfunc f() {\n\t_ = db.TxFromContext\n\t_ = tenancy.ScopeByTenant\n}\n",
 			"internal/infrastructure/db/repository/scopes.go": "package repository\n\nimport \"github.com/wssto2/go-core/tenancy\"\n\nvar _ = tenancy.ScopeByTenant\n",
 		}, []string{"bad.go:9  uses db.TxFromContext", "bad.go:10  uses tenancy.ScopeByTenant"}, []string{"base.go", "scopes.go"}},
 	}

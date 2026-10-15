@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.10.0
+
+### Added
+
+- `archtest`: the architecture rules of a layered go-core application, checked from source with `go/parser` (no new dependency). `archtest.Run(t, archtest.Config{...})` takes the layers (domain, application, infrastructure, interfaces, cmd), a ratchet per rule (`Allowed`: a new violation and a stale entry both fail), the application's own bans (`Banned{Import, Symbol, Why}`) and the few inputs a rule needs (shared domains, owned domains, the input and service naming). The rules are: no panic, `context.Background`, `time.Sleep`, `database/sql` or `time.Now` where they do not belong; `fmt.Errorf` wraps with `%w`; handlers do not import the persistence package; layers import inward only; a framework-free domain and application; no cross-aggregate domain imports; `context.Context` first on domain ports and application service methods; every string input has a `max:` bound; route paths are kebab-case and group and permission names single words; every `validation` rule is known; every `route.Get/Post/Put/Patch/Delete/Raw` chain declares who may call it (`Requires`, `RequiresAny`, `RequiresAll`, `Public`, `PersonOnly` or `Authenticated`); a service injects only its own aggregate's repositories; the repository shape (the transaction and tenant-scope plumbing in one file).
+- go-core holds its own `ARCHITECTURE.md` section 4 with it (`archtest/dogfood_test.go`): the layers, the per-package prohibitions, `gocoretest` imported by tests only and the framework-free `identity/account`. This replaces `identity/account`'s own imports test.
+
 ## v1.9.0
 
 One authentication chain: go-core identity authenticates every route, whether the caller signs in with a session, calls with a service account's API key, or arrives through an embed. An application keeps no auth plumbing of its own, and site-wide middleware and telemetry need no container.

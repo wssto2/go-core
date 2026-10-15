@@ -266,6 +266,8 @@ func (p *project) routeIdentifiers() []finding {
 			continue
 		}
 
+		routeAlias := aliasOf(s.file, routeImport)
+
 		ast.Inspect(s.file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
@@ -278,8 +280,13 @@ func (p *project) routeIdentifiers() []finding {
 			}
 
 			switch {
-			case sel.Sel.Name == "Group" && len(call.Args) > 0 && (handlers == "" || inTree(s.rel, handlers)):
-				if id, ok := sel.X.(*ast.Ident); ok && id.Name == "slog" {
+			case sel.Sel.Name == "Group" && len(call.Args) > 0:
+				// route.Group anywhere; any other .Group(path) (a gin router) in the handlers only.
+				id, isIdent := sel.X.(*ast.Ident)
+				isRoute := isIdent && routeAlias != "" && id.Name == routeAlias
+				inHandlers := handlers != "" && inTree(s.rel, handlers) && (!isIdent || id.Name != "slog")
+
+				if !isRoute && !inHandlers {
 					return true
 				}
 
