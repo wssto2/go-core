@@ -59,6 +59,7 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 * `mail` → the `Sender` port, SMTP over the standard library, a recording `Sink` for tests, per-locale `Renderer` (see "mail")
 * `notification` → the in-app inbox, e-mail and web push: categories, `Send` from an event consumer, preferences and quiet hours, the delivery workers, devices, the live stream, the inbox and dead-letter routes (see "Notifications"; migrations in `notification/migrations`, mail text in `notification/mailtext`, the Web Push protocol in `notification/push`, a fake push service for tests in `notification/push/pushtest`)
 * `incident` → the incident log: a server error or panic becomes an incident, repeats are counted on it, a person reports a bug, the browser reports its errors, the staff work the list, and the people who hold `incident:manage` are alerted (see "Incidents"; core `incident/core`, store `incident/gormstore`, conformance suite `incident/storetest`, migrations `incident/migrations`, alert wording `incident/mailtext`)
+* `savedview` → a person's saved list views: the filters and search of a list kept under a name and applied again with one click (see "Saved views"; core `savedview/core`, store `savedview/gormstore`, conformance suite `savedview/storetest`, migrations `savedview/migrations`)
 * `navigation` → the menu tree an application declares and the filter by held permissions
 
 ### Utility Packages
@@ -572,6 +573,21 @@ incidents := incident.Install(app, users, // users: *identity.Users
 * **Housekeeping**: a worker (every hour; `incidents.Sweep(ctx)` does it now) deletes the occurrences older than the retention (default 90 days) except the **newest of each incident**, and the digest items that went out a day ago, in batches by primary key.
 * **Tables** (`incident/migrations`): `incidents`, `incident_occurrences`, `incident_reports`, `incident_comments`, `incident_watchers`, `incident_alert_cooldowns` and `incident_digest_queue`. The first seven files are the tables an application that grew them as `bug_incidents`, `bug_occurrences`, `bug_reports`, `bug_comments`, `bug_report_watchers`, `incident_notification_cooldowns` and `incident_notification_digest_queue` has once it renames them (and `dealer_id` of the occurrences to `tenant_id`): it adopts them with `MarkApplied`. Two more files add `client_error` to the source enum and `digested_at` to the digest queue. Tests: the store conformance suite `incident/storetest` and the service on SQLite, MySQL and MariaDB 10.3 (`dbtest.Run`), concurrent captures included.
 * The TypeScript contract is `incident.Routes` (`cmd/modulets` writes `incident/`).
+
+---
+
+## Saved views
+
+A person keeps the **filters and search of a list under a name** and applies them again with one click. Nothing in the module knows the application or its lists: a list is a key the screen chooses, and the saved state is whatever the screen sends.
+
+```go
+savedview.Install(app) // the table and three routes; no options, no permission
+```
+
+* **Routes** (`savedview.Routes`, group `savedview`, under `/v1/saved-views`, every one person-only, so a service account is refused with 403): `GET ?list=` (the person's views of that list, by name), `POST` (save one) and `DELETE /:id` (204). A view is `{id, list_key, name, state, updated_at}` with `state` the JSON object that was saved, never a string; the owner is not on the wire. An id that is not a number answers 400, a zero or negative one 422.
+* **The rule (SAVEDVIEW-001)**: a view is private to the person. The person comes from the session and never from the request, every read and write is keyed on it, and another person's view cannot be listed, replaced or deleted: deleting it is a 404, the same as a missing id. Saving under a name the person already uses on that list **replaces** that view's state. A person keeps **at most 20 views per list**: a new name beyond that is a 400 (`at most 20 saved views per list`); replacing one is still allowed. The state is opaque to the module but must be a **JSON object** (`state must be a JSON object`, 400), at most 4000 characters; `list_key` is required, at most 100, `name` required, at most 60, both trimmed. The limits are fixed.
+* **Table** (`savedview/migrations`): `saved_views` with `user_id`, `list_key`, `name`, `state`, `created_at`, `updated_at`, a unique index on `(user_id, list_key, name)` and one on `(user_id, list_key)`; there is no tenant column. The file is the DDL an application that grew the table as `saved_filters` has once it renames the table and its two indexes (`saved_views_user_list_name`, `saved_views_user_list`): it adopts it with `MarkApplied`. The table is `utf8mb3`, so a character outside the Basic Multilingual Plane (an emoji) is stored as U+FFFD instead of failing the insert. Tests: the store conformance suite `savedview/storetest` on SQLite, MySQL and MariaDB 10.3 (`dbtest.Run`), the service, and the routes' status, body and refusals.
+* The TypeScript contract is `savedview.Routes` (`cmd/modulets` writes `savedview/`).
 
 ---
 

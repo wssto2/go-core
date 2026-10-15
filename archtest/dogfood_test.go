@@ -93,8 +93,10 @@ func modules() []archtest.Banned {
 
 	// a module's facade is the only package that imports gocore.
 	facade := banned(goCore+pkgGocore, "", "section 4.1: a module's facade is the only package that imports gocore")
-	facade.In = []string{"identity/...", "access/...", "notification/...", "incident/..."}
-	facade.Except = []string{"identity", "access", "notification", "incident", "identity/serviceaccount/keynotice"}
+	facade.In = []string{"identity/...", "access/...", "notification/...", "incident/...", "savedview/..."}
+	facade.Except = []string{
+		"identity", "access", "notification", "incident", "savedview", "identity/serviceaccount/keynotice",
+	}
 
 	// gocoretest is for _test.go files and test-support packages only.
 	testOnly := banned(goCore+pkgGocoreTest, "", "section 4: gocoretest is imported by _test.go files only")
@@ -110,7 +112,12 @@ func modules() []archtest.Banned {
 	incidentCore.In = []string{"incident/core"}
 	incidentCore.Unless = []string{goCore + "apperr", goCore + "pagination"}
 
-	return []archtest.Banned{pure, arrow, facade, testOnly, core, incidentCore}
+	// savedview's core is framework-free too: the standard library and apperr.
+	savedviewCore := banned("...", "", "section 4.1: savedview/core takes the standard library and apperr only")
+	savedviewCore.In = []string{"savedview/core"}
+	savedviewCore.Unless = []string{goCore + "apperr"}
+
+	return []archtest.Banned{pure, arrow, facade, testOnly, core, incidentCore, savedviewCore}
 }
 
 // TestArchitectureDocument holds go-core to the package dependency rules of

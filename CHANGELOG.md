@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.12.0 (unreleased)
+
+The saved views of a list become a module. A person keeps the filters and search of a list under a name and applies them again with one click.
+
+### Added
+
+- `savedview`: `savedview.Install(app)` (no options, no permission) and `savedview.Routes` (group `savedview`): `GET /v1/saved-views?list=` (`savedview.index`), `POST /v1/saved-views` (`savedview.store`) and `DELETE /v1/saved-views/:id` (`savedview.delete`), all person-only. A view is `{id, list_key, name, state, updated_at}`, `state` an object.
+- SAVEDVIEW-001: a view is the signed-in person's alone (the id comes from the session; another person's view is a 404 on delete); saving under an existing name of the list replaces the state; at most 20 views per person and list (a new name beyond that is a 400, replacing one is allowed); `state` is a JSON object of at most 4000 characters, `list_key` at most 100, `name` at most 60.
+- Table `saved_views` (`savedview/migrations`; the file is an application's `saved_filters` table after renaming the table and its two indexes, so it adopts it with `MarkApplied`), the GORM store `savedview/gormstore` and its conformance suite `savedview/storetest`.
+- `cmd/modulets` writes `savedview/`.
+
 ## v1.11.1
 
 ### Fixed
