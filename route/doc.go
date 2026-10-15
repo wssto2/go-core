@@ -15,6 +15,11 @@
 //
 //	app.Routes(Show.To(service.Show)) // a function of another shape does not compile
 //
+// Every route says who may call it: Requires (or RequiresAny, RequiresAll) a
+// permission, Public for anyone, PersonOnly for a person and not a service
+// account, or Authenticated for any signed-in caller whose rights the handler
+// checks. The application's Check refuses a route that says none of them.
+//
 // The path and the input must agree: every ":name" of the path needs a field
 // tagged path:"name" in the input, and every path:"name" field its parameter
 // (Spec.PathProblems; the application's Check and contract.Generate report a

@@ -50,7 +50,7 @@ func embedApp(t *testing.T) (func(query string) *httptest.ResponseRecorder, *cli
 
 	app := newApp(t)
 	identity.Install(app, identity.WithoutMail(), identity.WithEmbed(embedSecret))
-	app.Routes(route.Get[route.None, string]("/shop").To(shopOf))
+	app.Routes(route.Get[route.None, string]("/shop").Authenticated().To(shopOf))
 
 	ana := identitytest.Account(7, "ana", "secret")
 	seed(t, app.Database(), ana)

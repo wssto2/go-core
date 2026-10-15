@@ -39,7 +39,8 @@ func TestFromContainerIsKeptFromTheOldModulesBeforeRoutesServe(t *testing.T) {
 		t.Fatalf("Check must not ask for what the container provides at Run: %v", err)
 	}
 
-	app.Routes(route.Get[route.None, string]("/greet").To(func(context.Context, route.None) (string, error) {
+	greet := route.Get[route.None, string]("/greet").Authenticated()
+	app.Routes(greet.To(func(context.Context, route.None) (string, error) {
 		g, err := greeters.Get()
 
 		return g.word, err

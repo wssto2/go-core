@@ -21,7 +21,8 @@ import (
 // yourself in a test to assert a wiring mistake is caught.
 //
 // It reports: a Later that was never set, a declared route without a handler,
-// two routes on the same method and path, a route that Requires a permission
+// two routes on the same method and path, a route that declares none of Requires,
+// RequiresAny, RequiresAll, Public, PersonOnly or Authenticated, a route that Requires a permission
 // missing from the catalogue, a route that is neither Public nor has
 // authentication configured (or needs an authorizer and has none),
 // a database or connection that could not be resolved, and event consumers
@@ -82,6 +83,15 @@ func (a *App) routeProblems() []Problem {
 		}
 
 		seen[key] = true
+
+		if !spec.DeclaresAccess() {
+			problems = append(problems, Problem{
+				What: "route " + key + " declares no access: none of Requires, RequiresAny, RequiresAll, " +
+					"Public, PersonOnly or Authenticated",
+				Fix: "say who may call it: .Requires(permission) (or RequiresAny/RequiresAll), .Public() for anyone, " +
+					".PersonOnly() for a person's own, or .Authenticated() for any signed-in caller whose rights the handler checks",
+			})
+		}
 
 		for _, msg := range spec.PathProblems() {
 			problems = append(problems, Problem{What: msg, Fix: "make the path parameters and the input's path:\"…\" fields name the same things"})

@@ -118,7 +118,7 @@ func Install(app *gocore.App) {
 }
 ```
 
-**Secure by default.** Every route needs an authenticated principal unless it is declared `.Public()`; `.Requires(perm)` adds a permission check on top. The application sets authentication once, with the middleware go-core already has, and non-public routes are mounted behind it:
+**Secure by default.** Every route needs an authenticated principal unless it is declared `.Public()`; `.Requires(perm)` adds a permission check on top. A route must say who may call it, or starting the application fails: `.Requires(perm)` (or `RequiresAny`, `RequiresAll`), `.Public()`, `.PersonOnly()` (a person, not a service account) or `.Authenticated()` (any signed-in caller; the handler decides what they may do). The application sets authentication once, with the middleware go-core already has, and non-public routes are mounted behind it:
 
 ```go
 app := gocore.New(cfg,
@@ -226,6 +226,9 @@ app.Migrations(authzmigrations.Files, Shared)     // or on another one
 ./myapp                  check, then serve
 ./myapp migrate          apply every pending migration (app and modules, every connection), then exit
 ./myapp migrate status   list applied and pending migrations per connection, then exit
+./myapp migrate mark-applied <connection> <version|file>...
+                         record migrations as applied without running them (a database whose tables
+                         already exist), then exit; every version must be a migration file of the connection
 ./myapp help             list the commands (an unknown one exits non-zero)
 ```
 
@@ -241,6 +244,7 @@ A feature's `Routes` group (`route.Group("tickets", ...)`) is its contract. One 
 
 ```go
 contract.Generate("frontend/generated", tickets.Routes, leads.Routes)
+// or, from the installed application: contract.Generate(dir, app.Contracts()...)
 ```
 
 writes `frontend/generated/tickets/{entities,schemas,routes}.ts`: the output types, the input types as Zod schemas (keeping `max:` bounds), and the route table the client builds typed requests from:

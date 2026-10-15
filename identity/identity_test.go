@@ -120,7 +120,7 @@ func TestInstallGivesTheApplicationItsAuthentication(t *testing.T) {
 	app := newApp(t)
 	users := identity.Install(app, identity.WithoutMail())
 
-	app.Routes(Whoami.To(whoami))
+	app.Routes(Whoami.Authenticated().To(whoami))
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 
 	require.NoError(t, app.Check())
@@ -176,7 +176,7 @@ func TestWithTenantSetsTheTenantOfTheSignedInAccount(t *testing.T) {
 	} {
 		app := newApp(t)
 		identity.Install(app, opts...)
-		app.Routes(route.Get[route.None, string]("/tenant").To(tenantSeen))
+		app.Routes(route.Get[route.None, string]("/tenant").Authenticated().To(tenantSeen))
 		seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 		seed(t, app.Database(), identitytest.Account(8, rootLogin, "secret"))
 		require.NoError(t, app.Check())
@@ -628,7 +628,7 @@ func TestWithRequestUserMakesTheRequestsUser(t *testing.T) {
 
 			return shopper{id: who.Account.ID, Shop: shop + ":" + who.Account.Login}, nil
 		}))
-	app.Routes(route.Get[route.None, string]("/shop").To(shopOf))
+	app.Routes(route.Get[route.None, string]("/shop").Authenticated().To(shopOf))
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 	seed(t, app.Database(), identitytest.Account(8, "banned", "secret"))
 	require.NoError(t, app.Check())
@@ -654,7 +654,9 @@ func TestWithoutRequestUserTheAccountIsTheUser(t *testing.T) {
 
 	app := newApp(t)
 	identity.Install(app, identity.WithoutMail())
-	app.Routes(route.Get[route.None, string]("/shop").To(func(ctx context.Context, _ route.None) (string, error) {
+
+	shop := route.Get[route.None, string]("/shop").Authenticated()
+	app.Routes(shop.To(func(ctx context.Context, _ route.None) (string, error) {
 		if a, ok := auth.UserOf[account.Account](ctx); ok {
 			return a.Login, nil
 		}

@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.10.0
+
+Every route says who may call it. A route that declared nothing was already served to any authenticated caller; now that choice is written down, and a forgotten permission is a start-up error instead of an open route.
+
+### Added
+
+- `route.Authenticated()` on `Route` and `RawRoute`, and `Spec.Authenticated`: any authenticated principal may call the route and the handler decides the rest. It cannot also be `Public`. `Spec.DeclaresAccess()` says whether a route names a permission or is `Public`, `PersonOnly` or `Authenticated`.
+- `gocore.App.Served()`: the installed routes as `[]route.Served` (the `Spec` and the path served, prefix or site root included), in mount order.
+- `gocore.App.Contracts()` and `route.Contracts(handled...)`: the groups of the installed routes, each once, in order, for `contract.Generate`.
+- `contract.Reachable(groups...)`: the input, output and enum types `contract.Generate` would write for the groups, from the same walk, so an application lists no types beside its routes.
+- `migrate mark-applied <connection> <version|file>...` in `RunCommand`, and `gocore.App.MarkApplied(ctx, conn, versions...)` behind it: records migrations as applied without running them (a database whose tables already exist), over `Migrator.MarkApplied`. `migrate.Version` reads the number or the file name.
+
+### Changed
+
+- **Breaking:** `App.Check` (and so `Run`) refuses a route, typed, `Raw`, `Root` or `RoutesWith`, that declares none of `Requires`, `RequiresAny`, `RequiresAll`, `Public`, `PersonOnly` or `Authenticated`. The problem names the method, the served path and the choices. Add `.Authenticated()` to a route that was meant for any signed-in caller: behaviour is unchanged.
+- `access.bindable` (`GET /v1/iam/bindable-roles`) and `access.me` (`GET /v1/me/access`) declare `.Authenticated()`.
+
 ## v1.9.0
 
 One authentication chain: go-core identity authenticates every route, whether the caller signs in with a session, calls with a service account's API key, or arrives through an embed. An application keeps no auth plumbing of its own, and site-wide middleware and telemetry need no container.

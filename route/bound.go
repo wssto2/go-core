@@ -225,6 +225,9 @@ func (s Security) check(spec Spec) error {
 	case spec.Public && spec.PersonOnly:
 		return problem("route " + spec.String() + " is Public but also PersonOnly: " +
 			"a public route is not authenticated, so it has no service account to refuse")
+	case spec.Public && spec.Authenticated:
+		return problem("route " + spec.String() + " is Public but also Authenticated: " +
+			"a public route is open to anyone, so remove .Public() to require sign-in, or remove .Authenticated()")
 	case spec.Public:
 		return nil
 	case len(s.Authenticate) == 0:
@@ -295,6 +298,13 @@ func (r RawRoute) RequiresAll(permissions ...string) RawRoute {
 // Public opens the route to anyone; see Route.Public.
 func (r RawRoute) Public() RawRoute {
 	r.d.spec.Public = true
+	return r
+}
+
+// Authenticated declares that any authenticated principal may call the route; see Route.Authenticated.
+func (r RawRoute) Authenticated() RawRoute {
+	r.d.spec.Authenticated = true
+
 	return r
 }
 

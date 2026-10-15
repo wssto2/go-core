@@ -41,7 +41,7 @@ func Install(app *gocore.App) {
 
 	_ = app.Database() // the primary connection; app.Database(Shared) another one
 
-	app.Routes(Ping.To(service.Ping))
+	app.Routes(Ping.Authenticated().To(service.Ping))
 }
 
 func ExampleApp() {
@@ -141,7 +141,9 @@ func ExampleApp_RunCommand() {
 
 	os.Args = []string{"/srv/myapp"}
 
-	for _, args := range [][]string{{}, {"migrate"}, {"migrate", "status"}, {"help"}, {"serve"}} {
+	mark := []string{migrateCmd, markCommand, localConn, "20261015000000_things.sql"}
+
+	for _, args := range [][]string{{}, {"migrate"}, {"migrate", "status"}, mark, {"help"}, {"serve"}} {
 		reg, cleanup := database.NewTestRegistry("local", "shared")
 		app := gocore.New(bootstrap.DefaultConfig(),
 			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
@@ -165,6 +167,8 @@ func ExampleApp_RunCommand() {
 	// $ myapp migrate status
 	// local      pending  20261015000000_things.sql
 	// shared     pending  20261015000000_things.sql
+	// $ myapp migrate mark-applied local 20261015000000_things.sql
+	// local: 1 migration(s) recorded as applied
 	// $ myapp help
 	// Usage: myapp [command]
 	//
@@ -172,9 +176,11 @@ func ExampleApp_RunCommand() {
 	//   (none)          check the application, then serve it
 	//   migrate         apply every pending migration, then exit
 	//   migrate status  list applied and pending migrations, then exit
+	//   migrate mark-applied <connection> <version|file>...
+	//                   record migrations as applied without running them, then exit
 	//   help            show this list
 	// $ myapp serve
-	// gocore: unknown command "serve": the commands are migrate, migrate status and help
+	// gocore: unknown command "serve": the commands are migrate, migrate status, migrate mark-applied and help
 }
 
 func ExampleApp_Migrate() {

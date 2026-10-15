@@ -43,7 +43,7 @@ func TestPermissionRoutesNeedACatalogueAndAnAuthorizer(t *testing.T) {
 
 func TestAnonymousRequestsAreRejectedExceptForPublicRoutes(t *testing.T) {
 	app := gocoretest.New(t)
-	app.Routes(Show.To(Service{app}.Show), Open.To(Service{app}.Show))
+	app.Routes(Show.Authenticated().To(Service{app}.Show), Open.To(Service{app}.Show))
 
 	if rec := gocoretest.Do(t, app, http.MethodGet, "/tickets/1", nil); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("private route: status %d", rec.Code)

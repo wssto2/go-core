@@ -27,6 +27,7 @@ var (
 	secretRoute = route.Get[route.None, string]("/secret").Name("secret").Requires("ops.secret:view")
 	lostRoute   = route.Get[route.None, string]("/lost").Name("lost")
 	_           = route.Group("ops", pingRoute, secretRoute, lostRoute)
+	_           = []route.Declared{pingRoute.Authenticated(), lostRoute.Authenticated(), upRoute.Authenticated()}
 	upRoute     = route.Get[route.None, string]("/up")
 )
 
@@ -102,7 +103,7 @@ func TestCheckPassesWhenWiredCorrectly(t *testing.T) {
 
 func TestCheckSaysHowToFixMissingAuthentication(t *testing.T) {
 	app := testApp(t, "local")
-	private := route.Get[route.None, string]("/private")
+	private := route.Get[route.None, string]("/private").Authenticated()
 	app.Routes(private.To(pong), route.Get[route.None, string]("/open").Public().To(pong))
 
 	err := app.Check()
@@ -435,9 +436,9 @@ func TestCheckReportsPathParametersTheInputDoesNotHave(t *testing.T) {
 	app := testApp(t, "local")
 	app.authenticate = []gin.HandlerFunc{passthrough}
 
-	good := route.Get[pathedInput, string]("/things/:id")
-	typo := route.Get[pathedInput, string]("/things/:uid/parts")
-	none := route.Get[route.None, string]("/others/:id")
+	good := route.Get[pathedInput, string]("/things/:id").Authenticated()
+	typo := route.Get[pathedInput, string]("/things/:uid/parts").Authenticated()
+	none := route.Get[route.None, string]("/others/:id").Authenticated()
 
 	app.Routes(
 		good.To(func(context.Context, pathedInput) (string, error) { return "", nil }),

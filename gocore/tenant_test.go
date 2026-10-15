@@ -41,7 +41,7 @@ func TestRoutesCarryTheTenantOfTheSignedInPerson(t *testing.T) {
 		ctx.Next()
 	}}
 
-	probe := route.Get[route.None, string]("/probe")
+	probe := route.Get[route.None, string]("/probe").Authenticated()
 	app.Routes(probe.To(func(ctx context.Context, _ route.None) (string, error) {
 		id, _ := tenancy.TenantIDFromContext(ctx)
 

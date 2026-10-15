@@ -78,6 +78,32 @@ func (c *Contract) ExtraTypes() []reflect.Type {
 // Enums lists the enumerations added with Types.
 func (c *Contract) Enums() []Enumeration { return append([]Enumeration(nil), c.enums...) }
 
+// Served is an installed route: its declaration and the path it answers at, with the application's prefix
+// (or at the site root, for a Root route).
+type Served struct {
+	Spec Spec
+	Path string
+}
+
+// Contracts lists the groups of the routes, each once, in the order they are first met: a route of
+// several groups brings all of them. A route in no group brings none.
+func Contracts(handled ...Handled) []*Contract {
+	var groups []*Contract
+
+	seen := map[*Contract]bool{}
+
+	for _, h := range handled {
+		for _, c := range h.declaration().groups {
+			if !seen[c] {
+				seen[c] = true
+				groups = append(groups, c)
+			}
+		}
+	}
+
+	return groups
+}
+
 // Unhandled returns the routes that are declared in a Contract together with
 // a handled route but have no handler themselves: the one that was forgotten
 // when a feature installed its routes.
@@ -95,20 +121,10 @@ func Unhandled(handled ...Handled) []Spec {
 
 	var missing []Spec
 
-	seen := map[*Contract]bool{}
-
-	for _, h := range handled {
-		for _, c := range h.declaration().groups {
-			if seen[c] {
-				continue
-			}
-
-			seen[c] = true
-
-			for _, r := range c.routes {
-				if !have[r.declaration()] {
-					missing = append(missing, r.Spec())
-				}
+	for _, c := range Contracts(handled...) {
+		for _, r := range c.routes {
+			if !have[r.declaration()] {
+				missing = append(missing, r.Spec())
 			}
 		}
 	}

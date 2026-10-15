@@ -57,13 +57,13 @@ func newRobots(t *testing.T, cfg serviceaccount.Config, opts ...identity.Option)
 
 	app.Routes(
 		Customers.To(func(context.Context, route.None) (string, error) { return "customers", nil }),
-		route.Get[route.None, string]("/whoami").To(func(ctx context.Context, _ route.None) (string, error) {
+		route.Get[route.None, string]("/whoami").Authenticated().To(func(ctx context.Context, _ route.None) (string, error) {
 			who, _ := auth.UserFromContext(ctx)
 			p, _ := authz.PrincipalFrom(ctx)
 
 			return fmt.Sprintf("%s:%d:%d", p.Kind, p.ID, who.GetID()), nil
 		}),
-		route.Get[route.None, string]("/user").To(func(ctx context.Context, _ route.None) (string, error) {
+		route.Get[route.None, string]("/user").Authenticated().To(func(ctx context.Context, _ route.None) (string, error) {
 			who, ok := auth.UserOf[stranger](ctx)
 			if !ok {
 				return "no stranger", nil
@@ -75,7 +75,7 @@ func newRobots(t *testing.T, cfg serviceaccount.Config, opts ...identity.Option)
 
 			return fmt.Sprintf("person %d %s", who.ID, who.Name), nil
 		}),
-		route.Post[route.None, string]("/orders").To(func(context.Context, route.None) (string, error) { return "ordered", nil }),
+		route.Post[route.None, string]("/orders").Authenticated().To(func(context.Context, route.None) (string, error) { return "ordered", nil }),
 	)
 
 	for id, login := range map[int]string{1: "webmaster", 2: "owner", 3: "nobody"} {

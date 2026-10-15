@@ -13,6 +13,9 @@ import (
 //	(none)          check, then serve, until ctx is done
 //	migrate         apply every pending migration of every connection, then return
 //	migrate status  list applied and pending migrations per connection, then return
+//	migrate mark-applied <connection> <version|file>...
+//	                record migrations as applied without running them, for a database
+//	                whose tables already exist, then return
 //	help            list these commands, then return
 //
 // A command other than serving never starts HTTP or boots modules: it uses
@@ -23,6 +26,10 @@ import (
 // args and a buffer.
 func (a *App) RunCommand(ctx context.Context, args []string, out io.Writer) error {
 	command := strings.Join(args, " ")
+
+	if rest, ok := strings.CutPrefix(command+" ", "migrate mark-applied "); ok {
+		return a.command(func() error { return a.markApplied(ctx, strings.Fields(rest), out) })
+	}
 
 	switch command {
 	case "":
@@ -39,7 +46,8 @@ func (a *App) RunCommand(ctx context.Context, args []string, out io.Writer) erro
 		})
 	default:
 		return a.command(func() error {
-			return fmt.Errorf("gocore: unknown command %q: the commands are migrate, migrate status and help", command)
+			return fmt.Errorf("gocore: %w %q: the commands are migrate, migrate status, migrate mark-applied and help",
+				errUnknownCommand, command)
 		})
 	}
 }
@@ -66,6 +74,8 @@ Commands:
   (none)          check the application, then serve it
   migrate         apply every pending migration, then exit
   migrate status  list applied and pending migrations, then exit
+  migrate mark-applied <connection> <version|file>...
+                  record migrations as applied without running them, then exit
   help            show this list
 `, name)
 }
@@ -100,3 +110,30 @@ func (a *App) migrationStatus(ctx context.Context, out io.Writer) error {
 
 	return nil
 }
+
+var (
+	errUnknownCommand = errors.New("unknown command")
+	errMarkUsage      = errors.New("gocore: mark-applied takes a connection and at least one version or file")
+)
+
+// markApplied is the mark-applied command: args are a connection and the versions or files.
+func (a *App) markApplied(ctx context.Context, args []string, out io.Writer) error {
+	if len(args) < minMarkArgs {
+		return errMarkUsage
+	}
+
+	err := a.MarkApplied(ctx, args[0], args[1:]...)
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(out, "%s: %d migration(s) recorded as applied\n", args[0], len(args)-1)
+	if err != nil {
+		return fmt.Errorf("gocore: writing the result: %w", err)
+	}
+
+	return nil
+}
+
+// minMarkArgs is a connection and one version.
+const minMarkArgs = 2

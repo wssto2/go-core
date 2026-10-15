@@ -59,7 +59,7 @@ func TestUseOnHandlerRunsBeforeRoutesAddedBeforeIt(t *testing.T) {
 	t.Parallel()
 
 	app, _ := twoChains(t, nil)
-	app.Routes(okRoute("/early").Public().To(serve("early")))
+	app.Routes(publicRoute("/early").To(serve("early")))
 	app.Use(stamp("late"))
 
 	handler, err := app.Handler()

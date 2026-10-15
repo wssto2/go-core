@@ -98,6 +98,8 @@ type plan struct {
 	query  bool // some input takes free-form filters: QueryValue is imported
 	lists  bool // some output is a ListResult<Row>, imported next to route
 	paged  bool // some output is a route.Page: PageMeta is imported next to route
+	// nIns and nOuts count the leading ins and outs that are routes' structs, before planEnums appends enum wrappers.
+	nIns, nOuts int
 }
 
 type routeLine struct {
@@ -271,6 +273,8 @@ func planOf(g *route.Contract) (*plan, error) {
 			p.outs = append(p.outs, reflect.New(t).Elem().Interface())
 		}
 	}
+
+	p.nIns, p.nOuts = len(p.ins), len(p.outs)
 
 	if err := planEnums(p, g, claimAs); err != nil {
 		return nil, err
