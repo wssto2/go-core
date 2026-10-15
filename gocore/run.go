@@ -198,7 +198,7 @@ func (a *App) build() (*bootstrap.App, error) {
 		b.WithRegistry(a.registry)
 	}
 
-	b.DefaultInfrastructure()
+	b.DefaultInfrastructure().Use(a.middleware...)
 
 	for _, configure := range a.customize {
 		configure(b)
@@ -306,6 +306,7 @@ func (a *App) Handler() (http.Handler, error) {
 
 	engine := gin.New()
 	engine.Use(middlewares.ErrorHandler(a.log, nil, true))
+	engine.Use(a.middleware...)
 
 	for _, r := range a.routes {
 		err := r.mount(r.group(engine, a.prefix), a.security())

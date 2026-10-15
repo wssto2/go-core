@@ -70,6 +70,7 @@ type App struct {
 	registry     *database.Registry
 	authorizer   authz.Authorizer
 	authenticate []gin.HandlerFunc
+	middleware   []gin.HandlerFunc
 	customize    []func(*bootstrap.AppBuilder)
 
 	routes     []mounted
@@ -255,6 +256,15 @@ func (a *App) Authenticate(middleware ...gin.HandlerFunc) {
 
 	a.authenticatedBy = true
 	a.authenticate = append([]gin.HandlerFunc(nil), middleware...)
+}
+
+// Use adds engine middleware that runs before every route, those of modules
+// included, in the order given, whenever it is called: a middleware added after
+// Routes still runs before them. It runs after the request id, logging,
+// security headers and rate limits the App sets up, and before authentication,
+// so it sees every request, signed in or not.
+func (a *App) Use(middleware ...gin.HandlerFunc) {
+	a.middleware = append(a.middleware, middleware...)
 }
 
 // Config returns the configuration the App was created with.

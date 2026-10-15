@@ -43,6 +43,7 @@ type AppBuilder struct {
 	registry            *database.Registry       // supplied with WithRegistry, else opened from cfg
 	log                 *slog.Logger             // supplied with WithLogger, else built from cfg
 	telemetry           *observability.Telemetry // supplied with WithTelemetry, else built from cfg
+	engineMiddleware    []gin.HandlerFunc        // supplied with Use, applied by Build
 }
 
 // New creates a new AppBuilder with the given config.
@@ -356,6 +357,15 @@ func (b *AppBuilder) WithIdempotency(ttl time.Duration) *AppBuilder {
 	return b
 }
 
+// Use adds engine middleware that runs before every route, those of modules
+// included, after the builder's own (request id, logging, security, rate
+// limits) and in the order given. It is applied by Build, so it may be called
+// at any point of the chain.
+func (b *AppBuilder) Use(middleware ...gin.HandlerFunc) *AppBuilder {
+	b.engineMiddleware = append(b.engineMiddleware, middleware...)
+	return b
+}
+
 func (b *AppBuilder) WithModules(modules ...Module) *AppBuilder {
 	b.modules = append(b.modules, modules...)
 	return b
@@ -608,6 +618,10 @@ func (b *AppBuilder) Build() (*App, error) {
 	// writes the response body.
 	if len(b.trustedOrigins) > 0 {
 		b.engine.Use(middlewares.TrustedOriginsMiddleware(b.trustedOrigins...))
+	}
+
+	if len(b.engineMiddleware) > 0 {
+		b.engine.Use(b.engineMiddleware...)
 	}
 
 	if b.spaConfig != nil {
