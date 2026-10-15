@@ -26,7 +26,7 @@ func Mapped[T, R any](from func(T) R) func(T, error) (R, error) {
 
 // Value is the record a service answered, for a route whose output is the record itself. An answer with no record is
 // the service's mistake (500), not a null for the client to handle.
-func Value[T any](record *T) (T, error) {
+func Value[T any](record *T) (T, error) { //nolint:ireturn // a generic accessor returns its type parameter
 	if record == nil {
 		var zero T
 
