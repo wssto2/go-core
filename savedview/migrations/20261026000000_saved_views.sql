@@ -7,7 +7,7 @@
 CREATE TABLE IF NOT EXISTS `saved_views` (
   `id`         bigint unsigned NOT NULL AUTO_INCREMENT,
   `user_id`    int unsigned    NOT NULL COMMENT 'FK: users.id - the only user who may read or change the row',
-  `list_key`   varchar(100)    NOT NULL COMMENT 'Which list the filters belong to, e.g. internalmarket.catalogue',
+  `list_key`   varchar(100)    NOT NULL COMMENT 'Which list the view belongs to, by the id the list declares',
   `name`       varchar(60)     NOT NULL COMMENT 'User-chosen label, unique per user and list',
   `state`      text            NOT NULL COMMENT 'JSON: {"filters":{...},"search":"..."} as the list sends them',
   `created_at` datetime        NOT NULL,
