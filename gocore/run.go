@@ -170,6 +170,10 @@ func (a *App) RunContext(ctx context.Context) error {
 		pending = a.pendingProblems(ctx)
 	}
 
+	if len(pending) == 0 {
+		pending = a.startProblems(ctx)
+	}
+
 	if err := a.checked(pending); err != nil {
 		return err
 	}
@@ -180,6 +184,23 @@ func (a *App) RunContext(ctx context.Context) error {
 	}
 
 	return booted.RunContext(ctx)
+}
+
+// startProblems runs the OnStart checks; each error is a problem that stops start-up.
+func (a *App) startProblems(ctx context.Context) []Problem {
+	var problems []Problem
+
+	for _, check := range a.onStart {
+		err := check(ctx)
+		if err != nil {
+			problems = append(problems, Problem{
+				What: "a start-up check failed: " + err.Error(),
+				Fix:  "fix what the error names; the check was added with App.OnStart",
+			})
+		}
+	}
+
+	return problems
 }
 
 func (a *App) closeDatabase() {

@@ -72,7 +72,9 @@ type App struct {
 	authorizer   authz.Authorizer
 	authenticate []gin.HandlerFunc
 	middleware   []gin.HandlerFunc
-	customize    []func(*bootstrap.AppBuilder)
+	// onStart are the checks serving runs before it starts.
+	onStart   []func(ctx context.Context) error
+	customize []func(*bootstrap.AppBuilder)
 
 	routes     []mounted
 	workers    []worker.Worker
@@ -292,6 +294,15 @@ func (a *App) Authenticate(middleware ...gin.HandlerFunc) {
 // so it sees every request, signed in or not.
 func (a *App) Use(middleware ...gin.HandlerFunc) {
 	a.middleware = append(a.middleware, middleware...)
+}
+
+// OnStart adds a check that serving runs before it starts, once the migrations
+// are known to be applied: what the application needs of its database (a
+// config row it cannot run without, data it reads once per process). An error
+// stops start-up and is listed with the other problems. Commands (migrate,
+// help) and Check do not run it, so they work on a database with no schema.
+func (a *App) OnStart(check func(ctx context.Context) error) {
+	a.onStart = append(a.onStart, check)
 }
 
 // Config returns the configuration the App was created with.

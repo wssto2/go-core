@@ -10,6 +10,7 @@ One authentication chain: go-core identity authenticates every route, whether th
 - `gocore.App.Telemetry()`: the application's one metrics handle. The builder (`AppBuilder.WithTelemetry`) and worker metrics reuse it instead of building their own.
 - `gocore.App.Use(middleware...)` and `AppBuilder.Use`: engine middleware that runs before every route, those of modules included, in the order given, however late it is added.
 - `gocore.WithCSP(directive, sources...)`, `AppBuilder.WithCSP` and `middlewares.CSPSources`: add sources to a CSP directive, creating it when missing.
+- `gocore.App.OnStart(check)`: a check serving runs before it starts, once the migrations are applied (a config row the app cannot run without, data it reads once per process). An error stops start-up with the other problems; commands and `Check` do not run it.
 - `gocore.WithServiceWorker(file)`: serves the file at `/sw.js`, outside the prefix, public, with `Cache-Control: no-cache`.
 - `identity.WithRequestUser(func(ctx, who identity.Authenticated) (auth.Identifiable, error))`: the application's own user for every request. It runs for a signed-in account and for an API-key request; `identity.Authenticated` carries either the account (with its session) or `ServiceAccount`.
 - `route.PersonOnly()` on `Route` and `RawRoute`: a service account gets 403 (`authz.forbidden`, `why: person_only`). Identity's session and profile routes and every notification route (inbox, settings, devices, live stream, test notification, failed events) are person-only.
