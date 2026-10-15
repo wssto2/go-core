@@ -14,77 +14,102 @@ const (
 
 // transactionAPI is go-core's transaction plumbing: a repository reaches the
 // caller's transaction through one file of its package, not by calling it.
-var transactionAPI = []string{"TxFromContext", "SQLTxFromContext", "NewTransactor", "NewTransactorFromRegistry"}
+func transactionAPI() []string {
+	return []string{"TxFromContext", "SQLTxFromContext", "NewTransactor", "NewTransactorFromRegistry"}
+}
 
 // banned checks Config.Banned. It has no ratchet: a ban is not debt.
 func (p *project) banned() []string {
 	var out []string
 
-	for _, b := range p.cfg.Banned {
-		found := p.bannedUses(b)
+	for _, ban := range p.cfg.Banned {
+		found := p.bannedUses(ban)
 		if len(found) == 0 {
 			continue
 		}
 
-		what := b.Import
-		if b.Symbol != "" {
-			what += "." + b.Symbol
+		what := ban.Import
+		if ban.Symbol != "" {
+			what += "." + ban.Symbol
 		}
 
 		texts := make([]string, len(found))
-		for i, f := range found {
-			texts[i] = f.text
+		for idx, one := range found {
+			texts[idx] = one.text
 		}
 
 		slices.Sort(texts)
 
-		out = append(out, "BANNED ("+what+"):\n  "+strings.Join(texts, "\n  ")+"\n\n  -> "+b.Why)
+		out = append(out, "BANNED ("+what+"):\n  "+strings.Join(texts, "\n  ")+"\n\n  -> "+ban.Why)
 	}
 
 	return out
 }
 
-func (p *project) bannedUses(b Banned) []finding {
+func (p *project) bannedUses(ban Banned) []finding {
 	var out []finding
 
-	for _, s := range p.files {
-		if s.IsTest && !b.Tests {
+	for _, src := range p.files {
+		if !bannedHere(src, ban) {
 			continue
 		}
 
-		if len(b.In) > 0 && !slices.ContainsFunc(b.In, func(place string) bool { return inPlace(place, s.Rel) }) {
-			continue
+		if ban.Symbol == "" {
+			out = append(out, p.bannedImports(src, ban)...)
+		} else {
+			out = append(out, bannedSymbols(src, ban)...)
 		}
-
-		if slices.ContainsFunc(b.Except, func(place string) bool { return inPlace(place, s.Rel) }) {
-			continue
-		}
-
-		if b.Symbol == "" {
-			for _, imp := range s.File.Imports {
-				if ip := importPath(imp); ip != "" && p.importMatches(b.Import, ip) && !slices.ContainsFunc(b.Unless, func(u string) bool { return p.importMatches(u, ip) }) {
-					out = append(out, finding{s.Rel, p.at(s, imp) + "  imports " + ip})
-				}
-			}
-
-			continue
-		}
-
-		alias := aliasOf(s.File, b.Import)
-		if alias == "" {
-			continue
-		}
-
-		ast.Inspect(s.File, func(n ast.Node) bool {
-			if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == b.Symbol {
-				if id, ok := sel.X.(*ast.Ident); ok && id.Name == alias {
-					out = append(out, finding{s.Rel, p.at(s, sel) + "  uses " + alias + "." + b.Symbol})
-				}
-			}
-
-			return true
-		})
 	}
+
+	return out
+}
+
+// bannedHere says whether the ban covers the file.
+func bannedHere(src Source, ban Banned) bool {
+	if src.IsTest && !ban.Tests {
+		return false
+	}
+
+	inPlaceOf := func(place string) bool { return inPlace(place, src.Rel) }
+
+	return (len(ban.In) == 0 || slices.ContainsFunc(ban.In, inPlaceOf)) && !slices.ContainsFunc(ban.Except, inPlaceOf)
+}
+
+func (p *project) bannedImports(src Source, ban Banned) []finding {
+	var out []finding
+
+	for _, imp := range src.File.Imports {
+		imported := importPath(imp)
+		if imported == "" || !p.importMatches(ban.Import, imported) {
+			continue
+		}
+
+		if slices.ContainsFunc(ban.Unless, func(pattern string) bool { return p.importMatches(pattern, imported) }) {
+			continue
+		}
+
+		out = append(out, finding{key: src.Rel, text: src.At(imp) + "  imports " + imported})
+	}
+
+	return out
+}
+
+func bannedSymbols(src Source, ban Banned) []finding {
+	alias := aliasOf(src.File, ban.Import)
+	if alias == "" {
+		return nil
+	}
+
+	var out []finding
+
+	ast.Inspect(src.File, func(node ast.Node) bool {
+		sel, isSel := node.(*ast.SelectorExpr)
+		if isSel && sel.Sel.Name == ban.Symbol && isIdent(sel.X, alias) {
+			out = append(out, finding{key: src.Rel, text: src.At(sel) + "  uses " + alias + "." + ban.Symbol})
+		}
+
+		return true
+	})
 
 	return out
 }
@@ -103,39 +128,47 @@ func inPlace(place, rel string) bool {
 }
 
 // importMatches matches an import path against a Banned pattern.
-func (p *project) importMatches(pattern, ip string) bool {
+func (p *project) importMatches(pattern, imported string) bool {
 	switch {
 	case pattern == "...":
-		first, _, _ := strings.Cut(ip, "/")
+		first, _, _ := strings.Cut(imported, "/")
 
-		return strings.Contains(first, ".") || under(ip, p.module)
+		return strings.Contains(first, ".") || under(imported, p.module)
 	case strings.HasSuffix(pattern, "/..."):
-		return under(ip, strings.TrimSuffix(pattern, "/..."))
+		return under(imported, strings.TrimSuffix(pattern, "/..."))
 	default:
-		return ip == pattern
+		return imported == pattern
 	}
 }
 
 // repositoryShape: the transaction API of go-core is used in Repository.TxFile
 // only and tenancy.ScopeByTenant in Repository.ScopeFile only.
 func (p *project) repositoryShape() []finding {
-	r := p.cfg.Repository
+	shape := p.cfg.Repository
 
 	var out []finding
 
-	if r.TxFile != "" {
-		for _, symbol := range transactionAPI {
-			out = append(out, p.bannedUses(Banned{
-				Import: databaseImport, Symbol: symbol, In: []string{r.Dir}, Except: []string{r.Dir + "/" + r.TxFile},
-			})...)
+	if shape.TxFile != "" {
+		for _, symbol := range transactionAPI() {
+			out = append(out, p.bannedUses(restrictedToFile(databaseImport, symbol, shape.Dir, shape.TxFile))...)
 		}
 	}
 
-	if r.ScopeFile != "" {
-		out = append(out, p.bannedUses(Banned{
-			Import: tenancyImport, Symbol: "ScopeByTenant", In: []string{r.Dir}, Except: []string{r.Dir + "/" + r.ScopeFile},
-		})...)
+	if shape.ScopeFile != "" {
+		out = append(out, p.bannedUses(restrictedToFile(tenancyImport, "ScopeByTenant", shape.Dir, shape.ScopeFile))...)
 	}
 
 	return out
+}
+
+// restrictedToFile bans the symbol in every file of the package dir but one.
+func restrictedToFile(importPath, symbol, dir, file string) Banned {
+	var ban Banned
+
+	ban.Import = importPath
+	ban.Symbol = symbol
+	ban.In = []string{dir}
+	ban.Except = []string{dir + "/" + file}
+
+	return ban
 }

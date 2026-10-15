@@ -1,4 +1,4 @@
-package archtest
+package archtest_test
 
 import (
 	"os"
@@ -8,472 +8,238 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wssto2/go-core/archtest"
 )
 
-const module = "example.com/app"
-
-// goodModule is a small module that breaks no rule; every case below changes
-// it by one file.
-func goodModule() map[string]string {
-	return map[string]string{
-		"go.mod": "module " + module + "\n\ngo 1.26\n",
-		"internal/domain/shared/id.go": `package shared
-
-type ID int
-`,
-		"internal/domain/order/order.go": `package order
-
-import (
-	"context"
-
-	"example.com/app/internal/domain/shared"
+const (
+	legacyImport = "example.com/legacy"
+	orderDomain  = "internal/domain/order"
+	clockFile    = "internal/domain/order/clock.go"
+	allowedFixt  = "allowed"
+	customerDom  = "customer"
+	orderApp     = "internal/application/order"
+	mainFile     = "cmd/app/main.go"
 )
 
-type Order struct{ ID shared.ID }
-
-type Repository interface {
-	Find(ctx context.Context, id shared.ID) (*Order, error)
-	Reader
-}
-
-type Reader interface{ Close(ctx context.Context) error }
-`,
-		"internal/domain/customer/customer.go": `package customer
-
-type Customer struct{}
-
-type Repository interface{ Find(ctx context.Context) }
-`,
-		"internal/application/order/service.go": `package order
-
-import (
-	"context"
-	"fmt"
-
-	"example.com/app/internal/domain/order"
-)
-
-type CreateInput struct {
-	Name string ` + "`validation:\"required|max:50\"`" + `
-}
-
-func (CreateInput) Validate() error { return nil }
-
-type AppService struct{ repo order.Repository }
-
-func (s *AppService) Create(ctx context.Context, in CreateInput) error {
-	if _, err := s.repo.Find(ctx, 1); err != nil {
-		return fmt.Errorf("find: %w", err)
-	}
-
-	return nil
-}
-
-func (s *AppService) helper() {}
-`,
-		"internal/infrastructure/http/order/routes.go": `package order
-
-import "example.com/app/internal/application/order"
-import "github.com/wssto2/go-core/route"
-
-const base = "/v1/orders"
-
-var (
-	Create = route.Post[order.CreateInput, route.None](base).Requires("sales.order:create")
-	Show   = route.Get[route.None, route.None](base + "/:id/send-order").Authenticated()
-	Health = route.Raw("GET", "/health").Public()
-	_      = route.Group("order", Create, Show)
-)
-`,
-		"internal/infrastructure/db/repository/base.go": `package repository
-
-import "github.com/wssto2/go-core/database"
-
-func tx() { _ = database.NewTransactor }
-`,
-		"internal/infrastructure/db/repository/order.go": `package repository
-
-func find() {}
-`,
-		"cmd/app/main.go": `package main
-
-func main() {}
-`,
-	}
-}
-
-func testConfig() Config {
-	return Config{
-		Layers: Layers{
-			Domain: "internal/domain", Application: "internal/application", Infrastructure: "internal/infrastructure",
-			Cmd: "cmd", Handlers: "internal/infrastructure/http", Persistence: "internal/infrastructure/db",
-		},
-		Repository: Repository{Dir: "internal/infrastructure/db/repository", TxFile: "base.go", ScopeFile: "scopes.go"},
-		Banned:     []Banned{{Import: "example.com/legacy", Why: "gone"}},
-	}
-}
-
-// problems writes the module with the changes applied (an empty content
-// removes a file) and returns what the named rule reports.
-func problems(t *testing.T, cfg Config, name string, changes map[string]string) []string {
+// fixture is the good module of testdata/good, which breaks no rule, with the
+// files of the named testdata/bad folders added; it returns the root.
+func fixture(t *testing.T, overlays ...string) string {
 	t.Helper()
 
-	files := goodModule()
-	for path, content := range changes {
-		files[path] = content
-	}
-
 	root := t.TempDir()
+	require.NoError(t, os.CopyFS(root, os.DirFS(filepath.Join("testdata", "good"))))
 
-	for path, content := range files {
-		if content == "" {
-			continue
-		}
-
-		full := filepath.Join(root, path)
-		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
-		require.NoError(t, os.WriteFile(full, []byte(content), 0o644))
+	for _, name := range overlays {
+		require.NoError(t, os.CopyFS(root, os.DirFS(filepath.Join("testdata", "bad", name))))
 	}
+
+	return root
+}
+
+func testConfig(root string) archtest.Config {
+	var cfg archtest.Config
 
 	cfg.Root = root
+	cfg.Layers.Domain = "internal/domain"
+	cfg.Layers.Application = "internal/application"
+	cfg.Layers.Infrastructure = "internal/infrastructure"
+	cfg.Layers.Cmd = "cmd"
+	cfg.Layers.Handlers = "internal/infrastructure/http"
+	cfg.Layers.Persistence = "internal/infrastructure/db"
+	cfg.Repository.Dir = "internal/infrastructure/db/repository"
+	cfg.Repository.TxFile = "base.go"
+	cfg.Repository.ScopeFile = "scopes.go"
+	cfg.Banned = []archtest.Banned{banned(legacyImport, "", "gone")}
 
-	p, err := load(cfg)
+	return cfg
+}
+
+// banned builds a ban without its optional places.
+func banned(importPath, symbol, why string) archtest.Banned {
+	var ban archtest.Banned
+
+	ban.Import = importPath
+	ban.Symbol = symbol
+	ban.Why = why
+
+	return ban
+}
+
+// problems is what the rule reports on the module of the config, joined; it fails when the rule did not run.
+func problems(t *testing.T, cfg archtest.Config, rule string) string {
+	t.Helper()
+
+	results, err := archtest.Check(cfg)
 	require.NoError(t, err)
 
-	for _, r := range p.rules() {
-		if r.name == name {
-			return r.check()
+	for _, result := range results {
+		if result.Rule == rule {
+			return strings.Join(result.Problems, "\n")
 		}
 	}
 
-	t.Fatalf("rule %q is not enabled", name)
+	t.Fatalf("rule %q did not run", rule)
 
-	return nil
+	return ""
+}
+
+// write puts a file in a scratch module.
+func write(t *testing.T, root, rel, content string) {
+	t.Helper()
+
+	full := filepath.Join(root, rel)
+	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o750))
+	require.NoError(t, os.WriteFile(full, []byte(content), 0o600))
+}
+
+func allRules() []string {
+	return []string{
+		archtest.NoPanic, archtest.NoContextBackground, archtest.NoSleep, archtest.NoDatabaseSQL, archtest.ErrorfWrap,
+		archtest.HandlersNoPersistence, archtest.LayerImports, archtest.DomainPurity, archtest.ApplicationPurity,
+		archtest.NoTimeNowDomain, archtest.NoTimeNowApplication, archtest.CrossAggregate, archtest.DomainContextFirst,
+		archtest.ServiceContextFirst, archtest.BoundedStrings, archtest.ValidationRules, archtest.ServiceRepositories,
+		archtest.RepositoryShape, archtest.RoutePaths, archtest.RouteIdentifiers, archtest.RouteAccess, "banned",
+	}
 }
 
 func TestAGoodModuleBreaksNoRule(t *testing.T) {
 	t.Parallel()
 
-	cfg := testConfig()
+	results, err := archtest.Check(testConfig(fixture(t)))
+	require.NoError(t, err)
 
-	for _, name := range allRuleNames {
-		require.Empty(t, problems(t, cfg, name, nil), name)
+	ran := make([]string, 0, len(results))
+
+	for _, result := range results {
+		ran = append(ran, result.Rule)
+
+		require.Empty(t, result.Problems, result.Rule)
 	}
+
+	slices.Sort(ran)
+
+	want := allRules()
+	slices.Sort(want)
+	require.Equal(t, want, ran, "every rule ran")
 }
 
-// Each case: the guard catches the violation, naming the file and the thing.
-func TestGuardCatches(t *testing.T) {
+func TestRunPassesAGoodModule(t *testing.T) {
 	t.Parallel()
 
-	tag := func(s string) string { return "`" + s + "`" }
-
-	cases := []struct {
-		rule    string
-		changes map[string]string
-		want    []string // substrings of the report
-		not     []string // substrings it must not hold
-	}{
-		{NoPanic, map[string]string{
-			"internal/domain/order/p.go":      "package order\n\nfunc f() { panic(\"x\") }\n",
-			"internal/domain/order/p_test.go": "package order\n\nfunc g() { panic(\"x\") }\n",
-		}, []string{"internal/domain/order/p.go:3  panic("}, []string{"p_test.go"}},
-		{NoContextBackground, map[string]string{
-			"internal/application/order/c.go": "package order\n\nimport \"context\"\n\nvar c = context.Background()\n",
-		}, []string{"internal/application/order/c.go:5"}, nil},
-		{NoSleep, map[string]string{
-			"internal/application/order/s.go": "package order\n\nimport \"time\"\n\nfunc f() { time.Sleep(1) }\n",
-		}, []string{"internal/application/order/s.go:5"}, nil},
-		{NoDatabaseSQL, map[string]string{
-			"internal/domain/order/sql.go": "package order\n\nimport _ \"database/sql\"\n",
-		}, []string{"imports database/sql"}, nil},
-		{ErrorfWrap, map[string]string{
-			"internal/application/order/e.go": "package order\n\nimport \"fmt\"\n\nfunc f(err error) error { return fmt.Errorf(\"x: %v\", err) }\n",
-		}, []string{"e.go:5  fmt.Errorf(...) passes err without %w"}, nil},
-		{HandlersNoPersistence, map[string]string{
-			"internal/infrastructure/http/order/h.go": "package order\n\nimport _ \"example.com/app/internal/infrastructure/db/repository\"\n",
-		}, []string{"h.go:3  imports example.com/app/internal/infrastructure/db/repository"}, nil},
-		{LayerImports, map[string]string{
-			"internal/domain/order/l.go":           "package order\n\nimport _ \"example.com/app/internal/application/order\"\n",
-			"internal/domain/order/l_test.go":      "package order\n\nimport _ \"example.com/app/internal/infrastructure/db/repository\"\n",
-			"internal/application/order/l.go":      "package order\n\nimport _ \"example.com/app/internal/infrastructure/http/order\"\n",
-			"internal/application/order/l_cmd.go":  "package order\n\nimport _ \"example.com/app/cmd/app\"\n",
-			"internal/application/order/l_dom.go":  "package order\n\nimport _ \"example.com/app/internal/domain/customer\"\n",
-			"internal/infrastructure/http/ok_.go":  "package http\n\nimport _ \"example.com/app/internal/application/order\"\n",
-			"internal/infrastructure/http/ok2_.go": "package http\n\nimport _ \"example.com/app/internal/domain/order\"\n",
-		}, []string{"internal/domain/order/l.go:3", "internal/domain/order/l_test.go:3", "internal/application/order/l.go:3", "l_cmd.go:3"},
-			[]string{"l_dom.go", "ok_.go", "ok2_.go"}},
-		{DomainPurity, map[string]string{
-			"internal/domain/order/g.go":   "package order\n\nimport _ \"github.com/gin-gonic/gin\"\nimport _ \"encoding/json\"\nimport _ \"gorm.io/gorm/clause\"\nimport _ \"github.com/wssto2/go-core/datatable\"\n",
-			"internal/domain/order/t.go":   "package order\n\ntype T struct {\n\tA int " + tag(`json:"a"`) + "\n}\n",
-			"internal/domain/shared/t.go":  "package shared\n\ntype T struct {\n\tA int " + tag(`json:"a"`) + "\n}\n",
-			"internal/domain/order/ok.go":  "package order\n\ntype U struct {\n\tA int " + tag(`gorm:"a"`) + "\n}\n",
-			"internal/domain/order/ok2.go": "package order\n\nimport _ \"errors\"\n",
-		}, []string{"g.go:3  imports github.com/gin-gonic/gin", "g.go:4  imports encoding/json", "g.go:5  imports gorm.io/gorm/clause",
-			"g.go:6  imports github.com/wssto2/go-core/datatable", "t.go:4  has a json: tag"}, []string{"shared/t.go", "ok.go", "ok2.go"}},
-		{ApplicationPurity, map[string]string{
-			"internal/application/order/g.go": "package order\n\nimport _ \"github.com/gin-gonic/gin\"\nimport _ \"gorm.io/gorm\"\n",
-		}, []string{"g.go:3  imports github.com/gin-gonic/gin", "g.go:4  imports gorm.io/gorm"}, nil},
-		{NoTimeNowDomain, map[string]string{
-			"internal/domain/order/n.go": "package order\n\nimport \"time\"\n\nvar a = time.Now()\n\nvar b = struct{ now func() time.Time }{now: time.Now}\n",
-		}, []string{"n.go:5", "n.go:7"}, nil},
-		{NoTimeNowApplication, map[string]string{
-			"internal/application/order/n.go": "package order\n\nimport \"time\"\n\nvar a = time.Now()\n",
-		}, []string{"n.go:5"}, nil},
-		{CrossAggregate, map[string]string{
-			"internal/domain/order/x.go":  "package order\n\nimport _ \"example.com/app/internal/domain/customer\"\n",
-			"internal/domain/order/y.go":  "package order\n\nimport _ \"example.com/app/internal/domain/shared\"\n",
-			"internal/domain/order/z.go":  "package order\n\nimport _ \"example.com/app/internal/domain/order\"\n",
-			"internal/domain/top_file.go": "package domain\n\nimport _ \"example.com/app/internal/domain/customer\"\n",
-		}, []string{"x.go:3  imports the customer aggregate"}, []string{"y.go", "z.go", "top_file.go"}},
-		{DomainContextFirst, map[string]string{
-			"internal/domain/order/p.go": "package order\n\ntype Port interface {\n\tGet(id int) error\n\tOk(ctx context.Context, id int)\n}\n",
-		}, []string{"p.go:4  Port.Get does not take context.Context first"}, []string{"Port.Ok"}},
-		{ServiceContextFirst, map[string]string{
-			"internal/application/order/s.go": "package order\n\ntype OfferAppService struct{}\n\nfunc (s *OfferAppService) Do(id int) {}\n\nfunc (s *OfferAppService) hidden(id int) {}\n\ntype Other struct{}\n\nfunc (Other) Do(id int) {}\n",
-		}, []string{"s.go:5  OfferAppService.Do does not take context.Context first"}, []string{"hidden", "Other"}},
-		{BoundedStrings, map[string]string{
-			"internal/application/order/in.go": "package order\n\ntype Update struct {\n\tTitle string " + tag(`validation:"required"`) + "\n\tNote  *string " + tag(`validation:"max:5"`) + "\n\tLine  Line\n\tTags []string\n}\n\nfunc (Update) Validate() error { return nil }\n\ntype Line struct {\n\tText string\n}\n\ntype Filter struct{ Q string }\n",
-		}, []string{"in.go:4  Update.Title (string) has no max:", "in.go:13  Line.Text (string) has no max:"}, []string{"Note", "Filter", "Tags"}},
-		{RoutePaths, map[string]string{
-			"internal/infrastructure/http/order/p.go": "package order\n\nimport \"github.com/wssto2/go-core/route\"\n\nvar (\n\tA = route.Post[int, int](base + \"/sendOrder\")\n\tB = route.Delete[int, int](\"/v1/price_rules/:id\")\n\tC = route.Raw(\"GET\", \"/v1/Files\")\n\tD = route.Raw(\"GET\", \"/v1/files/*path\")\n\tE = route.Post[int, int](base + \"/stepper/1\")\n\tF = route.Post[int, int](base + \"/stepper/Step1\")\n\tG = route.Post[int, int](dynamic())\n\tH = route.Name(\"not a route\")\n)\n",
-		}, []string{`segment "sendOrder"`, `segment "price_rules"`, `segment "Files"`, `segment "Step1"`, "not a string literal or constants"},
-			[]string{`"1"`, `"files"`, `"path"`, `"not a route"`}},
-		{RouteIdentifiers, map[string]string{
-			"internal/infrastructure/http/order/i.go": "package order\n\nimport \"github.com/wssto2/go-core/route\"\n\nvar (\n\tA = route.Get[int, int](\"/a\").Requires(\"sales_plan.order:view_all\")\n\tB = route.Group(\"sales-plan\")\n\tC = route.Group(\"salesplan\")\n\tD = route.Get[int, int](\"/b\").RequiresAny(\"ok.fine:view\", \"x.Y:view\")\n)\n",
-		}, []string{`permission namespace component "sales_plan"`, `permission verb "view_all"`, `route group segment "sales-plan"`, `component "Y"`},
-			[]string{`"salesplan"`, `"ok"`, `"fine"`}},
-		{ValidationRules, map[string]string{
-			"internal/application/order/v.go": "package order\n\ntype V struct {\n\tA int " + tag(`validation:"gte=0"`) + "\n\tB string " + tag(`validation:"required|max:3"`) + "\n}\n",
-		}, []string{"v.go:4", "gte=0"}, []string{"v.go:5"}},
-		{RouteAccess, map[string]string{
-			"internal/infrastructure/http/order/a.go": "package order\n\nimport rt \"github.com/wssto2/go-core/route\"\n\nvar (\n\tA = rt.Get[int, int](base).Name(\"x\")\n\tB = rt.Raw(\"POST\", base+\"/raw\").To(nil)\n\tC = rt.Put[int, int](base).Name(\"c\").Requires(\"a.b:c\").To(nil)\n\tD = rt.Get[int, int](base).PersonOnly()\n\tE = rt.Get[int, int](base).Name(\"e\").Authenticated().Status(201)\n\tF = rt.Patch[int, int](base).RequiresAll(\"a.b:c\")\n\tG = rt.Delete[int, int](base).Public()\n)\n",
-		}, []string{"a.go:6  GET /v1/orders declares no access", "a.go:7  POST /v1/orders/raw declares no access"}, []string{"a.go:8", "a.go:9", "a.go:10", "a.go:11", "a.go:12"}},
-		{ServiceRepositories, map[string]string{
-			"internal/application/order/r.go":  "package order\n\nimport \"example.com/app/internal/domain/customer\"\n\ntype S struct{ r customer.Repository }\n",
-			"internal/application/order/r2.go": "package order\n\nimport \"example.com/app/internal/domain/customer\"\n\nvar _ customer.Customer\n",
-			"internal/application/order/r3.go": "package order\n\nimport c2 \"example.com/app/internal/domain/customer\"\n\ntype T struct{ r c2.Repository }\n",
-		}, []string{"r.go injects a Repository from internal/domain/customer", "r3.go injects"}, []string{"r2.go"}},
-		{RepositoryShape, map[string]string{
-			"internal/infrastructure/db/repository/bad.go":    "package repository\n\nimport (\n\tdb \"github.com/wssto2/go-core/database\"\n\t\"github.com/wssto2/go-core/tenancy\"\n)\n\nfunc f() {\n\t_ = db.TxFromContext\n\t_ = tenancy.ScopeByTenant\n}\n",
-			"internal/infrastructure/db/repository/scopes.go": "package repository\n\nimport \"github.com/wssto2/go-core/tenancy\"\n\nvar _ = tenancy.ScopeByTenant\n",
-		}, []string{"bad.go:9  uses db.TxFromContext", "bad.go:10  uses tenancy.ScopeByTenant"}, []string{"base.go", "scopes.go"}},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.rule, func(t *testing.T) {
-			t.Parallel()
-
-			report := strings.Join(problems(t, testConfig(), tc.rule, tc.changes), "\n")
-			require.NotEmpty(t, report, "the guard caught nothing")
-
-			for _, want := range tc.want {
-				require.Contains(t, report, want)
-			}
-
-			for _, not := range tc.not {
-				require.NotContains(t, report, not)
-			}
-		})
-	}
-}
-
-func TestBanned(t *testing.T) {
-	t.Parallel()
-
-	run := func(b Banned, changes map[string]string) string {
-		cfg := testConfig()
-		cfg.Banned = []Banned{b}
-
-		return strings.Join(problems(t, cfg, "banned", changes), "\n")
-	}
-
-	files := map[string]string{
-		"internal/application/order/b.go":      "package order\n\nimport (\n\t\"example.com/legacy\"\n\t\"github.com/wssto2/go-core/auth\"\n)\n\nvar _ = legacy.X\nvar _ = auth.Authorize\nvar _ = auth.User\n",
-		"internal/application/order/b_test.go": "package order\n\nimport _ \"example.com/legacy\"\n",
-	}
-
-	got := run(Banned{Import: "example.com/legacy", Why: "removed"}, files)
-	require.Contains(t, got, "BANNED (example.com/legacy)")
-	require.Contains(t, got, "b.go:4  imports example.com/legacy")
-	require.Contains(t, got, "-> removed")
-	require.NotContains(t, got, "b_test.go")
-
-	require.Contains(t, run(Banned{Import: "example.com/legacy", Tests: true, Why: "removed"}, files), "b_test.go:3")
-
-	got = run(Banned{Import: "github.com/wssto2/go-core/auth", Symbol: "Authorize", Why: "gone"}, files)
-	require.Contains(t, got, "b.go:9  uses auth.Authorize")
-	require.NotContains(t, got, "auth.User")
-
-	require.Empty(t, run(Banned{Import: "example.com/legacy", Except: []string{"internal/application/order/b.go"}, Why: "x"}, files))
-	require.Empty(t, run(Banned{Import: "example.com/legacy", In: []string{"internal/domain/..."}, Why: "x"}, files))
-	require.Contains(t, run(Banned{Import: "example.com/legacy", In: []string{"internal/application/order"}, Why: "x"}, files), "b.go")
-	require.Empty(t, run(Banned{Import: "example.com/legacy", In: []string{"internal/application"}, Why: "x"}, files), "a bare directory is that package only")
-
-	got = run(Banned{Import: "...", Unless: []string{"github.com/wssto2/go-core/..."}, Why: "closed"}, files)
-	require.Contains(t, got, "imports example.com/legacy")
-	require.NotContains(t, got, "go-core/auth")
-	require.NotContains(t, got, "imports context", "the standard library is not matched by ...")
-}
-
-func TestRatchet(t *testing.T) {
-	t.Parallel()
-
-	found := []finding{{"a.go", "a.go:1  bad"}, {"a.go", "a.go:9  bad"}, {"b.go", "b.go:2  bad"}}
-
-	require.Empty(t, settle("t", "h", []string{"a.go", "b.go"}, found))
-
-	fresh := strings.Join(settle("t", "h", []string{"a.go"}, found), "\n")
-	require.Contains(t, fresh, "CONVENTION VIOLATION (t)")
-	require.Contains(t, fresh, "b.go:2  bad")
-	require.NotContains(t, fresh, "a.go:1")
-
-	stale := strings.Join(settle("t", "h", []string{"a.go", "b.go", "gone.go"}, found), "\n")
-	require.Contains(t, stale, "STALE ALLOWED ENTRY (t)")
-	require.Contains(t, stale, "gone.go")
-	require.NotContains(t, stale, "CONVENTION VIOLATION")
+	archtest.Run(t, testConfig(fixture(t)))
 }
 
 func TestAllowedFreezesAFileAndGoesStale(t *testing.T) {
 	t.Parallel()
 
-	bad := map[string]string{"internal/domain/order/n.go": "package order\n\nimport \"time\"\n\nvar a = time.Now()\n"}
-	cfg := testConfig()
-	cfg.Allowed = map[string][]string{NoTimeNowDomain: {"internal/domain/order/n.go"}}
+	cfg := testConfig(fixture(t, allowedFixt))
+	require.Contains(t, problems(t, cfg, archtest.NoTimeNowDomain), clockFile+":5")
 
-	require.Empty(t, problems(t, cfg, NoTimeNowDomain, bad))
-	require.Contains(t, strings.Join(problems(t, cfg, NoTimeNowDomain, nil), ""), "STALE ALLOWED ENTRY")
+	cfg.Allowed = map[string][]string{archtest.NoTimeNowDomain: {clockFile}}
+	require.Empty(t, problems(t, cfg, archtest.NoTimeNowDomain))
+
+	cfg = testConfig(fixture(t))
+	cfg.Allowed = map[string][]string{archtest.NoTimeNowDomain: {clockFile}}
+
+	got := problems(t, cfg, archtest.NoTimeNowDomain)
+	require.Contains(t, got, "STALE ALLOWED ENTRY")
+	require.Contains(t, got, clockFile)
+	require.NotContains(t, got, "CONVENTION VIOLATION")
 }
 
 func TestServiceRepositoriesKeysAndOwnership(t *testing.T) {
 	t.Parallel()
 
-	changes := map[string]string{
-		"internal/application/order/r.go": "package order\n\nimport \"example.com/app/internal/domain/customer\"\n\ntype S struct{ r customer.Repository }\n",
-	}
+	root := fixture(t, "service-repositories")
+	key := orderApp + "/injects.go|" + customerDom
+	aliasKey := orderApp + "/aliased.go|" + customerDom
 
-	cfg := testConfig()
-	cfg.Allowed = map[string][]string{ServiceRepositories: {"internal/application/order/r.go|customer"}}
-	require.Empty(t, problems(t, cfg, ServiceRepositories, changes))
+	cfg := testConfig(root)
+	cfg.Allowed = map[string][]string{archtest.ServiceRepositories: {key, aliasKey}}
+	require.Empty(t, problems(t, cfg, archtest.ServiceRepositories))
 
-	cfg = testConfig()
-	cfg.OwnedDomains = map[string][]string{"order": {"order", "customer"}}
-	require.Empty(t, problems(t, cfg, ServiceRepositories, changes))
+	cfg = testConfig(root)
+	cfg.OwnedDomains = map[string][]string{"order": {"order", customerDom}}
+	require.Empty(t, problems(t, cfg, archtest.ServiceRepositories))
 
-	cfg = testConfig()
-	cfg.SharedDomains = []string{"customer"}
-	require.Empty(t, problems(t, cfg, ServiceRepositories, changes))
+	cfg = testConfig(root)
+	cfg.SharedDomains = []string{customerDom}
+	require.Empty(t, problems(t, cfg, archtest.ServiceRepositories))
 }
 
 func TestBoundedStringsInputMethods(t *testing.T) {
 	t.Parallel()
 
-	changes := map[string]string{
-		"internal/application/order/in.go": "package order\n\ntype Both struct{ A string }\n\nfunc (Both) Validate() error { return nil }\nfunc (Both) Sanitize() {}\n\ntype One struct{ B string }\n\nfunc (One) Validate() error { return nil }\n",
-	}
+	root := fixture(t, "bounded-strings-sanitize")
 
-	cfg := testConfig()
+	cfg := testConfig(root)
 	cfg.Inputs = []string{"Validate", "Sanitize"}
 
-	got := strings.Join(problems(t, cfg, BoundedStrings, changes), "")
-	require.Contains(t, got, "Both.A")
-	require.NotContains(t, got, "One.B")
-	require.Contains(t, strings.Join(problems(t, testConfig(), BoundedStrings, changes), ""), "One.B")
+	got := problems(t, cfg, archtest.BoundedStrings)
+	require.Contains(t, got, "Both.First")
+	require.NotContains(t, got, "One.Second")
+	require.Contains(t, problems(t, testConfig(root), archtest.BoundedStrings), "One.Second")
 }
 
 func TestConfigErrors(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(root, "go.mod"), []byte("module "+module+"\n"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("package a\n"), 0o644))
+	root := fixture(t)
 
-	_, err := load(Config{Root: root, Layers: Layers{Domain: "internal/domain"}})
+	cfg := testConfig(root)
+	cfg.Layers.Domain = "internal/missing"
+	_, err := archtest.Check(cfg)
 	require.ErrorContains(t, err, "Layers.Domain")
 
-	_, err = load(Config{Root: root, Allowed: map[string][]string{"no-such-rule": {"x.go"}}})
+	cfg = testConfig(root)
+	cfg.Allowed = map[string][]string{"no-such-rule": {"x.go"}}
+	_, err = archtest.Check(cfg)
 	require.ErrorContains(t, err, `unknown rule "no-such-rule"`)
 
-	_, err = load(Config{Root: root, Skip: []string{"no-such-rule"}})
+	cfg = testConfig(root)
+	cfg.Skip = []string{"no-such-rule"}
+	_, err = archtest.Check(cfg)
 	require.ErrorContains(t, err, "unknown rule")
 
-	p, err := load(Config{Root: root, Skip: []string{ErrorfWrap}})
+	cfg = testConfig(root)
+	cfg.Skip = []string{archtest.ErrorfWrap, "banned"}
+	results, err := archtest.Check(cfg)
 	require.NoError(t, err)
-	require.False(t, slices.ContainsFunc(p.rules(), func(r rule) bool { return r.name == ErrorfWrap }))
-	require.Equal(t, module, p.module)
+	require.Len(t, results, len(allRules())-2)
 }
 
 // The walk leaves out what the go tool leaves out, and a module of its own.
-func TestWalkSkips(t *testing.T) {
+func TestSourcesSkipWhatTheGoToolSkips(t *testing.T) {
 	t.Parallel()
 
-	p := loadFiles(t, map[string]string{
-		"go.mod": "module " + module + "\n", "a.go": "package a\n", "testdata/b.go": "package b\n", "vendor/c.go": "package c\n",
-		".claude/worktrees/x/d.go": "package d\n", "sub/go.mod": "module other\n", "sub/e.go": "package e\n",
-		"fixturetest/f.go": "package f\n", "g_test.go": "package a\n",
-	})
+	root := t.TempDir()
+	for _, rel := range []string{
+		"go.mod", "a.go", "testdata/b.go", "vendor/c.go", ".claude/worktrees/x/d.go", "node_modules/m/n.go",
+		"sub/go.mod", "sub/e.go", "fixturetest/f.go", "g_test.go",
+	} {
+		write(t, root, rel, "package a\n")
+	}
 
 	got := map[string]bool{}
-	for _, s := range p.files {
-		got[s.Rel] = s.IsTest
+	for _, src := range archtest.Sources(t, root) {
+		got[src.Rel] = src.IsTest
 	}
 
 	require.Equal(t, map[string]bool{"a.go": false, "fixturetest/f.go": true, "g_test.go": true}, got)
 }
 
-func loadFiles(t *testing.T, files map[string]string) *project {
-	t.Helper()
-
-	root := t.TempDir()
-
-	for path, content := range files {
-		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, path)), 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(root, path), []byte(content), 0o644))
-	}
-
-	p, err := load(Config{Root: root})
-	require.NoError(t, err)
-
-	return p
-}
-
-// Run reports a clean module as passing subtests.
-func TestRunPassesAGoodModule(t *testing.T) {
-	root := t.TempDir()
-
-	for path, content := range goodModule() {
-		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, path)), 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(root, path), []byte(content), 0o644))
-	}
-
-	cfg := testConfig()
-	cfg.Root = root
-	Run(t, cfg)
-}
-
 func TestSourcesAndRatchetServeAnApplicationsOwnGuards(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-
-	for path, content := range goodModule() {
-		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, path)), 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(root, path), []byte(content), 0o644))
-	}
-
-	srcs := Sources(t, root)
-	require.Len(t, srcs, 8)
-	require.Same(t, &srcs[0], &Sources(t, root)[0], "parsed once per root")
-
 	byFile := map[string][]string{}
 
-	for _, s := range srcs {
-		if s.Rel == "cmd/app/main.go" {
-			byFile[s.Rel] = append(byFile[s.Rel], s.At(s.File.Decls[0])+"  func")
-			require.False(t, s.IsTest)
+	for _, src := range archtest.Sources(t, fixture(t)) {
+		if src.Rel == mainFile {
+			byFile[src.Rel] = append(byFile[src.Rel], src.At(src.File.Decls[0])+"  func")
 		}
 	}
 
-	require.Equal(t, map[string][]string{"cmd/app/main.go": {"cmd/app/main.go:3  func"}}, byFile)
+	require.Equal(t, map[string][]string{mainFile: {mainFile + ":3  func"}}, byFile)
 
-	Ratchet(t, "frozen", "hint", []string{"cmd/app/main.go"}, byFile)
+	archtest.Ratchet(t, "frozen", "hint", []string{mainFile}, byFile)
 }

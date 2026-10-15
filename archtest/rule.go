@@ -15,28 +15,38 @@ type finding struct {
 	text string
 }
 
-// rule is one check. check returns the problems to report, already settled
+// rule is one check; check returns the problems to report, already settled
 // against the ratchet.
 type rule struct {
 	name  string
 	check func() []string
 }
 
-// ratcheted turns a finder into a rule: its findings are settled against
-// Config.Allowed[name]. A finder that returns nil because its layer is absent
-// is switched off by the caller, not here.
-func (p *project) ratcheted(name, title, hint string, find func() []finding) rule {
-	return rule{name: name, check: func() []string {
-		return settle(title, hint, p.cfg.Allowed[name], find())
-	}}
+// ruleSet collects the rules Config enables.
+type ruleSet struct {
+	proj  *project
+	rules []rule
+}
+
+// add registers a ratcheted rule unless its layers are absent or Config skips it.
+func (set *ruleSet) add(enabled bool, name, title, hint string, find func() []finding) {
+	if !enabled || slices.Contains(set.proj.cfg.Skip, name) {
+		return
+	}
+
+	allowed := set.proj.cfg.Allowed[name]
+
+	set.rules = append(set.rules, rule{name: name, check: func() []string {
+		return settle(title, hint, allowed, find())
+	}})
 }
 
 // settle is the ratchet: a finding whose key is not allowed is a violation,
 // and an allowed key with no finding is stale.
 func settle(title, hint string, allowed []string, found []finding) []string {
 	hits := map[string][]string{}
-	for _, f := range found {
-		hits[f.key] = append(hits[f.key], f.text)
+	for _, one := range found {
+		hits[one.key] = append(hits[one.key], one.text)
 	}
 
 	var fresh, stale []string
@@ -48,7 +58,7 @@ func settle(title, hint string, allowed []string, found []finding) []string {
 	}
 
 	for _, key := range allowed {
-		if _, ok := hits[key]; !ok {
+		if _, hit := hits[key]; !hit {
 			stale = append(stale, key)
 		}
 	}
@@ -78,67 +88,48 @@ func inTree(rel, dir string) bool {
 }
 
 func inAnyTree(rel string, dirs ...string) bool {
-	return slices.ContainsFunc(dirs, func(d string) bool { return d != "" && inTree(rel, d) })
+	return slices.ContainsFunc(dirs, func(dir string) bool { return dir != "" && inTree(rel, dir) })
+}
+
+// under reports whether an import path is prefix or below it.
+func under(importPath, prefix string) bool {
+	return importPath == prefix || strings.HasPrefix(importPath, prefix+"/")
 }
 
 // importPath is the unquoted path of an import spec.
 func importPath(imp *ast.ImportSpec) string {
-	p, err := strconv.Unquote(imp.Path.Value)
+	unquoted, err := strconv.Unquote(imp.Path.Value)
 	if err != nil {
 		return ""
 	}
 
-	return p
-}
-
-// under reports whether path is prefix or below it.
-func under(path, prefix string) bool {
-	return path == prefix || strings.HasPrefix(path, prefix+"/")
-}
-
-// selectorCall reports whether n is a call of <pkg>.<fn>(...). pkg is the
-// name the file uses; callers that must resolve it pass the alias.
-func selectorCall(n ast.Node, pkg, fn string) (*ast.CallExpr, bool) {
-	call, ok := n.(*ast.CallExpr)
-	if !ok {
-		return nil, false
-	}
-
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return nil, false
-	}
-
-	id, ok := sel.X.(*ast.Ident)
-
-	return call, ok && id.Name == pkg && sel.Sel.Name == fn
+	return unquoted
 }
 
 // stringLit is the value of a string literal expression.
-func stringLit(e ast.Expr) (string, bool) {
-	lit, ok := e.(*ast.BasicLit)
-	if !ok || lit.Kind != token.STRING {
+func stringLit(expr ast.Expr) (string, bool) {
+	lit, isLit := expr.(*ast.BasicLit)
+	if !isLit || lit.Kind != token.STRING {
 		return "", false
 	}
 
-	v, err := strconv.Unquote(lit.Value)
+	value, err := strconv.Unquote(lit.Value)
 
-	return v, err == nil
+	return value, err == nil
 }
 
-// aliasOf is the name file imports importPath under ("" when it does not).
-func aliasOf(file *ast.File, importPath string) string {
+// aliasOf is the name the file imports pkg under ("" when it does not).
+func aliasOf(file *ast.File, pkg string) string {
 	for _, imp := range file.Imports {
-		if p, err := strconv.Unquote(imp.Path.Value); err != nil || p != importPath {
+		if importPath(imp) != pkg {
 			continue
 		}
 
-		switch {
-		case imp.Name != nil:
+		if imp.Name != nil {
 			return imp.Name.Name
-		default:
-			return lastSegment(importPath)
 		}
+
+		return lastSegment(pkg)
 	}
 
 	return ""
@@ -146,10 +137,10 @@ func aliasOf(file *ast.File, importPath string) string {
 
 // lastSegment is the package name an import path implies: its last element,
 // without a /vN major-version suffix.
-func lastSegment(p string) string {
-	parts := strings.Split(p, "/")
-
+func lastSegment(importPath string) string {
+	parts := strings.Split(importPath, "/")
 	last := parts[len(parts)-1]
+
 	if len(parts) > 1 && len(last) > 1 && last[0] == 'v' && strings.Trim(last[1:], "0123456789") == "" {
 		return parts[len(parts)-2]
 	}
@@ -157,26 +148,39 @@ func lastSegment(p string) string {
 	return last
 }
 
-// productionIn lists the non-test sources under any of the dirs.
-func (p *project) productionIn(dirs ...string) []Source {
-	var out []Source
-
-	for _, s := range p.files {
-		if !s.IsTest && inAnyTree(s.Rel, dirs...) {
-			out = append(out, s)
-		}
+// selectorCall reports whether node is a call of <pkg>.<member>(...).
+func selectorCall(node ast.Node, pkg, member string) (*ast.CallExpr, bool) {
+	call, isCall := node.(*ast.CallExpr)
+	if !isCall {
+		return nil, false
 	}
 
-	return out
+	sel, isSel := call.Fun.(*ast.SelectorExpr)
+	if !isSel {
+		return nil, false
+	}
+
+	ident, isIdent := sel.X.(*ast.Ident)
+
+	return call, isIdent && ident.Name == pkg && sel.Sel.Name == member
 }
 
-// allIn lists every Source, test files included, under any of the dirs.
+// productionIn lists the non-test sources under any of the dirs.
+func (p *project) productionIn(dirs ...string) []Source {
+	return p.sourcesIn(false, dirs...)
+}
+
+// allIn lists every source, test files included, under any of the dirs.
 func (p *project) allIn(dirs ...string) []Source {
+	return p.sourcesIn(true, dirs...)
+}
+
+func (p *project) sourcesIn(withTests bool, dirs ...string) []Source {
 	var out []Source
 
-	for _, s := range p.files {
-		if inAnyTree(s.Rel, dirs...) {
-			out = append(out, s)
+	for _, src := range p.files {
+		if (withTests || !src.IsTest) && inAnyTree(src.Rel, dirs...) {
+			out = append(out, src)
 		}
 	}
 
@@ -184,13 +188,13 @@ func (p *project) allIn(dirs ...string) []Source {
 }
 
 // importsMatching finds, in the sources, imports for which match is true.
-func (p *project) importsMatching(srcs []Source, match func(path string) bool) []finding {
+func importsMatching(srcs []Source, match func(importPath string) bool) []finding {
 	var out []finding
 
-	for _, s := range srcs {
-		for _, imp := range s.File.Imports {
-			if ip := importPath(imp); ip != "" && match(ip) {
-				out = append(out, finding{s.Rel, p.at(s, imp) + "  imports " + ip})
+	for _, src := range srcs {
+		for _, imp := range src.File.Imports {
+			if path := importPath(imp); path != "" && match(path) {
+				out = append(out, finding{key: src.Rel, text: src.At(imp) + "  imports " + path})
 			}
 		}
 	}
@@ -198,19 +202,19 @@ func (p *project) importsMatching(srcs []Source, match func(path string) bool) [
 	return out
 }
 
-// callsOf finds calls of <pkg>.<fn> where pkg is the import path's name in the file.
-func (p *project) callsOf(srcs []Source, importPath, fn string) []finding {
+// callsOf finds calls of <pkg>.<member> where pkg is the name the file gives the import path.
+func callsOf(srcs []Source, pkgPath, member string) []finding {
 	var out []finding
 
-	for _, s := range srcs {
-		alias := aliasOf(s.File, importPath)
+	for _, src := range srcs {
+		alias := aliasOf(src.File, pkgPath)
 		if alias == "" {
 			continue
 		}
 
-		ast.Inspect(s.File, func(n ast.Node) bool {
-			if call, ok := selectorCall(n, alias, fn); ok {
-				out = append(out, finding{s.Rel, p.at(s, call)})
+		ast.Inspect(src.File, func(node ast.Node) bool {
+			if call, isCall := selectorCall(node, alias, member); isCall {
+				out = append(out, finding{key: src.Rel, text: src.At(call)})
 			}
 
 			return true

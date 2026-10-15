@@ -3,6 +3,7 @@ package archtest
 import (
 	"go/ast"
 	"go/token"
+	"maps"
 	"path"
 	"regexp"
 	"slices"
@@ -10,7 +11,12 @@ import (
 	"strings"
 )
 
-const routeImport = "github.com/wssto2/go-core/route"
+const (
+	routeImport = "github.com/wssto2/go-core/route"
+
+	// maxConstDepth bounds how many constants one path expression is followed through.
+	maxConstDepth = 10
+)
 
 var (
 	// kebab is a URL path segment: lowercase words joined by "-".
@@ -19,17 +25,36 @@ var (
 	digits = regexp.MustCompile(`^[0-9]+$`)
 	// word is a single lowercase word, digits allowed after the first letter.
 	word = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
-
-	routeMethods = []string{"Get", "Post", "Put", "Patch", "Delete"}
-	accessCalls  = []string{"Requires", "RequiresAny", "RequiresAll", "Public", "PersonOnly", "Authenticated"}
 )
+
+func isRouteMethod(name string) bool {
+	switch name {
+	case "Get", "Post", "Put", "Patch", "Delete":
+		return true
+	}
+
+	return false
+}
+
+func isAccessCall(name string) bool {
+	switch name {
+	case "Requires", "RequiresAny", "RequiresAll", "Public", "PersonOnly", "Authenticated":
+		return true
+	}
+
+	return false
+}
+
+func isPermissionCall(name string) bool {
+	return name == "Requires" || name == "RequiresAny" || name == "RequiresAll"
+}
 
 // declaredRoute is a route.<Method>[In, Out](path) or route.Raw(method, path)
 // call and the methods chained after it.
 type declaredRoute struct {
 	src     Source
 	call    *ast.CallExpr
-	method  string // Get..Delete, or the Raw method literal when it is one
+	method  string // GET..DELETE, or the Raw method literal when it is one
 	pathArg ast.Expr
 	chain   []string
 }
@@ -38,28 +63,26 @@ type declaredRoute struct {
 func (p *project) routes() []declaredRoute {
 	var out []declaredRoute
 
-	for _, s := range p.files {
-		alias := aliasOf(s.File, routeImport)
-		if s.IsTest || alias == "" {
+	for _, src := range p.files {
+		alias := aliasOf(src.File, routeImport)
+		if src.IsTest || alias == "" {
 			continue
 		}
 
 		var stack []ast.Node
 
-		ast.Inspect(s.File, func(n ast.Node) bool {
-			if n == nil {
+		ast.Inspect(src.File, func(node ast.Node) bool {
+			if node == nil {
 				stack = stack[:len(stack)-1]
 
 				return true
 			}
 
-			stack = append(stack, n)
+			stack = append(stack, node)
 
-			if call, ok := n.(*ast.CallExpr); ok {
-				if r, ok := routeRoot(call, alias); ok {
-					r.src = s
-					r.chain = chainAfter(stack)
-					out = append(out, r)
+			if call, isCall := node.(*ast.CallExpr); isCall {
+				if method, pathArg, found := routeRoot(call, alias); found {
+					out = append(out, declaredRoute{src: src, call: call, method: method, pathArg: pathArg, chain: chainAfter(stack)})
 				}
 			}
 
@@ -71,35 +94,33 @@ func (p *project) routes() []declaredRoute {
 }
 
 // routeRoot recognises route.Get[In, Out](path) and route.Raw(method, path).
-func routeRoot(call *ast.CallExpr, alias string) (declaredRoute, bool) {
-	fun, typed := call.Fun, false
+func routeRoot(call *ast.CallExpr, alias string) (string, ast.Expr, bool) {
+	fun := call.Fun
 
-	switch f := fun.(type) {
+	switch generic := fun.(type) {
 	case *ast.IndexExpr:
-		fun, typed = f.X, true
+		return typedRoot(generic.X, call, alias)
 	case *ast.IndexListExpr:
-		fun, typed = f.X, true
+		return typedRoot(generic.X, call, alias)
 	}
 
-	sel, ok := fun.(*ast.SelectorExpr)
-	if !ok {
-		return declaredRoute{}, false
-	}
-
-	if id, ok := sel.X.(*ast.Ident); !ok || id.Name != alias {
-		return declaredRoute{}, false
-	}
-
-	switch {
-	case typed && slices.Contains(routeMethods, sel.Sel.Name) && len(call.Args) == 1:
-		return declaredRoute{call: call, method: strings.ToUpper(sel.Sel.Name), pathArg: call.Args[0]}, true
-	case !typed && sel.Sel.Name == "Raw" && len(call.Args) == 2:
+	sel, isSel := fun.(*ast.SelectorExpr)
+	if isSel && isIdent(sel.X, alias) && sel.Sel.Name == "Raw" && len(call.Args) == 2 {
 		method, _ := stringLit(call.Args[0])
 
-		return declaredRoute{call: call, method: method, pathArg: call.Args[1]}, true
+		return method, call.Args[1], true
 	}
 
-	return declaredRoute{}, false
+	return "", nil, false
+}
+
+func typedRoot(fun ast.Expr, call *ast.CallExpr, alias string) (string, ast.Expr, bool) {
+	sel, isSel := fun.(*ast.SelectorExpr)
+	if !isSel || !isIdent(sel.X, alias) || !isRouteMethod(sel.Sel.Name) || len(call.Args) != 1 {
+		return "", nil, false
+	}
+
+	return strings.ToUpper(sel.Sel.Name), call.Args[0], true
 }
 
 // chainAfter lists the methods called on the node at the top of the stack:
@@ -107,14 +128,14 @@ func routeRoot(call *ast.CallExpr, alias string) (declaredRoute, bool) {
 func chainAfter(stack []ast.Node) []string {
 	var methods []string
 
-	for i := len(stack) - 1; i >= 2; i -= 2 {
-		sel, ok := stack[i-1].(*ast.SelectorExpr)
-		if !ok || sel.X != stack[i] {
+	for idx := len(stack) - 1; idx >= 2; idx -= 2 {
+		sel, isSel := stack[idx-1].(*ast.SelectorExpr)
+		if !isSel || sel.X != stack[idx] {
 			break
 		}
 
-		call, ok := stack[i-2].(*ast.CallExpr)
-		if !ok || call.Fun != sel {
+		call, isCall := stack[idx-2].(*ast.CallExpr)
+		if !isCall || call.Fun != sel {
 			break
 		}
 
@@ -124,70 +145,77 @@ func chainAfter(stack []ast.Node) []string {
 	return methods
 }
 
-// packageConsts are the string constants of the production files of one
-// directory, by name: a route path may use a const of another file of its package.
+// packageConsts are the constants of the production files of one directory,
+// by name: a route path may use a constant of another file of its package.
 func (p *project) packageConsts() map[string]map[string]ast.Expr {
 	out := map[string]map[string]ast.Expr{}
 
-	for _, s := range p.files {
-		if s.IsTest {
+	for _, src := range p.files {
+		if src.IsTest {
 			continue
 		}
 
-		dir := path.Dir(s.Rel)
-
-		for _, d := range s.File.Decls {
-			gen, ok := d.(*ast.GenDecl)
-			if !ok || gen.Tok != token.CONST {
-				continue
-			}
-
-			for _, spec := range gen.Specs {
-				vs, ok := spec.(*ast.ValueSpec)
-				if !ok {
-					continue
-				}
-
-				for i, name := range vs.Names {
-					if i < len(vs.Values) {
-						if out[dir] == nil {
-							out[dir] = map[string]ast.Expr{}
-						}
-
-						out[dir][name.Name] = vs.Values[i]
-					}
-				}
-			}
+		dir := path.Dir(src.Rel)
+		if out[dir] == nil {
+			out[dir] = map[string]ast.Expr{}
 		}
+
+		maps.Copy(out[dir], constsOf(src.File))
 	}
 
 	return out
 }
 
+func constsOf(file *ast.File) map[string]ast.Expr {
+	consts := map[string]ast.Expr{}
+
+	for _, decl := range file.Decls {
+		gen, isGen := decl.(*ast.GenDecl)
+		if !isGen || gen.Tok != token.CONST {
+			continue
+		}
+
+		for _, spec := range gen.Specs {
+			values, isValues := spec.(*ast.ValueSpec)
+			if !isValues {
+				continue
+			}
+
+			for idx, name := range values.Names {
+				if idx < len(values.Values) {
+					consts[name.Name] = values.Values[idx]
+				}
+			}
+		}
+	}
+
+	return consts
+}
+
 // evalPath folds a string literal, a constant of the package and "+" of them.
-func evalPath(e ast.Expr, consts map[string]ast.Expr, depth int) (string, bool) {
-	if depth > 10 {
+func evalPath(expr ast.Expr, consts map[string]ast.Expr, depth int) (string, bool) {
+	if depth > maxConstDepth {
 		return "", false
 	}
 
-	switch v := e.(type) {
+	switch typed := expr.(type) {
 	case *ast.BasicLit:
-		return stringLit(v)
+		return stringLit(typed)
 	case *ast.ParenExpr:
-		return evalPath(v.X, consts, depth+1)
+		return evalPath(typed.X, consts, depth+1)
 	case *ast.Ident:
-		if c, ok := consts[v.Name]; ok {
-			return evalPath(c, consts, depth+1)
+		if value, found := consts[typed.Name]; found {
+			return evalPath(value, consts, depth+1)
 		}
 	case *ast.BinaryExpr:
-		if v.Op != token.ADD {
+		if typed.Op != token.ADD {
 			return "", false
 		}
 
-		l, lok := evalPath(v.X, consts, depth+1)
-		r, rok := evalPath(v.Y, consts, depth+1)
+		left, leftOK := evalPath(typed.X, consts, depth+1)
+		right, rightOK := evalPath(typed.Y, consts, depth+1)
 
-		return l + r, lok && rok
+		return left + right, leftOK && rightOK
 	}
 
 	return "", false
@@ -198,22 +226,22 @@ func (p *project) routePaths() []finding {
 
 	var out []finding
 
-	for _, r := range p.routes() {
-		at := p.at(r.src, r.call)
+	for _, route := range p.routes() {
+		where := route.src.At(route.call)
 
-		full, ok := evalPath(r.pathArg, consts[path.Dir(r.src.Rel)], 0)
-		if !ok {
-			out = append(out, finding{r.src.Rel, at + "  route path is not a string literal or constants of its package joined with +"})
+		full, found := evalPath(route.pathArg, consts[path.Dir(route.src.Rel)], 0)
+		if !found {
+			out = append(out, finding{key: route.src.Rel, text: where +
+				"  route path is not a string literal or constants of its package joined with +"})
 
 			continue
 		}
 
 		for seg := range strings.SplitSeq(full, "/") {
-			if seg == "" || seg[0] == ':' || seg[0] == '*' || kebab.MatchString(seg) || digits.MatchString(seg) {
-				continue
+			if seg != "" && seg[0] != ':' && seg[0] != '*' && !kebab.MatchString(seg) && !digits.MatchString(seg) {
+				out = append(out, finding{key: route.src.Rel, text: where +
+					"  route path segment " + strconv.Quote(seg) + " in " + strconv.Quote(full)})
 			}
-
-			out = append(out, finding{r.src.Rel, at + "  route path segment " + strconv.Quote(seg) + " in " + strconv.Quote(full)})
 		}
 	}
 
@@ -226,17 +254,17 @@ func (p *project) routeAccess() []finding {
 
 	var out []finding
 
-	for _, r := range p.routes() {
-		if slices.ContainsFunc(r.chain, func(m string) bool { return slices.Contains(accessCalls, m) }) {
+	for _, route := range p.routes() {
+		if slices.ContainsFunc(route.chain, isAccessCall) {
 			continue
 		}
 
-		full, _ := evalPath(r.pathArg, consts[path.Dir(r.src.Rel)], 0)
+		full, _ := evalPath(route.pathArg, consts[path.Dir(route.src.Rel)], 0)
 		if full == "" {
 			full = "(path not constant)"
 		}
 
-		out = append(out, finding{r.src.Rel, p.at(r.src, r.call) + "  " + r.method + " " + full +
+		out = append(out, finding{key: route.src.Rel, text: route.src.At(route.call) + "  " + route.method + " " + full +
 			" declares no access: add Requires, RequiresAny, RequiresAll, Public, PersonOnly or Authenticated to its chain"})
 	}
 
@@ -244,70 +272,94 @@ func (p *project) routeAccess() []finding {
 }
 
 // routeIdentifiers: the names that identify a feature are single lowercase
-// words: every segment of the literal prefix of a .Group("...") call in the
-// handlers, and every dot-separated namespace and the verb of a permission
-// literal passed to Requires, RequiresAny or RequiresAll. Action sub-paths of a
-// route are not identifiers and are left to RoutePaths.
+// words: every segment of the literal prefix of a .Group("...") call (route.Group
+// anywhere, any other .Group in the handlers), and every dot-separated namespace
+// and the verb of a permission literal passed to Requires, RequiresAny or
+// RequiresAll. Action sub-paths of a route are not identifiers and are left to
+// RoutePaths.
 func (p *project) routeIdentifiers() []finding {
-	handlers := p.cfg.Layers.Handlers
-
 	var out []finding
 
-	bad := func(s Source, n ast.Node, what, value string, parts []string) {
-		for _, part := range parts {
-			if part != "" && part[0] != ':' && !word.MatchString(part) {
-				out = append(out, finding{s.Rel, p.at(s, n) + "  " + what + " " + strconv.Quote(part) + " in " + strconv.Quote(value)})
-			}
-		}
-	}
-
-	for _, s := range p.files {
-		if s.IsTest {
+	for _, src := range p.files {
+		if src.IsTest {
 			continue
 		}
 
-		routeAlias := aliasOf(s.File, routeImport)
+		routeAlias := aliasOf(src.File, routeImport)
 
-		ast.Inspect(s.File, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
+		ast.Inspect(src.File, func(node ast.Node) bool {
+			call, isCall := node.(*ast.CallExpr)
+			if !isCall {
 				return true
 			}
 
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
+			sel, isSel := call.Fun.(*ast.SelectorExpr)
+			if !isSel {
 				return true
 			}
 
 			switch {
-			case sel.Sel.Name == "Group" && len(call.Args) > 0:
-				// route.Group anywhere; any other .Group(path) (a gin router) in the handlers only.
-				id, isIdent := sel.X.(*ast.Ident)
-				isRoute := isIdent && routeAlias != "" && id.Name == routeAlias
-				inHandlers := handlers != "" && inTree(s.Rel, handlers) && (!isIdent || id.Name != "slog")
-
-				if !isRoute && !inHandlers {
-					return true
-				}
-
-				if v, ok := stringLit(call.Args[0]); ok {
-					bad(s, call, "route group segment", v, strings.Split(v, "/"))
-				}
-			case slices.Contains([]string{"Requires", "RequiresAny", "RequiresAll"}, sel.Sel.Name):
-				for _, arg := range call.Args {
-					if v, ok := stringLit(arg); ok {
-						ns, verb, hasVerb := strings.Cut(v, ":")
-						bad(s, call, "permission namespace component", v, strings.Split(ns, "."))
-
-						if hasVerb {
-							bad(s, call, "permission verb", v, []string{verb})
-						}
-					}
-				}
+			case sel.Sel.Name == "Group" && len(call.Args) > 0 && p.isRouteGroup(src, sel, routeAlias):
+				out = append(out, groupIdentifiers(src, call)...)
+			case isPermissionCall(sel.Sel.Name):
+				out = append(out, permissionIdentifiers(src, call)...)
 			}
 
 			return true
 		})
+	}
+
+	return out
+}
+
+// isRouteGroup: a route.Group call, or any .Group (but slog's) in the handlers.
+func (p *project) isRouteGroup(src Source, sel *ast.SelectorExpr, routeAlias string) bool {
+	if routeAlias != "" && isIdent(sel.X, routeAlias) {
+		return true
+	}
+
+	handlers := p.cfg.Layers.Handlers
+
+	return handlers != "" && inTree(src.Rel, handlers) && !isIdent(sel.X, "slog")
+}
+
+func badWords(src Source, node ast.Node, what, value string, parts []string) []finding {
+	var out []finding
+
+	for _, part := range parts {
+		if part != "" && part[0] != ':' && !word.MatchString(part) {
+			out = append(out, finding{key: src.Rel, text: src.At(node) + "  " + what + " " +
+				strconv.Quote(part) + " in " + strconv.Quote(value)})
+		}
+	}
+
+	return out
+}
+
+func groupIdentifiers(src Source, call *ast.CallExpr) []finding {
+	value, isLit := stringLit(call.Args[0])
+	if !isLit {
+		return nil
+	}
+
+	return badWords(src, call, "route group segment", value, strings.Split(value, "/"))
+}
+
+func permissionIdentifiers(src Source, call *ast.CallExpr) []finding {
+	var out []finding
+
+	for _, arg := range call.Args {
+		value, isLit := stringLit(arg)
+		if !isLit {
+			continue
+		}
+
+		namespace, verb, hasVerb := strings.Cut(value, ":")
+		out = append(out, badWords(src, call, "permission namespace component", value, strings.Split(namespace, "."))...)
+
+		if hasVerb {
+			out = append(out, badWords(src, call, "permission verb", value, []string{verb})...)
+		}
 	}
 
 	return out

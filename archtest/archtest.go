@@ -1,5 +1,5 @@
 // Package archtest holds an application's architecture to its own rules, from
-// its Source: a test calls Run with the layout of the module and every rule
+// its source: a test calls Run with the layout of the module and every rule
 // that is not switched off is checked with go/parser, no type information and
 // no dependency beyond the standard library and go-core's validation.
 //
@@ -33,243 +33,93 @@
 // list only ever shrinks.
 //
 //	func TestArchitecture(t *testing.T) {
-//		archtest.Run(t, archtest.Config{
-//			Layers: archtest.Layers{
-//				Domain:         "internal/domain",
-//				Application:    "internal/application",
-//				Infrastructure: "internal/infrastructure",
-//				Handlers:       "internal/infrastructure/http",
-//				Persistence:    "internal/infrastructure/db",
-//			},
-//			Allowed: map[string][]string{
-//				archtest.NoTimeNowDomain: {"internal/domain/shared/clock.go"},
-//			},
-//			SharedDomains: []string{"locale", "settings"},
-//			Banned: []archtest.Banned{{
-//				Import: "example.com/legacy/gate",
-//				Why:    "routes are gated by Requires; the gate is gone",
-//			}},
-//		})
+//		var cfg archtest.Config
+//		cfg.Layers.Domain = "internal/domain"
+//		cfg.Layers.Application = "internal/application"
+//		cfg.Layers.Infrastructure = "internal/infrastructure"
+//		cfg.Allowed = map[string][]string{
+//			archtest.NoTimeNowDomain: {"internal/domain/shared/clock.go"},
+//		}
+//		cfg.SharedDomains = []string{"locale", "settings"}
+//		cfg.Banned = []archtest.Banned{{
+//			Import: "example.com/legacy/gate",
+//			Why:    "routes are gated by Requires; the gate is gone",
+//		}}
+//
+//		archtest.Run(t, cfg)
 //	}
 package archtest
 
 import (
+	"errors"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
-	"path"
-	"path/filepath"
-	"regexp"
 	"slices"
-	"strings"
-	"sync"
 	"testing"
 )
 
-// The rule names, for Config.Allowed and Config.Skip.
-const (
-	NoPanic               = "no-panic"
-	NoContextBackground   = "no-context-background"
-	NoSleep               = "no-sleep"
-	NoDatabaseSQL         = "no-database-sql"
-	ErrorfWrap            = "errorf-wrap"
-	HandlersNoPersistence = "handlers-no-persistence"
-	LayerImports          = "layer-imports"
-	DomainPurity          = "domain-purity"
-	ApplicationPurity     = "application-purity"
-	NoTimeNowDomain       = "no-time-now-domain"
-	NoTimeNowApplication  = "no-time-now-application"
-	CrossAggregate        = "cross-aggregate"
-	DomainContextFirst    = "domain-context-first"
-	ServiceContextFirst   = "service-context-first"
-	BoundedStrings        = "bounded-strings"
-	RoutePaths            = "route-paths"
-	RouteIdentifiers      = "route-identifiers"
-	ValidationRules       = "validation-rules"
-	RouteAccess           = "route-access"
-	ServiceRepositories   = "service-repositories"
-	RepositoryShape       = "repository-shape"
-)
+var errConfig = errors.New("archtest: bad configuration")
 
-// Layers are the directories of the module's layers, relative to its root. A
-// layer that is empty is absent: the rules that need it are not run.
-type Layers struct {
-	Domain         string // entities and the ports (repository interfaces); framework-free
-	Application    string // services, inputs, policies; depends on the domain only
-	Infrastructure string // adapters: the database, HTTP, integrations
-	Interfaces     string // delivery, when it is a layer of its own
-	Cmd            string // the binaries; no inner layer may import them
+// Run checks the module against cfg, one parallel subtest per rule.
+func Run(t *testing.T, cfg Config) {
+	t.Helper()
 
-	// Handlers is where the HTTP handlers and routes live; it defaults to
-	// Interfaces, else Infrastructure+"/http". Persistence is where the
-	// repositories live and defaults to Infrastructure+"/db". Handlers must not
-	// import Persistence.
-	Handlers    string
-	Persistence string
+	proj, err := load(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, found := range proj.rules() {
+		t.Run(found.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, problem := range found.check() {
+				t.Error(problem)
+			}
+		})
+	}
 }
 
-// Config describes the module being checked.
-type Config struct {
-	// Root is the module root (the directory of go.mod). Empty finds it from
-	// the working directory upward, which is where a test runs.
-	Root string
-
-	Layers Layers
-
-	// Allowed is the ratchet: per rule name, the files that may still break
-	// the rule (ServiceRepositories: "file|domain/path", the domain path being
-	// relative to Layers.Domain). A new violation and a stale entry both fail.
-	Allowed map[string][]string
-
-	// Skip switches rules off by name.
-	Skip []string
-
-	// Banned adds the application's own bans. They have no ratchet.
-	Banned []Banned
-
-	// Kernel is the folder of Layers.Domain that every aggregate may import
-	// (the shared kernel) and that may carry json tags. Default "shared".
-	Kernel string
-
-	// SharedDomains are the domains whose repositories a service of any other
-	// domain may inject (reference data). The Kernel is always shared.
-	SharedDomains []string
-
-	// OwnedDomains maps a folder of Layers.Application to the domain folders
-	// it owns, when they are not just the same name.
-	OwnedDomains map[string][]string
-
-	// Inputs are the method names that make a type of Layers.Application an
-	// input struct for BoundedStrings: it must have every one. Default
-	// {"Validate"}.
-	Inputs []string
-
-	// ServiceType is the type-name suffix of the application services whose
-	// exported methods ServiceContextFirst checks. Default "AppService".
-	ServiceType string
-
-	// Repository is the shape RepositoryShape holds the Persistence package to.
-	// A field left empty leaves its part of the rule off.
-	Repository Repository
+// Result is what one rule reported.
+type Result struct {
+	Rule     string
+	Problems []string // empty when the rule holds
 }
 
-// Repository names the one file of the repository package that may use a
-// plumbing API of go-core, so every repository reaches it the same way.
-type Repository struct {
-	// Dir is the repository package, relative to the root; the rule checks the
-	// production files of that package only.
-	Dir string
-	// TxFile is the only file that may call database.TxFromContext,
-	// SQLTxFromContext, NewTransactor and NewTransactorFromRegistry.
-	TxFile string
-	// ScopeFile is the only file that may call tenancy.ScopeByTenant.
-	ScopeFile string
+// Check runs the same rules as Run and returns their results instead of
+// failing a test: one Result for every rule that ran.
+func Check(cfg Config) ([]Result, error) {
+	proj, err := load(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []Result
+
+	for _, found := range proj.rules() {
+		out = append(out, Result{Rule: found.name, Problems: found.check()})
+	}
+
+	return out, nil
 }
-
-// Banned is a rule of the application's own: an import, or one symbol of a
-// package, that must not appear.
-type Banned struct {
-	// Import is the import path. It matches the path exactly, a trailing
-	// "/..." matches the path and everything under it, and "..." alone matches
-	// every package outside the standard library.
-	Import string
-	// Symbol, when set, bans only that member of the package (database.NewTransactor),
-	// found by the name the file imports the package under.
-	Symbol string
-	// Why is the sentence a failure ends with: what to do instead.
-	Why string
-
-	// In limits the ban to these places, relative to the root: a file, a
-	// package directory, or "dir/..." for a directory tree. Empty is the whole module.
-	In []string
-	// Except are places (as In) where the ban does not apply.
-	Except []string
-	// Unless are imports (as Import) a "..." or "/..." ban lets through.
-	Unless []string
-	// Tests also applies the ban to _test.go files and test-support packages
-	// (a directory named *test). Default: production code only.
-	Tests bool
-}
-
-// testPackage matches the directory of a test-support package (vehicletest,
-// gocoretest): fixtures and doubles, where fail-fast panics and wall-clock
-// reads are idiomatic.
-var testPackage = regexp.MustCompile(`^[a-z0-9]+test$`)
-
-// Source is one parsed Go file of the module. An application's own guards
-// walk the same sources with Sources.
-type Source struct {
-	Rel    string // relative to the module root, forward slashes
-	IsTest bool   // a _test.go file or a file of a test-support package (a directory named *test)
-	File   *ast.File
-
-	fset *token.FileSet
-}
-
-// At is "file:line" of a node, for a message.
-func (s Source) At(n ast.Node) string {
-	return fmt.Sprintf("%s:%d", s.Rel, s.fset.Position(n.Pos()).Line)
-}
-
-type project struct {
-	root   string
-	module string
-	files  []Source
-	cfg    Config
-}
-
-func (p *project) at(s Source, n ast.Node) string { return s.At(n) }
-
-// parsedTree is the module parsed once per root, however many guards ask.
-type parsedTree struct {
-	once  sync.Once
-	files []Source
-	err   error
-}
-
-var trees sync.Map // root -> *parsedTree
 
 // Sources returns every Go file of the module at root ("" finds the module
-// from the working directory), parsed once and shared, skipping testdata,
-// vendor, node_modules, hidden and underscore folders and nested modules. The
-// files are read-only.
+// from the working directory), without testdata, vendor, node_modules, hidden
+// and underscore folders and nested modules. It parses on every call: a test
+// package with several guards calls it once and shares the result.
 func Sources(t *testing.T, root string) []Source {
 	t.Helper()
 
-	root, err := resolveRoot(root)
+	abs, err := resolveRoot(root)
 	if err != nil {
-		t.Fatalf("archtest: %v", err)
+		t.Fatal(err)
 	}
 
-	files, err := parsed(root)
+	files, err := walk(abs)
 	if err != nil {
-		t.Fatalf("archtest: %v", err)
+		t.Fatal(err)
 	}
 
 	return files
-}
-
-func resolveRoot(root string) (string, error) {
-	if root == "" {
-		return findRoot()
-	}
-
-	return filepath.Abs(root)
-}
-
-func parsed(root string) ([]Source, error) {
-	v, _ := trees.LoadOrStore(root, &parsedTree{})
-	tree, ok := v.(*parsedTree)
-
-	if !ok {
-		return nil, fmt.Errorf("parsed tree cache holds a %T", v)
-	}
-
-	tree.once.Do(func() { tree.files, tree.err = walk(root) })
-
-	return tree.files, tree.err
 }
 
 // Ratchet settles an application's own rule against its frozen list, as Run
@@ -283,7 +133,7 @@ func Ratchet(t *testing.T, title, hint string, allowed []string, byFile map[stri
 
 	for file, texts := range byFile {
 		for _, text := range texts {
-			found = append(found, finding{file, text})
+			found = append(found, finding{key: file, text: text})
 		}
 	}
 
@@ -292,24 +142,10 @@ func Ratchet(t *testing.T, title, hint string, allowed []string, byFile map[stri
 	}
 }
 
-// Run checks the module against cfg, one subtest per rule.
-func Run(t *testing.T, cfg Config) {
-	t.Helper()
-
-	p, err := load(cfg)
-	if err != nil {
-		t.Fatalf("archtest: %v", err)
-	}
-
-	for _, r := range p.rules() {
-		t.Run(r.name, func(t *testing.T) {
-			t.Parallel()
-
-			for _, problem := range r.check() {
-				t.Error(problem)
-			}
-		})
-	}
+type project struct {
+	module string
+	files  []Source
+	cfg    Config
 }
 
 func load(cfg Config) (*project, error) {
@@ -324,172 +160,54 @@ func load(cfg Config) (*project, error) {
 	}
 
 	cfg.Layers = cfg.Layers.withDefaults(root)
-	if cfg.Kernel == "" {
-		cfg.Kernel = "shared"
-	}
+	cfg.Kernel = orDefault(cfg.Kernel, "shared")
+	cfg.ServiceType = orDefault(cfg.ServiceType, "AppService")
 
 	if len(cfg.Inputs) == 0 {
 		cfg.Inputs = []string{"Validate"}
 	}
 
-	if cfg.ServiceType == "" {
-		cfg.ServiceType = "AppService"
-	}
-
-	files, err := parsed(root)
+	files, err := walk(root)
 	if err != nil {
 		return nil, err
 	}
 
-	p := &project{root: root, module: module, files: files, cfg: cfg}
+	proj := &project{module: module, files: files, cfg: cfg}
 
-	return p, p.validate()
+	return proj, proj.validate(root)
 }
 
-func (l Layers) withDefaults(root string) Layers {
-	exists := func(dir string) bool {
-		st, err := os.Stat(filepath.Join(root, dir))
-
-		return err == nil && st.IsDir()
+func orDefault(value, fallback string) string {
+	if value == "" {
+		return fallback
 	}
 
-	if l.Handlers == "" {
-		switch {
-		case l.Interfaces != "":
-			l.Handlers = l.Interfaces
-		case l.Infrastructure != "" && exists(l.Infrastructure+"/http"):
-			l.Handlers = l.Infrastructure + "/http"
-		}
-	}
-
-	if l.Persistence == "" && l.Infrastructure != "" && exists(l.Infrastructure+"/db") {
-		l.Persistence = l.Infrastructure + "/db"
-	}
-
-	return l
-}
-
-func findRoot() (string, error) {
-	dir, err := filepath.Abs(".")
-	if err != nil {
-		return "", fmt.Errorf("working directory: %w", err)
-	}
-
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir, nil
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", fmt.Errorf("no go.mod above the working directory: set Config.Root")
-		}
-
-		dir = parent
-	}
-}
-
-func modulePath(root string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
-	if err != nil {
-		return "", fmt.Errorf("reading go.mod: %w", err)
-	}
-
-	for line := range strings.SplitSeq(string(data), "\n") {
-		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "module"); ok && rest != "" && (rest[0] == ' ' || rest[0] == '\t') {
-			return strings.Trim(strings.TrimSpace(rest), `"`+"`"), nil
-		}
-	}
-
-	return "", fmt.Errorf("no module line in %s/go.mod", root)
-}
-
-// walk parses every Go file of the module at root.
-func walk(root string) ([]Source, error) {
-	fset := token.NewFileSet()
-
-	var files []Source
-
-	err := filepath.WalkDir(root, func(full string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			name := d.Name()
-			if full != root {
-				if name == "testdata" || name == "vendor" || name == "node_modules" || name[0] == '.' || name[0] == '_' {
-					return filepath.SkipDir
-				}
-
-				if _, err := os.Stat(filepath.Join(full, "go.mod")); err == nil {
-					return filepath.SkipDir // a module of its own
-				}
-			}
-
-			return nil
-		}
-
-		if !strings.HasSuffix(full, ".go") {
-			return nil
-		}
-
-		rel, err := filepath.Rel(root, full)
-		if err != nil {
-			return fmt.Errorf("relative path of %s: %w", full, err)
-		}
-
-		rel = filepath.ToSlash(rel)
-
-		file, err := parser.ParseFile(fset, full, nil, parser.SkipObjectResolution)
-		if err != nil {
-			return fmt.Errorf("parsing %s: %w", rel, err)
-		}
-
-		isTest := strings.HasSuffix(rel, "_test.go")
-		for seg := range strings.SplitSeq(path.Dir(rel), "/") {
-			isTest = isTest || testPackage.MatchString(seg)
-		}
-
-		files = append(files, Source{Rel: rel, IsTest: isTest, File: file, fset: fset})
-
-		return nil
-	})
-
-	return files, err
+	return value
 }
 
 // validate refuses a configuration that would check nothing: a layer
 // directory with no Go file, an unknown rule name.
-func (p *project) validate() error {
-	l := p.cfg.Layers
-	for name, dir := range map[string]string{
-		"Domain": l.Domain, "Application": l.Application, "Infrastructure": l.Infrastructure,
-		"Interfaces": l.Interfaces, "Cmd": l.Cmd, "Handlers": l.Handlers, "Persistence": l.Persistence,
-	} {
-		if dir != "" && !slices.ContainsFunc(p.files, func(s Source) bool { return inTree(s.Rel, dir) }) {
-			return fmt.Errorf("Layers.%s %q holds no Go file under %s: a guard that sees nothing passes forever", name, dir, p.root)
+func (p *project) validate(root string) error {
+	for name, dir := range p.cfg.Layers.named() {
+		if dir != "" && !slices.ContainsFunc(p.files, func(src Source) bool { return inTree(src.Rel, dir) }) {
+			return fmt.Errorf("%w: Layers.%s %q holds no Go file under %s (a guard that sees nothing passes forever)",
+				errConfig, name, dir, root)
 		}
 	}
 
+	known := ruleNames()
+
 	for _, name := range p.cfg.Skip {
-		if !slices.Contains(allRuleNames, name) {
-			return fmt.Errorf("Skip names the unknown rule %q", name)
+		if !slices.Contains(known, name) {
+			return fmt.Errorf("%w: Skip names the unknown rule %q", errConfig, name)
 		}
 	}
 
 	for name := range p.cfg.Allowed {
-		if !slices.Contains(allRuleNames, name) {
-			return fmt.Errorf("Allowed names the unknown rule %q", name)
+		if !slices.Contains(known, name) {
+			return fmt.Errorf("%w: Allowed names the unknown rule %q", errConfig, name)
 		}
 	}
 
 	return nil
-}
-
-var allRuleNames = []string{
-	NoPanic, NoContextBackground, NoSleep, NoDatabaseSQL, ErrorfWrap, HandlersNoPersistence, LayerImports,
-	DomainPurity, ApplicationPurity, NoTimeNowDomain, NoTimeNowApplication, CrossAggregate, DomainContextFirst,
-	ServiceContextFirst, BoundedStrings, RoutePaths, RouteIdentifiers, ValidationRules, RouteAccess,
-	ServiceRepositories, RepositoryShape,
 }
