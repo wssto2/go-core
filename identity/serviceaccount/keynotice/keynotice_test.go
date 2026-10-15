@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,funlen,gochecknoglobals,lll,paralleltest // tests in the style of the package's others
 package keynotice_test
 
 import (
@@ -56,13 +57,13 @@ func TestTheOwnerIsToldOnceOfEachCondition(t *testing.T) {
 	require.NoError(t, store.Create(ctx, &robot))
 
 	key := func(name string, mod func(*serviceaccount.Key)) serviceaccount.Key {
-		k := serviceaccount.Key{
+		made := serviceaccount.Key{
 			ServiceAccountID: robot.ID, Name: name, Prefix: name, Hash: serviceaccount.HashSecret(name), CreatedBy: 7, CreatedAt: now.Add(-day(10)),
 		}
-		mod(&k)
-		require.NoError(t, store.CreateKey(ctx, &k))
+		mod(&made)
+		require.NoError(t, store.CreateKey(ctx, &made))
 
-		return k
+		return made
 	}
 
 	soon := now.Add(day(10))
@@ -158,7 +159,11 @@ func TestTheWorkerWaitsForAConsumer(t *testing.T) {
 
 	for name, consumers := range map[string][]string{"without a consumer": nil, "with another one": {"tickets.assigned"}} {
 		ctx, stop := context.WithCancel(t.Context())
-		worker := serviceaccount.NewNoticeWorker(run, func() []string { stop(); return consumers }, slog.New(slog.DiscardHandler))
+		worker := serviceaccount.NewNoticeWorker(run, func() []string {
+			stop()
+
+			return consumers
+		}, slog.New(slog.DiscardHandler))
 
 		require.NoError(t, worker.Run(ctx), name)
 

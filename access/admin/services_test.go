@@ -301,14 +301,6 @@ func TestAccessExplainsWhatASubjectMayDo(t *testing.T) {
 		_, err = f.Bindings.Access(as(1), user(42))
 		assert.True(t, apperr.HasCode(err, apperr.CodeNotFound))
 	})
-
-	t.Run("service accounts are not subjects of a catalogue without their permissions", func(t *testing.T) {
-		bot := authz.Subject{Kind: authz.KindServiceAccount, ID: 1}
-		_, err := f.Bindings.Bind(as(1), bot, admin.BindingDraft{Role: "seller", Scope: authztest.Dealer(10)})
-		assert.True(t, apperr.HasCode(err, apperr.CodeNotFound))
-		_, err = f.Bindings.Access(as(1), bot)
-		assert.True(t, apperr.HasCode(err, apperr.CodeNotFound))
-	})
 }
 
 func TestBindAndUnbind(t *testing.T) {

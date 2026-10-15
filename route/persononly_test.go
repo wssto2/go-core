@@ -1,4 +1,4 @@
-//nolint:paralleltest,exhaustruct,ireturn,varnamelen,nlreturn,noinlineerr,exhaustruct_v5 // tests
+//nolint:paralleltest,exhaustruct,varnamelen,noinlineerr,exhaustruct_v5 // tests
 package route_test
 
 import (
@@ -22,8 +22,10 @@ func as(p authz.Principal) route.Security {
 
 func TestPersonOnlyRefusesAServiceAccount(t *testing.T) {
 	routes := []route.Handled{
-		route.Get[route.None, string]("/typed").PersonOnly().To(func(_ context.Context, _ route.None) (string, error) { return "ok", nil }),
-		route.Raw(http.MethodGet, "/raw").PersonOnly().To(func(c *gin.Context) { c.String(http.StatusOK, "ok") }),
+		route.Get[route.None, string]("/typed").PersonOnly().To(
+			func(_ context.Context, _ route.None) (string, error) { return "ok", nil }),
+		route.Raw(http.MethodGet, "/raw").PersonOnly().To(
+			func(c *gin.Context) { c.String(http.StatusOK, "ok") }),
 	}
 
 	for name, tc := range map[string]struct {
@@ -54,7 +56,8 @@ func TestPersonOnlyRefusesAServiceAccount(t *testing.T) {
 }
 
 func TestAPublicRouteCannotBePersonOnly(t *testing.T) {
-	r := route.Get[route.None, string]("/x").Public().PersonOnly().To(func(_ context.Context, _ route.None) (string, error) { return "", nil })
+	r := route.Get[route.None, string]("/x").Public().PersonOnly().To(
+		func(_ context.Context, _ route.None) (string, error) { return "", nil })
 
 	if err := r.Mount(newEngine(), open()); err == nil || !strings.Contains(err.Error(), "PersonOnly") {
 		t.Fatalf("mount error %v", err)

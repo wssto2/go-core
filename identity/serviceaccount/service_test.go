@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,funlen,gochecknoglobals,goconst,lll,musttag,paralleltest,unparam,varnamelen,wrapcheck // tests in the style of the package's others
 package serviceaccount_test
 
 import (

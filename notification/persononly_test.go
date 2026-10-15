@@ -1,3 +1,4 @@
+//nolint:goconst,paralleltest,thelper,varnamelen // tests in the style of the package's others
 package notification_test
 
 import (

@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,lll,varnamelen // tests in the style of the package's others
 package http_test
 
 import (

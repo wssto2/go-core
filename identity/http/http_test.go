@@ -55,7 +55,11 @@ func newHarnessFull(t *testing.T, prefix string, authorizer authz.Authorizer, mu
 }
 
 // newHarnessUsing is newHarnessFull with engine middleware that runs before every route.
-func newHarnessUsing(t *testing.T, prefix string, authorizer authz.Authorizer, engineUse []gin.HandlerFunc, mutate func(*identityhttp.Config), opts ...identitytest.Option) *harness {
+func newHarnessUsing(
+	t *testing.T, prefix string, authorizer authz.Authorizer, engineUse []gin.HandlerFunc,
+	mutate func(*identityhttp.Config),
+	opts ...identitytest.Option,
+) *harness {
 	t.Helper()
 
 	inactive := identitytest.Account(3, "ines", "secret")

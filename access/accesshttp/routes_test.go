@@ -81,7 +81,10 @@ func newServer(t *testing.T, prefix string) *server {
 			{Key: "seller", Name: "Seller", Grants: authz.Grants(authz.QualifierAll, "crm.customer:view")},
 			{Key: "admin", Name: "Administrator", Grants: authz.Grants(authz.QualifierAll,
 				"iam.role:view", "iam.role:manage", "iam.role:delete", "iam.user:view", "iam.user:manage")},
-			{Key: "robots", Name: "Robot administrator", Grants: authz.Grants(authz.QualifierAll, serviceaccount.View, serviceaccount.Manage)},
+			{
+				ID: 0, Key: "robots", Name: "Robot administrator", Description: "", Attrs: nil, Computed: nil,
+				Grants: authz.Grants(authz.QualifierAll, serviceaccount.View, serviceaccount.Manage),
+			},
 			authz.ComputedRole("webmaster", "Webmaster", authz.All()),
 		},
 	})

@@ -164,7 +164,9 @@ func fixtureOn(conn *gorm.DB, tweak ...func(*admin.Config)) (*fixture, error) {
 	return fixtureWith(conn, catalogue(), predefined(), tweak...)
 }
 
-func fixtureWith(conn *gorm.DB, cat *authz.Catalogue, roles []authz.Role, tweak ...func(*admin.Config)) (*fixture, error) {
+func fixtureWith(
+	conn *gorm.DB, cat *authz.Catalogue, roles []authz.Role, tweak ...func(*admin.Config),
+) (*fixture, error) {
 	store := gormstore.New(conn)
 	dir := newDirectory()
 
@@ -189,7 +191,7 @@ func fixtureWith(conn *gorm.DB, cat *authz.Catalogue, roles []authz.Role, tweak 
 		return nil, err
 	}
 
-	return &fixture{Engine: engine, Store: store, Roles: roleAdmin, Bindings: bindings}, nil
+	return &fixture{t: nil, Engine: engine, Store: store, Roles: roleAdmin, Bindings: bindings}, nil
 }
 
 func user(id int) authz.Subject { return authz.Subject{Kind: authz.KindUser, ID: id} }

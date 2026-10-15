@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,gochecknoglobals,goconst,ireturn,lll,nonamedreturns,paralleltest,tagliatelle,unparam,unqueryvet,varnamelen // tests in the style of the package's others
 package identity_test
 
 import (
@@ -116,14 +117,14 @@ func (r *robotsApp) withKey(method, path, secret string, body any) *httptest.Res
 	return rec
 }
 
-func data[T any](t testing.TB, rec *httptest.ResponseRecorder) T {
-	t.Helper()
+func data[T any](tb testing.TB, rec *httptest.ResponseRecorder) T {
+	tb.Helper()
 
 	var out struct {
 		Data T `json:"data"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out), rec.Body.String())
+	require.NoError(tb, json.Unmarshal(rec.Body.Bytes(), &out), rec.Body.String())
 
 	return out.Data
 }

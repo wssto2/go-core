@@ -1,3 +1,4 @@
+//nolint:paralleltest // tests in the style of the package's others
 package migrations_test
 
 import (

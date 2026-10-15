@@ -1,3 +1,4 @@
+//nolint:err113,exhaustruct,exhaustruct_v5,funlen,gochecknoglobals,goconst,gosec,ireturn,lll,nilnil,noinlineerr,paralleltest,tagliatelle,varnamelen,wrapcheck // tests in the style of the package's others
 package http_test
 
 import (
@@ -507,7 +508,7 @@ func rename(t *testing.T, v any) any {
 // accepted lists the cases whose answer is not arv-next's, each with its reason: the wire differences of
 // moving the service accounts into the module. The list only shrinks: a case that no longer differs must be
 // taken out.
-func accepted(name string, g, w exchange) (string, bool) {
+func accepted(g, w exchange) (string, bool) {
 	access := strings.Contains(g.Request.Path, "/access") || strings.Contains(g.Request.Path, "/scopes") ||
 		strings.Contains(g.Request.Path, "/bindings") || strings.Contains(g.Request.Path, "/bindable-roles")
 
@@ -547,7 +548,7 @@ func TestWireMatchesARV(t *testing.T) {
 		w.Request.Path = renamed.Replace(w.Request.Path)
 
 		equal := string(marshal(t, g)) == string(marshal(t, w))
-		why, listed := accepted(name, g, w)
+		why, listed := accepted(g, w)
 
 		switch {
 		case equal:

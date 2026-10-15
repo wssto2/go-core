@@ -614,7 +614,7 @@ func shopOf(ctx context.Context, _ route.None) (string, error) {
 	return "no shopper", nil
 }
 
-// WithRequestUser makes the request's user of the account on every request, so what it reads is never older than the request.
+// WithRequestUser makes the request's user of the account on every request: never older than the request.
 func TestWithRequestUserMakesTheRequestsUser(t *testing.T) {
 	t.Parallel()
 
@@ -645,7 +645,7 @@ func TestWithRequestUserMakesTheRequestsUser(t *testing.T) {
 	other := newClient(t, app)
 	require.Equal(t, nethttp.StatusOK,
 		other.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "banned", "password": "secret"}).Code)
-	assert.Equal(t, nethttp.StatusUnauthorized, other.do(nethttp.MethodGet, "/shop", nil).Code, "an error from the function answers the request")
+	assert.Equal(t, nethttp.StatusUnauthorized, other.do(nethttp.MethodGet, "/shop", nil).Code, "an error answers it")
 }
 
 // Without WithRequestUser the account is the user.

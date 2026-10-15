@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,gochecknoglobals,goconst,lll,paralleltest,varnamelen // tests in the style of the package's others
 package admin_test
 
 import (
@@ -39,6 +40,17 @@ func robotsFixture(t *testing.T) *fixture {
 	f.t = t
 
 	return f
+}
+
+// A catalogue without the service account permissions has no service account subjects.
+func TestServiceAccountsAreNotSubjectsWithoutTheirPermissions(t *testing.T) {
+	f := newFixture(t)
+	f.seed(1, "webmaster", authztest.Org())
+
+	_, err := f.Bindings.Bind(as(1), bot, admin.BindingDraft{Role: "seller", Scope: authztest.Dealer(10)})
+	assert.True(t, apperr.HasCode(err, apperr.CodeNotFound))
+	_, err = f.Bindings.Access(as(1), bot)
+	assert.True(t, apperr.HasCode(err, apperr.CodeNotFound))
 }
 
 // The access of a service account is guarded by iam.serviceaccount:*, a person's by iam.user:*, and neither opens the other.

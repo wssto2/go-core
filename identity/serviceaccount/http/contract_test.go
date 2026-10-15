@@ -1,3 +1,4 @@
+//nolint:gochecknoglobals,lll,paralleltest // tests in the style of the package's others
 package http_test
 
 import (
@@ -59,7 +60,6 @@ func TestEveryStringInputIsBounded(t *testing.T) {
 		}
 
 		for f := range spec.In.Fields() {
-			f := f
 			if f.Type.Kind() != reflect.String || f.Tag.Get("path") != "" || f.Tag.Get("query") != "" {
 				continue
 			}
