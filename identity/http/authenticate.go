@@ -29,7 +29,9 @@ func AuthenticatedFrom(ctx context.Context) (account.Authenticated, bool) {
 //   - the authz principal the permission checks act as.
 //
 // A request without a good token is rejected with 401, reason
-// identity.session.invalid.
+// identity.session.invalid. When the application armed a per-user rate limit
+// (bootstrap's WithRateLimit, auth.DeferUserRateLimit), the account is counted
+// in it, and the request after the limit is answered 429.
 func Authentication(signIn *account.SignIn, cookies Cookies, principal PrincipalOf) gin.HandlerFunc {
 	cookies = cookies.withDefaults()
 
@@ -61,6 +63,10 @@ func Authentication(signIn *account.SignIn, cookies Cookies, principal Principal
 		ctx = context.WithValue(ctx, authenticatedKey{}, who)
 		c.Request = c.Request.WithContext(authz.WithPrincipal(ctx, p))
 		auth.SetUser(c, who.Account)
+
+		if !auth.EnforceUserRateLimit(c, who.Account) {
+			return
+		}
 
 		c.Next()
 	}

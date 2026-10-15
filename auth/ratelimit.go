@@ -46,9 +46,10 @@ func rateLimitKey(user Identifiable) string {
 	return "user:" + strconv.Itoa(user.GetID())
 }
 
-// enforceUserRateLimit applies the limiter DeferUserRateLimit armed, if any.
-// It reports whether the request may continue; otherwise the response is sent.
-func enforceUserRateLimit(ctx *gin.Context, user Identifiable) bool {
+// EnforceUserRateLimit applies the limiter DeferUserRateLimit armed, if any, to user. Authenticated calls it;
+// an authentication middleware of its own (identity's) calls it right after it finds the account.
+// It reports whether the request may continue; otherwise the response is sent and the request aborted.
+func EnforceUserRateLimit(ctx *gin.Context, user Identifiable) bool {
 	value, ok := ctx.Get(userRateLimiterKey)
 	if !ok {
 		return true
