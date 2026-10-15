@@ -23,11 +23,36 @@ func PathInt(ctx *gin.Context, key string) (int, bool) {
 		code = validation.CodeMustBePositiveNumber
 	}
 
-	_ = ctx.Error(validation.NewValidationError("validation failed",
-		map[string][]validation.Failure{key: {validation.Fail(code)}}, map[string][]string{key: {"path"}}))
+	_ = ctx.Error(pathIntFailure(key, code))
 	ctx.Abort()
 
 	return 0, false
+}
+
+// pathIntFailure is the 422 PathInt and PositivePathInt answer: the standard validation body, on the parameter's name.
+func pathIntFailure(key string, code validation.RuleCode) error {
+	return validation.NewValidationError("validation failed",
+		map[string][]validation.Failure{key: {validation.Fail(code)}}, map[string][]string{key: {"path"}})
+}
+
+// PositivePathInt is PathInt for a typed route, whose handler receives the id already read: nil for a positive id, else the
+// error PathInt answers for a zero or negative one (422, must_be_positive_number, on the parameter's name).
+func PositivePathInt(key string, id int) error {
+	if id > 0 {
+		return nil
+	}
+
+	return pathIntFailure(key, validation.CodeMustBePositiveNumber)
+}
+
+// PositiveID is GetPathIDNamed for a typed route: nil for a positive id, else 400 naming the parameter. A typed route
+// answers a path that is not a number itself (route.Group(...).MalformedPath).
+func PositiveID(name string, id int) error {
+	if id <= 0 {
+		return apperr.BadRequest("invalid " + name + ": must be a positive integer")
+	}
+
+	return nil
 }
 
 // GetParamInt reads a URL path parameter by name and returns (int, bool).
@@ -76,9 +101,9 @@ func GetPathID(ctx *gin.Context) (int, bool) {
 // on success, (0, false) after writing the error response — the handler must
 // return immediately on false.
 func GetPathIDNamed(ctx *gin.Context, key string) (int, bool) {
-	id, ok := GetParamInt(ctx, key)
-	if !ok || id <= 0 {
-		_ = ctx.Error(apperr.BadRequest("invalid " + key + ": must be a positive integer"))
+	id, _ := GetParamInt(ctx, key)
+	if err := PositiveID(key, id); err != nil {
+		_ = ctx.Error(err)
 		ctx.Abort()
 		return 0, false
 	}
