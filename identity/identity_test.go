@@ -38,7 +38,7 @@ import (
 const Shared database.Connection = "shared"
 
 // Whoami is a feature's own route: behind identity's authentication, acting as the signed-in person.
-var Whoami = route.Get[route.None, int]("/whoami").Authenticated()
+var Whoami = route.Get[route.None, int]("/whoami")
 
 func whoami(ctx context.Context, _ route.None) (int, error) {
 	p, ok := authz.PrincipalFrom(ctx)
@@ -120,7 +120,7 @@ func TestInstallGivesTheApplicationItsAuthentication(t *testing.T) {
 	app := newApp(t)
 	users := identity.Install(app, identity.WithoutMail())
 
-	app.Routes(Whoami.To(whoami))
+	app.Routes(Whoami.Authenticated().To(whoami))
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 
 	require.NoError(t, app.Check())
@@ -654,7 +654,9 @@ func TestWithoutRequestUserTheAccountIsTheUser(t *testing.T) {
 
 	app := newApp(t)
 	identity.Install(app, identity.WithoutMail())
-	app.Routes(route.Get[route.None, string]("/shop").Authenticated().To(func(ctx context.Context, _ route.None) (string, error) {
+
+	shop := route.Get[route.None, string]("/shop").Authenticated()
+	app.Routes(shop.To(func(ctx context.Context, _ route.None) (string, error) {
 		if a, ok := auth.UserOf[account.Account](ctx); ok {
 			return a.Login, nil
 		}

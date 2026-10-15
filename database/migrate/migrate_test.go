@@ -199,6 +199,8 @@ func TestPendingListsWhatHasNotRun(t *testing.T) {
 }
 
 func TestVersionReadsANumberOrAFileName(t *testing.T) {
+	t.Parallel()
+
 	for arg, want := range map[string]int64{
 		"20261015000000":                        20261015000000,
 		"20261015000000_authz_roles.sql":        20261015000000,
@@ -206,13 +208,15 @@ func TestVersionReadsANumberOrAFileName(t *testing.T) {
 		"7_a_b":                                 7,
 	} {
 		got, err := migrate.Version(arg)
+
 		if err != nil || got != want {
 			t.Errorf("Version(%q) = %d, %v; want %d", arg, got, err, want)
 		}
 	}
 
 	for _, arg := range []string{"", "authz_roles.sql", "0", "-3_a.sql", "12ab_x.sql"} {
-		if _, err := migrate.Version(arg); err == nil {
+		_, err := migrate.Version(arg)
+		if err == nil {
 			t.Errorf("Version(%q): want an error", arg)
 		}
 	}

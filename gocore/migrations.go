@@ -146,6 +146,41 @@ func (a *App) Migrate(ctx context.Context) error {
 	return m.Up(ctx)
 }
 
+// MarkApplied records migrations of the connection as applied without running them, for a database whose tables
+// already exist ("./myapp migrate mark-applied", see RunCommand). Each is a version (20261015000000) or a file name
+// (20261015000000_things.sql, with or without its directory) of a collected migration; one already recorded is
+// skipped. Run Migrate afterwards for the rest.
+func (a *App) MarkApplied(ctx context.Context, conn string, versions ...string) error {
+	parsed := make([]int64, 0, len(versions))
+
+	for _, arg := range versions {
+		version, err := migrate.Version(arg)
+		if err != nil {
+			return fmt.Errorf("gocore: %w", err)
+		}
+
+		parsed = append(parsed, version)
+	}
+
+	migrator, err := a.migrator()
+	if err != nil {
+		return err
+	}
+
+	if migrator == nil {
+		return errNoMigrations
+	}
+
+	err = migrator.MarkApplied(ctx, conn, parsed)
+	if err != nil {
+		return fmt.Errorf("gocore: %w", err)
+	}
+
+	return nil
+}
+
+var errNoMigrations = errors.New("gocore: mark-applied: the application has no migrations")
+
 // fromModels reports whether the source's tables are created from its models
 // here: in a test application, on SQLite.
 func (a *App) fromModels(src migrationSource) bool {

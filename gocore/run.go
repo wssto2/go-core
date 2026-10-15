@@ -86,8 +86,10 @@ func (a *App) routeProblems() []Problem {
 
 		if !spec.DeclaresAccess() {
 			problems = append(problems, Problem{
-				What: "route " + key + " declares no access: none of Requires, RequiresAny, RequiresAll, Public, PersonOnly or Authenticated",
-				Fix:  "say who may call it: .Requires(permission) (or RequiresAny/RequiresAll), .Public() for anyone, .PersonOnly() for a person's own, or .Authenticated() for any signed-in caller whose rights the handler checks",
+				What: "route " + key + " declares no access: none of Requires, RequiresAny, RequiresAll, " +
+					"Public, PersonOnly or Authenticated",
+				Fix: "say who may call it: .Requires(permission) (or RequiresAny/RequiresAll), .Public() for anyone, " +
+					".PersonOnly() for a person's own, or .Authenticated() for any signed-in caller whose rights the handler checks",
 			})
 		}
 

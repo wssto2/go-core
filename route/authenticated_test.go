@@ -56,7 +56,8 @@ func TestAuthenticatedNeedsSignInAndNoPermission(t *testing.T) {
 	}
 
 	// Without authentication configured, the route cannot be mounted at all.
-	if err := routes[0].Mount(newEngine(), route.Security{}); err == nil || !strings.Contains(err.Error(), "no authentication") {
+	err := routes[0].Mount(newEngine(), route.Security{})
+	if err == nil || !strings.Contains(err.Error(), "no authentication") {
 		t.Errorf("want the missing authentication named, got %v", err)
 	}
 }

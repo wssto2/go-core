@@ -32,7 +32,7 @@ func (s *Service) Ping(context.Context, route.None) (string, error) {
 	return s.Clock.Now().Format("2006-01-02"), nil
 }
 
-var Ping = route.Get[route.None, string]("/ping").Authenticated()
+var Ping = route.Get[route.None, string]("/ping")
 
 // Install is how a feature puts itself together: it reads the environment
 // from app and hands over what it offers.
@@ -41,7 +41,7 @@ func Install(app *gocore.App) {
 
 	_ = app.Database() // the primary connection; app.Database(Shared) another one
 
-	app.Routes(Ping.To(service.Ping))
+	app.Routes(Ping.Authenticated().To(service.Ping))
 }
 
 func ExampleApp() {
@@ -141,7 +141,9 @@ func ExampleApp_RunCommand() {
 
 	os.Args = []string{"/srv/myapp"}
 
-	for _, args := range [][]string{{}, {"migrate"}, {"migrate", "status"}, {"migrate", "mark-applied", "local", "20261015000000_things.sql"}, {"help"}, {"serve"}} {
+	mark := []string{migrateCmd, markCommand, localConn, "20261015000000_things.sql"}
+
+	for _, args := range [][]string{{}, {"migrate"}, {"migrate", "status"}, mark, {"help"}, {"serve"}} {
 		reg, cleanup := database.NewTestRegistry("local", "shared")
 		app := gocore.New(bootstrap.DefaultConfig(),
 			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))

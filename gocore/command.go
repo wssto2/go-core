@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"github.com/wssto2/go-core/database/migrate"
 )
 
 // RunCommand does what args ask, the way Run does with the command line:
@@ -29,8 +27,8 @@ import (
 func (a *App) RunCommand(ctx context.Context, args []string, out io.Writer) error {
 	command := strings.Join(args, " ")
 
-	if len(args) >= 2 && args[0] == "migrate" && args[1] == "mark-applied" {
-		return a.command(func() error { return a.markApplied(ctx, args[2:], out) })
+	if rest, ok := strings.CutPrefix(command+" ", "migrate mark-applied "); ok {
+		return a.command(func() error { return a.markApplied(ctx, strings.Fields(rest), out) })
 	}
 
 	switch command {
@@ -48,7 +46,8 @@ func (a *App) RunCommand(ctx context.Context, args []string, out io.Writer) erro
 		})
 	default:
 		return a.command(func() error {
-			return fmt.Errorf("gocore: unknown command %q: the commands are migrate, migrate status, migrate mark-applied and help", command)
+			return fmt.Errorf("gocore: %w %q: the commands are migrate, migrate status, migrate mark-applied and help",
+				errUnknownCommand, command)
 		})
 	}
 }
@@ -112,37 +111,29 @@ func (a *App) migrationStatus(ctx context.Context, out io.Writer) error {
 	return nil
 }
 
-// markApplied records the versions as applied on the connection (args[0]) without running them.
+var (
+	errUnknownCommand = errors.New("unknown command")
+	errMarkUsage      = errors.New("gocore: mark-applied takes a connection and at least one version or file")
+)
+
+// markApplied is the mark-applied command: args are a connection and the versions or files.
 func (a *App) markApplied(ctx context.Context, args []string, out io.Writer) error {
-	if len(args) < 2 {
-		return errors.New("gocore: usage: migrate mark-applied <connection> <version|file>...")
+	if len(args) < minMarkArgs {
+		return errMarkUsage
 	}
 
-	versions := make([]int64, len(args)-1)
-
-	for i, arg := range args[1:] {
-		v, err := migrate.Version(arg)
-		if err != nil {
-			return fmt.Errorf("gocore: %w", err)
-		}
-
-		versions[i] = v
-	}
-
-	m, err := a.migrator()
+	err := a.MarkApplied(ctx, args[0], args[1:]...)
 	if err != nil {
 		return err
 	}
 
-	if m == nil {
-		return errors.New("gocore: mark-applied: the application has no migrations")
+	_, err = fmt.Fprintf(out, "%s: %d migration(s) recorded as applied\n", args[0], len(args)-1)
+	if err != nil {
+		return fmt.Errorf("gocore: writing the result: %w", err)
 	}
 
-	if err := m.MarkApplied(ctx, args[0], versions); err != nil {
-		return fmt.Errorf("gocore: %w", err)
-	}
-
-	_, err = fmt.Fprintf(out, "%s: %d migration(s) recorded as applied\n", args[0], len(versions))
-
-	return err
+	return nil
 }
+
+// minMarkArgs is a connection and one version.
+const minMarkArgs = 2

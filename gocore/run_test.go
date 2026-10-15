@@ -23,11 +23,12 @@ import (
 )
 
 var (
-	pingRoute   = route.Get[route.None, string]("/ping").Name("ping").Authenticated()
+	pingRoute   = route.Get[route.None, string]("/ping").Name("ping")
 	secretRoute = route.Get[route.None, string]("/secret").Name("secret").Requires("ops.secret:view")
-	lostRoute   = route.Get[route.None, string]("/lost").Name("lost").Authenticated()
+	lostRoute   = route.Get[route.None, string]("/lost").Name("lost")
 	_           = route.Group("ops", pingRoute, secretRoute, lostRoute)
-	upRoute     = route.Get[route.None, string]("/up").Authenticated()
+	_           = []route.Declared{pingRoute.Authenticated(), lostRoute.Authenticated(), upRoute.Authenticated()}
+	upRoute     = route.Get[route.None, string]("/up")
 )
 
 func get(url string) (*http.Response, error) {

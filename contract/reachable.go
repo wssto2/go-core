@@ -29,27 +29,27 @@ func Reachable(groups ...*route.Contract) (Types, error) {
 	seenIn, seenOut := map[reflect.Type]bool{}, map[reflect.Type]bool{}
 	seenEnum := map[reflect.Type]bool{}
 
-	for _, g := range groups {
-		p, err := planOf(g)
+	for _, group := range groups {
+		planned, err := planOf(group)
 		if err != nil {
-			return Types{}, fmt.Errorf("contract: group %q: %w", g.Name(), err)
+			return Types{}, fmt.Errorf("contract: group %q: %w", group.Name(), err)
 		}
 
-		for _, v := range p.ins[:p.nIns] {
+		for _, v := range planned.ins[:planned.nIns] {
 			if t := reflect.TypeOf(v); !seenIn[t] {
 				seenIn[t] = true
 				out.Inputs = append(out.Inputs, t)
 			}
 		}
 
-		for _, v := range p.outs[:p.nOuts] {
+		for _, v := range planned.outs[:planned.nOuts] {
 			if t := reflect.TypeOf(v); !seenOut[t] {
 				seenOut[t] = true
 				out.Outputs = append(out.Outputs, t)
 			}
 		}
 
-		for _, e := range g.Enums() {
+		for _, e := range group.Enums() {
 			if !seenEnum[e.Type()] {
 				seenEnum[e.Type()] = true
 				out.Enums = append(out.Enums, e)

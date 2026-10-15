@@ -23,7 +23,7 @@ type ShowInput struct {
 	ID int `path:"id"`
 }
 
-var Show = route.Get[ShowInput, Ticket]("/tickets/:id").Authenticated()
+var Show = route.Get[ShowInput, Ticket]("/tickets/:id")
 
 type Service struct{ app *gocore.App }
 
@@ -32,7 +32,7 @@ func (s Service) Show(_ context.Context, in ShowInput) (Ticket, error) {
 }
 
 func Install(app *gocore.App) {
-	app.Routes(Show.To(Service{app}.Show))
+	app.Routes(Show.Authenticated().To(Service{app}.Show))
 }
 
 // A feature test is plain function calls: build the app, install, call.

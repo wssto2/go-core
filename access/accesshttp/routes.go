@@ -124,7 +124,8 @@ func Declare() *Routes {
 		UpdateRole:    route.Put[UpdateRoleInput, Role](roles + "/:ref").Name("access.roles.update").Requires(admin.ManageRoles),
 		DeleteRole:    route.Delete[RoleInput, route.Empty](roles + "/:ref").Name("access.roles.delete").Requires(admin.DeleteRoles),
 		ReplaceRole:   route.Post[ReplaceRoleInput, Replaced](roles + "/:ref/replace").Name("access.roles.replace").Requires(admin.ManageRoles),
-		BindableRoles: route.Get[BindableInput, BindableRoles](base + "/iam/bindable-roles").Name("access.bindable").Authenticated(),
+		BindableRoles: route.Get[BindableInput, BindableRoles](base + "/iam/bindable-roles").
+			Name("access.bindable").Authenticated(),
 		SubjectAccess: route.Get[SubjectInput, SubjectAccess](users + "/access").Name("access.subjects.access").Requires(admin.ViewAccess),
 		SubjectScopes: route.Get[SubjectInput, ScopeOptions](users + "/scopes").Name("access.subjects.scopes").Requires(admin.ManageBindings),
 		Bind:          route.Post[BindInput, Binding](users + "/bindings").Name("access.subjects.bind").Requires(admin.ManageBindings),

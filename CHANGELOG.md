@@ -10,7 +10,7 @@ Every route says who may call it. A route that declared nothing was already serv
 - `gocore.App.Served()`: the installed routes as `[]route.Served` (the `Spec` and the path served, prefix or site root included), in mount order.
 - `gocore.App.Contracts()` and `route.Contracts(handled...)`: the groups of the installed routes, each once, in order, for `contract.Generate`.
 - `contract.Reachable(groups...)`: the input, output and enum types `contract.Generate` would write for the groups, from the same walk, so an application lists no types beside its routes.
-- `migrate mark-applied <connection> <version|file>...` in `RunCommand`: records migrations as applied without running them, over `Migrator.MarkApplied`. `migrate.Version` reads the number or the file name.
+- `migrate mark-applied <connection> <version|file>...` in `RunCommand`, and `gocore.App.MarkApplied(ctx, conn, versions...)` behind it: records migrations as applied without running them (a database whose tables already exist), over `Migrator.MarkApplied`. `migrate.Version` reads the number or the file name.
 
 ### Changed
 
