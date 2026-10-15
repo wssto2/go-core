@@ -96,19 +96,20 @@ architecture error was introduced.
 
 ```
 Layer 0 — no internal imports:
-  apperr, utils, i18n (types only), navigation, mail (standard library only)
+  apperr, utils, i18n (types only), navigation, mail (standard library only),
+  pagination (paging primitives for a framework-free domain or application)
 
 Layer 1 — imports Layer 0 only:
-  validation, database/types, logger, resilience
+  validation, logger, resilience
 
 Layer 2 — imports Layers 0–1:
-  database, auth, event, storage, tenancy, worker
+  database, database/types (column value types over the driver), auth, event, storage, tenancy, worker
 
 Layer 3 — imports Layers 0–2:
   binders, middlewares, datatable, resource, observability, web, audit, health
 
 Layer 4 — imports Layers 0–3 (and authz):
-  bootstrap, frontend, go2ts, route
+  bootstrap, frontend, go2ts, route, web/typed (the web helpers that need route)
 
 Layer 4+ — imports route and go2ts, never bootstrap or gocore:
   contract (TypeScript generation from route groups)
@@ -176,9 +177,10 @@ production files (`_test.go` files and `*test` support packages are exempt):
 - `gocoretest` imported by test code only;
 - `identity/account` taking the standard library, `apperr`, `authz`, `mail` and bcrypt only.
 
-One pair is left out because the code breaks it today: `database/types` is
-documented as layer 1 and imports `database` (layer 2) in 16 files. It is held
-against every other layer above it. Not checked: that an `Install` builds only
+It also holds `archtest`'s route-access rule on go-core's own routes (every route
+says who may call it). Not checked: `fmt.Errorf` wrapping (two `%v` wraps of an
+error that may be nil remain in `datatable` and `resource`), the route naming
+rules (modules build some paths at run time), that an `Install` builds only
 its own services (`gocore` has its own test) and the import cycle, which the compiler refuses.
 
 ### 4.1 Module layout

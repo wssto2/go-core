@@ -22,11 +22,11 @@ const (
 // layer and the layers below, never a layer above.
 func layers() [][]string {
 	return [][]string{
-		{"apperr", "utils", "i18n", "navigation", "mail"},
-		{"validation", "database/types", "logger", "resilience"},
-		{pkgDatabase, pkgAuth, pkgEvent, "storage", "tenancy", "worker"},
+		{"apperr", "utils", "i18n", "navigation", "mail", "pagination"},
+		{"validation", "logger", "resilience", "archtest"},
+		{pkgDatabase, "database/types", pkgAuth, pkgEvent, "storage", "tenancy", "worker"},
 		{"binders", "middlewares", "datatable", "resource", "observability", "web", "audit", "health"},
-		{pkgBootstrap, "frontend", "go2ts", pkgRoute},
+		{pkgBootstrap, "frontend", "go2ts", pkgRoute, "web/typed"},
 		{"contract"},
 		{pkgGocore},
 	}
@@ -49,12 +49,7 @@ func layerBans() []archtest.Banned {
 		for _, pkg := range pkgs {
 			for _, above := range all[level+1:] {
 				for _, target := range above {
-					// database/types is documented as layer 1 and imports database (layer 2) in 16 files. The
-					// rule is left out for that one pair until section 4 or the package changes; it is held
-					// against every other layer above it.
-					if pkg != "database/types" || target != pkgDatabase {
-						out = append(out, ban(pkg, target))
-					}
+					out = append(out, ban(pkg, target))
 				}
 			}
 		}
@@ -122,8 +117,9 @@ func TestArchitectureDocument(t *testing.T) {
 	var cfg archtest.Config
 
 	cfg.Banned = append(append(layerBans(), prohibitions()...), modules()...)
-	// go-core is a library: none of the application rules apply.
-	cfg.Skip = []string{archtest.ErrorfWrap, archtest.RoutePaths, archtest.RouteIdentifiers, archtest.RouteAccess}
+	// The route naming rules are an application's (modules build some paths at run time); ErrorfWrap waits on
+	// datatable.go:34 and resource.go:54, whose error may be nil.
+	cfg.Skip = []string{archtest.ErrorfWrap, archtest.RoutePaths, archtest.RouteIdentifiers}
 
 	archtest.Run(t, cfg)
 }
