@@ -9,25 +9,50 @@
 package storetest
 
 import (
+	"context"
+	"errors"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 
-	"context"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/identity/serviceaccount"
 )
 
 // Factory returns a new empty store for one subtest.
 type Factory func(t *testing.T) serviceaccount.Store
 
-// base is a time to the whole second, which every database keeps.
-var base = time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC)
+// The times of the suite are to the whole second, which every database keeps.
+const (
+	hour = time.Hour
+	day  = 24 * time.Hour
+)
 
-//go:fix inline
-func ptr[T any](v T) *T { return new(v) }
+// The ids and names of the suite.
+const (
+	tenantA, tenantB   = 5, 6
+	ownerA, ownerB     = 7, 8
+	twoDays            = 2 * day
+	threeDays          = 3 * day
+	soon               = 2 * hour
+	lastUse            = 5 * hour
+	ownerC             = 9
+	unknownAccount     = 99
+	unknownKey         = 999
+	editor, revoker    = 3, 4
+	otherRevoker       = 5
+	noticeKeyA         = 7
+	noticeKeyB         = 8
+	noticeKeyC         = 9
+	noticeKeyContested = 11
+	twoKeys            = 2
+	runs               = 6
+	nameBeta           = "beta"
+	nameZeta           = "zeta"
+)
+
+func base() time.Time { return time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC) }
 
 // Run runs the whole suite.
 func Run(t *testing.T, factory Factory) {
@@ -53,290 +78,403 @@ func Run(t *testing.T, factory Factory) {
 	}
 }
 
+// check reports what a test of the suite found.
+type checker struct{ t *testing.T }
+
+func (chk checker) noErr(err error, what string) {
+	chk.t.Helper()
+
+	if err != nil {
+		chk.t.Fatalf("%s: unexpected error: %v", what, err)
+	}
+}
+
+func (chk checker) isErr(err, target error, what string) {
+	chk.t.Helper()
+
+	if !errors.Is(err, target) {
+		chk.t.Errorf("%s: got error %v, want %v", what, err, target)
+	}
+}
+
+func (chk checker) equal(want, got any, what string) {
+	chk.t.Helper()
+
+	if !reflect.DeepEqual(want, got) {
+		chk.t.Errorf("%s: got %#v, want %#v", what, got, want)
+	}
+}
+
+func (chk checker) true(ok bool, what string) {
+	chk.t.Helper()
+
+	if !ok {
+		chk.t.Error(what)
+	}
+}
+
+// same compares times by the instant, not the zone.
+func (chk checker) same(want time.Time, got *time.Time, what string) {
+	chk.t.Helper()
+
+	if got == nil || !want.Equal(*got) {
+		chk.t.Errorf("%s: got %v, want %v", what, got, want)
+	}
+}
+
 func account(name string, tenant, owner int) *serviceaccount.Account {
-	return &serviceaccount.Account{Name: name, Description: name + " feed", TenantID: tenant, OwnerID: owner, CreatedBy: 1, CreatedAt: base}
+	return &serviceaccount.Account{
+		ID: 0, Name: name, Description: name + " feed", TenantID: tenant, OwnerID: owner, CreatedBy: 1, CreatedAt: base(),
+		UpdatedBy: 0, UpdatedAt: nil, DeactivatedAt: nil, DeactivatedBy: 0,
+	}
 }
 
-func mustCreate(t *testing.T, s serviceaccount.Store, a *serviceaccount.Account) {
+func mustCreate(t *testing.T, store serviceaccount.Store, made *serviceaccount.Account) {
 	t.Helper()
 
-	require.NoError(t, s.Create(context.Background(), a))
-	require.Positive(t, a.ID)
+	checker{t}.noErr(store.Create(context.Background(), made), "create "+made.Name)
+
+	if made.ID <= 0 {
+		t.Fatalf("create %s: no ID was set", made.Name)
+	}
 }
 
-func mustKey(t *testing.T, s serviceaccount.Store, accountID int, name string, mod func(*serviceaccount.Key)) serviceaccount.Key {
+// newKey is a key of the account, named name, which its secret is "sak_"+name.
+func newKey(accountID int, name string) serviceaccount.Key {
+	secret := "sak_" + name
+
+	return serviceaccount.Key{
+		ID: 0, ServiceAccountID: accountID, Name: name, Prefix: serviceaccount.PrefixOf(secret),
+		Hash: serviceaccount.HashSecret(secret), CreatedBy: 1, CreatedAt: base(),
+		LastUsedAt: nil, ExpiresAt: nil, RevokedAt: nil, RevokedBy: 0,
+	}
+}
+
+// mustKey stores the key. A key is made unused; the store learns of a use through TouchKey, so a LastUsedAt of the
+// key given is touched in.
+func mustKey(t *testing.T, store serviceaccount.Store, key serviceaccount.Key) serviceaccount.Key {
 	t.Helper()
 
-	key := serviceaccount.Key{
-		ServiceAccountID: accountID, Name: name, Prefix: serviceaccount.PrefixOf("sak_" + name), Hash: serviceaccount.HashSecret("sak_" + name),
-		CreatedBy: 1, CreatedAt: base,
-	}
-	if mod != nil {
-		mod(&key)
+	ctx := context.Background()
+	checker{t}.noErr(store.CreateKey(ctx, &key), "create key "+key.Name)
+
+	if key.ID <= 0 {
+		t.Fatalf("create key %s: no ID was set", key.Name)
 	}
 
-	require.NoError(t, s.CreateKey(context.Background(), &key))
-	require.Positive(t, key.ID)
-
-	if key.LastUsedAt != nil { // a key is made unused; the store learns of a use through TouchKey
-		require.NoError(t, s.TouchKey(context.Background(), key.ID, *key.LastUsedAt))
+	if key.LastUsedAt != nil {
+		checker{t}.noErr(store.TouchKey(ctx, key.ID, *key.LastUsedAt), "touch key "+key.Name)
 	}
 
 	return key
 }
 
-func accountRoundTrips(t *testing.T, s serviceaccount.Store) {
-	ctx := context.Background()
-	org, tenant := account("org", 0, 7), account("tenant", 5, 8)
-	mustCreate(t, s, org)
-	mustCreate(t, s, tenant)
+func accountRoundTrips(t *testing.T, store serviceaccount.Store) {
+	t.Helper()
 
-	got, err := s.Find(ctx, org.ID, base)
-	require.NoError(t, err)
-	assert.Equal(t, *org, got.Account)
-	assert.Zero(t, got.TenantID, "the organization's account has no tenant")
-	assert.True(t, got.Active())
-	assert.Zero(t, got.ActiveKeys)
-	assert.Nil(t, got.LastUsedAt)
+	chk, ctx := checker{t}, context.Background()
+	organization, tenant := account("org", 0, ownerA), account("tenant", tenantA, ownerB)
+	mustCreate(t, store, organization)
+	mustCreate(t, store, tenant)
 
-	got, err = s.Find(ctx, tenant.ID, base)
-	require.NoError(t, err)
-	assert.Equal(t, 5, got.TenantID)
+	got, err := store.Find(ctx, organization.ID, base())
+	chk.noErr(err, "find")
+	chk.equal(*organization, got.Account, "the account as it was made")
+	chk.equal(0, got.TenantID, "the organization's account has no tenant")
+	chk.true(got.Active(), "a new account is active")
+	chk.equal(0, got.ActiveKeys, "no keys")
+	chk.true(got.LastUsedAt == nil, "never used")
 
-	_, err = s.Find(ctx, 99, base)
-	assert.ErrorIs(t, err, serviceaccount.ErrNotFound)
+	got, err = store.Find(ctx, tenant.ID, base())
+	chk.noErr(err, "find the tenant's")
+	chk.equal(tenantA, got.TenantID, "the tenant")
+
+	_, err = store.Find(ctx, unknownAccount, base())
+	chk.isErr(err, serviceaccount.ErrNotFound, "find an account that is not there")
 }
 
-func listFollowsTheVisibility(t *testing.T, s serviceaccount.Store) {
-	ctx := context.Background()
+func listFollowsTheVisibility(t *testing.T, store serviceaccount.Store) {
+	t.Helper()
 
-	for _, a := range []*serviceaccount.Account{account("zeta", 5, 1), account("alpha", 6, 1), account("mid", 0, 1), account("beta", 5, 1)} {
-		mustCreate(t, s, a)
+	chk, ctx := checker{t}, context.Background()
+
+	for _, made := range []*serviceaccount.Account{
+		account(nameZeta, tenantA, 1), account("alpha", tenantB, 1), account("mid", 0, 1), account(nameBeta, tenantA, 1),
+	} {
+		mustCreate(t, store, made)
 	}
 
-	names := func(v serviceaccount.Visibility) []string {
-		list, err := s.List(ctx, v, base)
-		require.NoError(t, err)
+	names := func(visible serviceaccount.Visibility) []string {
+		list, err := store.List(ctx, visible, base())
+		chk.noErr(err, "list")
 
 		out := make([]string, 0, len(list))
-		for _, a := range list {
-			out = append(out, a.Name)
+		for _, listed := range list {
+			out = append(out, listed.Name)
 		}
 
 		return out
 	}
 
-	assert.Equal(t, []string{"alpha", "beta", "mid", "zeta"}, names(serviceaccount.Visibility{All: true}), "by name")
-	assert.Equal(t, []string{"beta", "zeta"}, names(serviceaccount.Visibility{Tenants: []int{5}}))
-	assert.Equal(t, []string{"alpha", "beta", "zeta"}, names(serviceaccount.Visibility{Tenants: []int{5, 6}}), "the organization's account is for the root")
-	assert.Empty(t, names(serviceaccount.Visibility{}), "no tenant, not all: nothing")
+	all := serviceaccount.Visibility{All: true, Tenants: nil}
+	chk.equal([]string{"alpha", nameBeta, "mid", nameZeta}, names(all), "all, by name")
+	one := serviceaccount.Visibility{All: false, Tenants: []int{tenantA}}
+	two := serviceaccount.Visibility{All: false, Tenants: []int{tenantA, tenantB}}
+
+	chk.equal([]string{nameBeta, nameZeta}, names(one), "one tenant")
+	chk.equal([]string{"alpha", nameBeta, nameZeta}, names(two), "two tenants: the organization's account is for the root")
+	chk.equal([]string{}, names(serviceaccount.Visibility{All: false, Tenants: nil}), "no tenant, not all: nothing")
 }
 
-func summaryCountsKeys(t *testing.T, s serviceaccount.Store) {
-	ctx := context.Background()
-	a := account("robot", 0, 1)
-	mustCreate(t, s, a)
+func summaryCountsKeys(t *testing.T, store serviceaccount.Store) {
+	t.Helper()
 
-	at := base.Add(48 * time.Hour)
+	chk, ctx := checker{t}, context.Background()
+	robot := account("robot", 0, 1)
+	mustCreate(t, store, robot)
 
-	mustKey(t, s, a.ID, "live", func(k *serviceaccount.Key) { k.LastUsedAt = new(base.Add(time.Hour)) })
-	mustKey(t, s, a.ID, "later", func(k *serviceaccount.Key) { k.LastUsedAt = new(base.Add(5 * time.Hour)) })
-	mustKey(t, s, a.ID, "gone", func(k *serviceaccount.Key) { k.ExpiresAt = new(base.Add(time.Hour)) })
-	revoked := mustKey(t, s, a.ID, "revoked", nil)
-	require.NoError(t, s.RevokeKey(ctx, revoked.ID, base, 1))
+	later := base().Add(twoDays)
 
-	got, err := s.Find(ctx, a.ID, at)
-	require.NoError(t, err)
-	assert.Equal(t, 2, got.ActiveKeys, "the expired and the revoked key do not count")
-	require.NotNil(t, got.LastUsedAt)
-	assert.True(t, got.LastUsedAt.Equal(base.Add(5*time.Hour)), "the latest use of any key: %v", got.LastUsedAt)
+	live := newKey(robot.ID, "live")
+	live.LastUsedAt = new(base().Add(hour))
+	mustKey(t, store, live)
 
-	list, err := s.List(ctx, serviceaccount.Visibility{All: true}, at)
-	require.NoError(t, err)
-	require.Len(t, list, 1)
-	assert.Equal(t, 2, list[0].ActiveKeys)
+	recent := newKey(robot.ID, "later")
+	recent.LastUsedAt = new(base().Add(lastUse))
+	mustKey(t, store, recent)
+
+	gone := newKey(robot.ID, "gone")
+	gone.ExpiresAt = new(base().Add(hour))
+	mustKey(t, store, gone)
+
+	revoked := mustKey(t, store, newKey(robot.ID, "revoked"))
+	chk.noErr(store.RevokeKey(ctx, revoked.ID, base(), 1), "revoke")
+
+	got, err := store.Find(ctx, robot.ID, later)
+	chk.noErr(err, "find")
+	chk.equal(twoKeys, got.ActiveKeys, "the expired and the revoked key do not count")
+	chk.same(base().Add(lastUse), got.LastUsedAt, "the latest use of any key")
+
+	list, err := store.List(ctx, serviceaccount.Visibility{All: true, Tenants: nil}, later)
+	chk.noErr(err, "list")
+	chk.equal(1, len(list), "one account")
+
+	if len(list) == 1 {
+		chk.equal(twoKeys, list[0].ActiveKeys, "the list counts them too")
+	}
 }
 
-func updateChanges(t *testing.T, s serviceaccount.Store) {
-	ctx := context.Background()
-	a := account("robot", 5, 1)
-	mustCreate(t, s, a)
+func updateChanges(t *testing.T, store serviceaccount.Store) {
+	t.Helper()
 
-	later := base.Add(time.Hour)
-	changed := *a
-	changed.Name, changed.Description, changed.TenantID, changed.OwnerID = "renamed", "new text", 0, 9
-	changed.UpdatedBy, changed.UpdatedAt = 3, &later
-	changed.DeactivatedAt, changed.DeactivatedBy = &later, 3
-	require.NoError(t, s.Update(ctx, changed))
+	chk, ctx := checker{t}, context.Background()
+	robot := account("robot", tenantA, 1)
+	mustCreate(t, store, robot)
 
-	got, err := s.Find(ctx, a.ID, base)
-	require.NoError(t, err)
-	assert.Equal(t, changed, got.Account, "the tenant went back to none, the owner moved, the account is deactivated")
-	assert.False(t, got.Active())
-	assert.Equal(t, base, got.CreatedAt, "what an update does not name stays")
+	later := base().Add(hour)
+	changed := *robot
+	changed.Name, changed.Description, changed.TenantID, changed.OwnerID = "renamed", "new text", 0, ownerC
+	changed.UpdatedBy, changed.UpdatedAt = editor, new(later)
+	changed.DeactivatedAt, changed.DeactivatedBy = new(later), editor
+	chk.noErr(store.Update(ctx, changed), "update")
+
+	got, err := store.Find(ctx, robot.ID, base())
+	chk.noErr(err, "find")
+	chk.equal(changed, got.Account, "the tenant went back to none, the owner moved, the account is deactivated")
+	chk.true(!got.Active(), "deactivated")
+	chk.equal(base(), got.CreatedAt, "what an update does not name stays")
 }
 
-func keysNewestFirst(t *testing.T, s serviceaccount.Store) {
-	ctx := context.Background()
-	a, other := account("robot", 0, 1), account("other", 0, 1)
-	mustCreate(t, s, a)
-	mustCreate(t, s, other)
+func keysNewestFirst(t *testing.T, store serviceaccount.Store) {
+	t.Helper()
 
-	first := mustKey(t, s, a.ID, "first", nil)
-	second := mustKey(t, s, a.ID, "second", func(k *serviceaccount.Key) { k.ExpiresAt = new(base.Add(24 * time.Hour)) })
-	foreign := mustKey(t, s, other.ID, "foreign", nil)
+	chk, ctx := checker{t}, context.Background()
+	robot, other := account("robot", 0, 1), account("other", 0, 1)
+	mustCreate(t, store, robot)
+	mustCreate(t, store, other)
 
-	keys, err := s.Keys(ctx, a.ID)
-	require.NoError(t, err)
-	require.Len(t, keys, 2)
-	assert.Equal(t, []int{second.ID, first.ID}, []int{keys[0].ID, keys[1].ID})
-	assert.Equal(t, "sak_second", keys[0].Prefix)
-	assert.True(t, keys[0].ExpiresAt.Equal(base.Add(24*time.Hour)))
-	assert.Nil(t, keys[1].ExpiresAt)
+	first := mustKey(t, store, newKey(robot.ID, "first"))
 
-	got, err := s.FindKey(ctx, a.ID, first.ID)
-	require.NoError(t, err)
-	assert.Equal(t, "first", got.Name)
+	timed := newKey(robot.ID, "second")
+	timed.ExpiresAt = new(base().Add(day))
+	second := mustKey(t, store, timed)
 
-	_, err = s.FindKey(ctx, a.ID, foreign.ID)
-	assert.ErrorIs(t, err, serviceaccount.ErrKeyNotFound, "a key of another account is not found through this one")
+	foreign := mustKey(t, store, newKey(other.ID, "foreign"))
 
-	_, err = s.FindKey(ctx, a.ID, 999)
-	assert.ErrorIs(t, err, serviceaccount.ErrKeyNotFound)
-}
+	keys, err := store.Keys(ctx, robot.ID)
+	chk.noErr(err, "keys")
 
-func keyByHash(t *testing.T, s serviceaccount.Store) {
-	ctx := context.Background()
-	a := account("robot", 5, 1)
-	mustCreate(t, s, a)
+	chk.equal(twoKeys, len(keys), "the account's two keys, not the other's")
 
-	key := mustKey(t, s, a.ID, "ci", nil)
-
-	got, owner, err := s.FindByKeyHash(ctx, serviceaccount.HashSecret("sak_ci"))
-	require.NoError(t, err)
-	assert.Equal(t, key.ID, got.ID)
-	assert.Equal(t, a.ID, owner.ID)
-	assert.Equal(t, 5, owner.TenantID)
-	assert.Nil(t, got.LastUsedAt)
-
-	require.NoError(t, s.TouchKey(ctx, key.ID, base.Add(time.Hour)))
-
-	got, _, err = s.FindByKeyHash(ctx, serviceaccount.HashSecret("sak_ci"))
-	require.NoError(t, err)
-	require.NotNil(t, got.LastUsedAt)
-	assert.True(t, got.LastUsedAt.Equal(base.Add(time.Hour)))
-
-	_, _, err = s.FindByKeyHash(ctx, serviceaccount.HashSecret("sak_unknown"))
-	assert.ErrorIs(t, err, serviceaccount.ErrKeyNotFound)
-
-	// the same secret twice is refused: a hash names one key
-	dup := serviceaccount.Key{ServiceAccountID: a.ID, Name: "dup", Prefix: "sak_ci", Hash: serviceaccount.HashSecret("sak_ci"), CreatedBy: 1, CreatedAt: base}
-	assert.Error(t, s.CreateKey(ctx, &dup))
-}
-
-func revokeKeepsTheFirst(t *testing.T, s serviceaccount.Store) {
-	ctx := context.Background()
-	a := account("robot", 0, 1)
-	mustCreate(t, s, a)
-
-	key := mustKey(t, s, a.ID, "ci", nil)
-
-	require.NoError(t, s.RevokeKey(ctx, key.ID, base.Add(time.Hour), 4))
-	require.NoError(t, s.RevokeKey(ctx, key.ID, base.Add(2*time.Hour), 5))
-
-	got, err := s.FindKey(ctx, a.ID, key.ID)
-	require.NoError(t, err)
-	require.NotNil(t, got.RevokedAt)
-	assert.True(t, got.RevokedAt.Equal(base.Add(time.Hour)), "the first revocation stays")
-	assert.Equal(t, 4, got.RevokedBy)
-	assert.False(t, got.Usable(base))
-}
-
-func workingKeys(t *testing.T, s serviceaccount.Store) {
-	ctx := context.Background()
-	live, off := account("live", 0, 1), account("off", 0, 1)
-	mustCreate(t, s, live)
-	mustCreate(t, s, off)
-
-	kept := mustKey(t, s, live.ID, "kept", nil)
-	timed := mustKey(t, s, live.ID, "timed", func(k *serviceaccount.Key) { k.ExpiresAt = new(base.Add(72 * time.Hour)) })
-	gone := mustKey(t, s, live.ID, "gone", func(k *serviceaccount.Key) { k.ExpiresAt = new(base.Add(time.Hour)) })
-	revoked := mustKey(t, s, live.ID, "revoked", nil)
-	mustKey(t, s, off.ID, "of-a-deactivated-account", nil)
-
-	require.NoError(t, s.RevokeKey(ctx, revoked.ID, base, 1))
-
-	stopped := *off
-	stopped.DeactivatedAt = new(base)
-	require.NoError(t, s.Update(ctx, stopped))
-
-	working, err := s.WorkingKeys(ctx, base.Add(2*time.Hour))
-	require.NoError(t, err)
-
-	var ids []int
-	for _, w := range working {
-		ids = append(ids, w.Key.ID)
-		assert.Equal(t, live.ID, w.Account.ID)
-		assert.Equal(t, live.OwnerID, w.Account.OwnerID)
+	if len(keys) != twoKeys {
+		return
 	}
 
-	assert.Equal(t, []int{kept.ID, timed.ID}, ids, "not the expired, the revoked, nor the key of a deactivated account")
-	assert.NotContains(t, ids, gone.ID)
+	chk.equal([]int{second.ID, first.ID}, []int{keys[0].ID, keys[1].ID}, "newest first")
+	chk.equal("sak_second", keys[0].Prefix, "the prefix")
+	chk.same(base().Add(day), keys[0].ExpiresAt, "the expiry")
+	chk.true(keys[1].ExpiresAt == nil, "no expiry")
+
+	got, err := store.FindKey(ctx, robot.ID, first.ID)
+	chk.noErr(err, "find key")
+	chk.equal("first", got.Name, "the key")
+
+	_, err = store.FindKey(ctx, robot.ID, foreign.ID)
+	chk.isErr(err, serviceaccount.ErrKeyNotFound, "a key of another account, found through this one")
+
+	_, err = store.FindKey(ctx, robot.ID, unknownKey)
+	chk.isErr(err, serviceaccount.ErrKeyNotFound, "a key that is not there")
 }
 
-func noticeClaimedOnce(t *testing.T, s serviceaccount.Store) {
-	ctx := context.Background()
+func keyByHash(t *testing.T, store serviceaccount.Store) {
+	t.Helper()
 
-	sent, err := s.NoticesSent(ctx, nil)
-	require.NoError(t, err)
-	assert.Empty(t, sent)
+	chk, ctx := checker{t}, context.Background()
+	robot := account("robot", tenantA, 1)
+	mustCreate(t, store, robot)
 
-	claimed, err := s.ClaimNotice(ctx, 7, serviceaccount.NoticeExpiring, base)
-	require.NoError(t, err)
-	assert.True(t, claimed)
+	key := mustKey(t, store, newKey(robot.ID, "ci"))
+	hash := serviceaccount.HashSecret("sak_ci")
 
-	claimed, err = s.ClaimNotice(ctx, 7, serviceaccount.NoticeExpiring, base.Add(time.Hour))
-	require.NoError(t, err)
-	assert.False(t, claimed, "a second claim of one condition of one key fails")
+	found, owner, err := store.FindByKeyHash(ctx, hash)
+	chk.noErr(err, "find by hash")
+	chk.equal(key.ID, found.ID, "the key")
+	chk.equal(robot.ID, owner.ID, "its account")
+	chk.equal(tenantA, owner.TenantID, "and the account's tenant")
+	chk.true(found.LastUsedAt == nil, "unused")
 
-	claimed, err = s.ClaimNotice(ctx, 7, serviceaccount.NoticeUnused, base)
-	require.NoError(t, err)
-	assert.True(t, claimed, "the other condition of the same key is its own")
+	chk.noErr(store.TouchKey(ctx, key.ID, base().Add(hour)), "touch")
 
-	claimed, err = s.ClaimNotice(ctx, 8, serviceaccount.NoticeExpiring, base)
-	require.NoError(t, err)
-	assert.True(t, claimed, "so is the same condition of another key")
+	found, _, err = store.FindByKeyHash(ctx, hash)
+	chk.noErr(err, "find by hash again")
+	chk.same(base().Add(hour), found.LastUsedAt, "the use")
 
-	sent, err = s.NoticesSent(ctx, []int{7, 8, 9})
-	require.NoError(t, err)
-	slices.Sort(sent[7])
-	assert.Equal(t, map[int][]serviceaccount.NoticeKind{
-		7: {serviceaccount.NoticeExpiring, serviceaccount.NoticeUnused}, 8: {serviceaccount.NoticeExpiring},
-	}, sent)
+	_, _, err = store.FindByKeyHash(ctx, serviceaccount.HashSecret("sak_unknown"))
+	chk.isErr(err, serviceaccount.ErrKeyNotFound, "an unknown secret")
+
+	// the same secret twice is refused: a hash names one key
+	duplicate := newKey(robot.ID, "ci")
+	duplicate.Name = "duplicate"
+	chk.true(store.CreateKey(ctx, &duplicate) != nil, "a second key with the same hash is refused")
 }
 
-func noticeOneWinner(t *testing.T, s serviceaccount.Store) {
-	const runs = 6
+func revokeKeepsTheFirst(t *testing.T, store serviceaccount.Store) {
+	t.Helper()
+
+	chk, ctx := checker{t}, context.Background()
+	robot := account("robot", 0, 1)
+	mustCreate(t, store, robot)
+
+	key := mustKey(t, store, newKey(robot.ID, "ci"))
+
+	chk.noErr(store.RevokeKey(ctx, key.ID, base().Add(hour), revoker), "revoke")
+	chk.noErr(store.RevokeKey(ctx, key.ID, base().Add(soon), otherRevoker), "revoke again")
+
+	got, err := store.FindKey(ctx, robot.ID, key.ID)
+	chk.noErr(err, "find key")
+	chk.same(base().Add(hour), got.RevokedAt, "the first revocation stays")
+	chk.equal(revoker, got.RevokedBy, "and who made it")
+	chk.true(!got.Usable(base()), "a revoked key does not work")
+}
+
+func workingKeys(t *testing.T, store serviceaccount.Store) {
+	t.Helper()
+
+	chk, ctx := checker{t}, context.Background()
+	live, off := account("live", 0, 1), account("off", 0, 1)
+	mustCreate(t, store, live)
+	mustCreate(t, store, off)
+
+	kept := mustKey(t, store, newKey(live.ID, "kept"))
+
+	timedKey := newKey(live.ID, "timed")
+	timedKey.ExpiresAt = new(base().Add(threeDays))
+	timed := mustKey(t, store, timedKey)
+
+	goneKey := newKey(live.ID, "gone")
+	goneKey.ExpiresAt = new(base().Add(hour))
+	gone := mustKey(t, store, goneKey)
+
+	revoked := mustKey(t, store, newKey(live.ID, "revoked"))
+	mustKey(t, store, newKey(off.ID, "of-a-deactivated-account"))
+
+	chk.noErr(store.RevokeKey(ctx, revoked.ID, base(), 1), "revoke")
+
+	stopped := *off
+	stopped.DeactivatedAt = new(base())
+	chk.noErr(store.Update(ctx, stopped), "deactivate")
+
+	working, err := store.WorkingKeys(ctx, base().Add(soon))
+	chk.noErr(err, "working keys")
+
+	ids := make([]int, 0, len(working))
+
+	for _, found := range working {
+		ids = append(ids, found.Key.ID)
+
+		chk.equal(live.ID, found.Account.ID, "the account of the key")
+		chk.equal(live.OwnerID, found.Account.OwnerID, "and its owner")
+	}
+
+	chk.equal([]int{kept.ID, timed.ID}, ids, "not the expired, the revoked, nor the key of a deactivated account")
+	chk.true(!slices.Contains(ids, gone.ID), "the expired key is not working")
+}
+
+func noticeClaimedOnce(t *testing.T, store serviceaccount.Store) {
+	t.Helper()
+
+	chk, ctx := checker{t}, context.Background()
+
+	sent, err := store.NoticesSent(ctx, nil)
+	chk.noErr(err, "sent, of no keys")
+	chk.equal(0, len(sent), "nothing")
+
+	claim := func(keyID int, kind serviceaccount.NoticeKind, when time.Time) bool {
+		claimed, err := store.ClaimNotice(ctx, keyID, kind, when)
+		chk.noErr(err, "claim")
+
+		return claimed
+	}
+
+	chk.true(claim(noticeKeyA, serviceaccount.NoticeExpiring, base()), "the first claim wins")
+	chk.true(!claim(noticeKeyA, serviceaccount.NoticeExpiring, base().Add(hour)), "a second claim of the same fails")
+	chk.true(claim(noticeKeyA, serviceaccount.NoticeUnused, base()), "the other condition of the same key is its own")
+	chk.true(claim(noticeKeyB, serviceaccount.NoticeExpiring, base()), "so is the same condition of another key")
+
+	sent, err = store.NoticesSent(ctx, []int{noticeKeyA, noticeKeyB, noticeKeyC})
+	chk.noErr(err, "sent")
+	slices.Sort(sent[noticeKeyA])
+	chk.equal(map[int][]serviceaccount.NoticeKind{
+		noticeKeyA: {serviceaccount.NoticeExpiring, serviceaccount.NoticeUnused}, noticeKeyB: {serviceaccount.NoticeExpiring},
+	}, sent, "what was claimed")
+}
+
+func noticeOneWinner(t *testing.T, store serviceaccount.Store) {
+	t.Helper()
 
 	var (
-		wg   sync.WaitGroup
-		mu   sync.Mutex
-		wins int
+		group sync.WaitGroup
+		lock  sync.Mutex
+		wins  int
 	)
 
 	for range runs {
-		wg.Go(func() {
-			claimed, err := s.ClaimNotice(context.Background(), 11, serviceaccount.NoticeUnused, base)
-			assert.NoError(t, err)
+		group.Go(func() {
+			claimed, err := store.ClaimNotice(context.Background(), noticeKeyContested, serviceaccount.NoticeUnused, base())
+			if err != nil {
+				t.Errorf("claim: %v", err)
+
+				return
+			}
 
 			if claimed {
-				mu.Lock()
+				lock.Lock()
 				wins++
-				mu.Unlock()
+				lock.Unlock()
 			}
 		})
 	}
 
-	wg.Wait()
-	assert.Equal(t, 1, wins, "two runs never both tell")
+	group.Wait()
+	checker{t}.equal(1, wins, "two runs never both tell")
 }
