@@ -29,10 +29,22 @@ func AuthenticatedFrom(ctx context.Context) (account.Authenticated, bool) {
 	return who, ok
 }
 
-// RequestUser makes the application's own user of the signed-in account: what it returns is the request's
-// auth.Identifiable (auth.GetIdentifiable, auth.UserFromContext). It runs on every request, so nothing a
-// cache holds decides the user.
-type RequestUser func(ctx context.Context, who account.Authenticated) (auth.Identifiable, error)
+// Authenticated is who a request was made by, as RequestUser is given it: exactly one of the two is set. A person's
+// request has the Account (and its Session and Actor) the access token belongs to, and no ServiceAccount; a request
+// made with an API key has the ServiceAccount (the account and the key), and the embedded account.Authenticated is
+// its zero value.
+type Authenticated struct {
+	account.Authenticated
+
+	// ServiceAccount is the account and key of a request made with an API key, nil for a person's.
+	ServiceAccount *serviceaccount.Caller
+}
+
+// RequestUser makes the application's own user of the signed-in account, or of the service account behind an API
+// key: what it returns is the request's auth.Identifiable (auth.GetIdentifiable, auth.UserFromContext) and what the
+// rate limit counts. It runs on every request, so nothing a cache holds decides the user. The authz principal is not
+// its to change: it stays the account's, or authz.ServiceAccount for a key.
+type RequestUser func(ctx context.Context, who Authenticated) (auth.Identifiable, error)
 
 // KeyHeader is the header a service account sends its API key in.
 const KeyHeader = "X-API-Key"
@@ -61,7 +73,8 @@ type Authenticator struct {
 	Cookies Cookies
 	// Principal says which authz principal an account acts as; nil is DefaultPrincipal.
 	Principal PrincipalOf
-	// User makes the request's user of the account; nil leaves the account itself.
+	// User makes the request's user of the account or the service account; nil leaves the account itself
+	// (a person's request) or the serviceaccount.Caller (a key's).
 	User RequestUser
 	// Keys, when set, authenticates the requests that carry an API key; without it the header is ignored.
 	Keys *Keys
@@ -80,7 +93,7 @@ type Authenticator struct {
 // (bootstrap's WithRateLimit, auth.DeferUserRateLimit), the account is counted
 // in it, and the request after the limit is answered 429.
 func Authentication(signIn *account.SignIn, cookies Cookies, principal PrincipalOf) gin.HandlerFunc {
-	return Authenticator{SignIn: signIn, Cookies: cookies, Principal: principal}.Middleware()
+	return Authenticator{SignIn: signIn, Cookies: cookies, Principal: principal, User: nil, Keys: nil}.Middleware()
 }
 
 // Middleware is Authentication with the Authenticator's settings.
@@ -90,99 +103,131 @@ func (a Authenticator) Middleware() gin.HandlerFunc {
 		principal = DefaultPrincipal
 	}
 
-	return func(c *gin.Context) {
-		if a.Keys != nil && c.GetHeader(KeyHeader) != "" {
-			a.Keys.authenticate(c)
+	return func(ctx *gin.Context) {
+		if a.Keys != nil && ctx.GetHeader(KeyHeader) != "" {
+			a.byKey(ctx)
 
 			return
 		}
 
-		ctx := c.Request.Context()
-
-		cookie, _ := c.Cookie(cookies.Access)
-
-		who, err := a.SignIn.Authenticate(ctx, tokenOf(c.GetHeader("Authorization"), cookie))
-		if err != nil {
-			_ = c.Error(err)
-			c.Abort()
-
-			return
-		}
-
-		p, err := principal(ctx, who.Account)
-		if err != nil {
-			_ = c.Error(err)
-			c.Abort()
-
-			return
-		}
-
-		var user auth.Identifiable = who.Account
-
-		if a.User != nil {
-			if user, err = a.User(ctx, who); err != nil || user == nil {
-				if err == nil {
-					err = apperr.Internal(errNoRequestUser)
-				}
-
-				_ = c.Error(err)
-				c.Abort()
-
-				return
-			}
-		}
-
-		ctx = context.WithValue(ctx, authenticatedKey{}, who)
-		c.Request = c.Request.WithContext(authz.WithPrincipal(ctx, p))
-		auth.SetUser(c, user)
-
-		if !auth.EnforceUserRateLimit(c, user) {
-			return
-		}
-
-		c.Next()
+		a.bySession(ctx, cookies, principal)
 	}
 }
 
-// authenticate is the chain of a request that presents an API key. The key is the only credential looked at: a
-// session cookie or a bearer token sent with it is not. The principal is the service account; AuthenticatedFrom
-// has nobody, since a service account is no account of identity's.
-func (k *Keys) authenticate(c *gin.Context) {
-	secret := c.GetHeader(KeyHeader)
-	c.Request.Header.Del(KeyHeader) // nothing after this reads, logs or forwards the secret
+// refuse ends the request with the error, which the error handler answers.
+func refuse(ctx *gin.Context, err error) {
+	_ = ctx.Error(err)
+	ctx.Abort()
+}
+
+// bySession is the chain of a request that carries an access token.
+func (a Authenticator) bySession(ctx *gin.Context, cookies Cookies, principal PrincipalOf) {
+	reqCtx := ctx.Request.Context()
+
+	cookie, _ := ctx.Cookie(cookies.Access)
+
+	signed, err := a.SignIn.Authenticate(reqCtx, tokenOf(ctx.GetHeader("Authorization"), cookie))
+	if err != nil {
+		refuse(ctx, err)
+
+		return
+	}
+
+	who := Authenticated{Authenticated: signed, ServiceAccount: nil}
+
+	acting, err := principal(reqCtx, who.Account)
+	if err != nil {
+		refuse(ctx, err)
+
+		return
+	}
+
+	user, err := a.requestUser(reqCtx, who, who.Account)
+	if err != nil {
+		refuse(ctx, err)
+
+		return
+	}
+
+	reqCtx = context.WithValue(reqCtx, authenticatedKey{}, signed)
+	ctx.Request = ctx.Request.WithContext(authz.WithPrincipal(reqCtx, acting))
+
+	a.admit(ctx, user)
+}
+
+// byKey is the chain of a request that presents an API key. The key is the only credential looked at: a session
+// cookie or a bearer token sent with it is not. The principal is the service account; AuthenticatedFrom has
+// nobody, since a service account is no account of identity's.
+func (a Authenticator) byKey(ctx *gin.Context) {
+	secret := ctx.GetHeader(KeyHeader)
+	delete(ctx.Request.Header, nethttp.CanonicalHeaderKey(KeyHeader)) // nothing after this reads, logs or forwards the secret
 
 	if len(secret) > maxKeyLength {
-		_ = c.Error(apperr.Unauthorized("invalid API key"))
-		c.Abort()
+		refuse(ctx, apperr.Unauthorized("invalid API key"))
 
 		return
 	}
 
-	caller, err := k.Auth.Authenticate(c.Request.Context(), secret)
+	reqCtx := ctx.Request.Context()
+
+	caller, err := a.Keys.Auth.Authenticate(reqCtx, secret)
 	if err != nil {
-		_ = c.Error(err)
-		c.Abort()
+		refuse(ctx, err)
 
 		return
 	}
 
-	c.Request = c.Request.WithContext(authz.WithPrincipal(c.Request.Context(), authz.ServiceAccount(caller.AccountID)))
-	auth.SetUser(c, caller)
+	user, err := a.requestUser(reqCtx, Authenticated{Authenticated: account.Authenticated{}, ServiceAccount: &caller}, caller)
+	if err != nil {
+		refuse(ctx, err)
 
-	if !auth.EnforceUserRateLimit(c, caller) {
 		return
 	}
 
-	c.Next()
+	ctx.Request = ctx.Request.WithContext(authz.WithPrincipal(reqCtx, authz.ServiceAccount(caller.AccountID)))
 
-	k.record(c, caller)
+	if a.admit(ctx, user) {
+		a.Keys.record(ctx, caller)
+	}
+}
+
+// requestUser is the request's user: the application's own when it made one, else own, the account or the caller.
+func (a Authenticator) requestUser(ctx context.Context, who Authenticated, own auth.Identifiable) (auth.Identifiable, error) {
+	if a.User == nil {
+		return own, nil
+	}
+
+	user, err := a.User(ctx, who)
+	if err != nil {
+		return nil, err
+	}
+
+	if user == nil {
+		return nil, apperr.Internal(errNoRequestUser)
+	}
+
+	return user, nil
+}
+
+// admit makes the user the request's, counts it in the application's per-user rate limit and hands the request on.
+// It reports whether the request went on.
+func (Authenticator) admit(ctx *gin.Context, user auth.Identifiable) bool {
+	auth.SetUser(ctx, user)
+
+	if !auth.EnforceUserRateLimit(ctx, user) {
+		return false
+	}
+
+	ctx.Next()
+
+	return true
 }
 
 // record leaves a row in the audit trail for a request made with a key that was not a read: which account and
 // key, what was asked for, and whether it failed (the error handler renders the response after this runs, so the
 // status is not known yet). A failure to record is logged, never returned: the change has been made.
-func (k *Keys) record(c *gin.Context, caller serviceaccount.Caller) {
-	switch c.Request.Method {
+func (k *Keys) record(ctx *gin.Context, caller serviceaccount.Caller) {
+	switch ctx.Request.Method {
 	case nethttp.MethodGet, nethttp.MethodHead, nethttp.MethodOptions:
 		return
 	}
@@ -192,12 +237,13 @@ func (k *Keys) record(c *gin.Context, caller serviceaccount.Caller) {
 	}
 
 	entry := audit.NewEntry(serviceaccount.AccountEntity, caller.AccountID, 0, "request").WithAfter(map[string]any{
-		"method": c.Request.Method, "route": c.FullPath(), "key_id": caller.KeyID, "failed": len(c.Errors) > 0,
+		"method": ctx.Request.Method, "route": ctx.FullPath(), "key_id": caller.KeyID, "failed": len(ctx.Errors) > 0,
 		"at": k.Clock.Now().UTC().Format(time.RFC3339),
 	})
 
-	if err := k.Trail.Write(c.Request.Context(), entry); err != nil && k.Log != nil {
-		k.Log.ErrorContext(c.Request.Context(), "service account request trail failed", "service_account", caller.AccountID, "error", err)
+	err := k.Trail.Write(ctx.Request.Context(), entry)
+	if err != nil && k.Log != nil {
+		k.Log.ErrorContext(ctx.Request.Context(), "service account request trail failed", "service_account", caller.AccountID, "error", err)
 	}
 }
 

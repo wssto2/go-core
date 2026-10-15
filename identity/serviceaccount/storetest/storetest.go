@@ -26,7 +26,8 @@ type Factory func(t *testing.T) serviceaccount.Store
 // base is a time to the whole second, which every database keeps.
 var base = time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC)
 
-func ptr[T any](v T) *T { return &v }
+//go:fix inline
+func ptr[T any](v T) *T { return new(v) }
 
 // Run runs the whole suite.
 func Run(t *testing.T, factory Factory) {
@@ -108,6 +109,7 @@ func accountRoundTrips(t *testing.T, s serviceaccount.Store) {
 
 func listFollowsTheVisibility(t *testing.T, s serviceaccount.Store) {
 	ctx := context.Background()
+
 	for _, a := range []*serviceaccount.Account{account("zeta", 5, 1), account("alpha", 6, 1), account("mid", 0, 1), account("beta", 5, 1)} {
 		mustCreate(t, s, a)
 	}
@@ -136,9 +138,10 @@ func summaryCountsKeys(t *testing.T, s serviceaccount.Store) {
 	mustCreate(t, s, a)
 
 	at := base.Add(48 * time.Hour)
-	mustKey(t, s, a.ID, "live", func(k *serviceaccount.Key) { k.LastUsedAt = ptr(base.Add(time.Hour)) })
-	mustKey(t, s, a.ID, "later", func(k *serviceaccount.Key) { k.LastUsedAt = ptr(base.Add(5 * time.Hour)) })
-	mustKey(t, s, a.ID, "gone", func(k *serviceaccount.Key) { k.ExpiresAt = ptr(base.Add(time.Hour)) })
+
+	mustKey(t, s, a.ID, "live", func(k *serviceaccount.Key) { k.LastUsedAt = new(base.Add(time.Hour)) })
+	mustKey(t, s, a.ID, "later", func(k *serviceaccount.Key) { k.LastUsedAt = new(base.Add(5 * time.Hour)) })
+	mustKey(t, s, a.ID, "gone", func(k *serviceaccount.Key) { k.ExpiresAt = new(base.Add(time.Hour)) })
 	revoked := mustKey(t, s, a.ID, "revoked", nil)
 	require.NoError(t, s.RevokeKey(ctx, revoked.ID, base, 1))
 
@@ -180,7 +183,7 @@ func keysNewestFirst(t *testing.T, s serviceaccount.Store) {
 	mustCreate(t, s, other)
 
 	first := mustKey(t, s, a.ID, "first", nil)
-	second := mustKey(t, s, a.ID, "second", func(k *serviceaccount.Key) { k.ExpiresAt = ptr(base.Add(24 * time.Hour)) })
+	second := mustKey(t, s, a.ID, "second", func(k *serviceaccount.Key) { k.ExpiresAt = new(base.Add(24 * time.Hour)) })
 	foreign := mustKey(t, s, other.ID, "foreign", nil)
 
 	keys, err := s.Keys(ctx, a.ID)
@@ -256,15 +259,15 @@ func workingKeys(t *testing.T, s serviceaccount.Store) {
 	mustCreate(t, s, off)
 
 	kept := mustKey(t, s, live.ID, "kept", nil)
-	timed := mustKey(t, s, live.ID, "timed", func(k *serviceaccount.Key) { k.ExpiresAt = ptr(base.Add(72 * time.Hour)) })
-	gone := mustKey(t, s, live.ID, "gone", func(k *serviceaccount.Key) { k.ExpiresAt = ptr(base.Add(time.Hour)) })
+	timed := mustKey(t, s, live.ID, "timed", func(k *serviceaccount.Key) { k.ExpiresAt = new(base.Add(72 * time.Hour)) })
+	gone := mustKey(t, s, live.ID, "gone", func(k *serviceaccount.Key) { k.ExpiresAt = new(base.Add(time.Hour)) })
 	revoked := mustKey(t, s, live.ID, "revoked", nil)
 	mustKey(t, s, off.ID, "of-a-deactivated-account", nil)
 
 	require.NoError(t, s.RevokeKey(ctx, revoked.ID, base, 1))
 
 	stopped := *off
-	stopped.DeactivatedAt = ptr(base)
+	stopped.DeactivatedAt = new(base)
 	require.NoError(t, s.Update(ctx, stopped))
 
 	working, err := s.WorkingKeys(ctx, base.Add(2*time.Hour))

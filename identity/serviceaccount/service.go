@@ -78,15 +78,15 @@ type CreatedKey struct {
 // nothing for the organization's (the application has tenants only when Config.Tenants says so);
 // OwnerID is the person answerable for it.
 type SaveInput struct {
-	Name        string `json:"name" validation:"required|max:100"`
+	Name        string `json:"name"        validation:"required|max:100"`
 	Description string `json:"description" validation:"max:500"`
 	TenantID    *int   `json:"tenant_id"`
-	OwnerID     int    `json:"owner_id" validation:"required|min:1"`
+	OwnerID     int    `json:"owner_id"    validation:"required|min:1"`
 }
 
 // KeyInput creates an API key. ExpiresAt, when given, is when the key stops working; nothing means it never does.
 type KeyInput struct {
-	Name      string     `json:"name" validation:"required|max:100"`
+	Name      string     `json:"name"       validation:"required|max:100"`
 	ExpiresAt *time.Time `json:"expires_at"`
 }
 

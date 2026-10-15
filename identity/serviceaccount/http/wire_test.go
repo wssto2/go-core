@@ -179,6 +179,7 @@ func newBindings(t *testing.T) *admin.Bindings {
 	}
 
 	reg, cleanup := database.NewTestRegistry("local")
+
 	t.Cleanup(func() { _ = cleanup() })
 
 	db := reg.MustGet("local")
@@ -570,7 +571,8 @@ func TestWireMatchesARV(t *testing.T) {
 			asJSON(map[string]any{"status": g.Response.Status, "body": g.Response.Body}))
 	}
 
-	assert.Equal(t, len(arv), len(got), "every case of arv-next's pin is made")
+	assert.Len(t, got, len(arv), "every case of arv-next's pin is made")
+
 	_ = fmt.Sprint
 }
 

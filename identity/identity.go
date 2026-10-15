@@ -116,8 +116,9 @@ type (
 	ChangeAction = account.ChangeAction
 	// Session is one sign-in of an account on one device.
 	Session = account.Session
-	// Authenticated is the account and session behind a request's token, what WithRequestUser is given.
-	Authenticated = account.Authenticated
+	// Authenticated is who a request was made by, what WithRequestUser is given: the account and session behind a token,
+	// or, for an API key, the service account (exactly one is set).
+	Authenticated = identityhttp.Authenticated
 	// RequestUser makes the application's own user of the signed-in account; WithRequestUser sets it.
 	RequestUser = identityhttp.RequestUser
 	// AccountStore keeps accounts; WithAccounts replaces the default.
@@ -280,12 +281,15 @@ func WithPrincipal(p PrincipalOf) Option { return func(s *settings) { s.principa
 // question WithPrincipal answers for the authz principal. Without it no tenant is set.
 func WithTenant(of identityhttp.TenantOf) Option { return func(s *settings) { s.tenant = of } }
 
-// WithRequestUser makes the application's own user of the signed-in account: what it returns becomes the request's
-// user (auth.GetIdentifiable, auth.UserOf[T]) on every route, identity's and the application's, where without it
-// the account itself is. It runs on every request, after the session is found and before the handler, so nothing
-// a cache holds decides the user: an application whose services take its own user type, refreshed from its own
-// data, builds it here. An error answers the request as it is (apperr.Unauthorized for a person who may no longer
-// act). The authz principal is still the account's (WithPrincipal).
+// WithRequestUser makes the application's own user of whoever made the request: what it returns becomes the request's
+// user (auth.GetIdentifiable, auth.UserOf[T]) on every route, identity's and the application's, where without it the
+// account itself is. It is given the signed-in person (who.Account, with its Session and Actor) or, for a request made
+// with an API key (WithServiceAccounts), the service account (who.ServiceAccount, and the zero account): exactly one
+// is set, and the function returns the user type of both, such as one that says IsServiceAccount. It runs on every
+// request, after the session or key is found and before the handler, so nothing a cache holds decides the user: an
+// application whose services take its own user type, refreshed from its own data, builds it here. An error answers the
+// request as it is (apperr.Unauthorized for a person who may no longer act). The per-user rate limit counts the user
+// it returns. The authz principal is not its to change: the account's (WithPrincipal), or authz.ServiceAccount.
 func WithRequestUser(of RequestUser) Option { return func(s *settings) { s.requestUser = of } }
 
 // WithServiceAccounts installs service accounts: systems that only ever call the API, with keys (the package
@@ -609,7 +613,9 @@ func Install(app *gocore.App, opts ...Option) *Users {
 
 	cfg.Access = s.accessOf(app)
 
-	authenticator := identityhttp.Authenticator{SignIn: svc.SignIn, Cookies: s.cookies, Principal: s.principal, User: s.requestUser}
+	authenticator := identityhttp.Authenticator{
+		SignIn: svc.SignIn, Cookies: s.cookies, Principal: s.principal, User: s.requestUser, Keys: nil,
+	}
 
 	if s.robots != nil {
 		authenticator.Keys = s.installServiceAccounts(app, svc.Users, db, transact)

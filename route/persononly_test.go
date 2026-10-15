@@ -21,7 +21,6 @@ func as(p authz.Principal) route.Security {
 }
 
 func TestPersonOnlyRefusesAServiceAccount(t *testing.T) {
-
 	routes := []route.Handled{
 		route.Get[route.None, string]("/typed").PersonOnly().To(func(_ context.Context, _ route.None) (string, error) { return "ok", nil }),
 		route.Raw(http.MethodGet, "/raw").PersonOnly().To(func(c *gin.Context) { c.String(http.StatusOK, "ok") }),

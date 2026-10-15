@@ -78,6 +78,7 @@ func setup(t *testing.T, cfg serviceaccount.Config) *fixture {
 	t.Helper()
 
 	reg, cleanup := database.NewTestRegistry("local")
+
 	t.Cleanup(func() { _ = cleanup() })
 
 	db := reg.MustGet("local")

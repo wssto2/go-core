@@ -639,6 +639,7 @@ func TestWithRequestUserMakesTheRequestsUser(t *testing.T) {
 	assert.JSONEq(t, `{"success":true,"data":"north:ana"}`, web.do(nethttp.MethodGet, "/shop", nil).Body.String())
 
 	shop = "south" // the next request sees the change: nothing is cached
+
 	assert.JSONEq(t, `{"success":true,"data":"south:ana"}`, web.do(nethttp.MethodGet, "/shop", nil).Body.String())
 
 	other := newClient(t, app)

@@ -58,8 +58,8 @@ func TestEveryStringInputIsBounded(t *testing.T) {
 			continue
 		}
 
-		for i := range spec.In.NumField() {
-			f := spec.In.Field(i)
+		for f := range spec.In.Fields() {
+			f := f
 			if f.Type.Kind() != reflect.String || f.Tag.Get("path") != "" || f.Tag.Get("query") != "" {
 				continue
 			}

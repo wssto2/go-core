@@ -145,6 +145,7 @@ func TestEmbedOpensASessionOfADayThatCannotBeRefreshed(t *testing.T) {
 	// the access token is a bearer token for every route
 	req := httptest.NewRequestWithContext(t.Context(), nethttp.MethodGet, "/shop", nil)
 	req.Header.Set("Authorization", "Bearer "+found[1])
+
 	got := httptest.NewRecorder()
 	web.handler.ServeHTTP(got, req)
 	assert.Equal(t, nethttp.StatusOK, got.Code, got.Body.String())

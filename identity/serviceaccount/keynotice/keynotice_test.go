@@ -66,6 +66,7 @@ func TestTheOwnerIsToldOnceOfEachCondition(t *testing.T) {
 	}
 
 	soon := now.Add(day(10))
+
 	key("expiring", func(k *serviceaccount.Key) { k.ExpiresAt = &soon })
 	key("forgotten", func(k *serviceaccount.Key) { k.CreatedAt = now.Add(-day(70)) })
 	key("fine", func(*serviceaccount.Key) {})

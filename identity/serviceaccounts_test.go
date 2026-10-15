@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/access"
+	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/gocore"
@@ -40,14 +41,14 @@ type robotsApp struct {
 	web     *client
 }
 
-func newRobots(t *testing.T, cfg serviceaccount.Config) *robotsApp {
+func newRobots(t *testing.T, cfg serviceaccount.Config, opts ...identity.Option) *robotsApp {
 	t.Helper()
 
 	cat := authz.NewCatalogue()
 	cat.MustDefine("crm.customer:view")
 
 	app := gocoretest.New(t)
-	users := identity.Install(app, identity.WithoutMail(), identity.WithServiceAccounts(cfg))
+	users := identity.Install(app, append([]identity.Option{identity.WithoutMail(), identity.WithServiceAccounts(cfg)}, opts...)...)
 	acc := access.Install(app, cat, users, access.WithRoles(
 		authz.ComputedRole("webmaster", "Webmaster", authz.All()),
 		authz.Role{Key: "reader", Name: "Reader", Grants: authz.Grants(authz.QualifierAll, "crm.customer:view")},
@@ -60,6 +61,18 @@ func newRobots(t *testing.T, cfg serviceaccount.Config) *robotsApp {
 			p, _ := authz.PrincipalFrom(ctx)
 
 			return fmt.Sprintf("%s:%d:%d", p.Kind, p.ID, who.GetID()), nil
+		}),
+		route.Get[route.None, string]("/user").To(func(ctx context.Context, _ route.None) (string, error) {
+			who, ok := auth.UserOf[stranger](ctx)
+			if !ok {
+				return "no stranger", nil
+			}
+
+			if who.Robot > 0 {
+				return fmt.Sprintf("robot %d %s", who.Robot, who.Name), nil
+			}
+
+			return fmt.Sprintf("person %d %s", who.ID, who.Name), nil
 		}),
 		route.Post[route.None, string]("/orders").To(func(context.Context, route.None) (string, error) { return "ordered", nil }),
 	)
@@ -85,6 +98,7 @@ func (r *robotsApp) withKey(method, path, secret string, body any) *httptest.Res
 	r.t.Helper()
 
 	reader := strings.NewReader("")
+
 	if body != nil {
 		raw, err := json.Marshal(body)
 		require.NoError(r.t, err)
@@ -281,4 +295,53 @@ func TestAKeyWinsOverASessionOnTheSameRequest(t *testing.T) {
 	r.handler.ServeHTTP(rec, req)
 
 	assert.Contains(t, rec.Body.String(), "service:", "the request is the service account's, not the webmaster's")
+}
+
+// stranger is an application's own user type, of a person and of a service account alike.
+type stranger struct {
+	ID    int
+	Robot int
+	Name  string
+}
+
+func (s stranger) GetID() int { return s.ID }
+
+// WithRequestUser makes the request's user of a key's caller too: what it returns is the user, whoever it is for.
+func TestRequestUserRunsForAKeyToo(t *testing.T) {
+	r := newRobots(t, serviceaccount.Config{}, identity.WithRequestUser(
+		func(_ context.Context, who identity.Authenticated) (auth.Identifiable, error) {
+			if who.ServiceAccount != nil {
+				return stranger{ID: 0, Robot: who.ServiceAccount.AccountID, Name: who.ServiceAccount.Name}, nil
+			}
+
+			return stranger{ID: who.Account.ID, Robot: 0, Name: who.Account.Login}, nil
+		}))
+
+	id, secret := r.account("feed")
+
+	byKey := r.withKey(nethttp.MethodGet, "/user", secret, nil)
+	require.Equal(t, nethttp.StatusOK, byKey.Code, byKey.Body.String())
+	assert.JSONEq(t, `{"success":true,"data":"robot `+strconv.Itoa(id)+` feed"}`, byKey.Body.String(), "the key's caller is the application's user")
+
+	asPerson := r.web.do(nethttp.MethodGet, "/user", nil)
+	assert.JSONEq(t, `{"success":true,"data":"person 1 webmaster"}`, asPerson.Body.String())
+
+	// the principal is not the function's to change
+	who := r.withKey(nethttp.MethodGet, "/whoami", secret, nil)
+	assert.Contains(t, who.Body.String(), "service:"+strconv.Itoa(id))
+}
+
+// An error from the function answers a key request too.
+func TestRequestUserCanRefuseAKey(t *testing.T) {
+	r := newRobots(t, serviceaccount.Config{}, identity.WithRequestUser(
+		func(_ context.Context, who identity.Authenticated) (auth.Identifiable, error) {
+			if who.ServiceAccount != nil {
+				return nil, apperr.Unauthorized("this robot is retired")
+			}
+
+			return who.Account, nil
+		}))
+
+	_, secret := r.account("feed")
+	assert.Equal(t, nethttp.StatusUnauthorized, r.withKey(nethttp.MethodGet, "/whoami", secret, nil).Code)
 }
