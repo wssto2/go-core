@@ -21,9 +21,10 @@ import (
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/gocore"
+	"github.com/wssto2/go-core/identity/serviceaccount"
 )
 
-// people is the SubjectDirectory: users 1 to 9.
+// people is the SubjectDirectory: users 1 to 9, and service accounts 1 to 9.
 type people struct{}
 
 func (people) SubjectNames(_ context.Context, subjects []authz.Subject) (map[authz.Subject]string, error) {
@@ -32,6 +33,10 @@ func (people) SubjectNames(_ context.Context, subjects []authz.Subject) (map[aut
 	for _, s := range subjects {
 		if s.Kind == authz.KindUser && s.ID >= 1 && s.ID <= 9 {
 			out[s] = "Person " + strconv.Itoa(s.ID)
+		}
+
+		if s.Kind == authz.KindServiceAccount && s.ID >= 1 && s.ID <= 9 {
+			out[s] = "Robot " + strconv.Itoa(s.ID)
 		}
 	}
 
@@ -56,6 +61,8 @@ func newServer(t *testing.T, prefix string) *server {
 		cat.MustDefine(id)
 	}
 
+	cat.MustDefine(serviceaccount.View)
+	cat.MustDefine(serviceaccount.Manage, authz.Requires(serviceaccount.View))
 	cat.MustDefine("crm.customer:view")
 	cat.MustDefine("system.job:run", authz.System())
 
@@ -104,6 +111,7 @@ func newServer(t *testing.T, prefix string) *server {
 	app.Authorize(engine)
 	app.Permissions(cat)
 	app.Routes(accesshttp.Declare().To(roles, bindings, engine)...)
+	app.Routes(accesshttp.ServiceAccountRoutes(bindings)...)
 
 	handle, err := app.Handler()
 	require.NoError(t, err)
