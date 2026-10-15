@@ -44,6 +44,7 @@ type AppBuilder struct {
 	log                 *slog.Logger             // supplied with WithLogger, else built from cfg
 	telemetry           *observability.Telemetry // supplied with WithTelemetry, else built from cfg
 	engineMiddleware    []gin.HandlerFunc        // supplied with Use, applied by Build
+	csp                 []gin.HandlerFunc        // supplied with WithCSP, applied by Build
 }
 
 // New creates a new AppBuilder with the given config.
@@ -445,6 +446,18 @@ func (b *AppBuilder) WithTrustedOrigins(origins ...string) *AppBuilder {
 	return b
 }
 
+// WithCSP adds sources to a directive of the Content-Security-Policy, and
+// creates the directive when the policy has none. Sources are written as in a
+// policy, quotes included; production keeps its nonce-only script-src.
+//
+//	bootstrap.New(cfg).
+//	    DefaultInfrastructure().
+//	    WithCSP("frame-src", "'self'", "https://www.google.com/maps/")
+func (b *AppBuilder) WithCSP(directive string, sources ...string) *AppBuilder {
+	b.csp = append(b.csp, middlewares.CSPSources(directive, sources...))
+	return b
+}
+
 // WithTrustedProxies configures the proxies Gin will trust for client-IP and
 // forwarded-proto resolution. Passing no values disables proxy trust.
 func (b *AppBuilder) WithTrustedProxies(proxies ...string) *AppBuilder {
@@ -618,6 +631,10 @@ func (b *AppBuilder) Build() (*App, error) {
 	// writes the response body.
 	if len(b.trustedOrigins) > 0 {
 		b.engine.Use(middlewares.TrustedOriginsMiddleware(b.trustedOrigins...))
+	}
+
+	if len(b.csp) > 0 {
+		b.engine.Use(b.csp...)
 	}
 
 	if len(b.engineMiddleware) > 0 {

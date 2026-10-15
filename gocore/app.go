@@ -140,6 +140,18 @@ func WithDeadLetterRetention(d time.Duration) Option {
 	return func(app *App) { app.deadLetterRetention = d }
 }
 
+// WithCSP adds sources to a directive of the Content-Security-Policy, and
+// creates the directive when the policy has none. Sources are written as in a
+// policy, quotes included:
+//
+//	gocore.WithCSP("frame-src", "'self'", "https://www.google.com/maps/")
+//
+// The development policy already allows what Vite and vue-core need (HMR,
+// 'unsafe-eval' for Zod); production keeps a nonce-only script-src.
+func WithCSP(directive string, sources ...string) Option {
+	return WithBuilder(func(b *bootstrap.AppBuilder) { b.WithCSP(directive, sources...) })
+}
+
 // WithClock replaces the system clock.
 func WithClock(c Clock) Option {
 	return func(app *App) { app.clock = c }

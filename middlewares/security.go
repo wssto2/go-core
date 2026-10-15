@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -63,6 +64,50 @@ func TrustedOriginsMiddleware(rawURLs ...string) gin.HandlerFunc {
 	}
 }
 
+// CSPSources adds sources to a directive of the Content-Security-Policy that
+// Security set, and creates the directive when the policy has none. A source
+// already in the directive is not added twice. Sources are written as in a
+// policy, quotes included: "'self'", "https://maps.google.com/".
+//
+// Register it after Security in the middleware chain (e.g. via gocore.WithCSP).
+func CSPSources(directive string, sources ...string) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		if len(sources) == 0 {
+			ctx.Next()
+
+			return
+		}
+
+		if csp := ctx.Writer.Header().Get("Content-Security-Policy"); csp != "" {
+			ctx.Header("Content-Security-Policy", addCSPSources(csp, directive, sources))
+		}
+
+		ctx.Next()
+	}
+}
+
+// addCSPSources adds sources to directive in csp, appending the directive when csp has none.
+func addCSPSources(csp, directive string, sources []string) string {
+	parts := strings.Split(csp, ";")
+
+	for i, part := range parts {
+		fields := strings.Fields(part)
+		if len(fields) == 0 || !strings.EqualFold(fields[0], directive) {
+			continue
+		}
+
+		for _, source := range sources {
+			if !slices.Contains(fields[1:], source) {
+				parts[i] = strings.TrimRight(parts[i], " ") + " " + source
+			}
+		}
+
+		return strings.Join(parts, ";")
+	}
+
+	return strings.TrimRight(strings.TrimSpace(csp), ";") + "; " + strings.Join(append([]string{directive}, sources...), " ") + ";"
+}
+
 // patchCSP appends origins to the img-src directive and adds a frame-ancestors
 // directive (or extends an existing one) in the given CSP string.
 func patchCSP(csp string, origins []string) string {
@@ -110,8 +155,9 @@ func Security(isDev bool, cfg ...SecurityConfig) gin.HandlerFunc {
 			// In CSP3, 'unsafe-inline' is ignored when a nonce/hash is also present.
 			// Dev mode needs relaxed inline script support for Vite/HMR, so omit the
 			// nonce source from script-src while still exposing the per-request nonce
-			// to templates for environments that choose to use it.
-			scriptSrc = "'self' 'unsafe-inline' http://localhost:5173 http://127.0.0.1:5173"
+			// to templates for environments that choose to use it. 'unsafe-eval' is for
+			// vue-core's Zod schemas, which compile with new Function; production does not allow it.
+			scriptSrc = "'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173 http://127.0.0.1:5173"
 			connectSrc += " ws://localhost:5173 ws://127.0.0.1:5173 http://localhost:5173 http://127.0.0.1:5173"
 		}
 

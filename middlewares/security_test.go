@@ -3,6 +3,7 @@ package middlewares_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -81,30 +82,77 @@ func TestSecurity_CustomCSP(t *testing.T) {
 }
 
 func TestSecurityMiddleware_HTTP_NoHSTSHeader(t *testing.T) {
-gin.SetMode(gin.TestMode)
-r := gin.New()
-r.Use(middlewares.Security(false))
-r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middlewares.Security(false))
+	r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 
-rec := httptest.NewRecorder()
-req := httptest.NewRequest(http.MethodGet, "/", nil)
-r.ServeHTTP(rec, req)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.ServeHTTP(rec, req)
 
-require.Empty(t, rec.Header().Get("Strict-Transport-Security"),
-"HSTS must not be sent on plain HTTP")
+	require.Empty(t, rec.Header().Get("Strict-Transport-Security"),
+		"HSTS must not be sent on plain HTTP")
 }
 
 func TestSecurityMiddleware_HTTPS_HSTSPresent(t *testing.T) {
-gin.SetMode(gin.TestMode)
-r := gin.New()
-r.Use(middlewares.Security(false, middlewares.SecurityConfig{TrustProxy: true}))
-r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middlewares.Security(false, middlewares.SecurityConfig{TrustProxy: true}))
+	r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 
-rec := httptest.NewRecorder()
-req := httptest.NewRequest(http.MethodGet, "/", nil)
-req.Header.Set("X-Forwarded-Proto", "https")
-r.ServeHTTP(rec, req)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	r.ServeHTTP(rec, req)
 
-require.Equal(t, "max-age=31536000; includeSubDomains; preload",
-rec.Header().Get("Strict-Transport-Security"))
+	require.Equal(t, "max-age=31536000; includeSubDomains; preload",
+		rec.Header().Get("Strict-Transport-Security"))
+}
+
+// cspOf serves one request through Security and the given middleware and returns the policy.
+func cspOf(isDev bool, mw ...gin.HandlerFunc) string {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middlewares.Security(isDev))
+	r.Use(mw...)
+	r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	return rec.Header().Get("Content-Security-Policy")
+}
+
+func TestCSPSources_CreatesAMissingDirective(t *testing.T) {
+	csp := cspOf(false, middlewares.CSPSources("frame-src", "'self'", "https://www.google.com/maps/"))
+
+	require.Contains(t, csp, "; frame-src 'self' https://www.google.com/maps/;")
+	require.Contains(t, csp, "default-src 'self'")
+}
+
+func TestCSPSources_ExtendsAnExistingDirectiveOnce(t *testing.T) {
+	csp := cspOf(false,
+		middlewares.CSPSources("img-src", "https://a.example", "data:"),
+		middlewares.CSPSources("img-src", "https://a.example", "https://b.example"))
+
+	require.Contains(t, csp, "img-src 'self' data: https://a.example https://b.example;")
+	require.Equal(t, 1, strings.Count(csp, "img-src"))
+	require.Equal(t, 1, strings.Count(csp, "https://a.example"))
+}
+
+func TestCSPSources_NoSourcesChangesNothing(t *testing.T) {
+	nonce := regexp.MustCompile(`'nonce-[^']*'`)
+
+	require.Equal(t, nonce.ReplaceAllString(cspOf(false), ""),
+		nonce.ReplaceAllString(cspOf(false, middlewares.CSPSources("frame-src")), ""))
+}
+
+func TestSecurity_DevAllowsUnsafeEvalForZodAndProductionDoesNot(t *testing.T) {
+	require.Contains(t, cspOf(true), "'unsafe-eval'")
+
+	prod := cspOf(false)
+	require.NotContains(t, prod, "unsafe-eval")
+	require.NotContains(t, prod, "script-src 'self' 'unsafe-inline'")
+	require.Contains(t, prod, "script-src 'self' 'nonce-")
 }
