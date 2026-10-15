@@ -1,5 +1,39 @@
 # Changelog
 
+## v1.9.0
+
+One authentication chain: go-core identity authenticates every route, whether the caller signs in with a session, calls with a service account's API key, or arrives through an embed. An application keeps no auth plumbing of its own, and site-wide middleware and telemetry need no container.
+
+### Added
+
+- `gocore.App.Root(routes...)`: routes served outside the prefix (`/sw.js`, `/embed`), behind the app's security unless `Public`.
+- `gocore.App.Telemetry()`: the application's one metrics handle. The builder (`AppBuilder.WithTelemetry`) and worker metrics reuse it instead of building their own.
+- `gocore.App.Use(middleware...)` and `AppBuilder.Use`: engine middleware that runs before every route, those of modules included, in the order given, however late it is added.
+- `gocore.WithCSP(directive, sources...)`, `AppBuilder.WithCSP` and `middlewares.CSPSources`: add sources to a CSP directive, creating it when missing.
+- `gocore.WithServiceWorker(file)`: serves the file at `/sw.js`, outside the prefix, public, with `Cache-Control: no-cache`.
+- `identity.WithRequestUser(func(ctx, who identity.Authenticated) (auth.Identifiable, error))`: the application's own user for every request. It runs for a signed-in account and for an API-key request; `identity.Authenticated` carries either the account (with its session) or `ServiceAccount`.
+- `route.PersonOnly()` on `Route` and `RawRoute`: a service account gets 403 (`authz.forbidden`, `why: person_only`). Identity's session and profile routes and every notification route (inbox, settings, devices, live stream, test notification, failed events) are person-only.
+- `identity.WithServiceAccounts(serviceaccount.Config{...})`, with these parts:
+  - the packages `identity/serviceaccount` (with `gormstore`, `migrations`, `storetest` and `http`) and `identity/serviceaccount/keynotice`;
+  - the tables `service_accounts` (with `tenant_id` and `owner_id`), `service_account_keys` and `service_account_key_notices`;
+  - the routes under `/v1/iam/service-accounts`: list, show, create, update, deactivate, keys, create a key (the secret shown once, `Cache-Control: no-store`) and revoke one;
+  - `X-API-Key` authentication on identity's chain, as `authz.ServiceAccount`; keys are stored as SHA-256, and `last_used_at` is stamped at most once a minute;
+  - an `audit_logs` row for every request made with a key that is not a read;
+  - a daily worker that tells a key's owner once when it expires within 14 days or has been unused for 60 days (`keynotice.Install`, categories `iam.serviceaccount.keyexpiring` and `iam.serviceaccount.keyunused`);
+  - access routes for service accounts, mounted by `access.Install`;
+  - the permissions `iam.serviceaccount:view`, `:manage` and `:revoke`, defined by `identity.DefinePermissions`.
+- `access/admin`: a service account's access is guarded by `iam.serviceaccount:view` and `:manage`, a person's still by `iam.user:*`. New `Bindings.BindableRolesFor(ctx, kind, scope)` and the constants `ViewServiceAccountAccess` and `ManageServiceAccountBindings`.
+- `identity.WithEmbed(secret)`: `GET /embed` at the site root. A signed, single-use token opens a 24-hour session with no refresh, for an application shown in another host's iframe. The `redirect` must be a path of this site; any other value becomes `/`. The secret must be at least 32 characters. `account.SignIn.Embed` is the sign-in behind it.
+- `auth.EnforceUserRateLimit`.
+
+### Changed
+
+- The development CSP allows `'unsafe-eval'` (vue-core's Zod compiles with `new Function`); production stays nonce-only.
+
+### Fixed
+
+- The per-user rate limit armed by `WithRateLimit` now applies on identity's authentication chain. Before, identity, access and notification routes were not limited per user.
+
 ## v1.8.8
 
 Typed routes set response headers and combine permission rules, so an application keeps neither as `route.Raw` nor as a check in its handler.

@@ -128,6 +128,9 @@ Modules — features go-core ships, each a facade that imports gocore (section 4
   identity/http, identity/mailtext and identitytest import the layers below;
   audit/migrations is the audit_logs table's goose file, registered by the
   modules that write an audit trail)
+  identity/serviceaccount (service accounts and API keys; imports apperr, audit, authz and event;
+  its gormstore imports database, its http route and access/accesshttp, and keynotice imports
+  notification and gocore, which identity cannot, since notification imports identity/http)
 
 Layer 7 — example only:
   go-core-example
