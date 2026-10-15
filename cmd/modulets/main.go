@@ -3,7 +3,8 @@
 //	go run github.com/wssto2/go-core/cmd/modulets <dir>
 //
 // writes <dir>/identity/{entities,schemas,routes}.ts, <dir>/access/…, <dir>/notification/… (the inbox, and a person's e-mail preferences and quiet hours) and
-// <dir>/events/… (the dead letters of the event queue), each
+// <dir>/events/… (the dead letters of the event queue) and <dir>/serviceaccount/… (service accounts, their keys
+// and their access), each
 // file starting with the go-core version that wrote it. vue-core runs it to
 // commit the module types its screens use; an app generates only its own
 // features' types (contract.Generate).
@@ -16,6 +17,7 @@ import (
 	"github.com/wssto2/go-core/access"
 	"github.com/wssto2/go-core/contract"
 	"github.com/wssto2/go-core/identity"
+	sahttp "github.com/wssto2/go-core/identity/serviceaccount/http"
 	"github.com/wssto2/go-core/notification"
 )
 
@@ -33,5 +35,11 @@ func main() {
 
 // generate writes every module's contract into dir, one folder per module.
 func generate(dir string) error {
-	return contract.Generate(dir, identity.Routes, access.Routes, notification.Routes, notification.DeadLetterRoutes)
+	err := contract.Generate(dir,
+		identity.Routes, access.Routes, notification.Routes, notification.DeadLetterRoutes, sahttp.Contract)
+	if err != nil {
+		return fmt.Errorf("modulets: %w", err)
+	}
+
+	return nil
 }

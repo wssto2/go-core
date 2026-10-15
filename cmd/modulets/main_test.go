@@ -13,7 +13,7 @@ func TestGenerateWritesAFolderPerModule(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, module := range []string{"identity", "access", "notification", "events"} {
+	for _, module := range []string{"identity", "access", "notification", "events", "serviceaccount"} {
 		src, err := os.ReadFile(filepath.Join(dir, module, "routes.ts")) //nolint:gosec // a temp dir of this test
 		if err != nil {
 			t.Fatal(err)
@@ -44,9 +44,10 @@ func TestTheContractHasThePreferencesQuietHoursAndConsumers(t *testing.T) {
 			"export type Preferences", "email_available: boolean", "export type CategorySettings", `export type Source = "enforced" | "person" | "default"`,
 			"export type QuietHours", "time_zone: string",
 		},
-		"notification/schemas.ts": {"export const SetEmailInputSchema", "export const QuietHoursInputSchema"},
-		"events/routes.ts":        {`"/v1/events/consumers", { permission: "events.deadletter:view" }`},
-		"events/entities.ts":      {"export type ConsumerNames"},
+		"notification/schemas.ts":  {"export const SetEmailInputSchema", "export const QuietHoursInputSchema"},
+		"events/routes.ts":         {`"/v1/events/consumers", { permission: "events.deadletter:view" }`},
+		"events/entities.ts":       {"export type ConsumerNames"},
+		"serviceaccount/routes.ts": {`"/v1/iam/service-accounts/:id/keys"`, `"/v1/iam/service-accounts/:id/bindings"`},
 	} {
 		src, err := os.ReadFile(filepath.Join(dir, file)) //nolint:gosec // a temp dir of this test
 		if err != nil {
