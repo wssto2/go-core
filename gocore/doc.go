@@ -26,6 +26,11 @@
 // runs until Run, which first checks the whole application and reports every
 // problem with its fix, then boots, serves and, on a signal, drains and stops.
 //
+// What belongs to the whole site rather than to a feature is an option of New
+// or a call on the App: Root for routes outside the prefix, Use for engine
+// middleware that runs before every route, WithCSP for Content-Security-Policy
+// sources, WithServiceWorker for /sw.js, and Telemetry for the metrics handle.
+//
 // The application is built on the bootstrap package: old-style
 // bootstrap.Modules run in the same App (see App.Modules), so an application
 // can move to Install one feature at a time.
