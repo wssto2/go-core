@@ -1,0 +1,203 @@
+package serviceaccount
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"slices"
+	"time"
+
+	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/event"
+)
+
+// The two conditions a key's owner is told about.
+const (
+	// ExpiryWarning is how long before a key expires its owner is told.
+	ExpiryWarning = 14 * 24 * time.Hour
+	// UnusedAfter is how long a key may go unused before its owner is told: 60 days since its last use, or
+	// since its creation if it was never used.
+	UnusedAfter = 60 * 24 * time.Hour
+)
+
+// NoticeKind names a condition a notice is sent for. A key is told about each condition at most once.
+type NoticeKind string
+
+const (
+	// NoticeExpiring: the key expires within ExpiryWarning.
+	NoticeExpiring NoticeKind = "expiring"
+	// NoticeUnused: the key is active and has not been used for UnusedAfter.
+	NoticeUnused NoticeKind = "unused"
+)
+
+// Notices are the conditions the key is in at the moment. A key that is revoked or expired is in none: it
+// cannot be used, so there is nothing to warn about. Whether its account is active is the account's to say.
+func (k Key) Notices(at time.Time) []NoticeKind {
+	if !k.Usable(at) {
+		return nil
+	}
+
+	var out []NoticeKind
+
+	if k.ExpiresAt != nil && k.ExpiresAt.Sub(at) <= ExpiryWarning {
+		out = append(out, NoticeExpiring)
+	}
+
+	since := k.CreatedAt
+	if k.LastUsedAt != nil {
+		since = *k.LastUsedAt
+	}
+
+	if at.Sub(since) >= UnusedAfter {
+		out = append(out, NoticeUnused)
+	}
+
+	return out
+}
+
+// KeyWithAccount is a working key and the account it belongs to.
+type KeyWithAccount struct {
+	Key     Key
+	Account Account
+}
+
+// NoticeStore is what the daily notice run needs of a Store: the working keys of active accounts, and the
+// record that keeps each condition of each key to one notice.
+type NoticeStore interface {
+	// WorkingKeys returns the keys that work at the moment (not revoked, not expired) of accounts that are
+	// active.
+	WorkingKeys(ctx context.Context, at time.Time) ([]KeyWithAccount, error)
+	// NoticesSent returns, by key id, the conditions the keys were already told about.
+	NoticesSent(ctx context.Context, keyIDs []int) (map[int][]NoticeKind, error)
+	// ClaimNotice records that the key is told about the condition. It returns false when it was already
+	// recorded, so two runs never both tell.
+	ClaimNotice(ctx context.Context, keyID int, kind NoticeKind, at time.Time) (bool, error)
+}
+
+// KeyNotice is the fact a notice announces: ids and facts only, the text is worded per recipient by
+// whoever sends it (keynotice).
+type KeyNotice struct {
+	// OwnerID is the account's owner, who is told.
+	OwnerID   int    `json:"owner_id"`
+	AccountID int    `json:"account_id"`
+	Account   string `json:"account"`
+	KeyID     int    `json:"key_id"`
+	Key       string `json:"key"`
+	// Kind is "expiring" or "unused".
+	Kind NoticeKind `json:"kind"`
+	// Date is the day the key expires (expiring) or was last used or created (unused), as YYYY-MM-DD.
+	Date string `json:"date"`
+	// Days is how many days are left before the key expires (expiring), or how long it went unused (unused).
+	Days int `json:"days"`
+}
+
+// KeyNoticed is the event the daily run publishes for each notice, in the transaction that records it. The
+// consumer is keynotice's; an application that wants its own can consume the event.
+var KeyNoticed = event.Define[KeyNotice]("serviceaccount.key-noticed")
+
+// Notices tells the owner of each service account about its keys that expire soon or went unused, at most
+// once per key and condition.
+type Notices struct {
+	store    NoticeStore
+	transact Transactor
+	log      *slog.Logger
+	clock    Clock
+}
+
+// NewNotices returns the notice run.
+func NewNotices(store NoticeStore, transact Transactor, log *slog.Logger, clock Clock) *Notices {
+	return &Notices{store: store, transact: transact, log: log, clock: clock}
+}
+
+// Send publishes a notice for every key in a condition it was not yet told about, and returns how many it
+// published. The claim and the event are one transaction, so nothing is half told, and a key whose notice
+// fails is logged and left for the next run.
+func (n *Notices) Send(ctx context.Context) (int, error) {
+	now := n.clock.Now()
+
+	working, err := n.store.WorkingKeys(ctx, now)
+	if err != nil {
+		return 0, apperr.Internal(err)
+	}
+
+	ids := make([]int, 0, len(working))
+	for _, w := range working {
+		ids = append(ids, w.Key.ID)
+	}
+
+	told, err := n.store.NoticesSent(ctx, ids)
+	if err != nil {
+		return 0, apperr.Internal(err)
+	}
+
+	sent := 0
+
+	for _, w := range working {
+		for _, kind := range w.Key.Notices(now) {
+			if slices.Contains(told[w.Key.ID], kind) {
+				continue
+			}
+
+			recorded, err := n.tell(ctx, w, kind, now)
+			if err != nil {
+				n.log.WarnContext(ctx, "service key notice not recorded", "key_id", w.Key.ID, "kind", kind, "error", err)
+
+				continue
+			}
+
+			if recorded {
+				sent++
+			}
+		}
+	}
+
+	return sent, nil
+}
+
+func (n *Notices) tell(ctx context.Context, w KeyWithAccount, kind NoticeKind, now time.Time) (bool, error) {
+	recorded := false
+
+	err := n.transact.WithinTransaction(ctx, func(tx context.Context) error {
+		claimed, err := n.store.ClaimNotice(tx, w.Key.ID, kind, now)
+		if err != nil || !claimed {
+			return err
+		}
+
+		if err := KeyNoticed.Publish(tx, noticeOf(w, kind, now)); err != nil {
+			return fmt.Errorf("publish the notice: %w", err)
+		}
+
+		recorded = true
+
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return recorded, nil
+}
+
+func noticeOf(w KeyWithAccount, kind NoticeKind, now time.Time) KeyNotice {
+	evt := KeyNotice{
+		OwnerID: w.Account.OwnerID, AccountID: w.Account.ID, Account: w.Account.Name, KeyID: w.Key.ID, Key: w.Key.Name, Kind: kind,
+	}
+
+	switch kind {
+	case NoticeExpiring:
+		if w.Key.ExpiresAt != nil {
+			evt.Date = w.Key.ExpiresAt.Format(time.DateOnly)
+			evt.Days = max(0, int(w.Key.ExpiresAt.Sub(now).Hours()/24))
+		}
+	case NoticeUnused:
+		since := w.Key.CreatedAt
+		if w.Key.LastUsedAt != nil {
+			since = *w.Key.LastUsedAt
+		}
+
+		evt.Date = since.Format(time.DateOnly)
+		evt.Days = int(now.Sub(since).Hours() / 24)
+	}
+
+	return evt
+}
