@@ -12,7 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/middlewares"
-	"github.com/wssto2/go-core/observability"
 	"github.com/wssto2/go-core/route"
 	"github.com/wssto2/go-core/worker"
 )
@@ -194,7 +193,7 @@ func (a *App) closeDatabase() {
 }
 
 func (a *App) build() (*bootstrap.App, error) {
-	b := bootstrap.New(a.cfg).WithLogger(a.log)
+	b := bootstrap.New(a.cfg).WithLogger(a.log).WithTelemetry(a.tel)
 	if a.registry != nil {
 		b.WithRegistry(a.registry)
 	}
@@ -252,12 +251,7 @@ func (m *featuresModule) Register(c *bootstrap.Container) error {
 	workers := append(append([]worker.Worker(nil), m.app.workers...), m.app.eventWorkers()...)
 
 	if len(workers) > 0 {
-		var opts []worker.ManagerOption
-		if tel, err := bootstrap.Resolve[*observability.Telemetry](c); err == nil {
-			opts = append(opts, worker.WithManagerMetrics(tel.Worker))
-		}
-
-		m.mgr = worker.NewManager(m.app.log, opts...)
+		m.mgr = worker.NewManager(m.app.log, worker.WithManagerMetrics(m.app.tel.Worker))
 		m.mgr.Add(workers...)
 	}
 

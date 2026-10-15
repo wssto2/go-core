@@ -40,8 +40,9 @@ type AppBuilder struct {
 	spaConfig           *frontend.SPAConfig
 	trustedOrigins      []string
 	idempotencyStore    *middlewares.IdempotencyStore
-	registry            *database.Registry // supplied with WithRegistry, else opened from cfg
-	log                 *slog.Logger       // supplied with WithLogger, else built from cfg
+	registry            *database.Registry       // supplied with WithRegistry, else opened from cfg
+	log                 *slog.Logger             // supplied with WithLogger, else built from cfg
+	telemetry           *observability.Telemetry // supplied with WithTelemetry, else built from cfg
 }
 
 // New creates a new AppBuilder with the given config.
@@ -186,6 +187,14 @@ func (b *AppBuilder) WithLogger(log *slog.Logger) *AppBuilder {
 	return b
 }
 
+// WithTelemetry makes the application use tel instead of building its own,
+// for a host that needs the handle before the builder runs. Call it before
+// DefaultInfrastructure.
+func (b *AppBuilder) WithTelemetry(tel *observability.Telemetry) *AppBuilder {
+	b.telemetry = tel
+	return b
+}
+
 func (b *AppBuilder) setupBus() {
 	bus := event.NewInMemoryBus()
 	Bind[event.Bus](b.container, bus)
@@ -207,8 +216,11 @@ func (b *AppBuilder) setupI18n() {
 }
 
 func (b *AppBuilder) setupObservability() {
-	log := MustResolve[*slog.Logger](b.container)
-	tel := observability.New(log, b.cfg.App.Name)
+	tel := b.telemetry
+	if tel == nil {
+		tel = observability.New(MustResolve[*slog.Logger](b.container), b.cfg.App.Name)
+	}
+
 	OverwriteBind(b.container, tel)
 
 	// Expose /metrics using the app's own registry — not the global default

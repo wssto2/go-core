@@ -13,6 +13,7 @@ import (
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/logger"
+	"github.com/wssto2/go-core/observability"
 	"github.com/wssto2/go-core/route"
 	"github.com/wssto2/go-core/tenancy"
 	"github.com/wssto2/go-core/worker"
@@ -65,6 +66,7 @@ type App struct {
 	cfg          bootstrap.Config
 	log          *slog.Logger
 	clock        Clock
+	tel          *observability.Telemetry
 	registry     *database.Registry
 	authorizer   authz.Authorizer
 	authenticate []gin.HandlerFunc
@@ -195,6 +197,8 @@ func New(cfg bootstrap.Config, opts ...Option) *App {
 		app.log = log
 	}
 
+	app.tel = observability.New(app.log, cfg.App.Name)
+
 	if app.registry == nil && len(cfg.Database.Connections) > 0 {
 		reg, err := bootstrap.OpenDatabase(app.log, cfg.Database)
 		if err != nil {
@@ -261,6 +265,10 @@ func (a *App) Logger() *slog.Logger { return a.log }
 
 // Clock returns the application clock.
 func (a *App) Clock() Clock { return a.clock }
+
+// Telemetry returns the metrics handle of the application: the one behind
+// /metrics and the HTTP metrics, which workers and features record to as well.
+func (a *App) Telemetry() *observability.Telemetry { return a.tel }
 
 // Database returns the primary connection, or with an argument the named one.
 // A connection that is not registered is reported by Run, listing the
