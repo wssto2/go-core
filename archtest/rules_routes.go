@@ -27,7 +27,7 @@ var (
 // declaredRoute is a route.<Method>[In, Out](path) or route.Raw(method, path)
 // call and the methods chained after it.
 type declaredRoute struct {
-	src     source
+	src     Source
 	call    *ast.CallExpr
 	method  string // Get..Delete, or the Raw method literal when it is one
 	pathArg ast.Expr
@@ -39,14 +39,14 @@ func (p *project) routes() []declaredRoute {
 	var out []declaredRoute
 
 	for _, s := range p.files {
-		alias := aliasOf(s.file, routeImport)
-		if s.isTest || alias == "" {
+		alias := aliasOf(s.File, routeImport)
+		if s.IsTest || alias == "" {
 			continue
 		}
 
 		var stack []ast.Node
 
-		ast.Inspect(s.file, func(n ast.Node) bool {
+		ast.Inspect(s.File, func(n ast.Node) bool {
 			if n == nil {
 				stack = stack[:len(stack)-1]
 
@@ -130,13 +130,13 @@ func (p *project) packageConsts() map[string]map[string]ast.Expr {
 	out := map[string]map[string]ast.Expr{}
 
 	for _, s := range p.files {
-		if s.isTest {
+		if s.IsTest {
 			continue
 		}
 
-		dir := path.Dir(s.rel)
+		dir := path.Dir(s.Rel)
 
-		for _, d := range s.file.Decls {
+		for _, d := range s.File.Decls {
 			gen, ok := d.(*ast.GenDecl)
 			if !ok || gen.Tok != token.CONST {
 				continue
@@ -201,9 +201,9 @@ func (p *project) routePaths() []finding {
 	for _, r := range p.routes() {
 		at := p.at(r.src, r.call)
 
-		full, ok := evalPath(r.pathArg, consts[path.Dir(r.src.rel)], 0)
+		full, ok := evalPath(r.pathArg, consts[path.Dir(r.src.Rel)], 0)
 		if !ok {
-			out = append(out, finding{r.src.rel, at + "  route path is not a string literal or constants of its package joined with +"})
+			out = append(out, finding{r.src.Rel, at + "  route path is not a string literal or constants of its package joined with +"})
 
 			continue
 		}
@@ -213,7 +213,7 @@ func (p *project) routePaths() []finding {
 				continue
 			}
 
-			out = append(out, finding{r.src.rel, at + "  route path segment " + strconv.Quote(seg) + " in " + strconv.Quote(full)})
+			out = append(out, finding{r.src.Rel, at + "  route path segment " + strconv.Quote(seg) + " in " + strconv.Quote(full)})
 		}
 	}
 
@@ -231,12 +231,12 @@ func (p *project) routeAccess() []finding {
 			continue
 		}
 
-		full, _ := evalPath(r.pathArg, consts[path.Dir(r.src.rel)], 0)
+		full, _ := evalPath(r.pathArg, consts[path.Dir(r.src.Rel)], 0)
 		if full == "" {
 			full = "(path not constant)"
 		}
 
-		out = append(out, finding{r.src.rel, p.at(r.src, r.call) + "  " + r.method + " " + full +
+		out = append(out, finding{r.src.Rel, p.at(r.src, r.call) + "  " + r.method + " " + full +
 			" declares no access: add Requires, RequiresAny, RequiresAll, Public, PersonOnly or Authenticated to its chain"})
 	}
 
@@ -253,22 +253,22 @@ func (p *project) routeIdentifiers() []finding {
 
 	var out []finding
 
-	bad := func(s source, n ast.Node, what, value string, parts []string) {
+	bad := func(s Source, n ast.Node, what, value string, parts []string) {
 		for _, part := range parts {
 			if part != "" && part[0] != ':' && !word.MatchString(part) {
-				out = append(out, finding{s.rel, p.at(s, n) + "  " + what + " " + strconv.Quote(part) + " in " + strconv.Quote(value)})
+				out = append(out, finding{s.Rel, p.at(s, n) + "  " + what + " " + strconv.Quote(part) + " in " + strconv.Quote(value)})
 			}
 		}
 	}
 
 	for _, s := range p.files {
-		if s.isTest {
+		if s.IsTest {
 			continue
 		}
 
-		routeAlias := aliasOf(s.file, routeImport)
+		routeAlias := aliasOf(s.File, routeImport)
 
-		ast.Inspect(s.file, func(n ast.Node) bool {
+		ast.Inspect(s.File, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return true
@@ -284,7 +284,7 @@ func (p *project) routeIdentifiers() []finding {
 				// route.Group anywhere; any other .Group(path) (a gin router) in the handlers only.
 				id, isIdent := sel.X.(*ast.Ident)
 				isRoute := isIdent && routeAlias != "" && id.Name == routeAlias
-				inHandlers := handlers != "" && inTree(s.rel, handlers) && (!isIdent || id.Name != "slog")
+				inHandlers := handlers != "" && inTree(s.Rel, handlers) && (!isIdent || id.Name != "slog")
 
 				if !isRoute && !inHandlers {
 					return true

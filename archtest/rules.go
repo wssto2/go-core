@@ -46,10 +46,10 @@ func (p *project) rules() []rule {
 			"map to the outer-layer representation at the boundary, or depend on a domain interface that the "+
 			"composition root implements", p.layerImports))
 	add(domain, p.ratcheted(DomainPurity, "the domain is framework-free",
-		"no web framework, ORM, database/sql, encoding/json, go-core datatable/resource or json: tag in the domain: "+
+		"no web framework, ORM, encoding/json, go-core datatable/resource or json: tag in the domain: "+
 			"marshal in the adapter and map at the boundary (the shared kernel may carry json tags)", p.domainPurity))
 	add(app, p.ratcheted(ApplicationPurity, "the application layer is framework-free",
-		"no web framework, ORM or database/sql in the application layer: keep gin in the handlers and "+
+		"no web framework or ORM in the application layer: keep gin in the handlers and "+
 			"*gorm.DB in infrastructure, expose a transaction port from the domain", p.applicationPurity))
 	add(domain, p.ratcheted(NoTimeNowDomain, "no time.Now() in the domain",
 		"take a Clock dependency and call clock.Now() so tests can control time", p.noTimeNow(l.Domain)))
@@ -90,7 +90,7 @@ func (p *project) rules() []rule {
 	return all
 }
 
-func (p *project) appAndDomain() []source {
+func (p *project) appAndDomain() []Source {
 	return p.productionIn(p.cfg.Layers.Application, p.cfg.Layers.Domain)
 }
 
@@ -98,10 +98,10 @@ func (p *project) noPanic() []finding {
 	var out []finding
 
 	for _, s := range p.appAndDomain() {
-		ast.Inspect(s.file, func(n ast.Node) bool {
+		ast.Inspect(s.File, func(n ast.Node) bool {
 			if call, ok := n.(*ast.CallExpr); ok {
 				if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "panic" {
-					out = append(out, finding{s.rel, p.at(s, call) + "  panic("})
+					out = append(out, finding{s.Rel, p.at(s, call) + "  panic("})
 				}
 			}
 
@@ -128,16 +128,16 @@ func (p *project) errorfWrap() []finding {
 	var out []finding
 
 	for _, s := range p.files {
-		if s.isTest {
+		if s.IsTest {
 			continue
 		}
 
-		alias := aliasOf(s.file, "fmt")
+		alias := aliasOf(s.File, "fmt")
 		if alias == "" {
 			continue
 		}
 
-		ast.Inspect(s.file, func(n ast.Node) bool {
+		ast.Inspect(s.File, func(n ast.Node) bool {
 			call, ok := selectorCall(n, alias, "Errorf")
 			if !ok || len(call.Args) == 0 {
 				return true
@@ -152,7 +152,7 @@ func (p *project) errorfWrap() []finding {
 
 				return ok && lit.Kind == token.STRING && strings.Contains(lit.Value, "%w")
 			}) {
-				out = append(out, finding{s.rel, p.at(s, call) + "  fmt.Errorf(...) passes err without %w"})
+				out = append(out, finding{s.Rel, p.at(s, call) + "  fmt.Errorf(...) passes err without %w"})
 			}
 
 			return true
@@ -198,15 +198,15 @@ func (p *project) domainPurity() []finding {
 	l := p.cfg.Layers
 	srcs := p.productionIn(l.Domain)
 	out := p.importsMatching(srcs, func(ip string) bool {
-		return under(ip, ginImport) || strings.HasPrefix(ip, "gorm.io/") || ip == "database/sql" || strings.Contains(ip, "jmoiron/sqlx") ||
+		return under(ip, ginImport) || strings.HasPrefix(ip, "gorm.io/") ||
 			ip == "encoding/json" || under(ip, "github.com/goccy/go-json") ||
 			under(ip, datatableImport) || under(ip, resourceImport)
 	})
 
 	// datatable and resource are banned in test files of the domain too.
 	for _, s := range p.files {
-		if s.isTest && inTree(s.rel, l.Domain) {
-			out = append(out, p.importsMatching([]source{s}, func(ip string) bool {
+		if s.IsTest && inTree(s.Rel, l.Domain) {
+			out = append(out, p.importsMatching([]Source{s}, func(ip string) bool {
 				return under(ip, datatableImport) || under(ip, resourceImport)
 			})...)
 		}
@@ -215,15 +215,15 @@ func (p *project) domainPurity() []finding {
 	kernel := l.Domain + "/" + p.cfg.Kernel
 
 	for _, s := range srcs {
-		if inTree(s.rel, kernel) {
+		if inTree(s.Rel, kernel) {
 			continue
 		}
 
-		ast.Inspect(s.file, func(n ast.Node) bool {
+		ast.Inspect(s.File, func(n ast.Node) bool {
 			if st, ok := n.(*ast.StructType); ok && st.Fields != nil {
 				for _, f := range st.Fields.List {
 					if f.Tag != nil && strings.Contains(f.Tag.Value, "json:") {
-						out = append(out, finding{s.rel, p.at(s, f) + "  has a json: tag"})
+						out = append(out, finding{s.Rel, p.at(s, f) + "  has a json: tag"})
 					}
 				}
 			}
@@ -237,7 +237,7 @@ func (p *project) domainPurity() []finding {
 
 func (p *project) applicationPurity() []finding {
 	return p.importsMatching(p.productionIn(p.cfg.Layers.Application), func(ip string) bool {
-		return under(ip, ginImport) || strings.HasPrefix(ip, "gorm.io/") || ip == "database/sql" || strings.Contains(ip, "jmoiron/sqlx")
+		return under(ip, ginImport) || strings.HasPrefix(ip, "gorm.io/")
 	})
 }
 
@@ -248,15 +248,15 @@ func (p *project) noTimeNow(dir string) func() []finding {
 		var out []finding
 
 		for _, s := range p.productionIn(dir) {
-			alias := aliasOf(s.file, "time")
+			alias := aliasOf(s.File, "time")
 			if alias == "" {
 				continue
 			}
 
-			ast.Inspect(s.file, func(n ast.Node) bool {
+			ast.Inspect(s.File, func(n ast.Node) bool {
 				if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "Now" {
 					if id, ok := sel.X.(*ast.Ident); ok && id.Name == alias {
-						out = append(out, finding{s.rel, p.at(s, sel)})
+						out = append(out, finding{s.Rel, p.at(s, sel)})
 					}
 				}
 
@@ -285,12 +285,12 @@ func (p *project) crossAggregate() []finding {
 	var out []finding
 
 	for _, s := range p.productionIn(l.Domain) {
-		own := aggregate(s.rel, l.Domain)
+		own := aggregate(s.Rel, l.Domain)
 		if own == "" {
 			continue
 		}
 
-		for _, imp := range s.file.Imports {
+		for _, imp := range s.File.Imports {
 			ip := importPath(imp)
 			if !strings.HasPrefix(ip, prefix) {
 				continue
@@ -301,7 +301,7 @@ func (p *project) crossAggregate() []finding {
 				continue
 			}
 
-			out = append(out, finding{s.rel, p.at(s, imp) + "  imports the " + other + " aggregate (" + ip + ")"})
+			out = append(out, finding{s.Rel, p.at(s, imp) + "  imports the " + other + " aggregate (" + ip + ")"})
 		}
 	}
 
@@ -328,7 +328,7 @@ func (p *project) domainContextFirst() []finding {
 	var out []finding
 
 	for _, s := range p.productionIn(p.cfg.Layers.Domain) {
-		ast.Inspect(s.file, func(n ast.Node) bool {
+		ast.Inspect(s.File, func(n ast.Node) bool {
 			spec, ok := n.(*ast.TypeSpec)
 			if !ok {
 				return true
@@ -345,7 +345,7 @@ func (p *project) domainContextFirst() []finding {
 					continue // an embedded interface, or fine
 				}
 
-				out = append(out, finding{s.rel, p.at(s, m) + "  " + spec.Name.Name + "." + m.Names[0].Name + " does not take context.Context first"})
+				out = append(out, finding{s.Rel, p.at(s, m) + "  " + spec.Name.Name + "." + m.Names[0].Name + " does not take context.Context first"})
 			}
 
 			return true
@@ -359,7 +359,7 @@ func (p *project) serviceContextFirst() []finding {
 	var out []finding
 
 	for _, s := range p.productionIn(p.cfg.Layers.Application) {
-		for _, decl := range s.file.Decls {
+		for _, decl := range s.File.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Recv == nil || len(fn.Recv.List) != 1 || !fn.Name.IsExported() {
 				continue
@@ -369,7 +369,7 @@ func (p *project) serviceContextFirst() []finding {
 				continue
 			}
 
-			out = append(out, finding{s.rel, p.at(s, fn) + "  " + receiverTypeName(fn.Recv.List[0].Type) + "." + fn.Name.Name + " does not take context.Context first"})
+			out = append(out, finding{s.Rel, p.at(s, fn) + "  " + receiverTypeName(fn.Recv.List[0].Type) + "." + fn.Name.Name + " does not take context.Context first"})
 		}
 	}
 

@@ -134,6 +134,10 @@ Modules — features go-core ships, each a facade that imports gocore (section 4
 
 Layer 7 — example only:
   go-core-example
+
+Test support for an application's own architecture rules (standard library and
+validation only; go-core's section 4 is checked with it, section 4.0):
+  archtest
 ```
 
 Specific prohibitions:

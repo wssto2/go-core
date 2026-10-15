@@ -1,5 +1,5 @@
 // Package archtest holds an application's architecture to its own rules, from
-// its source: a test calls Run with the layout of the module and every rule
+// its Source: a test calls Run with the layout of the module and every rule
 // that is not switched off is checked with go/parser, no type information and
 // no dependency beyond the standard library and go-core's validation.
 //
@@ -23,7 +23,9 @@
 //     reached from one file of the repository package only.
 //
 // A rule whose layer is not configured is not run. Banned adds the rules of the
-// application itself (a removed API, a package one layer must not import).
+// application itself (a removed API, a package one layer must not import), and
+// an application's own guards walk the same parsed files with Sources and
+// freeze their violations with Ratchet.
 //
 // Pre-existing violations are frozen in a ratchet: Config.Allowed lists, per
 // rule, the files (for ServiceRepositories "file|domain/path") that may still
@@ -62,6 +64,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -195,23 +198,98 @@ type Banned struct {
 // reads are idiomatic.
 var testPackage = regexp.MustCompile(`^[a-z0-9]+test$`)
 
-// source is one parsed Go file.
-type source struct {
-	rel    string // relative to the root, forward slashes
-	isTest bool
-	file   *ast.File
+// Source is one parsed Go file of the module. An application's own guards
+// walk the same sources with Sources.
+type Source struct {
+	Rel    string // relative to the module root, forward slashes
+	IsTest bool   // a _test.go file or a file of a test-support package (a directory named *test)
+	File   *ast.File
+
+	fset *token.FileSet
+}
+
+// At is "file:line" of a node, for a message.
+func (s Source) At(n ast.Node) string {
+	return fmt.Sprintf("%s:%d", s.Rel, s.fset.Position(n.Pos()).Line)
 }
 
 type project struct {
 	root   string
 	module string
-	fset   *token.FileSet
-	files  []source
+	files  []Source
 	cfg    Config
 }
 
-func (p *project) at(s source, n ast.Node) string {
-	return fmt.Sprintf("%s:%d", s.rel, p.fset.Position(n.Pos()).Line)
+func (p *project) at(s Source, n ast.Node) string { return s.At(n) }
+
+// parsedTree is the module parsed once per root, however many guards ask.
+type parsedTree struct {
+	once  sync.Once
+	files []Source
+	err   error
+}
+
+var trees sync.Map // root -> *parsedTree
+
+// Sources returns every Go file of the module at root ("" finds the module
+// from the working directory), parsed once and shared, skipping testdata,
+// vendor, node_modules, hidden and underscore folders and nested modules. The
+// files are read-only.
+func Sources(t *testing.T, root string) []Source {
+	t.Helper()
+
+	root, err := resolveRoot(root)
+	if err != nil {
+		t.Fatalf("archtest: %v", err)
+	}
+
+	files, err := parsed(root)
+	if err != nil {
+		t.Fatalf("archtest: %v", err)
+	}
+
+	return files
+}
+
+func resolveRoot(root string) (string, error) {
+	if root == "" {
+		return findRoot()
+	}
+
+	return filepath.Abs(root)
+}
+
+func parsed(root string) ([]Source, error) {
+	v, _ := trees.LoadOrStore(root, &parsedTree{})
+	tree, ok := v.(*parsedTree)
+
+	if !ok {
+		return nil, fmt.Errorf("parsed tree cache holds a %T", v)
+	}
+
+	tree.once.Do(func() { tree.files, tree.err = walk(root) })
+
+	return tree.files, tree.err
+}
+
+// Ratchet settles an application's own rule against its frozen list, as Run
+// does for the built-in ones: byFile maps a file to its violations ("file:line
+// text"). A file not in allowed fails the test with the violations and the
+// hint, and so does an allowed entry with no violation.
+func Ratchet(t *testing.T, title, hint string, allowed []string, byFile map[string][]string) {
+	t.Helper()
+
+	var found []finding
+
+	for file, texts := range byFile {
+		for _, text := range texts {
+			found = append(found, finding{file, text})
+		}
+	}
+
+	for _, problem := range settle(title, hint, allowed, found) {
+		t.Error(problem)
+	}
 }
 
 // Run checks the module against cfg, one subtest per rule.
@@ -235,12 +313,9 @@ func Run(t *testing.T, cfg Config) {
 }
 
 func load(cfg Config) (*project, error) {
-	root := cfg.Root
-	if root == "" {
-		var err error
-		if root, err = findRoot(); err != nil {
-			return nil, err
-		}
+	root, err := resolveRoot(cfg.Root)
+	if err != nil {
+		return nil, err
 	}
 
 	module, err := modulePath(root)
@@ -261,11 +336,12 @@ func load(cfg Config) (*project, error) {
 		cfg.ServiceType = "AppService"
 	}
 
-	p := &project{root: root, module: module, fset: token.NewFileSet(), cfg: cfg}
-
-	if err := p.walk(); err != nil {
+	files, err := parsed(root)
+	if err != nil {
 		return nil, err
 	}
+
+	p := &project{root: root, module: module, files: files, cfg: cfg}
 
 	return p, p.validate()
 }
@@ -328,17 +404,20 @@ func modulePath(root string) (string, error) {
 	return "", fmt.Errorf("no module line in %s/go.mod", root)
 }
 
-// walk parses every Go file of the module, leaving out testdata, vendor,
-// node_modules, hidden and underscore folders and nested modules.
-func (p *project) walk() error {
-	return filepath.WalkDir(p.root, func(full string, d os.DirEntry, err error) error {
+// walk parses every Go file of the module at root.
+func walk(root string) ([]Source, error) {
+	fset := token.NewFileSet()
+
+	var files []Source
+
+	err := filepath.WalkDir(root, func(full string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
 		if d.IsDir() {
 			name := d.Name()
-			if full != p.root {
+			if full != root {
 				if name == "testdata" || name == "vendor" || name == "node_modules" || name[0] == '.' || name[0] == '_' {
 					return filepath.SkipDir
 				}
@@ -355,14 +434,14 @@ func (p *project) walk() error {
 			return nil
 		}
 
-		rel, err := filepath.Rel(p.root, full)
+		rel, err := filepath.Rel(root, full)
 		if err != nil {
 			return fmt.Errorf("relative path of %s: %w", full, err)
 		}
 
 		rel = filepath.ToSlash(rel)
 
-		parsed, err := parser.ParseFile(p.fset, full, nil, parser.SkipObjectResolution)
+		file, err := parser.ParseFile(fset, full, nil, parser.SkipObjectResolution)
 		if err != nil {
 			return fmt.Errorf("parsing %s: %w", rel, err)
 		}
@@ -372,10 +451,12 @@ func (p *project) walk() error {
 			isTest = isTest || testPackage.MatchString(seg)
 		}
 
-		p.files = append(p.files, source{rel: rel, isTest: isTest, file: parsed})
+		files = append(files, Source{Rel: rel, IsTest: isTest, File: file, fset: fset})
 
 		return nil
 	})
+
+	return files, err
 }
 
 // validate refuses a configuration that would check nothing: a layer
@@ -386,7 +467,7 @@ func (p *project) validate() error {
 		"Domain": l.Domain, "Application": l.Application, "Infrastructure": l.Infrastructure,
 		"Interfaces": l.Interfaces, "Cmd": l.Cmd, "Handlers": l.Handlers, "Persistence": l.Persistence,
 	} {
-		if dir != "" && !slices.ContainsFunc(p.files, func(s source) bool { return inTree(s.rel, dir) }) {
+		if dir != "" && !slices.ContainsFunc(p.files, func(s Source) bool { return inTree(s.Rel, dir) }) {
 			return fmt.Errorf("Layers.%s %q holds no Go file under %s: a guard that sees nothing passes forever", name, dir, p.root)
 		}
 	}

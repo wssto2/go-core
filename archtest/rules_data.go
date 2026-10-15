@@ -22,7 +22,7 @@ func (p *project) serviceRepositories() []finding {
 	var out []finding
 
 	for _, s := range p.productionIn(l.Application) {
-		appDomain, rest, _ := strings.Cut(strings.TrimPrefix(s.rel, l.Application+"/"), "/")
+		appDomain, rest, _ := strings.Cut(strings.TrimPrefix(s.Rel, l.Application+"/"), "/")
 		if rest == "" {
 			continue // a file directly in the application folder: no domain
 		}
@@ -35,7 +35,7 @@ func (p *project) serviceRepositories() []finding {
 		// Names a file uses as <name>.<Something>Repository.
 		used := map[string]bool{}
 
-		ast.Inspect(s.file, func(n ast.Node) bool {
+		ast.Inspect(s.File, func(n ast.Node) bool {
 			if sel, ok := n.(*ast.SelectorExpr); ok && strings.HasSuffix(sel.Sel.Name, "Repository") {
 				if id, ok := sel.X.(*ast.Ident); ok {
 					used[id.Name] = true
@@ -45,7 +45,7 @@ func (p *project) serviceRepositories() []finding {
 			return true
 		})
 
-		for _, imp := range s.file.Imports {
+		for _, imp := range s.File.Imports {
 			ip := importPath(imp)
 			if !strings.HasPrefix(ip, prefix) {
 				continue
@@ -64,7 +64,7 @@ func (p *project) serviceRepositories() []finding {
 			}
 
 			if used[alias] { // a bare import is no injection
-				out = append(out, finding{s.rel + "|" + domPath, s.rel + " injects a Repository from " + l.Domain + "/" + domPath})
+				out = append(out, finding{s.Rel + "|" + domPath, s.Rel + " injects a Repository from " + l.Domain + "/" + domPath})
 			}
 		}
 	}
@@ -80,21 +80,21 @@ func (p *project) boundedStrings() []finding {
 	type pkg struct {
 		methods map[string]map[string]bool
 		structs map[string]*ast.StructType
-		decl    map[string]source
+		decl    map[string]Source
 	}
 
 	pkgs := map[string]*pkg{}
 
 	for _, s := range p.productionIn(p.cfg.Layers.Application) {
-		dir := path.Dir(s.rel)
+		dir := path.Dir(s.Rel)
 
 		pk := pkgs[dir]
 		if pk == nil {
-			pk = &pkg{map[string]map[string]bool{}, map[string]*ast.StructType{}, map[string]source{}}
+			pk = &pkg{map[string]map[string]bool{}, map[string]*ast.StructType{}, map[string]Source{}}
 			pkgs[dir] = pk
 		}
 
-		for _, decl := range s.file.Decls {
+		for _, decl := range s.File.Decls {
 			switch d := decl.(type) {
 			case *ast.FuncDecl:
 				if d.Recv != nil && len(d.Recv.List) == 1 {
@@ -135,7 +135,7 @@ func (p *project) boundedStrings() []finding {
 	return out
 }
 
-func (p *project) checkBounds(structs map[string]*ast.StructType, decl map[string]source, name string, seen map[string]bool, out *[]finding) {
+func (p *project) checkBounds(structs map[string]*ast.StructType, decl map[string]Source, name string, seen map[string]bool, out *[]finding) {
 	st, ok := structs[name]
 	if !ok || st.Fields == nil || seen[name] {
 		return
@@ -147,7 +147,7 @@ func (p *project) checkBounds(structs map[string]*ast.StructType, decl map[strin
 	for _, f := range st.Fields.List {
 		if isStringType(f.Type) {
 			if !fieldHasMax(f) {
-				*out = append(*out, finding{src.rel, p.at(src, f) + "  " + name + "." + fieldNames(f) + " (string) has no max: in its validation tag"})
+				*out = append(*out, finding{src.Rel, p.at(src, f) + "  " + name + "." + fieldNames(f) + " (string) has no max: in its validation tag"})
 			}
 
 			continue
@@ -241,7 +241,7 @@ func (p *project) validationRules() []finding {
 	var out []finding
 
 	for _, s := range p.productionIn(p.cfg.Layers.Application) {
-		ast.Inspect(s.file, func(n ast.Node) bool {
+		ast.Inspect(s.File, func(n ast.Node) bool {
 			f, ok := n.(*ast.Field)
 			if !ok {
 				return true
@@ -255,7 +255,7 @@ func (p *project) validationRules() []finding {
 			// The rules do not depend on the field's type: a string field with the same tag is checked in its place.
 			typ := reflect.StructOf([]reflect.StructField{{Name: "Field", Type: reflect.TypeFor[string](), Tag: reflect.StructTag(`validation:"` + tag + `"`)}})
 			if err := validation.CheckRules(typ); err != nil {
-				out = append(out, finding{s.rel, p.at(s, f) + "  validation:" + strconv.Quote(tag) + ": " + err.Error() + " (min:0 is the spelling of gte=0)"})
+				out = append(out, finding{s.Rel, p.at(s, f) + "  validation:" + strconv.Quote(tag) + ": " + err.Error() + " (min:0 is the spelling of gte=0)"})
 			}
 
 			return true

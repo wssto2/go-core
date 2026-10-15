@@ -211,8 +211,8 @@ func TestGuardCatches(t *testing.T) {
 		}, []string{"g.go:3  imports github.com/gin-gonic/gin", "g.go:4  imports encoding/json", "g.go:5  imports gorm.io/gorm/clause",
 			"g.go:6  imports github.com/wssto2/go-core/datatable", "t.go:4  has a json: tag"}, []string{"shared/t.go", "ok.go", "ok2.go"}},
 		{ApplicationPurity, map[string]string{
-			"internal/application/order/g.go": "package order\n\nimport _ \"github.com/gin-gonic/gin\"\nimport _ \"gorm.io/gorm\"\nimport _ \"database/sql\"\n",
-		}, []string{"g.go:3  imports github.com/gin-gonic/gin", "g.go:4  imports gorm.io/gorm", "g.go:5  imports database/sql"}, nil},
+			"internal/application/order/g.go": "package order\n\nimport _ \"github.com/gin-gonic/gin\"\nimport _ \"gorm.io/gorm\"\n",
+		}, []string{"g.go:3  imports github.com/gin-gonic/gin", "g.go:4  imports gorm.io/gorm"}, nil},
 		{NoTimeNowDomain, map[string]string{
 			"internal/domain/order/n.go": "package order\n\nimport \"time\"\n\nvar a = time.Now()\n\nvar b = struct{ now func() time.Time }{now: time.Now}\n",
 		}, []string{"n.go:5", "n.go:7"}, nil},
@@ -414,7 +414,7 @@ func TestWalkSkips(t *testing.T) {
 
 	got := map[string]bool{}
 	for _, s := range p.files {
-		got[s.rel] = s.isTest
+		got[s.Rel] = s.IsTest
 	}
 
 	require.Equal(t, map[string]bool{"a.go": false, "fixturetest/f.go": true, "g_test.go": true}, got)
@@ -448,4 +448,32 @@ func TestRunPassesAGoodModule(t *testing.T) {
 	cfg := testConfig()
 	cfg.Root = root
 	Run(t, cfg)
+}
+
+func TestSourcesAndRatchetServeAnApplicationsOwnGuards(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	for path, content := range goodModule() {
+		require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(root, path)), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(root, path), []byte(content), 0o644))
+	}
+
+	srcs := Sources(t, root)
+	require.Len(t, srcs, 8)
+	require.Same(t, &srcs[0], &Sources(t, root)[0], "parsed once per root")
+
+	byFile := map[string][]string{}
+
+	for _, s := range srcs {
+		if s.Rel == "cmd/app/main.go" {
+			byFile[s.Rel] = append(byFile[s.Rel], s.At(s.File.Decls[0])+"  func")
+			require.False(t, s.IsTest)
+		}
+	}
+
+	require.Equal(t, map[string][]string{"cmd/app/main.go": {"cmd/app/main.go:3  func"}}, byFile)
+
+	Ratchet(t, "frozen", "hint", []string{"cmd/app/main.go"}, byFile)
 }

@@ -158,11 +158,11 @@ func lastSegment(p string) string {
 }
 
 // productionIn lists the non-test sources under any of the dirs.
-func (p *project) productionIn(dirs ...string) []source {
-	var out []source
+func (p *project) productionIn(dirs ...string) []Source {
+	var out []Source
 
 	for _, s := range p.files {
-		if !s.isTest && inAnyTree(s.rel, dirs...) {
+		if !s.IsTest && inAnyTree(s.Rel, dirs...) {
 			out = append(out, s)
 		}
 	}
@@ -170,12 +170,12 @@ func (p *project) productionIn(dirs ...string) []source {
 	return out
 }
 
-// allIn lists every source, test files included, under any of the dirs.
-func (p *project) allIn(dirs ...string) []source {
-	var out []source
+// allIn lists every Source, test files included, under any of the dirs.
+func (p *project) allIn(dirs ...string) []Source {
+	var out []Source
 
 	for _, s := range p.files {
-		if inAnyTree(s.rel, dirs...) {
+		if inAnyTree(s.Rel, dirs...) {
 			out = append(out, s)
 		}
 	}
@@ -184,13 +184,13 @@ func (p *project) allIn(dirs ...string) []source {
 }
 
 // importsMatching finds, in the sources, imports for which match is true.
-func (p *project) importsMatching(srcs []source, match func(path string) bool) []finding {
+func (p *project) importsMatching(srcs []Source, match func(path string) bool) []finding {
 	var out []finding
 
 	for _, s := range srcs {
-		for _, imp := range s.file.Imports {
+		for _, imp := range s.File.Imports {
 			if ip := importPath(imp); ip != "" && match(ip) {
-				out = append(out, finding{s.rel, p.at(s, imp) + "  imports " + ip})
+				out = append(out, finding{s.Rel, p.at(s, imp) + "  imports " + ip})
 			}
 		}
 	}
@@ -199,18 +199,18 @@ func (p *project) importsMatching(srcs []source, match func(path string) bool) [
 }
 
 // callsOf finds calls of <pkg>.<fn> where pkg is the import path's name in the file.
-func (p *project) callsOf(srcs []source, importPath, fn string) []finding {
+func (p *project) callsOf(srcs []Source, importPath, fn string) []finding {
 	var out []finding
 
 	for _, s := range srcs {
-		alias := aliasOf(s.file, importPath)
+		alias := aliasOf(s.File, importPath)
 		if alias == "" {
 			continue
 		}
 
-		ast.Inspect(s.file, func(n ast.Node) bool {
+		ast.Inspect(s.File, func(n ast.Node) bool {
 			if call, ok := selectorCall(n, alias, fn); ok {
-				out = append(out, finding{s.rel, p.at(s, call)})
+				out = append(out, finding{s.Rel, p.at(s, call)})
 			}
 
 			return true

@@ -48,37 +48,37 @@ func (p *project) bannedUses(b Banned) []finding {
 	var out []finding
 
 	for _, s := range p.files {
-		if s.isTest && !b.Tests {
+		if s.IsTest && !b.Tests {
 			continue
 		}
 
-		if len(b.In) > 0 && !slices.ContainsFunc(b.In, func(place string) bool { return inPlace(place, s.rel) }) {
+		if len(b.In) > 0 && !slices.ContainsFunc(b.In, func(place string) bool { return inPlace(place, s.Rel) }) {
 			continue
 		}
 
-		if slices.ContainsFunc(b.Except, func(place string) bool { return inPlace(place, s.rel) }) {
+		if slices.ContainsFunc(b.Except, func(place string) bool { return inPlace(place, s.Rel) }) {
 			continue
 		}
 
 		if b.Symbol == "" {
-			for _, imp := range s.file.Imports {
+			for _, imp := range s.File.Imports {
 				if ip := importPath(imp); ip != "" && p.importMatches(b.Import, ip) && !slices.ContainsFunc(b.Unless, func(u string) bool { return p.importMatches(u, ip) }) {
-					out = append(out, finding{s.rel, p.at(s, imp) + "  imports " + ip})
+					out = append(out, finding{s.Rel, p.at(s, imp) + "  imports " + ip})
 				}
 			}
 
 			continue
 		}
 
-		alias := aliasOf(s.file, b.Import)
+		alias := aliasOf(s.File, b.Import)
 		if alias == "" {
 			continue
 		}
 
-		ast.Inspect(s.file, func(n ast.Node) bool {
+		ast.Inspect(s.File, func(n ast.Node) bool {
 			if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == b.Symbol {
 				if id, ok := sel.X.(*ast.Ident); ok && id.Name == alias {
-					out = append(out, finding{s.rel, p.at(s, sel) + "  uses " + alias + "." + b.Symbol})
+					out = append(out, finding{s.Rel, p.at(s, sel) + "  uses " + alias + "." + b.Symbol})
 				}
 			}
 
