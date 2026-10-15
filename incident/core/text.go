@@ -45,7 +45,6 @@ func clip(text string, n int) string {
 	return b.String()
 }
 
-
 // Marshal is the JSON of a diagnostic document.
 func Marshal(v any) (string, error) {
 	raw, err := json.Marshal(v)

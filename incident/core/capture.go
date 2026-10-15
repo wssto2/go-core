@@ -15,6 +15,9 @@ import (
 type Failure struct {
 	// Source is SourceRuntimeError (the default) or SourceClientError.
 	Source Source
+	// Severity is the severity of the incident this failure opens; the default is high for a server error and low for
+	// a browser error. An incident that exists keeps the severity it has.
+	Severity Severity
 	// Message is what went wrong; a failure without one is not recorded.
 	Message        string
 	ErrorClass     string
@@ -134,6 +137,10 @@ func (f Failure) title() string {
 }
 
 func (f Failure) severity() Severity {
+	if f.Severity.Valid() {
+		return f.Severity
+	}
+
 	if f.Source == SourceClientError {
 		return SeverityLow
 	}
