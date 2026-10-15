@@ -182,10 +182,11 @@ production files (`_test.go` files and `*test` support packages are exempt):
   `notification` imported by neither `event` nor `identity` (the key notice
   excepted), and `gocore` imported only by a module's facade;
 - `gocoretest` imported by test code only;
+- `incident/core` taking the standard library, `apperr` and `pagination` only;
 - `identity/account` taking the standard library, `apperr`, `authz`, `mail` and bcrypt only.
 
 It also holds `archtest`'s route-access rule on go-core's own routes (every route
-says who may call it). Not checked: that `incident/core` stays free of HTTP and SQL packages, `fmt.Errorf` wrapping (two `%v` wraps of an
+says who may call it). Not checked: `fmt.Errorf` wrapping (two `%v` wraps of an
 error that may be nil remain in `datatable` and `resource`), the route naming
 rules (modules build some paths at run time), that an `Install` builds only
 its own services (`gocore` has its own test) and the import cycle, which the compiler refuses.
