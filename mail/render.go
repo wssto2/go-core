@@ -19,11 +19,13 @@ type Content struct {
 	Subject string
 	Text    string
 	HTML    string
+	// Inline is the parts the HTML shows with cid: (Brand.Render puts the logo here).
+	Inline []Inline
 }
 
 // To makes the Message of the content for the recipients.
 func (c Content) To(to ...string) Message {
-	return Message{To: to, Subject: c.Subject, Text: c.Text, HTML: c.HTML}
+	return Message{To: to, Subject: c.Subject, Text: c.Text, HTML: c.HTML, Inline: c.Inline}
 }
 
 // Renderer makes the text of a mail in the recipient's language. Modules ship

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing/fstest"
 
 	"github.com/wssto2/go-core/mail"
@@ -109,4 +110,26 @@ func ExampleErrPermanent() {
 	// A message that is wrong as it is can never be sent: do not retry it.
 	fmt.Println(errors.Is(bad.Check(), mail.ErrPermanent))
 	// Output: true
+}
+
+//nolint:exhaustruct,exhaustruct_v5,goconst // an example shows only what it sets
+func ExampleBrand_Render() {
+	brand := mail.Brand{
+		Name: "Acme", Color: "#0f766e", Greeting: "Hello,",
+		Logo:   &mail.Inline{CID: "logo@acme.example", ContentType: "image/png", Data: []byte("...png bytes...")},
+		Footer: "You get this mail because you have an Acme account.",
+	}
+
+	content, _ := brand.Render(mail.Page{
+		Paragraphs:  []string{"Your order 42 is ready."},
+		ActionLabel: "Open the order", ActionURL: "https://app.acme.example/orders/42",
+	})
+	content.Subject = "Order 42"
+
+	m := content.To("ana@example.com") // HTML with the logo as an inline part, and the text
+	fmt.Println(m.Check(), len(m.Inline))
+	fmt.Println(strings.Split(m.Text, "\n\n")[1])
+	// Output:
+	// <nil> 1
+	// Your order 42 is ready.
 }
