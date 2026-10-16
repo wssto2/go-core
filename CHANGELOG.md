@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.14.0 (unreleased)
+
+A development copy of production data must not mail real people.
+
+### Added
+
+- `mail.Redirect(next, to) Sender`: every message goes to the one address `to`, whatever its recipients were, and is sent once. `Message` has no Cc, Bcc or headers, so the original recipients are put in the subject, `[to a@x.hr, b@y.hr] Subject`. Text, HTML and Inline are untouched and an error from `next` is returned as it is (`ErrPermanent` stays detectable). An address that is not an e-mail address is reported by every `Send`, like an `SMTP` configuration that cannot work; the message is never sent to its own recipients.
+
 ## v1.13.0 (unreleased)
 
 Backend pieces an application kept to itself become library parts: named storage disks and a file response, inline images and a branded frame for mail, paper-form PDF widgets, a retention runner, an opt-in check for legacy utf8mb3 text and a safe `Content-Disposition`.
