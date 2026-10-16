@@ -204,3 +204,57 @@ func TestLocalDriver_RejectsSymlinkedParentDirectory(t *testing.T) {
 		t.Fatalf("expected CodeBadRequest, got %s", aerr.Code)
 	}
 }
+
+func TestLocalDriver_DeleteMissingIsNotAnError(t *testing.T) {
+	t.Parallel()
+
+	driver, err := New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	err = driver.Delete(context.Background(), "nope/never.txt")
+	if err != nil {
+		t.Fatalf("Delete of a missing key: %v", err)
+	}
+}
+
+func TestLocalDriver_OpenSeeksAndRefusesDirectories(t *testing.T) {
+	t.Parallel()
+
+	driver, err := New(t.TempDir())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx := context.Background()
+
+	err = driver.Put(ctx, "dir/a.txt", bytes.NewReader([]byte("0123456789")), 0, "")
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	file, info, err := driver.Open(ctx, "dir/a.txt")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	if info.Size() != 10 || info.Name() != "a.txt" {
+		t.Fatalf("info = %s, %d", info.Name(), info.Size())
+	}
+
+	_, err = file.Seek(7, io.SeekStart)
+	if err != nil {
+		t.Fatalf("Seek: %v", err)
+	}
+
+	if rest, _ := io.ReadAll(file); string(rest) != "789" {
+		t.Fatalf("rest = %q", rest)
+	}
+
+	_, _, err = driver.Open(ctx, "dir")
+	if !apperr.HasCode(err, apperr.CodeNotFound) {
+		t.Fatalf("a directory is not an object: %v", err)
+	}
+}
