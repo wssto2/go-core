@@ -1102,6 +1102,10 @@ func accountsCounts(t *testing.T, s Stores) {
 func accountsLastSignIn(t *testing.T, stores Stores) {
 	t.Helper()
 
+	if stores.SignIns == nil {
+		t.Skip("no SignInHistory")
+	}
+
 	chk := check{t}
 	people := seedForSearch(chk, stores) // ana, boris, cvita (inactive), dino, eva
 
