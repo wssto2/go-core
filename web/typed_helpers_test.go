@@ -195,3 +195,30 @@ func TestWriteAccepted(t *testing.T) {
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 	assert.JSONEq(t, `{"success":true,"data":{"job":"q1"}}`, rec.Body.String())
 }
+
+type profile struct{ Name string }
+
+func (profile) GetID() int { return 1 }
+
+func TestSignedInAs(t *testing.T) {
+	t.Parallel()
+
+	_, err := web.SignedInAs[profile](context.Background())
+
+	var app *apperr.AppError
+	require.ErrorAs(t, err, &app)
+	assert.Equal(t, apperr.CodeUnauthenticated, app.Code)
+
+	rec := serve(t, "/x/1", func(ctx *gin.Context) {
+		auth.SetUser(ctx, profile{Name: "Ana"})
+
+		got, err := web.SignedInAs[profile](ctx.Request.Context())
+		require.NoError(t, err)
+
+		_, err = web.SignedInAs[user](ctx.Request.Context())
+		require.ErrorAs(t, err, &app, "a user of another type is not signed in as this one")
+
+		ctx.String(http.StatusOK, got.Name)
+	})
+	assert.Equal(t, "Ana", rec.Body.String())
+}
