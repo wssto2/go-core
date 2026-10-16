@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.15.0 (unreleased)
+
+The last generic pieces an application kept to itself: hooks that let an app run its own user administration on identity's routes and screens, transaction and MySQL error helpers, env loaders for mail, incident alerts and push, and a go2ts that keeps a generated folder in sync.
+
+### Added
+
+- identity: `WithUserReach`, a per-person reach check asked by every users route that names a person (show, update, password, deactivate, activate, unlock, sessions, revoke, sign-ins, changes, activity) with that route's permission. A person out of reach answers 404 `identity.account.not_found`, the same as a missing id; a guard test fails when a new person route forgets it. Which people the list shows stays the Searcher's to scope.
+- identity: `WithUserExtension` (`account.UserExtension`): the app's own data as `ext` on list rows and the record; create, update and deactivate take `ext` / `details`, run in identity's transaction (an error rolls everything back) and answer `ext`. `Admin.CreateWithExt` and `Admin.DeactivateWithExt`.
+- identity: `WithChangeLog` and `account.ChangeEntry.Ext` (as `ext` on a change row); `WithIdleAfter` and the list filter `last_sign_in=never|idle`; `account.Query` gains `Filters` (query keys identity has no field for reach the app's Searcher, in `Search` and `Counts`), `LastSignIn` and `IdleBefore`. identitytest: `WithUserExtension`, `WithIdleAfter`, `WithSearcher`, `WithChangeLogWrap`, `Accounts.WithSignIns`; storetest: `accounts/last sign-in filter`.
+- database: `BaseRepository.InTx` and `WithinTx` (a nested call joins the caller's transaction) and `PlainRepository`, a repository whose connection ignores any transaction in the context. `IsDuplicateKey`, `IsDuplicateKeyNamed` and `IsDeadlock` for MySQL, MariaDB and SQLite; event, authz/gormstore and incident/gormstore use them instead of private copies.
+- datatable: `ParamsOf` (pagination.Page to QueryParams) and `DatatableResult.ToPageResult`; resource: `Response.ToPagination`.
+- web: `SignedInAs[T]`, the signed-in person as the application's own user type (401 when there is none or it is another type).
+- mail: `SMTPFromEnv(defaultFromName)` and `SenderFromEnv(defaultFromName, logger)` read `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_ADDRESS`, `SMTP_FROM_NAME` and `MAIL_REDIRECT_TO` (a bad address is an error naming the variable). incident: `AlertsFromEnv` reads `INCIDENT_NOTIFICATIONS_ENABLED`, `INCIDENT_IMMEDIATE_SEVERITIES`, `INCIDENT_IMMEDIATE_COOLDOWN_MINUTES` and `INCIDENT_DIGEST_INTERVAL_MINUTES`. notification/push: `ConfigFromEnv` reads `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`, and `Config.Enabled`.
+- go2ts: `Sync` writes a generated folder so only changed files are written and stale `.ts` files are deleted; a json tag with `omitzero` is optional, like `omitempty`.
+
+### Changed
+
+- identity: `SetPassword` by an administrator for themselves keeps their own session (`account.SetPassword.KeepToken`).
+- identity: `POST /v1/iam/users/:id/deactivate` answers 200 `{}` (or `{ext}`) instead of 204.
+- identity: `Admin.RevokeSession` of a missing account is `identity.account.not_found` (it was `session.not_found`, which told who exists). New reason `identity.list.last_sign_in_invalid`.
+- go2ts: `json.RawMessage` is `unknown` / `z.unknown()` (it was an array of numbers).
+- `go-sql-driver/mysql` is a direct dependency.
+
 ## v1.14.0 (unreleased)
 
 A development copy of production data must not mail real people.
