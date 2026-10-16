@@ -60,6 +60,7 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 * `notification` → the in-app inbox, e-mail and web push: categories, `Send` from an event consumer, preferences and quiet hours, the delivery workers, devices, the live stream, the inbox and dead-letter routes (see "Notifications"; migrations in `notification/migrations`, mail text in `notification/mailtext`, the Web Push protocol in `notification/push`, a fake push service for tests in `notification/push/pushtest`)
 * `incident` → the incident log: a server error or panic becomes an incident, repeats are counted on it, a person reports a bug, the browser reports its errors, the staff work the list, and the people who hold `incident:manage` are alerted (see "Incidents"; core `incident/core`, store `incident/gormstore`, conformance suite `incident/storetest`, migrations `incident/migrations`, alert wording `incident/mailtext`)
 * `savedview` → a person's saved list views: the filters and search of a list kept under a name and applied again with one click (see "Saved views"; core `savedview/core`, store `savedview/gormstore`, conformance suite `savedview/storetest`, migrations `savedview/migrations`)
+* `storage` → named disks of files, private or public, and `web.Serve` to stream one (see "Storage disks"; drivers `storage/local` and `storage/memory`)
 * `navigation` → the menu tree an application declares and the filter by held permissions
 
 ### Utility Packages
@@ -602,6 +603,32 @@ savedview.Install(app) // the table and three routes; no options, no permission
 * **The rule (SAVEDVIEW-001)**: a view is private to the person. The person comes from the session and never from the request, every read and write is keyed on it, and another person's view cannot be listed, replaced or deleted: deleting it is a 404, the same as a missing id. Saving under a name the person already uses on that list **replaces** that view's state. A person keeps **at most 20 views per list**: a new name beyond that is a 400 (`at most 20 saved views per list`); replacing one is still allowed. The state is opaque to the module but must be a **JSON object** (`state must be a JSON object`, 400), at most 4000 characters; `list_key` is required, at most 100, `name` required, at most 60, both trimmed. The limits are fixed.
 * **Table** (`savedview/migrations`): `saved_views` with `user_id`, `list_key`, `name`, `state`, `created_at`, `updated_at`, a unique index on `(user_id, list_key, name)` and one on `(user_id, list_key)`; there is no tenant column. The file is the DDL an application that grew the table as `saved_filters` has once it renames the table and its two indexes (`saved_views_user_list_name`, `saved_views_user_list`): it adopts it with `MarkApplied`. Tests: the store conformance suite `savedview/storetest` on SQLite, MySQL and MariaDB 10.3 (`dbtest.Run`), the service, and the routes' status, body and refusals.
 * The TypeScript contract is `savedview.Routes` (`cmd/modulets` writes `savedview/`).
+
+---
+
+## Storage disks
+
+An application keeps its files on **named disks**. A disk is **private** unless it says `Public`: a private disk's files are opened only through the application, after the route's own permission check; a public disk's files are at a base URL (a path, later possibly a CDN) and anyone with the link can open one. The application passes the root and the base URL from its own configuration; go-core reads none.
+
+```go
+app.Disks(
+    storage.Disk("uploads").Local("storage/uploads"),                 // private: served only through the app
+    storage.Disk("public").Local("storage/public").Public("/media"),  // anyone with the URL can open it
+)
+
+documents := storage.Use(app, "uploads").Folder("vehicle-documents")
+photos    := storage.Use(app, "public").Folder("vehicles")
+
+documents.Put(ctx, name, file, size, mime)
+web.Serve(c, documents, name, web.Attachment(doc.Name))  // Range, Last-Modified, Content-Disposition with filename*
+url, _ := photos.URL(ctx, "123/photos/front.jpg")        // "/media/vehicles/123/photos/front.jpg"
+```
+
+* **`Folder(prefix)`** scopes a disk (folders nest): nothing outside the prefix can be read, listed or deleted through the result, and a key that escapes it (`..`, an absolute path, a backslash) is refused.
+* **Start-up**: an unknown name given to `storage.Use`, a name declared twice, a disk with no `Local`/`Memory`/`Driver`, or a root that cannot be created stops `Run` and `Check` with the other problems. Declare the disks before the features that use them.
+* **`URL`** is an error on a private disk. **`Delete`** of a missing file is not an error. **`Put`** writes the whole stream and replaces an existing key; a failed write leaves no partial file and keeps the old one. `size` is the length the stream must have, `0` means unknown, and a stream of another length is refused, never cut. `Exists` is there for the application's own collision rule.
+* **`web.Serve(c, disk, key, disposition)`** streams with `http.ServeContent` when the driver can open a file for seeking (`storage.Opener`; `local` and `memory` can), so `Range`, `If-Modified-Since` and `Last-Modified` work; any other driver is streamed whole. A missing file is the standard JSON 404. `web.Attachment(name)` and `web.Inline(name)` build the disposition. Serve checks no permission: the route does, which is what makes a private disk private.
+* **`local`** resolves its root, refuses a symlinked file or directory inside it, and writes through a temporary file renamed into place. **`memory`** has the same capabilities, for tests.
 
 ---
 

@@ -3,6 +3,7 @@ package memory
 import (
 	"bytes"
 	"context"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,4 +32,37 @@ func TestMemoryDriver_List_ReturnsPrefixedKeys(t *testing.T) {
 	keys, err := d.List(ctx, "c/")
 	require.NoError(t, err)
 	assert.Empty(t, keys)
+}
+
+func TestMemoryDriver_UnknownSizeWritesEverythingAndOpenSeeks(t *testing.T) {
+	t.Parallel()
+
+	driver, err := New()
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, driver.Put(ctx, "a/b.txt", bytes.NewReader([]byte("0123456789")), 0, ""))
+	longer := driver.Put(ctx, "a/c.txt", bytes.NewReader([]byte("0123456789")), 4, "")
+	require.Error(t, longer, "a longer stream is not cut")
+
+	file, info, err := driver.Open(ctx, "a/b.txt")
+	require.NoError(t, err)
+
+	defer func() { _ = file.Close() }()
+
+	assert.EqualValues(t, 10, info.Size())
+	assert.Equal(t, "b.txt", info.Name())
+	assert.False(t, info.ModTime().IsZero())
+
+	_, err = file.Seek(8, io.SeekStart)
+	require.NoError(t, err)
+
+	rest, _ := io.ReadAll(file)
+	assert.Equal(t, "89", string(rest))
+
+	require.NoError(t, driver.Delete(ctx, "missing"))
+
+	keys, err := driver.List(ctx, "a")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a/b.txt"}, keys)
 }
