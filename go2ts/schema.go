@@ -441,7 +441,7 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 //   - An inferred TypeScript type: export type Foo = z.infer<typeof FooSchema>
 //
 // Use this for request/input structs that have `validation` struct tags. A
-// field whose json tag has omitempty is optional in the schema (a client may
+// field whose json tag has omitempty or omitzero is optional in the schema (a client may
 // leave it out), unless it is required; a pointer is optional and nullable.
 // For entity types (responses), use GenerateTypes instead.
 func GenerateSchemas(structs []interface{}, dir string) error {
@@ -505,12 +505,13 @@ func sortedKeys(m map[string]interface{}) []string {
 	return keys
 }
 
-// jsonOmitsEmpty reports whether a json tag carries the omitempty option.
+// jsonOmitsEmpty reports whether a json tag carries the omitempty or the omitzero option: either leaves the field out
+// of the JSON, so a client may leave it out too.
 func jsonOmitsEmpty(tag string) bool {
 	_, opts, _ := strings.Cut(tag, ",")
 
 	for _, opt := range strings.Split(opts, ",") {
-		if opt == "omitempty" {
+		if opt == "omitempty" || opt == "omitzero" {
 			return true
 		}
 	}
