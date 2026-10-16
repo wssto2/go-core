@@ -249,13 +249,6 @@ func failed(what string, err error) error {
 	return fmt.Errorf("%s: %w", what, err)
 }
 
-// isDuplicate recognises a unique-key violation on SQLite, MySQL and MariaDB.
-func isDuplicate(err error) bool {
-	lower := strings.ToLower(err.Error())
-
-	return strings.Contains(lower, "unique constraint failed") || strings.Contains(lower, "duplicate entry")
-}
-
 // CreateIncident implements core.Store.
 func (s *Store) CreateIncident(ctx context.Context, incident *core.Incident) error {
 	row := modelOf(*incident)
@@ -263,7 +256,7 @@ func (s *Store) CreateIncident(ctx context.Context, incident *core.Incident) err
 
 	err := s.conn(ctx).Create(&row).Error
 	if err != nil {
-		if isDuplicate(err) {
+		if database.IsDuplicateKey(err) {
 			return fmt.Errorf("create incident: %w", core.ErrDuplicate)
 		}
 

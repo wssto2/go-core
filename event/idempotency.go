@@ -18,9 +18,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
+	"github.com/wssto2/go-core/database"
 	"gorm.io/gorm"
 )
 
@@ -53,7 +53,7 @@ func ReserveKey(ctx context.Context, tx *gorm.DB, key string) (bool, error) {
 	}
 	r := IdempotencyRecord{Key: key}
 	if err := tx.WithContext(ctx).Create(&r).Error; err != nil {
-		if isUniqueConstraintError(err) {
+		if database.IsDuplicateKey(err) {
 			return false, nil
 		}
 		return false, err
@@ -87,21 +87,6 @@ func GetResponse(ctx context.Context, db *gorm.DB, key string) (resp []byte, fou
 		return nil, false, err
 	}
 	return r.Response, true, nil
-}
-
-// isUniqueConstraintError performs a best-effort detection of unique constraint
-// violation errors across common SQL drivers. This is intentionally minimal.
-func isUniqueConstraintError(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := strings.ToLower(err.Error())
-	// SQLite: "unique constraint failed: table.column"
-	// MySQL : "error 1062: duplicate entry '...' for key '..."'
-	// PgSQL : "duplicate key value violates unique constraint"
-	return strings.Contains(s, "unique constraint failed") ||
-		strings.Contains(s, "duplicate entry") ||
-		strings.Contains(s, "duplicate key value")
 }
 
 // DBProcessedStore is a database-backed implementation of ProcessedStore.
