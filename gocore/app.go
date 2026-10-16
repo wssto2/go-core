@@ -16,6 +16,7 @@ import (
 	"github.com/wssto2/go-core/logger"
 	"github.com/wssto2/go-core/observability"
 	"github.com/wssto2/go-core/route"
+	"github.com/wssto2/go-core/storage"
 	"github.com/wssto2/go-core/tenancy"
 	"github.com/wssto2/go-core/worker"
 	"gorm.io/gorm"
@@ -76,6 +77,7 @@ type App struct {
 	onStart   []func(ctx context.Context) error
 	customize []func(*bootstrap.AppBuilder)
 
+	disks      *storage.Registry
 	routes     []mounted
 	workers    []worker.Worker
 	catalogues []*authz.Catalogue
@@ -264,6 +266,37 @@ func (a *App) Prefix() string {
 	}
 
 	return a.prefix
+}
+
+// Disks declares the application's named storage disks. A disk is private unless it says Public; features take one
+// with storage.Use(app, name), so declare the disks before installing them:
+//
+//	app.Disks(
+//	    storage.Disk("uploads").Local("storage/uploads"),                // served only through the app
+//	    storage.Disk("public").Local("storage/public").Public("/media"), // anyone with the URL can open it
+//	)
+//
+// A disk without a name or a driver, a name declared twice, or a root that cannot be used stops start-up.
+func (a *App) Disks(disks ...storage.DiskSpec) {
+	if a.disks == nil {
+		a.disks = storage.NewRegistry()
+	}
+
+	for _, d := range disks {
+		err := a.disks.Add(d)
+		if err != nil {
+			a.fail(err.Error(), "give each disk in app.Disks a unique name and Local(root), Memory() or Driver(d)")
+		}
+	}
+}
+
+// Disk returns the disk declared as name; storage.Use is the way features ask for one.
+func (a *App) Disk(name string) (*storage.Files, bool) {
+	if a.disks == nil {
+		return nil, false
+	}
+
+	return a.disks.Disk(name)
 }
 
 // Fail reports a problem that stops the application from starting, for a

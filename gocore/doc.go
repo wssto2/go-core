@@ -27,7 +27,8 @@
 // problem with its fix, then boots, serves and, on a signal, drains and stops.
 //
 // What belongs to the whole site rather than to a feature is an option of New
-// or a call on the App: Root for routes outside the prefix, Use for engine
+// or a call on the App: Root for routes outside the prefix, Disks for named storage
+// disks (storage.Use takes them), Use for engine
 // middleware that runs before every route, WithCSP for Content-Security-Policy
 // sources, WithServiceWorker for /sw.js, and Telemetry for the metrics handle.
 //
