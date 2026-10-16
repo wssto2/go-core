@@ -7,6 +7,12 @@ import (
 	"path/filepath"
 )
 
+// The modes of the generated folder and its files: sources the whole team reads.
+const (
+	dirMode  = 0o755
+	fileMode = 0o644
+)
+
 // Sync makes dir hold exactly what gen writes: gen runs into a scratch directory, a file is written to dir only when
 // its content changed (so the timestamps of the others, and the file watchers on them, are left alone), and every
 // *.ts file in dir that this run did not write is deleted. Anything that is not a top-level .ts file (subdirectories,
@@ -18,7 +24,8 @@ import (
 //
 // gen's error is returned as it is, and then dir is untouched.
 func Sync(dir string, gen func(dir string) error) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:mnd // a folder of generated sources
+	err := os.MkdirAll(dir, dirMode)
+	if err != nil {
 		return fmt.Errorf("go2ts: create %s: %w", dir, err)
 	}
 
@@ -26,58 +33,82 @@ func Sync(dir string, gen func(dir string) error) error {
 	if err != nil {
 		return fmt.Errorf("go2ts: open %s: %w", dir, err)
 	}
-	defer out.Close()
 
-	tmp, err := os.MkdirTemp("", "go2ts-")
+	defer func() { _ = out.Close() }() // best-effort: nothing is written through it after Sync returns
+
+	scratch, err := os.MkdirTemp("", "go2ts-")
 	if err != nil {
 		return fmt.Errorf("go2ts: create the scratch folder: %w", err)
 	}
-	defer os.RemoveAll(tmp)
 
-	if err := gen(tmp); err != nil {
+	defer func() { _ = os.RemoveAll(scratch) }() // best-effort: a scratch folder of the temp dir
+
+	err = gen(scratch)
+	if err != nil {
 		return err
 	}
 
-	written, err := os.ReadDir(tmp)
+	written, err := copyChanged(scratch, out)
 	if err != nil {
-		return fmt.Errorf("go2ts: read the scratch folder: %w", err)
+		return err
 	}
 
-	keep := make(map[string]bool, len(written))
+	return removeStale(dir, out, written)
+}
 
-	for _, e := range written {
-		if e.IsDir() {
+// copyChanged writes the files of the scratch folder that differ from the ones in out, and returns the names of all of
+// them.
+func copyChanged(scratch string, out *os.Root) (map[string]bool, error) {
+	entries, err := os.ReadDir(scratch)
+	if err != nil {
+		return nil, fmt.Errorf("go2ts: read the scratch folder: %w", err)
+	}
+
+	written := make(map[string]bool, len(entries))
+
+	for _, entry := range entries {
+		if entry.IsDir() {
 			continue
 		}
 
-		keep[e.Name()] = true
+		name := entry.Name()
+		written[name] = true
 
-		data, err := os.ReadFile(filepath.Join(tmp, e.Name()))
+		data, err := os.ReadFile(filepath.Join(scratch, name)) //nolint:gosec // our own scratch directory
 		if err != nil {
-			return fmt.Errorf("go2ts: read generated %s: %w", e.Name(), err)
+			return nil, fmt.Errorf("go2ts: read generated %s: %w", name, err)
 		}
 
-		if old, err := out.ReadFile(e.Name()); err == nil && bytes.Equal(old, data) {
+		old, err := out.ReadFile(name)
+		if err == nil && bytes.Equal(old, data) {
 			continue
 		}
 
-		if err := out.WriteFile(e.Name(), data, 0o644); err != nil { //nolint:gosec,mnd // generated sources are for the whole team to read
-			return fmt.Errorf("go2ts: write %s: %w", e.Name(), err)
+		err = out.WriteFile(name, data, fileMode)
+		if err != nil {
+			return nil, fmt.Errorf("go2ts: write %s: %w", name, err)
 		}
 	}
 
+	return written, nil
+}
+
+// removeStale deletes the top-level .ts files of dir that are not in written.
+func removeStale(dir string, out *os.Root, written map[string]bool) error {
 	existing, err := os.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("go2ts: read %s: %w", dir, err)
 	}
 
-	for _, e := range existing {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".ts" || keep[e.Name()] {
+	for _, entry := range existing {
+		name := entry.Name()
+		if entry.IsDir() || filepath.Ext(name) != ".ts" || written[name] {
 			continue
 		}
 
-		if err := out.Remove(e.Name()); err != nil {
-			return fmt.Errorf("go2ts: remove stale %s: %w", e.Name(), err)
+		err = out.Remove(name)
+		if err != nil {
+			return fmt.Errorf("go2ts: remove stale %s: %w", name, err)
 		}
 	}
 

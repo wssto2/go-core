@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,goconst,paralleltest // tests in the style of the package's others
 package datatable_test
 
 import (

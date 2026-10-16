@@ -1,4 +1,4 @@
-//nolint:paralleltest // the tests set environment variables
+//nolint:exhaustruct,exhaustruct_v5 // tests in the style of the package's others
 package push_test
 
 import (

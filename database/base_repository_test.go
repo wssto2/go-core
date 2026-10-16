@@ -1,3 +1,4 @@
+//nolint:err113,exhaustruct,exhaustruct_v5,lll,paralleltest,thelper,varnamelen // tests in the style of the package's others
 package database_test
 
 import (
@@ -85,23 +86,17 @@ func TestPlainRepository_IgnoresTheTransactionInContext(t *testing.T) {
 		plain := &database.PlainRepository{Conn: db}
 
 		err := base.WithinTx(t.Context(), func(ctx context.Context) error {
-			assert.Same(t, mustTx(t, ctx), base.DB(ctx).Statement.ConnPool, "the base repository uses the transaction")
-			assert.NotSame(t, mustTx(t, ctx), plain.DB(ctx).Statement.ConnPool, "the plain one does not")
+			tx, ok := database.TxFromContext(ctx)
+			require.True(t, ok)
+
+			assert.Same(t, tx.Statement.ConnPool, base.DB(ctx).Statement.ConnPool, "the base repository uses the transaction")
+			assert.NotSame(t, tx.Statement.ConnPool, plain.DB(ctx).Statement.ConnPool, "the plain one does not")
 
 			return nil
 		})
 
 		require.NoError(t, err)
 	})
-}
-
-func mustTx(t *testing.T, ctx context.Context) gorm.ConnPool {
-	t.Helper()
-
-	tx, ok := database.TxFromContext(ctx)
-	require.True(t, ok)
-
-	return tx.Statement.ConnPool
 }
 
 // The write of a PlainRepository commits on its own connection, so it survives the rollback of the transaction around

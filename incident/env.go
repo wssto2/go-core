@@ -13,7 +13,7 @@ import (
 // settings of the environment: set Notices on the returned value before passing it to Install. An unknown severity is
 // reported by Install.
 func AlertsFromEnv() Alerts {
-	severities := make([]Severity, 0, 4)
+	severities := []Severity{}
 
 	for s := range strings.SplitSeq(bootstrap.EnvStr("INCIDENT_IMMEDIATE_SEVERITIES", "critical,high"), ",") {
 		if s = strings.ToLower(strings.TrimSpace(s)); s != "" {
@@ -21,6 +21,7 @@ func AlertsFromEnv() Alerts {
 		}
 	}
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design: Notices and Holders are not settings of the environment
 	return Alerts{
 		Enabled:   bootstrap.EnvBool("INCIDENT_NOTIFICATIONS_ENABLED", false),
 		Immediate: severities,

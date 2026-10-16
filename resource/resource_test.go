@@ -103,6 +103,8 @@ func TestResource_WithCount_EmptyTableNameSetsError(t *testing.T) {
 }
 
 func TestResponse_ToPagination(t *testing.T) {
+	t.Parallel()
+
 	got := Response[string]{Data: "row", Meta: map[string]any{"k": 1}}.ToPagination()
 
 	if got.Data != "row" || got.Meta["k"] != 1 {

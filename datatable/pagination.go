@@ -4,21 +4,22 @@ import "github.com/wssto2/go-core/pagination"
 
 // ParamsOf converts the Page a repository port takes into the QueryParams the builder takes. The conversion is
 // lossless and unclamped: the builder clamps the page and the size itself.
-func ParamsOf(p pagination.Page) QueryParams {
+func ParamsOf(page pagination.Page) QueryParams {
 	return QueryParams{
-		View:     p.View,
-		Page:     p.Number,
-		PerPage:  p.Size,
-		Search:   p.Search,
-		OrderCol: p.OrderCol,
-		OrderDir: p.OrderDir,
-		Filters:  p.Filters,
+		View:     page.View,
+		Page:     page.Number,
+		PerPage:  page.Size,
+		Search:   page.Search,
+		OrderCol: page.OrderCol,
+		OrderDir: page.OrderDir,
+		Filters:  page.Filters,
 	}
 }
 
 // ToPageResult converts the result of a query into the pagination.PageResult a repository port returns, so the layers
 // above need not import datatable.
 func (d *DatatableResult[T]) ToPageResult() *pagination.PageResult[T] {
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design: a datatable has no counted views
 	return &pagination.PageResult[T]{
 		Items:    d.Data,
 		Meta:     d.Meta,

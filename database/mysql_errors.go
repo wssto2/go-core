@@ -25,8 +25,7 @@ func IsDuplicateKey(err error) bool {
 		return true
 	}
 
-	var mysqlErr *mysql.MySQLError
-	if errors.As(err, &mysqlErr) {
+	if mysqlErr, ok := errors.AsType[*mysql.MySQLError](err); ok {
 		return mysqlErr.Number == mysqlErrDuplicateEntry
 	}
 
@@ -39,16 +38,16 @@ func IsDuplicateKey(err error) bool {
 // IsDeadlock reports a statement whose transaction InnoDB rolled back as the victim of a deadlock. Nothing of the
 // transaction was written, so running it again from the start is safe.
 func IsDeadlock(err error) bool {
-	var mysqlErr *mysql.MySQLError
+	mysqlErr, ok := errors.AsType[*mysql.MySQLError](err)
 
-	return errors.As(err, &mysqlErr) && mysqlErr.Number == mysqlErrLockDeadlock
+	return ok && mysqlErr.Number == mysqlErrLockDeadlock
 }
 
 // IsDuplicateKeyNamed reports a write refused by one particular unique key, for a table with more than one. MySQL
 // names the key at the end of the message ("Duplicate entry '7' for key 'orders.uq_number'", MariaDB without the
 // table), so key is matched anywhere in it: pass the index name.
 func IsDuplicateKeyNamed(err error, key string) bool {
-	var mysqlErr *mysql.MySQLError
+	mysqlErr, ok := errors.AsType[*mysql.MySQLError](err)
 
-	return errors.As(err, &mysqlErr) && mysqlErr.Number == mysqlErrDuplicateEntry && strings.Contains(mysqlErr.Message, key)
+	return ok && mysqlErr.Number == mysqlErrDuplicateEntry && strings.Contains(mysqlErr.Message, key)
 }

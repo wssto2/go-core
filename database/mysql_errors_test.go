@@ -1,3 +1,4 @@
+//nolint:err113,exhaustruct,exhaustruct_v5,lll,noinlineerr,paralleltest,thelper,varnamelen // tests in the style of the package's others
 package database_test
 
 import (

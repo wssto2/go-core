@@ -1,3 +1,4 @@
+//nolint:err113,exhaustruct,exhaustruct_v5,gosec,paralleltest // tests in the style of the package's others
 package go2ts_test
 
 import (

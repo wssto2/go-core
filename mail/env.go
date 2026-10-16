@@ -16,6 +16,7 @@ import (
 func SMTPFromEnv(defaultFromName string) SMTPConfig {
 	from := mail.Address{Name: env("SMTP_FROM_NAME", defaultFromName), Address: env("SMTP_FROM_ADDRESS", "")}
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design: STARTTLS when offered, the default timeout
 	return SMTPConfig{
 		Addr:     net.JoinHostPort(env("SMTP_HOST", ""), env("SMTP_PORT", "587")),
 		Username: env("SMTP_USERNAME", ""),
@@ -29,21 +30,24 @@ func SMTPFromEnv(defaultFromName string) SMTPConfig {
 // for development and staging, whose databases are copies of production with real people's addresses; production
 // leaves it unset. A value that is not an e-mail address is an error naming the variable, so start-up stops instead
 // of every mail failing later; the sender returned with that error refuses every Send, it never reaches the relay.
-func SenderFromEnv(defaultFromName string, logger *slog.Logger) (Sender, error) { //nolint:ireturn // Sender is the port every sender here implements
+//
+//nolint:ireturn // Sender is the port every sender here implements
+func SenderFromEnv(defaultFromName string, logger *slog.Logger) (Sender, error) {
 	next := SMTP(SMTPFromEnv(defaultFromName))
 
-	to := strings.TrimSpace(env("MAIL_REDIRECT_TO", ""))
-	if to == "" {
+	address := strings.TrimSpace(env("MAIL_REDIRECT_TO", ""))
+	if address == "" {
 		return next, nil
 	}
 
-	if _, err := mail.ParseAddress(to); err != nil {
-		return Redirect(next, to), fmt.Errorf("MAIL_REDIRECT_TO %q is not an e-mail address: %w", to, err)
+	_, err := mail.ParseAddress(address)
+	if err != nil {
+		return Redirect(next, address), fmt.Errorf("MAIL_REDIRECT_TO %q is not an e-mail address: %w", address, err)
 	}
 
-	logger.Warn("mail redirection is on: every mail goes to one address", "MAIL_REDIRECT_TO", to)
+	logger.Warn("mail redirection is on: every mail goes to one address", "MAIL_REDIRECT_TO", address)
 
-	return Redirect(next, to), nil
+	return Redirect(next, address), nil
 }
 
 // env is bootstrap.EnvStr; mail sits below bootstrap and cannot import it.

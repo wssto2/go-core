@@ -6,6 +6,7 @@ import "os"
 // VAPID_SUBJECT. Generate the pair once per environment with GenerateKeys and never rotate it casually: a new pair
 // invalidates every device subscription. Push is off while any value is empty (see Config.Enabled).
 func ConfigFromEnv() Config {
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design: the default client
 	return Config{
 		PublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
 		PrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
