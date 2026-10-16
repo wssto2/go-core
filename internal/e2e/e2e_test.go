@@ -276,7 +276,7 @@ func TestIdentityAndAccessWorkTogether(t *testing.T) {
 		owned["dora"] = false
 
 		status, data = admin.do(nethttp.MethodPost, "/api/v1/iam/users/"+strconv.Itoa(dora.ID)+"/deactivate", nil)
-		require.Equal(t, nethttp.StatusNoContent, status, string(data))
+		require.Equal(t, nethttp.StatusOK, status, string(data))
 
 		status, _ = person.do(nethttp.MethodGet, "/api/v1/iam/profile", nil)
 		assert.Equal(t, nethttp.StatusUnauthorized, status, "deactivating signs her out")
