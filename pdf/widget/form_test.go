@@ -1,3 +1,4 @@
+//nolint:testpackage // shares testFonts and ptToMM with the package's other tests
 package widget
 
 import (
@@ -46,15 +47,15 @@ func drawOps(t *testing.T, pdf []byte) string {
 			continue // not a deflated stream (font, image)
 		}
 
-		b, err := io.ReadAll(r)
+		body, err := io.ReadAll(r)
 		if err != nil {
 			t.Fatalf("inflate: %v", err)
 		}
 
 		// Page content starts with the "0 J" line-cap setup; fonts and
 		// other streams do not.
-		if bytes.HasPrefix(b, []byte("0 J")) {
-			ops.Write(b)
+		if bytes.HasPrefix(body, []byte("0 J")) {
+			ops.Write(body)
 		}
 	}
 
@@ -71,7 +72,10 @@ func drawOps(t *testing.T, pdf []byte) string {
 	return strings.ReplaceAll(named, "\x00", "")
 }
 
-func measure(t *testing.T, w engine.Widget, maxW float64) engine.Size {
+// measureWidth is the width available to a widget under test.
+const measureWidth = 100.0
+
+func measure(t *testing.T, target engine.Widget) engine.Size {
 	t.Helper()
 
 	e, err := engine.NewEngine(testFonts())
@@ -79,9 +83,10 @@ func measure(t *testing.T, w engine.Widget, maxW float64) engine.Size {
 		t.Fatalf("NewEngine() returned error: %v", err)
 	}
 
-	ctx := &engine.Context{Renderer: e.Renderer, PageWidth: 210, PageHeight: 297}
+	ctx := &engine.Context{Renderer: e.Renderer, PageWidth: 210, PageHeight: 297, Margin: engine.All(0),
+		Header: nil, Footer: nil, PageNum: 0}
 
-	return w.Measure(ctx, engine.Constraints{MaxW: maxW, MaxH: engine.Unbounded}).Size()
+	return target.Measure(ctx, engine.Constraints{MinW: 0, MaxW: measureWidth, MinH: 0, MaxH: engine.Unbounded}).Size()
 }
 
 func count(ops, sub string) int { return strings.Count(ops, sub) }
@@ -94,6 +99,8 @@ const (
 func approx(a, b float64) bool { return math.Abs(a-b) < 1e-6 }
 
 func TestSignatureLine(t *testing.T) {
+	t.Parallel()
+
 	blank := renderPDF(t, SignatureLine("Sign here", "", 8))
 	ops := drawOps(t, blank)
 
@@ -102,30 +109,33 @@ func TestSignatureLine(t *testing.T) {
 	}
 
 	filled := drawOps(t, renderPDF(t, SignatureLine("Sign here", "J. Doe", 8)))
-	if count(filled, lineOp) != 1 || !strings.Contains(filled, "(J. Doe) Tj") || !strings.Contains(filled, "(Sign here) Tj") {
+	if count(filled, lineOp) != 1 || !strings.Contains(filled, "(J. Doe) Tj") ||
+		!strings.Contains(filled, "(Sign here) Tj") {
 		t.Fatalf("filled slot: want one rule, the value and the caption, got ops:\n%s", filled)
 	}
 
 	// 8mm room + 0.5mm gap + a one-line 8pt caption; full width.
-	got := measure(t, SignatureLine("Sign here", "", 8), 100)
+	got := measure(t, SignatureLine("Sign here", "", 8))
 	if want := 8 + 0.5 + 8*ptToMM*defaultLineHeight; !approx(got.H, want) || !approx(got.W, 100) {
 		t.Fatalf("size = %+v, want %vx%v", got, 100.0, want)
 	}
 }
 
 func TestLabelWithValue(t *testing.T) {
-	label := measure(t, Text("Name:", FontSize(8)), 100).W
+	t.Parallel()
 
-	fixed := measure(t, LabelWithValue("Name:", "x", 20), 100)
+	label := measure(t, Text("Name:", FontSize(8))).W
+
+	fixed := measure(t, LabelWithValue("Name:", "x", 20))
 	if want := label + 2 + 20; !approx(fixed.W, want) {
 		t.Fatalf("fixed width = %v, want %v", fixed.W, want)
 	}
 
-	if fill := measure(t, LabelWithValue("Name:", "x", FillWidth), 100); !approx(fill.W, 100) {
+	if fill := measure(t, LabelWithValue("Name:", "x", FillWidth)); !approx(fill.W, 100) {
 		t.Fatalf("FillWidth width = %v, want the whole row (100)", fill.W)
 	}
 
-	if natural := measure(t, LabelWithValue("Name:", "x", 0), 100); natural.W >= 100 || natural.W <= fixed.W-20 {
+	if natural := measure(t, LabelWithValue("Name:", "x", 0)); natural.W >= 100 || natural.W <= fixed.W-20 {
 		t.Fatalf("natural width = %v, want the text width", natural.W)
 	}
 
@@ -141,7 +151,9 @@ func TestLabelWithValue(t *testing.T) {
 }
 
 func TestTextLines(t *testing.T) {
-	got := measure(t, TextLines(3), 100)
+	t.Parallel()
+
+	got := measure(t, TextLines(3))
 	if !approx(got.W, 100) || !approx(got.H, 3*5.5) {
 		t.Fatalf("size = %+v, want 100x16.5", got)
 	}
@@ -152,7 +164,9 @@ func TestTextLines(t *testing.T) {
 }
 
 func TestCodeBoxes(t *testing.T) {
-	got := measure(t, CodeBoxes(4), 100)
+	t.Parallel()
+
+	got := measure(t, CodeBoxes(4))
 	if !approx(got.W, 20) || !approx(got.H, 4) {
 		t.Fatalf("size = %+v, want 20x4", got)
 	}
@@ -164,6 +178,8 @@ func TestCodeBoxes(t *testing.T) {
 }
 
 func TestYesNo(t *testing.T) {
+	t.Parallel()
+
 	ops := drawOps(t, renderPDF(t, YesNo(true, false, "Yes", "No")))
 
 	if count(ops, rectOp) != 2 {
@@ -185,6 +201,8 @@ func TestYesNo(t *testing.T) {
 }
 
 func TestFieldOptions(t *testing.T) {
+	t.Parallel()
+
 	ops := drawOps(t, renderPDF(t, SignatureLine("Sign", "", 8, FieldFontSize(12), FieldRule(1, "#ff0000"))))
 
 	for _, want := range []string{"12.00 Tf", "2.83 w", "1.000 0.000 0.000 RG"} {
@@ -193,13 +211,16 @@ func TestFieldOptions(t *testing.T) {
 		}
 	}
 
-	if yn := drawOps(t, renderPDF(t, YesNo(false, false, "Yes", "No", FieldFontSize(10)))); !strings.Contains(yn, "10.00 Tf") {
-		t.Fatalf("YesNo FieldFontSize ignored:\n%s", yn)
+	yesNo := drawOps(t, renderPDF(t, YesNo(false, false, "Yes", "No", FieldFontSize(10))))
+	if !strings.Contains(yesNo, "10.00 Tf") {
+		t.Fatalf("YesNo FieldFontSize ignored:\n%s", yesNo)
 	}
 }
 
 func TestPageBreak(t *testing.T) {
-	if got := measure(t, PageBreak(), 100); got != (engine.Size{}) {
+	t.Parallel()
+
+	if got := measure(t, PageBreak()); got != (engine.Size{W: 0, H: 0}) {
 		t.Fatalf("size = %+v, want zero", got)
 	}
 
@@ -211,6 +232,8 @@ func TestPageBreak(t *testing.T) {
 
 // TestFormFromAllWidgets renders a small form built from the six widgets.
 func TestFormFromAllWidgets(t *testing.T) {
+	t.Parallel()
+
 	form := Column(
 		Row(
 			LabelWithValue("Name:", "Ann Example", FillWidth),
@@ -235,7 +258,11 @@ func TestFormFromAllWidgets(t *testing.T) {
 		t.Fatalf("pages = %d, want 2 (the PageBreak)", got)
 	}
 
-	for _, want := range []string{"(Name:) Tj", "(Ann Example) Tj", "(Reference) Tj", "( Yes) Tj", "(Notes) Tj", "(Date, signature) Tj", "(Terms) Tj"} {
+	wantText := []string{
+		"(Name:) Tj", "(Ann Example) Tj", "(Reference) Tj", "( Yes) Tj", "(Notes) Tj", "(Date, signature) Tj", "(Terms) Tj",
+	}
+
+	for _, want := range wantText {
 		if !strings.Contains(ops, want) {
 			t.Errorf("missing %q in the form", want)
 		}

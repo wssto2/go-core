@@ -1,3 +1,4 @@
+//nolint:testpackage // shares testFonts and the helpers of form_test.go
 package widget
 
 import (
@@ -9,8 +10,8 @@ import (
 // The reference* functions below are the form helpers as the application
 // they were extracted from had them, copied verbatim from its widget kit
 // (only the Yes/No caption literals were changed to English, since the
-// library takes them as parameters, and the helpers composed from this
-// package's own widgets, so the bodies use the unqualified names). The
+// library takes them as parameters, and
+// the bodies use this package's unqualified names). The
 // tests render each reference and its library counterpart with the same
 // engine and require identical page content (every drawn rule, rectangle
 // and text run, in order, at the same coordinates) and page count. The
@@ -18,7 +19,7 @@ import (
 // creation date and orders font objects by map iteration, so even two
 // renders of one widget differ. Page content is where the widgets act.
 
-func referenceTextLines(number int) engine.Widget {
+func referenceTextLines(number int) *FlexWidget {
 	lines := make([]engine.Widget, 0, number)
 
 	for range number {
@@ -35,7 +36,7 @@ func referenceTextLines(number int) engine.Widget {
 	return Column(lines...)
 }
 
-func referenceSignatureLine(caption, value string, spaceAboveLine float64) engine.Widget {
+func referenceSignatureLine(caption, value string, spaceAboveLine float64) *FlexWidget {
 	filler := Row(
 		Column().Modifier(engine.Weight(1)),
 	)
@@ -48,7 +49,7 @@ func referenceSignatureLine(caption, value string, spaceAboveLine float64) engin
 		slot = append(slot,
 			Row(
 				Text(value, FontSize(8)).
-					Modifier(engine.Padding(engine.Edges{Bottom: 1, Left: 2})),
+					Modifier(engine.Padding(engine.Edges{Top: 0, Right: 0, Bottom: 1, Left: 2})),
 				Column().Modifier(engine.Weight(1)),
 			),
 		)
@@ -63,7 +64,7 @@ func referenceSignatureLine(caption, value string, spaceAboveLine float64) engin
 	)
 }
 
-func referenceLabelWithValue(label string, value string, width float64) engine.Widget {
+func referenceLabelWithValue(label string, value string, width float64) *FlexWidget {
 	valueModifiers := []engine.Modifier{}
 
 	if value == "" {
@@ -89,7 +90,7 @@ func referenceLabelWithValue(label string, value string, width float64) engine.W
 	return Row(
 		Text(label, FontSize(8)).
 			Modifier(
-				engine.Padding(engine.Edges{Right: 2}),
+				engine.Padding(engine.Edges{Top: 0, Right: 2, Bottom: 0, Left: 0}),
 			),
 
 		Text(value, FontSize(8), Bold()).
@@ -97,7 +98,7 @@ func referenceLabelWithValue(label string, value string, width float64) engine.W
 	)
 }
 
-func referenceCodeBoxes(length int) engine.Widget {
+func referenceCodeBoxes(length int) *FlexWidget {
 	codeBoxes := make([]engine.Widget, 0, length)
 
 	for i := range length {
@@ -120,24 +121,25 @@ func referenceCodeBoxes(length int) engine.Widget {
 	return Row(codeBoxes...)
 }
 
-func referenceYesNo(yesChecked bool, noChecked bool) engine.Widget {
+func referenceYesNo(yesChecked bool, noChecked bool) *FlexWidget {
 	return Row(
 		Checkbox(yesChecked).Size(3.5),
-		Text(" YES", FontSize(7)).Modifier(engine.Padding(engine.Edges{Left: 0.5, Right: 3})),
+		Text(" YES", FontSize(7)).Modifier(engine.Padding(engine.Edges{Top: 0, Right: 3, Bottom: 0, Left: 0.5})),
 		Checkbox(noChecked).Size(3.5),
-		Text(" NO", FontSize(7)).Modifier(engine.Padding(engine.Edges{Left: 0.5})),
+		Text(" NO", FontSize(7)).Modifier(engine.Padding(engine.Edges{Top: 0, Right: 0, Bottom: 0, Left: 0.5})),
 	)
 }
 
 type referencePageBreak struct{}
 
+//nolint:ireturn // the Widget interface fixes the return type
 func (referencePageBreak) Measure(*engine.Context, engine.Constraints) engine.Placeable {
 	return referencePageBreakPlaceable{}
 }
 
 type referencePageBreakPlaceable struct{}
 
-func (referencePageBreakPlaceable) Size() engine.Size { return engine.Size{} }
+func (referencePageBreakPlaceable) Size() engine.Size { return engine.Size{W: 0, H: 0} }
 
 func (p referencePageBreakPlaceable) Place(ctx *engine.Context, x, y float64) {
 	p.PlaceFlow(ctx, x, y)
@@ -150,6 +152,8 @@ func (referencePageBreakPlaceable) PlaceFlow(ctx *engine.Context, _, _ float64) 
 }
 
 func TestMatchesReferenceImplementations(t *testing.T) {
+	t.Parallel()
+
 	// Each case sits in a Column with a text line around it, as it would in
 	// a document, so the surrounding flow is compared too.
 	cases := []struct {
@@ -189,13 +193,15 @@ func TestMatchesReferenceImplementations(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			ref := renderPDF(t, wrap(tc.reference))
 			got := renderPDF(t, wrap(tc.library))
 
 			refOps, gotOps := drawOps(t, ref), drawOps(t, got)
 
 			if refOps == "" || refOps != gotOps || pageCount(ref) != pageCount(got) {
-				t.Fatalf("library output differs from the reference\nreference ops:\n%s\nlibrary ops:\n%s", refOps, gotOps)
+				t.Fatalf("page content differs\nwant (reference):\n%s\ngot (library):\n%s", refOps, gotOps)
 			}
 		})
 	}

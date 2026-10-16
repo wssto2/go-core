@@ -2,8 +2,8 @@ package widget
 
 import engine "github.com/wssto2/go-core/pdf"
 
-// FillWidth, passed as the width of LabelWithValue, makes the value slot
-// take all the space left in its row (Weight 1).
+// FillWidth is the width to pass to LabelWithValue for a value slot that
+// takes all the space left in its row (Weight 1).
 const FillWidth = -1.0
 
 // Form-field defaults. They describe a compact paper-form look: 8pt text,
@@ -13,6 +13,18 @@ const (
 	yesNoFontSize = 7.0
 	fieldRuleMM   = 0.2
 	fieldRuleHex  = "#000"
+
+	signatureGapMM  = 0.5 // between a signature rule and its caption
+	writingLineMM   = 5.5 // pitch of TextLines
+	codeBoxWidthMM  = 5.0
+	codeBoxHeightMM = 4.0
+	checkboxMM      = 3.5
+
+	valueInsetMM   = 2.0 // after a label; before a signature value; after a value
+	valueLiftMM    = 0.3 // a value above its rule
+	signedLiftMM   = 1.0 // a signature value above its rule
+	yesGapMM       = 3.0 // after a Yes caption
+	captionNudgeMM = 0.5 // between a checkbox and its caption
 )
 
 type fieldStyle struct {
@@ -30,23 +42,23 @@ type FieldOption func(*fieldStyle)
 // FieldFontSize sets the text size in points (default 8; 7 for the YesNo
 // captions).
 func FieldFontSize(pt float64) FieldOption {
-	return func(s *fieldStyle) { s.fontSize = pt }
+	return func(style *fieldStyle) { style.fontSize = pt }
 }
 
 // FieldRule sets the width (mm) and hex colour of the rules and box borders
 // (default 0.2mm, black).
 func FieldRule(widthMM float64, hex string) FieldOption {
-	return func(s *fieldStyle) { s.ruleWidth, s.ruleColor = widthMM, hex }
+	return func(style *fieldStyle) { style.ruleWidth, style.ruleColor = widthMM, hex }
 }
 
 func newFieldStyle(fontSize float64, opts []FieldOption) fieldStyle {
-	s := fieldStyle{fontSize: fontSize, ruleWidth: fieldRuleMM, ruleColor: fieldRuleHex}
+	style := fieldStyle{fontSize: fontSize, ruleWidth: fieldRuleMM, ruleColor: fieldRuleHex}
 
-	for _, o := range opts {
-		o(&s)
+	for _, opt := range opts {
+		opt(&style)
 	}
 
-	return s
+	return style
 }
 
 // fillRow is an empty weighted Row: an empty Column is zero-width, but
@@ -60,13 +72,15 @@ func fillRow() *FlexWidget {
 // rule across the full width, and the caption under it. A non-empty value
 // is printed on the rule (pre-filled signature line).
 func SignatureLine(caption, value string, spaceAbove float64, opts ...FieldOption) *FlexWidget {
-	s := newFieldStyle(fieldFontSize, opts)
+	style := newFieldStyle(fieldFontSize, opts)
 
 	slot := []engine.Widget{Spacer(spaceAbove)}
 
 	if value != "" {
 		slot = append(slot, Row(
-			Text(value, FontSize(s.fontSize)).Modifier(engine.Padding(engine.Edges{Bottom: 1, Left: 2})),
+			Text(value, FontSize(style.fontSize)).Modifier(
+				engine.Padding(engine.Edges{Top: 0, Right: 0, Bottom: signedLiftMM, Left: valueInsetMM}),
+			),
 			Column().Modifier(engine.Weight(1)),
 		))
 	} else {
@@ -74,9 +88,9 @@ func SignatureLine(caption, value string, spaceAbove float64, opts ...FieldOptio
 	}
 
 	return Column(
-		Column(slot...).Modifier(engine.BorderBottom(s.ruleWidth, s.ruleColor)),
-		Spacer(0.5),
-		Text(caption, FontSize(s.fontSize)),
+		Column(slot...).Modifier(engine.BorderBottom(style.ruleWidth, style.ruleColor)),
+		Spacer(signatureGapMM),
+		Text(caption, FontSize(style.fontSize)),
 	)
 }
 
@@ -84,7 +98,7 @@ func SignatureLine(caption, value string, spaceAbove float64, opts ...FieldOptio
 // is the value slot's width in mm; 0 sizes it to the text, FillWidth to the
 // rest of the row. An empty value leaves a blank rule to write on.
 func LabelWithValue(label, value string, width float64, opts ...FieldOption) *FlexWidget {
-	s := newFieldStyle(fieldFontSize, opts)
+	style := newFieldStyle(fieldFontSize, opts)
 
 	if value == "" {
 		value = " "
@@ -101,25 +115,27 @@ func LabelWithValue(label, value string, width float64, opts ...FieldOption) *Fl
 	}
 
 	mods = append(mods,
-		engine.BorderBottom(s.ruleWidth, s.ruleColor),
-		engine.Padding(engine.Edges{Bottom: 0.3, Right: 2}),
+		engine.BorderBottom(style.ruleWidth, style.ruleColor),
+		engine.Padding(engine.Edges{Top: 0, Right: valueInsetMM, Bottom: valueLiftMM, Left: 0}),
 	)
 
 	return Row(
-		Text(label, FontSize(s.fontSize)).Modifier(engine.Padding(engine.Edges{Right: 2})),
-		Text(value, FontSize(s.fontSize), Bold()).Modifier(mods...),
+		Text(label, FontSize(style.fontSize)).Modifier(
+			engine.Padding(engine.Edges{Top: 0, Right: valueInsetMM, Bottom: 0, Left: 0}),
+		),
+		Text(value, FontSize(style.fontSize), Bold()).Modifier(mods...),
 	)
 }
 
 // TextLines builds n ruled writing lines, 5.5mm apart, full width.
 func TextLines(n int, opts ...FieldOption) *FlexWidget {
-	s := newFieldStyle(fieldFontSize, opts)
+	style := newFieldStyle(fieldFontSize, opts)
 	lines := make([]engine.Widget, 0, n)
 
 	for range n {
 		lines = append(lines, fillRow().Modifier(
-			engine.BorderBottom(s.ruleWidth, s.ruleColor),
-			engine.Height(5.5), // room to write in, the rule at its bottom
+			engine.BorderBottom(style.ruleWidth, style.ruleColor),
+			engine.Height(writingLineMM), // room to write in, the rule at its bottom
 		))
 	}
 
@@ -129,21 +145,21 @@ func TextLines(n int, opts ...FieldOption) *FlexWidget {
 // CodeBoxes builds a row of n comb boxes (5x4mm) for writing one character
 // each, e.g. a code or number.
 func CodeBoxes(n int, opts ...FieldOption) *FlexWidget {
-	s := newFieldStyle(fieldFontSize, opts)
+	style := newFieldStyle(fieldFontSize, opts)
 	boxes := make([]engine.Widget, 0, n)
 
 	for i := range n {
 		leftWidth := 0.0
 		if i == 0 {
-			leftWidth = s.ruleWidth
+			leftWidth = style.ruleWidth
 		}
 
 		boxes = append(boxes, Text("").Modifier(
-			engine.Width(5),
-			engine.Height(4),
-			engine.BorderLeft(leftWidth, s.ruleColor),
-			engine.BorderRight(s.ruleWidth, s.ruleColor),
-			engine.BorderBottom(s.ruleWidth, s.ruleColor),
+			engine.Width(codeBoxWidthMM),
+			engine.Height(codeBoxHeightMM),
+			engine.BorderLeft(leftWidth, style.ruleColor),
+			engine.BorderRight(style.ruleWidth, style.ruleColor),
+			engine.BorderBottom(style.ruleWidth, style.ruleColor),
 		))
 	}
 
@@ -152,30 +168,38 @@ func CodeBoxes(n int, opts ...FieldOption) *FlexWidget {
 
 // YesNo builds two labelled checkboxes, e.g. YesNo(true, false, "Yes",
 // "No"). The labels are the caller's; a space is put in front of each.
-func YesNo(yes, no bool, yesLabel, noLabel string, opts ...FieldOption) *FlexWidget {
-	s := newFieldStyle(yesNoFontSize, opts)
+func YesNo(yesChecked, noChecked bool, yesLabel, noLabel string, opts ...FieldOption) *FlexWidget {
+	style := newFieldStyle(yesNoFontSize, opts)
 
 	return Row(
-		Checkbox(yes).Size(3.5),
-		Text(" "+yesLabel, FontSize(s.fontSize)).Modifier(engine.Padding(engine.Edges{Left: 0.5, Right: 3})),
-		Checkbox(no).Size(3.5),
-		Text(" "+noLabel, FontSize(s.fontSize)).Modifier(engine.Padding(engine.Edges{Left: 0.5})),
+		Checkbox(yesChecked).Size(checkboxMM),
+		Text(" "+yesLabel, FontSize(style.fontSize)).Modifier(
+			engine.Padding(engine.Edges{Top: 0, Right: yesGapMM, Bottom: 0, Left: captionNudgeMM}),
+		),
+		Checkbox(noChecked).Size(checkboxMM),
+		Text(" "+noLabel, FontSize(style.fontSize)).Modifier(
+			engine.Padding(engine.Edges{Top: 0, Right: 0, Bottom: 0, Left: captionNudgeMM}),
+		),
 	)
 }
 
+// PageBreakWidget starts a new page when placed.
+type PageBreakWidget struct{}
+
 // PageBreak starts a new page: the Column it sits in continues at the top
 // of the next one.
-func PageBreak() engine.Widget { return pageBreak{} }
+func PageBreak() *PageBreakWidget { return &PageBreakWidget{} }
 
-type pageBreak struct{}
-
-func (pageBreak) Measure(*engine.Context, engine.Constraints) engine.Placeable {
+// Measure implements engine.Widget.
+//
+//nolint:ireturn // the Widget interface fixes the return type
+func (*PageBreakWidget) Measure(*engine.Context, engine.Constraints) engine.Placeable {
 	return pageBreakPlaceable{}
 }
 
 type pageBreakPlaceable struct{}
 
-func (pageBreakPlaceable) Size() engine.Size { return engine.Size{} }
+func (pageBreakPlaceable) Size() engine.Size { return engine.Size{W: 0, H: 0} }
 
 func (p pageBreakPlaceable) Place(ctx *engine.Context, x, y float64) { p.PlaceFlow(ctx, x, y) }
 
