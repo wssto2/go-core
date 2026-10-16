@@ -101,3 +101,11 @@ func TestResource_WithCount_EmptyTableNameSetsError(t *testing.T) {
 		t.Fatal("expected error when tableName is empty")
 	}
 }
+
+func TestResponse_ToPagination(t *testing.T) {
+	got := Response[string]{Data: "row", Meta: map[string]any{"k": 1}}.ToPagination()
+
+	if got.Data != "row" || got.Meta["k"] != 1 {
+		t.Fatalf("ToPagination() = %+v", got)
+	}
+}
