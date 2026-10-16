@@ -56,7 +56,7 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 * `tenancy` → multi-tenant context + DB scoping
 * `event` → typed events and the per-consumer queue behind them (see "Events"; tables in `event/migrations`)
 * `identity` → accounts, password sign-in, sessions, the lock after wrong passwords, the `/auth/me` payload, user administration and each person's profile with e-mail codes (see "Sign-in" and "Users and profile"; core `identity/account`, routes `identity/http`, store `identity/gormstore`, mail text `identity/mailtext`, tests `identity/identitytest`)
-* `mail` → the `Sender` port, SMTP over the standard library, a recording `Sink` for tests, per-locale `Renderer` (see "mail")
+* `mail` → the `Sender` port, SMTP over the standard library, inline images, a branded HTML frame (`Brand.Render`), a recording `Sink` for tests, per-locale `Renderer` (see "mail")
 * `notification` → the in-app inbox, e-mail and web push: categories, `Send` from an event consumer, preferences and quiet hours, the delivery workers, devices, the live stream, the inbox and dead-letter routes (see "Notifications"; migrations in `notification/migrations`, mail text in `notification/mailtext`, the Web Push protocol in `notification/push`, a fake push service for tests in `notification/push/pushtest`)
 * `incident` → the incident log: a server error or panic becomes an incident, repeats are counted on it, a person reports a bug, the browser reports its errors, the staff work the list, and the people who hold `incident:manage` are alerted (see "Incidents"; core `incident/core`, store `incident/gormstore`, conformance suite `incident/storetest`, migrations `incident/migrations`, alert wording `incident/mailtext`)
 * `savedview` → a person's saved list views: the filters and search of a list kept under a name and applied again with one click (see "Saved views"; core `savedview/core`, store `savedview/gormstore`, conformance suite `savedview/storetest`, migrations `savedview/migrations`)
@@ -427,6 +427,20 @@ Flags: `-addr host:port`, `-origin http://localhost:5173` (commas for several), 
 ```go
 sender := mail.SMTP(mail.SMTPConfig{Addr: "smtp.example.com:587", Username: u, Password: p, From: "App <no-reply@example.com>"})
 ```
+
+**Inline images and a branded frame.** `Message.Inline` is the parts the HTML shows as `<img src="cid:logo@example.com">`: `mail.Inline{CID, ContentType, Name, Data}`. With them the HTML and the images are a `multipart/related` part of the alternative (text first), so the image shows without the client fetching anything; without them the message is exactly what it was. `Check()` refuses inline parts without HTML, a CID with anything but letters, digits and `. _ ~ + - @`, a repeated CID, a bad content type or a name with a control character, and no data. `Brand` is the look of an application's HTML mails, `Page` what one says; `Render` returns the `Content` with the HTML in the frame, the plain-text alternative and the logo as `Inline`, so `Content.To(...)` (which identity and notification use) carries it:
+
+```go
+brand := mail.Brand{Name: "Acme", Logo: &mail.Inline{CID: "logo@acme.example", ContentType: "image/png", Data: logoPNG},
+	Color: "#0f766e", Lang: "en", Greeting: "Hello,", Footer: "You get this mail because you have an Acme account."}
+
+c, err := brand.Render(mail.Page{Paragraphs: []string{"Your order 42 is ready."}, Rows: []mail.Row{{Label: "Pickup:", Value: "Main street"}},
+	ActionLabel: "Open the order", ActionURL: "https://app.acme.example/orders/42"})
+c.Subject = "Order 42"
+err = sender.Send(ctx, c.To("ana@example.com"))
+```
+
+The zero `Brand` is a plain frame without logo, greeting or footer (colour `#334155`, language `en`). The layout (560 px, Arial, grey page) is fixed; the text and links of a `Page` are escaped, and a `javascript:` link is not made a button.
 
 In a test, `identity.Install` runs on `gocoretest.New(t)`: SQLite tables are created from the models (`app.Schema`), the real SQL files are tested on MySQL and MariaDB. Feature tests that need people use `identitytest.Users(t, identitytest.Account(1, "ana", "secret"))`, which is the same service over memory stores.
 
