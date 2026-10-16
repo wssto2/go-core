@@ -246,7 +246,7 @@ func TestADeactivationHookRefusesOverHTTP(t *testing.T) {
 	assert.Contains(t, veto.Body.String(), "crm.owns_leads")
 
 	ok := c.do(nethttp.MethodPost, "/v1/iam/users/3/deactivate", nil)
-	assert.Equal(t, nethttp.StatusNoContent, ok.Code, ok.Body.String())
+	assert.Equal(t, nethttp.StatusOK, ok.Code, ok.Body.String())
 
 }
 

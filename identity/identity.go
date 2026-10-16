@@ -69,6 +69,7 @@ import (
 	"context"
 	"github.com/gin-gonic/gin"
 	"slices"
+	"time"
 
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/audit"
@@ -110,8 +111,12 @@ type (
 	PasswordPolicy = account.PasswordPolicy
 	// ActivityArea is the application's name for a kind of record in a person's activity; Area makes one.
 	ActivityArea = account.ActivityArea
-	// ChangeLog keeps the history of changes to accounts; the default is go-core's audit trail.
+	// ChangeLog keeps the history of changes to accounts; the default is go-core's audit trail, WithChangeLog replaces it.
 	ChangeLog = account.ChangeLog
+	// UserExtension adds the application's own data to the people of the users routes; WithUserExtension installs it.
+	UserExtension = account.UserExtension
+	// UserReach says whether the actor may reach a person on a users route; WithUserReach installs it.
+	UserReach = identityhttp.UserReach
 	// ChangeAction names what a recorded change did to an account; WithAuditRecord renames them in the audit trail.
 	ChangeAction = account.ChangeAction
 	// Session is one sign-in of an account on one device.
@@ -199,6 +204,10 @@ type settings struct {
 	locales                 []string
 	limits                  *account.Limits
 	auditActions            map[account.ChangeAction]string
+	changeLog               account.ChangeLog
+	extension               account.UserExtension
+	reach                   identityhttp.UserReach
+	idleAfter               time.Duration
 
 	noUserAdmin bool
 }
@@ -410,6 +419,35 @@ func WithAuditRecord(entityType string, actions map[account.ChangeAction]string)
 	return func(s *settings) { s.auditRecord, s.auditActions = entityType, actions }
 }
 
+// WithChangeLog keeps the history of changes to accounts (what GET /v1/iam/users/:id/changes reads, and the
+// profile writes) in a log of your own instead of go-core's audit trail, for example one that also shows the
+// role changes and unlocks of a person; a ChangeEntry's Ext reaches the client as the row's "ext". Without
+// it Install builds go-core's own (gormstore.NewChangeLog). WithAuditRecord names the actions of that
+// default log, so it has no effect on yours. The activity (what a person did) is still read from the audit trail.
+func WithChangeLog(l account.ChangeLog) Option { return func(s *settings) { s.changeLog = l } }
+
+// WithUserReach limits whom an administrator may reach: it is asked on every users route that names a
+// person (show, update, password, deactivate, activate, unlock, sessions and revoking them, sign-ins, changes and
+// activity) with that route's permission, and a person out of reach answers 404 identity.account.not_found,
+// exactly as one who does not exist does. Which people the list shows stays the account store's: scope its
+// Searcher from the request's context (the signed-in person and their access are there). Without it every
+// person is in reach of whoever holds the permission. Admin's methods used from code do not ask it, as they
+// do not check permissions.
+//
+//	identity.WithUserReach(func(ctx context.Context, permission string, id int) (bool, error) {
+//		return people.InScope(ctx, id, permission == identity.ManageUsers)
+//	})
+func WithUserReach(reach identityhttp.UserReach) Option { return func(s *settings) { s.reach = reach } }
+
+// WithUserExtension adds the application's own data to the people of the users routes (see UserExtension):
+// "ext" on the rows and the record, in the body of create and update, and the result of creating and
+// deactivating, written in the transaction of the write it belongs to.
+func WithUserExtension(x account.UserExtension) Option { return func(s *settings) { s.extension = x } }
+
+// WithIdleAfter sets how long without signing in makes a person idle, for the list's last_sign_in=idle filter
+// (default 60 days).
+func WithIdleAfter(d time.Duration) Option { return func(s *settings) { s.idleAfter = d } }
+
 // WithoutUserAdmin leaves the users administration out: no /v1/iam/users routes are
 // mounted (list, record, create, update, password, deactivate, unlock, and the
 // sign-in history, changes, activity and sessions of another person), the store need not
@@ -558,7 +596,12 @@ func Install(app *gocore.App, opts ...Option) *Users {
 		}
 	}
 
-	transact, changes := database.NewTransactor(db), gormstore.NewChangeLog(db, changeOpts...)
+	transact := database.NewTransactor(db)
+
+	changes := s.changeLog
+	if changes == nil {
+		changes = gormstore.NewChangeLog(db, changeOpts...)
+	}
 
 	areas, err := account.NewActivityAreas(s.areas...)
 	if err != nil {
@@ -590,7 +633,7 @@ func Install(app *gocore.App, opts ...Option) *Users {
 	if !s.noUserAdmin {
 		admin, err = account.NewAdmin(account.AdminDeps{
 			Users: svc.Users, Search: search, History: stores.SignIns, Changes: changes, Activity: gormstore.NewActivityLog(db),
-			Areas: areas, Transact: transact, Policy: s.policy, Hooks: s.hooks,
+			Areas: areas, Transact: transact, Policy: s.policy, Hooks: s.hooks, Extension: s.extension, IdleAfter: s.idleAfter,
 		})
 		if err != nil {
 			app.Fail("identity could not be installed: "+err.Error(), "check the options given to identity.Install")
@@ -611,7 +654,7 @@ func Install(app *gocore.App, opts ...Option) *Users {
 
 	cfg := identityhttp.Config{
 		Services: svc, Admin: admin, Profile: profile, Clock: app.Clock(), Cookies: s.cookies,
-		Project: s.project, Principal: s.principal, Navigation: s.navigation, Limits: s.cfg.Limits,
+		Project: s.project, Principal: s.principal, Navigation: s.navigation, Limits: s.cfg.Limits, Reach: s.reach,
 	}
 
 	cfg.Access = s.accessOf(app)

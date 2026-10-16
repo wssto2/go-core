@@ -51,9 +51,21 @@ export const CreateUserInputSchema = z.object({
   phone: z.string().max(30).optional(),
   locale: z.string().min(1).max(16),
   password: z.string().min(1).max(200),
+  ext: z.unknown().optional(),
 });
 
 export type CreateUserInput = z.infer<typeof CreateUserInputSchema>;
+
+export const DeactivateUserInputSchema = z.object({
+  id: z.number().int(),
+  details: z.unknown().optional(),
+});
+
+export type DeactivateUserInput = z.infer<typeof DeactivateUserInputSchema>;
+
+export const LastSignInFilterSchema = z.enum(["never", "idle"]);
+
+export type LastSignInFilter = z.infer<typeof LastSignInFilterSchema>;
 
 export const UserViewSchema = z.enum(["active", "locked", "inactive", "all"]);
 
@@ -62,6 +74,7 @@ export type UserView = z.infer<typeof UserViewSchema>;
 export const ListUsersInputSchema = z.object({
   view: UserViewSchema.optional(),
   search: z.string().max(100).optional(),
+  last_sign_in: LastSignInFilterSchema.optional(),
   order_col: z.string().max(16).optional(),
   order_dir: z.string().max(4).optional(),
   page: z.number().int().optional(),
@@ -144,6 +157,7 @@ export const UpdateUserInputSchema = z.object({
   email: z.string().min(1).max(255),
   phone: z.string().max(30).optional(),
   locale: z.string().min(1).max(16),
+  ext: z.unknown().optional(),
 });
 
 export type UpdateUserInput = z.infer<typeof UpdateUserInputSchema>;

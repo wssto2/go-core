@@ -66,6 +66,10 @@ func accountNotFound() error {
 	return apperr.NotFound(string(ReasonAccountNotFound)).WithReason(ReasonAccountNotFound)
 }
 
+// NotFound is the answer for an account that does not exist, and for one the actor may not see
+// (identity.WithUserReach): the two are alike, so an answer never tells which people exist.
+func NotFound() error { return accountNotFound() }
+
 func accountInactive() error {
 	return apperr.BadRequest(string(ReasonAccountInactive)).WithReason(ReasonAccountInactive)
 }

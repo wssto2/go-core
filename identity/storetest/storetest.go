@@ -120,6 +120,7 @@ func Run(t *testing.T, newStores Factory) {
 		"accounts/search":                accountsSearch,
 		"accounts/search escapes":        accountsSearchEscapes,
 		"accounts/counts":                accountsCounts,
+		"accounts/last sign-in filter":   accountsLastSignIn,
 		"signins/entries":                signInsEntries,
 		"signins/entries by event":       signInsByEvent,
 		"signins/last sign-ins":          signInsLast,
@@ -1094,6 +1095,52 @@ func accountsCounts(t *testing.T, s Stores) {
 		c.noErr(err, name)
 		c.equal(tc.want, got, name)
 	}
+}
+
+// accountsLastSignIn: the list's last sign-in filter, in the search and in the counts. Never is an
+// account with no signed_in row; idle one with some but none at or after IdleBefore.
+func accountsLastSignIn(t *testing.T, s Stores) {
+	c := check{t}
+	people := seedForSearch(c, s) // ana, boris, cvita (inactive), dino, eva
+
+	cutoff := base
+	for _, e := range []account.SignInEntry{
+		entry(people[0].ID, account.SignedIn, -48*time.Hour), // ana: old only
+		entry(people[0].ID, account.SignedIn, -24*time.Hour),
+		entry(people[1].ID, account.SignedIn, -48*time.Hour), // boris: old, then recent
+		entry(people[1].ID, account.SignedIn, time.Hour),
+		entry(people[2].ID, account.WrongPassword, 0), // cvita: only a refusal, so never
+		entry(people[3].ID, account.SignedIn, 0),      // dino: exactly at the cutoff, not before it
+	} {
+		c.noErr(s.SignIns.Record(ctx(), e), "record")
+	}
+
+	for name, tc := range map[string]struct {
+		filter account.LastSignInFilter
+		search string
+		want   []string
+	}{
+		"never":               {account.LastSignInNever, "", []string{"cvita", "eva"}},
+		"idle":                {account.LastSignInIdle, "", []string{"ana"}},
+		"no filter":           {"", "", []string{"ana", "boris", "cvita", "dino", "eva"}},
+		"never, and a search": {account.LastSignInNever, "example", []string{"cvita", "eva"}},
+		"idle, and a search":  {account.LastSignInIdle, "firma", nil},
+	} {
+		q := account.Query{Search: tc.search, LastSignIn: tc.filter, IdleBefore: cutoff, Page: 1, PerPage: 10}
+
+		got, err := s.Accounts.Search(ctx(), q)
+		c.noErr(err, name)
+		c.equal(tc.want, logins(got), name+": rows")
+		c.equal(len(tc.want), got.Total, name+": total")
+
+		counts, err := s.Accounts.Counts(ctx(), q)
+		c.noErr(err, name+": counts")
+		c.equal(len(tc.want), counts.All(), name+": the counts follow the filter")
+	}
+
+	counts, err := s.Accounts.Counts(ctx(), account.Query{LastSignIn: account.LastSignInNever, IdleBefore: cutoff})
+	c.noErr(err, "counts")
+	c.equal(account.StatusCounts{Active: 1, Inactive: 1}, counts, "never: eva is active, cvita is not")
 }
 
 func accountsSearchEscapes(t *testing.T, s Stores) {

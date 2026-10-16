@@ -132,6 +132,9 @@ type options struct {
 	policy account.PasswordPolicy
 	hooks  []account.DeactivationHook
 	noMail bool
+	// extension and idleAfter are the users module's.
+	extension account.UserExtension
+	idleAfter time.Duration
 }
 
 // WithoutMail builds the Profile without codes: changing the e-mail address is
@@ -145,6 +148,12 @@ func WithPasswordPolicy(p account.PasswordPolicy) Option { return func(o *option
 func WithDeactivationHooks(h ...account.DeactivationHook) Option {
 	return func(o *options) { o.hooks = append(o.hooks, h...) }
 }
+
+// WithUserExtension gives the users module the application's own data on people.
+func WithUserExtension(x account.UserExtension) Option { return func(o *options) { o.extension = x } }
+
+// WithIdleAfter sets how long without signing in makes an account idle in the list.
+func WithIdleAfter(d time.Duration) Option { return func(o *options) { o.idleAfter = d } }
 
 // WithCodeRules sets the limits of one-time codes, such as a shorter cooldown.
 func WithCodeRules(r account.CodeRules) Option { return func(o *options) { o.codes = r } }
@@ -208,6 +217,7 @@ func New(t testing.TB, seed []account.Account, opts ...Option) Kit {
 	}
 
 	kit := Kit{Clock: NewClock(Epoch), Accounts: NewAccounts(), SignIns: NewSignIns(), Sessions: NewSessions()}
+	kit.Accounts.WithSignIns(kit.SignIns)
 
 	for _, a := range seed {
 		if _, err := kit.Accounts.Create(t.Context(), a); err != nil {
@@ -247,7 +257,7 @@ func New(t testing.TB, seed []account.Account, opts ...Option) Kit {
 
 	kit.Admin, err = account.NewAdmin(account.AdminDeps{
 		Users: svc.Users, Search: kit.Accounts, History: kit.SignIns, Changes: kit.Changes, Activity: kit.Activity, Transact: Transactor{},
-		Policy: o.policy, Hooks: o.hooks,
+		Policy: o.policy, Hooks: o.hooks, Extension: o.extension, IdleAfter: o.idleAfter,
 	})
 	if err != nil {
 		t.Fatalf("identitytest: %v", err)

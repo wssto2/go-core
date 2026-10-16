@@ -325,14 +325,31 @@ func likePattern(term string) string {
 	return "%" + escaped + "%"
 }
 
-// Search implements account.Searcher.
-func (s *Accounts) Search(ctx context.Context, q account.Query) (account.Page, error) {
-	db := dbOf(s.db, ctx).Model(&accountModel{})
-
+// matching narrows the accounts to the ones that match q.Search and q.LastSignIn (q.Filters are the
+// application's, and this store has none). The sign-in filters read user_signins with EXISTS, which
+// MySQL, MariaDB 10.3 and SQLite run alike.
+func matching(db *gorm.DB, q account.Query) *gorm.DB {
 	if q.Search != "" {
 		p := likePattern(q.Search)
 		db = db.Where("LOWER(login) LIKE ? ESCAPE '!' OR LOWER(name) LIKE ? ESCAPE '!' OR LOWER(email) LIKE ? ESCAPE '!'", p, p, p)
 	}
+
+	const signedIn = "SELECT 1 FROM user_signins WHERE user_signins.user_id = accounts.id AND user_signins.event = ?"
+
+	switch q.LastSignIn {
+	case account.LastSignInNever:
+		db = db.Where("NOT EXISTS ("+signedIn+")", string(account.SignedIn))
+	case account.LastSignInIdle:
+		db = db.Where("EXISTS ("+signedIn+") AND NOT EXISTS ("+signedIn+" AND user_signins.created_at >= ?)",
+			string(account.SignedIn), string(account.SignedIn), whole(q.IdleBefore))
+	}
+
+	return db
+}
+
+// Search implements account.Searcher.
+func (s *Accounts) Search(ctx context.Context, q account.Query) (account.Page, error) {
+	db := matching(dbOf(s.db, ctx).Model(&accountModel{}), q)
 
 	if q.Active != nil {
 		db = db.Where("active = ?", *q.Active)
@@ -381,12 +398,7 @@ func (s *Accounts) Search(ctx context.Context, q account.Query) (account.Page, e
 
 // Counts implements account.Searcher: one query, the accounts that match the search summed by status.
 func (s *Accounts) Counts(ctx context.Context, q account.Query) (account.StatusCounts, error) {
-	db := dbOf(s.db, ctx).Model(&accountModel{})
-
-	if q.Search != "" {
-		p := likePattern(q.Search)
-		db = db.Where("LOWER(login) LIKE ? ESCAPE '!' OR LOWER(name) LIKE ? ESCAPE '!' OR LOWER(email) LIKE ? ESCAPE '!'", p, p, p)
-	}
+	db := matching(dbOf(s.db, ctx).Model(&accountModel{}), q)
 
 	// SUM over no rows is NULL, hence COALESCE; the CASE form runs the same on MySQL, MariaDB and SQLite.
 	inactive := "COALESCE(SUM(CASE WHEN active = ? THEN 0 ELSE 1 END), 0)"

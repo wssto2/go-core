@@ -15,10 +15,19 @@ type Accounts struct {
 	mu   sync.Mutex
 	next int
 	rows map[int]account.Account
+	// history is the sign-in log the last sign-in filter reads; the Kit sets it.
+	history account.SignInHistory
 }
 
 // NewAccounts returns an empty store.
 func NewAccounts() *Accounts { return &Accounts{next: 1, rows: map[int]account.Account{}} }
+
+// WithSignIns gives the store the sign-in log that the list's last sign-in filter reads; the Kit does it for its own.
+func (s *Accounts) WithSignIns(history account.SignInHistory) *Accounts {
+	s.history = history
+
+	return s
+}
 
 // Find implements account.Store.
 func (s *Accounts) Find(_ context.Context, id int) (account.Account, error) {
@@ -197,8 +206,32 @@ func (s *Accounts) Update(_ context.Context, id int, c account.Changes) error {
 	return nil
 }
 
+// signedIn says whether the account passes the query's last sign-in filter, as the history says: none
+// when the store was not given the sign-in log (the Kit gives it).
+func (s *Accounts) signedIn(ctx context.Context, q account.Query, a account.Account) (bool, error) {
+	if q.LastSignIn == "" || s.history == nil {
+		return true, nil
+	}
+
+	last, err := s.history.LastSignIns(ctx, []int{a.ID})
+	if err != nil {
+		return false, err
+	}
+
+	at, ever := last[a.ID]
+
+	switch q.LastSignIn {
+	case account.LastSignInNever:
+		return !ever, nil
+	case account.LastSignInIdle:
+		return ever && at.Before(q.IdleBefore), nil
+	}
+
+	return true, nil
+}
+
 // Search implements account.Searcher.
-func (s *Accounts) Search(_ context.Context, q account.Query) (account.Page, error) {
+func (s *Accounts) Search(ctx context.Context, q account.Query) (account.Page, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -208,6 +241,15 @@ func (s *Accounts) Search(_ context.Context, q account.Query) (account.Page, err
 
 	for _, a := range s.rows {
 		if term != "" && !strings.Contains(strings.ToLower(a.Login+"\x00"+a.Name+"\x00"+a.Email), term) {
+			continue
+		}
+
+		ok, err := s.signedIn(ctx, q, a)
+		if err != nil {
+			return account.Page{}, err
+		}
+
+		if !ok {
 			continue
 		}
 
@@ -257,7 +299,7 @@ func (s *Accounts) Search(_ context.Context, q account.Query) (account.Page, err
 }
 
 // Counts implements account.Searcher.
-func (s *Accounts) Counts(_ context.Context, q account.Query) (account.StatusCounts, error) {
+func (s *Accounts) Counts(ctx context.Context, q account.Query) (account.StatusCounts, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -267,6 +309,15 @@ func (s *Accounts) Counts(_ context.Context, q account.Query) (account.StatusCou
 
 	for _, a := range s.rows {
 		if term != "" && !strings.Contains(strings.ToLower(a.Login+"\x00"+a.Name+"\x00"+a.Email), term) {
+			continue
+		}
+
+		ok, err := s.signedIn(ctx, q, a)
+		if err != nil {
+			return out, err
+		}
+
+		if !ok {
 			continue
 		}
 

@@ -1,6 +1,6 @@
-import { route, type ListResult } from "@wssto2/vue-core/client";
-import type { ActivityInput, ChangeLocaleInput, ChangePasswordInput, ChangesInput, ConfirmEmailInput, CreateUserInput, ListUsersInput, LoginAsInput, LoginInput, OwnSessionInput, OwnSignInsInput, RefreshInput, RequestEmailInput, SetPasswordInput, SignInsInput, UpdateProfileInput, UpdateUserInput, UserInput, UserSessionInput } from "./schemas";
-import type { ActivityRow, ChangeRow, PendingEmail, ProfileResponse, SessionList, SessionResponse, SignInRow, UnlockResult, UserDetail, UserRow } from "./entities";
+import { route, type ListResult, type QueryValue } from "@wssto2/vue-core/client";
+import type { ActivityInput, ChangeLocaleInput, ChangePasswordInput, ChangesInput, ConfirmEmailInput, CreateUserInput, DeactivateUserInput, ListUsersInput, LoginAsInput, LoginInput, OwnSessionInput, OwnSignInsInput, RefreshInput, RequestEmailInput, SetPasswordInput, SignInsInput, UpdateProfileInput, UpdateUserInput, UserInput, UserSessionInput } from "./schemas";
+import type { ActivityRow, ChangeRow, DeactivateResult, PendingEmail, ProfileResponse, SessionList, SessionResponse, SignInRow, UnlockResult, UserDetail, UserRow } from "./entities";
 
 export const identityRoutes = {
   login: route<LoginInput, SessionResponse>("POST", "/v1/auth/login", { public: true }),
@@ -10,12 +10,12 @@ export const identityRoutes = {
   changeLocale: route<ChangeLocaleInput, void>("POST", "/v1/auth/change-locale"),
   loginAs: route<LoginAsInput, SessionResponse>("POST", "/v1/auth/login-as"),
   loginAsReturn: route<void, SessionResponse>("POST", "/v1/auth/login-as/return"),
-  usersList: route<ListUsersInput, ListResult<UserRow>>("GET", "/v1/iam/users", { permission: "iam.user:view" }),
+  usersList: route<ListUsersInput & Record<string, QueryValue>, ListResult<UserRow>>("GET", "/v1/iam/users", { permission: "iam.user:view" }),
   usersShow: route<UserInput, UserDetail>("GET", "/v1/iam/users/:id", { permission: "iam.user:view" }),
   usersCreate: route<CreateUserInput, UserDetail>("POST", "/v1/iam/users", { permission: "iam.user:manage" }),
   usersUpdate: route<UpdateUserInput, UserDetail>("PUT", "/v1/iam/users/:id", { permission: "iam.user:manage" }),
   usersSetPassword: route<SetPasswordInput, void>("PUT", "/v1/iam/users/:id/password", { permission: "iam.user:manage" }),
-  usersDeactivate: route<UserInput, void>("POST", "/v1/iam/users/:id/deactivate", { permission: "iam.user:manage" }),
+  usersDeactivate: route<DeactivateUserInput, DeactivateResult>("POST", "/v1/iam/users/:id/deactivate", { permission: "iam.user:manage" }),
   usersActivate: route<UserInput, void>("POST", "/v1/iam/users/:id/activate", { permission: "iam.user:manage" }),
   usersUnlock: route<UserInput, UnlockResult>("POST", "/v1/iam/users/:id/unlock", { permission: "iam.user:manage" }),
   usersSignins: route<SignInsInput, ListResult<SignInRow>>("GET", "/v1/iam/users/:id/signins", { permission: "iam.user:view" }),
