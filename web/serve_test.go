@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -29,7 +30,7 @@ func serveEngine(t *testing.T, disk storage.Driver) *gin.Engine {
 	engine.Use(middlewares.ErrorHandler(slog.New(slog.DiscardHandler), nil, false))
 	engine.GET("/files/*key", func(c *gin.Context) {
 		key := c.Param("key")[1:]
-		web.Serve(c, disk, key, web.Attachment("Ugovor č.pdf"))
+		web.Serve(c, disk, key, web.Attachment("Résumé č.pdf"))
 	})
 
 	return engine
@@ -70,8 +71,10 @@ func TestServeStreamsWithRangeAndLastModified(t *testing.T) {
 	assert.Equal(t, "0123456789", rec.Body.String())
 	assert.Equal(t, "application/pdf", rec.Header().Get("Content-Type"))
 	assert.Equal(t, "bytes", rec.Header().Get("Accept-Ranges"))
-	assert.Contains(t, rec.Header().Get("Content-Disposition"), "attachment")
-	assert.Contains(t, rec.Header().Get("Content-Disposition"), "č", "the header carries the name")
+	kind, params, err := mime.ParseMediaType(rec.Header().Get("Content-Disposition"))
+	require.NoError(t, err)
+	assert.Equal(t, "attachment", kind)
+	assert.Equal(t, "Résumé č.pdf", params["filename"], "the header carries the name")
 
 	last := rec.Header().Get("Last-Modified")
 	require.NotEmpty(t, last)
