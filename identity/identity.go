@@ -60,6 +60,10 @@
 // A route declared PersonOnly (identity's own sign-in, session and profile routes are) refuses a service account
 // with 403. WithEmbed serves GET /embed at the site root, for a page embedded in another host's iframe.
 //
+// The users routes take the application's own rules through WithUserReach (whom an administrator may reach),
+// WithUserExtension (the application's data on people, written in the same transaction) and WithChangeLog, and a
+// Searcher of its own reads the list's extra query keys (account.Query.Filters).
+//
 // The framework-free core is identity/account (its types are aliased here);
 // identity/gormstore is the default store, identity/http the routes, whose
 // contract is Routes, and identity/identitytest what tests use.

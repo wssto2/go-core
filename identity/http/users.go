@@ -144,32 +144,32 @@ type ActivityRow struct {
 // CreateUserInput is a new person. Locale is a BCP-47 tag such as "hr". Ext is the application's own data for
 // them (identity.WithUserExtension), which identity passes on unread.
 type CreateUserInput struct {
-	Login    string `json:"login" validation:"required|max:100"`
-	Name     string `json:"name" validation:"required|max:150"`
-	Email    string `json:"email" validation:"required|max:255"`
-	Phone    string `json:"phone,omitempty" validation:"max:30"`
-	Locale   string `json:"locale" validation:"required|max:16"`
-	Password string `json:"password" validation:"required|max:200"`
-	Ext      any    `json:"ext,omitempty"`
+	Login    string          `json:"login" validation:"required|max:100"`
+	Name     string          `json:"name" validation:"required|max:150"`
+	Email    string          `json:"email" validation:"required|max:255"`
+	Phone    string          `json:"phone,omitempty" validation:"max:30"`
+	Locale   string          `json:"locale" validation:"required|max:16"`
+	Password string          `json:"password" validation:"required|max:200"`
+	Ext      json.RawMessage `json:"ext,omitempty"`
 }
 
 // UpdateUserInput is a person's details as they should be: every field is written. Ext is the
 // application's own data for them (identity.WithUserExtension), which identity passes on unread.
 type UpdateUserInput struct {
-	ID     int    `path:"id"`
-	Login  string `json:"login" validation:"required|max:100"`
-	Name   string `json:"name" validation:"required|max:150"`
-	Email  string `json:"email" validation:"required|max:255"`
-	Phone  string `json:"phone,omitempty" validation:"max:30"`
-	Locale string `json:"locale" validation:"required|max:16"`
-	Ext    any    `json:"ext,omitempty"`
+	ID     int             `path:"id"`
+	Login  string          `json:"login" validation:"required|max:100"`
+	Name   string          `json:"name" validation:"required|max:150"`
+	Email  string          `json:"email" validation:"required|max:255"`
+	Phone  string          `json:"phone,omitempty" validation:"max:30"`
+	Locale string          `json:"locale" validation:"required|max:16"`
+	Ext    json.RawMessage `json:"ext,omitempty"`
 }
 
 // DeactivateUserInput addresses the person to deactivate. Details is the application's instruction
 // for it (identity.WithUserExtension), such as who takes over their records; identity passes it on unread.
 type DeactivateUserInput struct {
-	ID      int `path:"id"`
-	Details any `json:"details,omitempty"`
+	ID      int             `path:"id"`
+	Details json.RawMessage `json:"details,omitempty"`
 }
 
 // DeactivateResult is what the application's extension answered to a deactivation: absent without one.
@@ -268,20 +268,6 @@ type SessionItem struct {
 // SessionList is a person's live sessions, the latest used first.
 type SessionList struct {
 	Sessions []SessionItem `json:"sessions"`
-}
-
-// rawOf is a JSON value of a body as the bytes the application's extension is given: nil when the body had none.
-func rawOf(v any) (json.RawMessage, error) {
-	if v == nil {
-		return nil, nil
-	}
-
-	raw, err := json.Marshal(v)
-	if err != nil {
-		return nil, apperr.Internal(err)
-	}
-
-	return raw, nil
 }
 
 // UserReach says whether the actor of the request may reach a person at all with the permission of the
@@ -466,14 +452,9 @@ func (h *Handler) createUser(ctx context.Context, in CreateUserInput) (UserDetai
 		return UserDetail{}, err
 	}
 
-	ext, err := rawOf(in.Ext)
-	if err != nil {
-		return UserDetail{}, err
-	}
-
 	created, err := h.admin.CreateWithExt(ctx, account.CreateAccount{
 		Login: in.Login, Name: in.Name, Email: in.Email, Phone: in.Phone, Locale: in.Locale, Password: in.Password,
-		ActorID: who.Account.ID, Ext: ext,
+		ActorID: who.Account.ID, Ext: in.Ext,
 	})
 	if err != nil {
 		return UserDetail{}, err
@@ -497,13 +478,8 @@ func (h *Handler) updateUser(ctx context.Context, in UpdateUserInput) (UserDetai
 		return UserDetail{}, err
 	}
 
-	ext, err := rawOf(in.Ext)
-	if err != nil {
-		return UserDetail{}, err
-	}
-
 	if _, err := h.admin.Update(ctx, account.UpdateAccount{
-		ID: in.ID, Login: in.Login, Name: in.Name, Email: in.Email, Phone: in.Phone, Locale: in.Locale, ActorID: who.Account.ID, Ext: ext,
+		ID: in.ID, Login: in.Login, Name: in.Name, Email: in.Email, Phone: in.Phone, Locale: in.Locale, ActorID: who.Account.ID, Ext: in.Ext,
 	}); err != nil {
 		return UserDetail{}, err
 	}
@@ -541,12 +517,7 @@ func (h *Handler) deactivateUser(ctx context.Context, in DeactivateUserInput) (D
 		return DeactivateResult{}, err
 	}
 
-	details, err := rawOf(in.Details)
-	if err != nil {
-		return DeactivateResult{}, err
-	}
-
-	ext, err := h.admin.DeactivateWithExt(ctx, account.DeactivateInput{ID: in.ID, ActorID: who.Account.ID, Details: details})
+	ext, err := h.admin.DeactivateWithExt(ctx, account.DeactivateInput{ID: in.ID, ActorID: who.Account.ID, Details: in.Details})
 
 	return DeactivateResult{Ext: ext}, err
 }

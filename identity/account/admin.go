@@ -811,8 +811,13 @@ func (a *Admin) Sessions(ctx context.Context, accountID int) ([]Session, error) 
 	return a.d.Users.Sessions(ctx, accountID)
 }
 
-// RevokeSession ends one live session of the account, on behalf of actorID.
+// RevokeSession ends one live session of the account, on behalf of actorID: an account that does not exist is
+// identity.account.not_found, a session that is not its live one identity.session.not_found.
 func (a *Admin) RevokeSession(ctx context.Context, accountID, sessionID, actorID int) error {
+	if _, err := a.d.Users.Get(ctx, accountID); err != nil { // like the other methods, so a missing account is not a missing session
+		return err
+	}
+
 	return a.d.Users.RevokeSession(ctx, RevokeSessionInput{AccountID: accountID, SessionID: sessionID, ActorID: actorID})
 }
 

@@ -1,4 +1,4 @@
-# Logic IDs: IAM-USER-005, IAM-USER-006, IAM-USER-007, IDENTITY-ADMIN-001, IDENTITY-ADMIN-002
+# Logic IDs: IAM-USER-005, IAM-USER-006, IAM-USER-007, IDENTITY-ADMIN-001, IDENTITY-ADMIN-002, IDENTITY-ADMIN-003
 
 Title: Administering accounts: create, update, deactivate, list, history, activity
 
@@ -37,7 +37,8 @@ the names of the areas a person's activity is grouped in.
 2. **Update** (`PUT /v1/iam/users/:id`) writes the fields that differ (login, name, e-mail, phone, locale) and nothing
    else: never the password hash, never the status. Nothing differing writes nothing and records nothing.
 3. **A new password** (`PUT /v1/iam/users/:id/password`) is given to an account by an administrator: the policy
-   applies, the lock is lifted (IAM-USER-002 item 7) and **every session of the person ends** (IAM-USER-004).
+   applies, the lock is lifted (IAM-USER-002 item 7) and **every session of the person ends** (IAM-USER-004);
+   **except the session the request came with when the administrator sets their own password**, which stays.
 4. Creation, updates and the new password are on the person's change history (IAM-USER-007), the password by name
    only, **never by value**.
 5. The facts are published to `Notices` after they are written: `AccountCreated`, `PasswordChanged`,
@@ -61,6 +62,8 @@ Code: `identity/account/admin.go` (`Admin.Create`, `Update`, `SetPassword`), `id
 3. In the same transaction the account is made inactive, **every session ends** (IAM-USER-004 item 6, with
    `signed_out_everywhere` on the history) and the deactivation is on the change history (IAM-USER-007).
 4. `AccountDeactivated` and `AccountActivated` are published to `Notices` after commit.
+5. The answer to a deactivation is `200` with `{ext}` (what the application's `UserExtension` answered; absent without one;
+   IDENTITY-ADMIN-003), not `204`.
 
 Code: `identity/account/admin.go` (`Admin.Deactivate`, `Activate`, `DeactivationHook`).
 
@@ -79,7 +82,14 @@ Code: `identity/account/admin.go` (`Admin.Deactivate`, `Activate`, `Deactivation
 2. Each row carries the person's details, **last sign-in** (the latest `signed_in`, empty: never), the **lock**
    (`locked_until`, derived from the history as IAM-USER-002 says) and its status. The lock is asked only about
    people who had a wrong password within the lock's length, so a list costs one query per such person, not one per row.
-3. Filters by dealer, location or role, and "access copied from a colleague" are applications'.
+3. **`last_sign_in=never`** lists the people who never signed in (no `signed_in` row), **`last_sign_in=idle`** the
+   people who did but not within the idle time (`identity.WithIdleAfter`, default 60 days: no `signed_in` row at or
+   after now minus that); anything else is `422 identity.list.last_sign_in_invalid`. The tabs' counts follow the
+   filter. The store answers it (`Query.LastSignIn`, `Query.IdleBefore`; `storetest` checks it).
+4. **Every other query key** is the application's own filter (a dealer, a role): it reaches the `Searcher` as
+   `Query.Filters` (`url.Values`, in `Search` and `Counts`), which reads the ones it knows. identity's default
+   store knows none and ignores them. Who the list shows to *this* caller is the `Searcher`'s too: it scopes by the
+   request's context. "Access copied from a colleague" is the application's (IDENTITY-ADMIN-003).
 
 Code: `identity/account/admin.go` (`Admin.List`), `identity/gormstore/store.go` (`Accounts.Search`, `SignIns.LastSignIns`,
 `SignIns.WrongPasswordsSince`).
@@ -160,3 +170,31 @@ arv-next's "Radnje" (IAM-USER-007 item 2 there), generic: what a person did, rea
 Code: `identity/account/activity.go` (`Admin.Activity`, `ActivityAreas`), `identity/gormstore/activity.go`
 (`ActivityLog`, served by the index `idx_audit_logs_actor_created`), `identity/http/users.go` (`UserActivity`),
 `identity/identity.go` (`WithActivityAreas`).
+
+## IDENTITY-ADMIN-003 — The application's hooks on the users routes
+
+What stays an application's (dealers, who it may see, hand-overs) plugs in; identity knows none of it.
+
+1. **Reach** (`identity.WithUserReach(func(ctx, permission, id) (bool, error))`). Every route that names a
+   person (show, update, password, deactivate, activate, unlock, sessions and revoking one or all, sign-ins,
+   changes, activity) asks it first, with **that route's permission** (`iam.user:view`, `iam.user:manage`,
+   `iam.user.activity:view`). A person out of reach is `404 identity.account.not_found`, the very answer for an id
+   that does not exist (revoking a session of a missing account is that answer too, not a missing session), so an
+   answer never tells who exists; nothing is written. An error from it is the answer. The list and create name no
+   person and do not ask; the list's scope is the `Searcher`'s. Without the option every person is in reach of
+   whoever holds the permission. `Admin`'s methods used from code do not ask it, as they check no permission.
+2. **A change log of the application's** (`identity.WithChangeLog(account.ChangeLog)`) replaces go-core's audit
+   trail for the history of people (the changes and the profile's writes); `ChangeEntry.Ext` reaches the change
+   row as `ext`. The activity (IDENTITY-ADMIN-002) is still read from the audit trail.
+3. **An extension** (`identity.WithUserExtension(account.UserExtension)`) adds the application's data to the
+   people. `Ext(ctx, ids)` is read once per page (and once for a record) and is the `ext` of the row, the record and
+   the answer to an update. The body of create and update takes `ext`, and of deactivate `details`; they are JSON
+   identity passes on unread (`json.RawMessage`). `Create`, `Update` and `Deactivate` run **in the transaction of
+   go-core's own write** (create: after the account and its history; update: also when no account field differs;
+   deactivate: after the hooks, before the account is made inactive and the sessions end): an error rolls everything
+   back and is the answer (give it a reason the client can explain). What `Create` and `Deactivate` return is the
+   `ext` of the answer. `Admin.CreateWithExt` and `DeactivateWithExt` return it to code; `Create` and `Deactivate` are
+   unchanged.
+
+Code: `identity/http/users.go` (`UserReach`, `Handler.reach`), `identity/account/extension.go`, `identity/account/admin.go`,
+`identity/identity.go` (`WithUserReach`, `WithChangeLog`, `WithUserExtension`, `WithIdleAfter`).
