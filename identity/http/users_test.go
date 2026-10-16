@@ -176,7 +176,7 @@ func TestCreateShowUpdateAndDeactivateOverHTTP(t *testing.T) {
 	assert.Equal(t, "created", rows[1]["action"])
 	assert.Equal(t, map[string]any{"id": 1.0, "name": "Ana Anić"}, rows[0]["actor"], "ana did it")
 
-	assert.Equal(t, nethttp.StatusNoContent, h.do(nethttp.MethodPost, "/v1/iam/users/"+itoa(id)+"/deactivate", nil, ana).Code)
+	assert.Equal(t, nethttp.StatusOK, h.do(nethttp.MethodPost, "/v1/iam/users/"+itoa(id)+"/deactivate", nil, ana).Code)
 
 	again := h.do(nethttp.MethodPost, "/v1/iam/users/"+itoa(id)+"/deactivate", nil, ana)
 	assert.Equal(t, nethttp.StatusConflict, again.Code)

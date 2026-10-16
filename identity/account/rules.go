@@ -29,6 +29,8 @@ const (
 	// ReasonListViewInvalid and ReasonListOrderInvalid refuse a list's view or sort column that does not exist.
 	ReasonListViewInvalid  apperr.Reason = "identity.list.view_invalid"
 	ReasonListOrderInvalid apperr.Reason = "identity.list.order_invalid"
+	// ReasonListLastSignInInvalid refuses a last sign-in filter that does not exist.
+	ReasonListLastSignInInvalid apperr.Reason = "identity.list.last_sign_in_invalid"
 	// ReasonHistoryViewInvalid refuses a view of a sign-in history or of the changes that does not exist.
 	ReasonHistoryViewInvalid apperr.Reason = "identity.history.view_invalid"
 	// ReasonActivityAreaUnknown refuses an area the application did not name; ReasonActivityRangeInvalid

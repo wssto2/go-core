@@ -50,7 +50,11 @@ var (
 		UserSignIns, UserChanges, UserActivity, UserSessions, RevokeUserSession, RevokeUserSessions,
 		ShowProfile, UpdateProfile, ChangeOwnPassword, RequestEmailChange, ResendEmailCode, ConfirmEmailChange,
 		CancelEmailChange, OwnSignIns, OwnSessions, RevokeOwnSession,
-	).Types(User{}, PersonRef{}, datatable.ViewCount{}, Statuses, SignInEvents, ChangeActions, ActivityActions, SignInViews, ChangeViews, UserViews)
+	).Types(
+		User{}, PersonRef{}, datatable.ViewCount{}, //nolint:exhaustruct,exhaustruct_v5 // zero by design
+		Statuses, SignInEvents, ChangeActions, ActivityActions, SignInViews, ChangeViews, UserViews,
+		route.Enum(account.LastSignInNever, account.LastSignInIdle).As("LastSignInFilter"),
+	)
 )
 
 // Status is where an account stands: usable, locked after wrong passwords, or deactivated.

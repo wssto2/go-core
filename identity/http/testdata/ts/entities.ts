@@ -20,6 +20,7 @@ export type ChangeRow = {
   after: Record<string, string>;
   actor: PersonRef | null;
   created_at: string;
+  ext?: unknown;
 };
 
 export type ChangeView = "all" | "access" | "details";
@@ -32,10 +33,16 @@ export type ClauseInfo = {
   binding_id?: number;
 };
 
+export type DeactivateResult = {
+  ext?: unknown;
+};
+
 export type Impersonator = {
   id: number;
   name: string;
 };
+
+export type LastSignInFilter = "never" | "idle";
 
 export type MyAccess = {
   subject: Subject;
@@ -153,6 +160,7 @@ export type UserDetail = {
   last_sign_in: string | null;
   locked_until: string | null;
   created_at: string;
+  ext?: unknown;
 };
 
 export type UserRow = {
@@ -167,6 +175,7 @@ export type UserRow = {
   last_sign_in: string | null;
   locked_until: string | null;
   created_at: string;
+  ext?: unknown;
 };
 
 export type UserView = "active" | "locked" | "inactive" | "all";

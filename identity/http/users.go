@@ -2,6 +2,8 @@ package http
 
 import (
 	"context"
+	"encoding/json"
+	"net/url"
 	"strings"
 	"time"
 
@@ -45,8 +47,10 @@ var (
 	UpdateUser = route.Put[UpdateUserInput, UserDetail](usersBase + "/:id").Name("identity.users.update").Requires(ManageUsers)
 	// SetUserPassword gives a person a new password, lifting their lock and ending their sessions.
 	SetUserPassword = route.Put[SetPasswordInput, route.Empty](usersBase + "/:id/password").Name("identity.users.set-password").Requires(ManageUsers)
-	// DeactivateUser makes a person inactive, after the application's hooks agree.
-	DeactivateUser = route.Post[UserInput, route.Empty](usersBase + "/:id/deactivate").Name("identity.users.deactivate").Requires(ManageUsers)
+	// DeactivateUser makes a person inactive, after the application's hooks agree; it answers what the extension said.
+	//nolint:gochecknoglobals // a route is declared once, as a value
+	DeactivateUser = route.Post[DeactivateUserInput, DeactivateResult](usersBase + "/:id/deactivate").
+			Name("identity.users.deactivate").Requires(ManageUsers)
 	// ActivateUser makes an inactive person active again.
 	ActivateUser = route.Post[UserInput, route.Empty](usersBase + "/:id/activate").Name("identity.users.activate").Requires(ManageUsers)
 	// UnlockUser lifts the lock after wrong passwords.
@@ -78,8 +82,12 @@ type UserSessionInput struct {
 }
 
 // ListUsersInput is a page of the list. View is one of active (the default),
-// locked, inactive, all (meta.views counts each, under the same search); OrderCol one of login (the default), name, email,
-// created_at; OrderDir asc (the default) or desc; PerPage at most 100.
+// locked, inactive, all (meta.views counts each, under the same search and filters); OrderCol one of login (the
+// default), name, email, created_at; OrderDir asc (the default) or desc; PerPage at most 100. LastSignIn
+// is never (people who never signed in) or idle (who did, but not within the idle time, 60 days unless
+// identity.WithIdleAfter says otherwise); empty is everyone. Filters are every other query key, for the
+// Searcher of the application to read (account.Query.Filters): identity itself knows none, and its default
+// store ignores them. Which people a caller may list at all is the Searcher's to scope from the request's context.
 type ListUsersInput struct {
 	View     account.View `query:"view" json:"view,omitempty" validation:"max:16"`
 	Search   string       `query:"search" json:"search,omitempty" validation:"max:100"`
@@ -87,6 +95,10 @@ type ListUsersInput struct {
 	OrderDir string       `query:"order_dir" json:"order_dir,omitempty" validation:"max:4"`
 	Page     int          `query:"page" json:"page,omitempty"`
 	PerPage  int          `query:"per_page" json:"per_page,omitempty"`
+
+	//nolint:tagliatelle // snake_case wire
+	LastSignIn account.LastSignInFilter `json:"last_sign_in,omitempty" query:"last_sign_in" validation:"max:16"`
+	Filters    url.Values               `json:"-"                      query:"*"`
 }
 
 // SignInsInput is a page of a person's sign-in history. View is all (the default) or failed (a wrong
@@ -133,7 +145,8 @@ type ActivityRow struct {
 	CreatedAt  time.Time              `json:"created_at"`
 }
 
-// CreateUserInput is a new person. Locale is a BCP-47 tag such as "hr".
+// CreateUserInput is a new person. Locale is a BCP-47 tag such as "hr". Ext is the application's own data for
+// them (identity.WithUserExtension), which identity passes on unread.
 type CreateUserInput struct {
 	Login    string `json:"login" validation:"required|max:100"`
 	Name     string `json:"name" validation:"required|max:150"`
@@ -141,9 +154,12 @@ type CreateUserInput struct {
 	Phone    string `json:"phone,omitempty" validation:"max:30"`
 	Locale   string `json:"locale" validation:"required|max:16"`
 	Password string `json:"password" validation:"required|max:200"`
+
+	Ext json.RawMessage `json:"ext,omitempty"`
 }
 
-// UpdateUserInput is a person's details as they should be: every field is written.
+// UpdateUserInput is a person's details as they should be: every field is written. Ext is the
+// application's own data for them (identity.WithUserExtension), which identity passes on unread.
 type UpdateUserInput struct {
 	ID     int    `path:"id"`
 	Login  string `json:"login" validation:"required|max:100"`
@@ -151,6 +167,20 @@ type UpdateUserInput struct {
 	Email  string `json:"email" validation:"required|max:255"`
 	Phone  string `json:"phone,omitempty" validation:"max:30"`
 	Locale string `json:"locale" validation:"required|max:16"`
+
+	Ext json.RawMessage `json:"ext,omitempty"`
+}
+
+// DeactivateUserInput addresses the person to deactivate. Details is the application's instruction
+// for it (identity.WithUserExtension), such as who takes over their records; identity passes it on unread.
+type DeactivateUserInput struct {
+	ID      int             `path:"id"`
+	Details json.RawMessage `json:"details,omitempty"`
+}
+
+// DeactivateResult is what the application's extension answered to a deactivation: absent without one.
+type DeactivateResult struct {
+	Ext any `json:"ext,omitempty"`
 }
 
 // SetPasswordInput is the new password of a person.
@@ -179,6 +209,8 @@ type UserRow struct {
 	LastSignIn  *time.Time `json:"last_sign_in"`
 	LockedUntil *time.Time `json:"locked_until"`
 	CreatedAt   time.Time  `json:"created_at"`
+	// Ext is the application's own data for the person (identity.WithUserExtension); absent without one.
+	Ext any `json:"ext,omitempty"`
 }
 
 // UserDetail is one person: the same fields as UserRow.
@@ -194,6 +226,8 @@ type UserDetail struct {
 	LastSignIn  *time.Time `json:"last_sign_in"`
 	LockedUntil *time.Time `json:"locked_until"`
 	CreatedAt   time.Time  `json:"created_at"`
+	// Ext is the application's own data for the person (identity.WithUserExtension); absent without one.
+	Ext any `json:"ext,omitempty"`
 }
 
 // SignInRow is one row of a sign-in history. Event is signed_in, wrong_password,
@@ -220,6 +254,8 @@ type ChangeRow struct {
 	After     map[string]string    `json:"after"`
 	Actor     *PersonRef           `json:"actor"`
 	CreatedAt time.Time            `json:"created_at"`
+	// Ext is what the application's own change log adds to the row (identity.WithChangeLog); absent otherwise.
+	Ext any `json:"ext,omitempty"`
 }
 
 // SessionItem is one live session. OpenedBy is who opened it by signing in as the
@@ -238,6 +274,32 @@ type SessionItem struct {
 // SessionList is a person's live sessions, the latest used first.
 type SessionList struct {
 	Sessions []SessionItem `json:"sessions"`
+}
+
+// UserReach says whether the actor of the request may reach a person at all with the permission of the
+// route being served (iam.user:view to look, iam.user:manage to change, iam.user.activity:view for what they
+// did): a person out of reach answers 404 identity.account.not_found, exactly as one who does not exist
+// does, so the answer never tells who exists. identity.WithUserReach installs it; without one every person
+// is in reach of whoever holds the permission. An error is the answer. It is asked on every route that names a
+// person; which people the list shows is the Searcher's to scope.
+type UserReach func(ctx context.Context, permission string, id int) (bool, error)
+
+// reach refuses a person out of the actor's reach, with the permission of the route.
+func (h *Handler) reach(ctx context.Context, r route.Declared, id int) error {
+	if h.userReach == nil {
+		return nil
+	}
+
+	ok, err := h.userReach(ctx, r.Spec().Permission, id)
+	if err != nil {
+		return err
+	}
+
+	if !ok {
+		return apperr.NotFound(string(account.ReasonAccountNotFound)).WithReason(account.ReasonAccountNotFound)
+	}
+
+	return nil
 }
 
 func (h *Handler) actor(ctx context.Context) (account.Authenticated, error) {
@@ -318,7 +380,7 @@ func detailOf(d account.Detail) UserDetail {
 	return UserDetail{
 		ID: d.ID, Login: d.Login, Name: d.Name, Email: d.Email, Phone: d.Phone, Locale: d.Locale, Active: d.Active,
 		Status: statusOf(d.Active, d.LockedUntil), LastSignIn: timeOrNil(d.LastSignIn), LockedUntil: timeOrNil(d.LockedUntil),
-		CreatedAt: d.CreatedAt.UTC(),
+		CreatedAt: d.CreatedAt.UTC(), Ext: d.Ext,
 	}
 }
 
@@ -352,7 +414,7 @@ func (h *Handler) listUsers(ctx context.Context, in ListUsersInput) (datatable.D
 
 	listing, err := h.admin.List(ctx, account.ListInput{
 		View: in.View, Search: in.Search, OrderBy: account.Order(in.OrderCol), Desc: in.OrderDir == "desc",
-		Paging: pagingOf(in.Page, in.PerPage),
+		Paging: pagingOf(in.Page, in.PerPage), LastSignIn: in.LastSignIn, Filters: in.Filters,
 	})
 	if err != nil {
 		return datatable.DatatableResult[UserRow]{}, err
@@ -372,7 +434,16 @@ func (h *Handler) listUsers(ctx context.Context, in ListUsersInput) (datatable.D
 }
 
 func (h *Handler) showUser(ctx context.Context, in UserInput) (UserDetail, error) {
-	d, err := h.admin.Get(ctx, in.ID)
+	err := h.reach(ctx, ShowUser, in.ID)
+	if err != nil {
+		return UserDetail{}, err
+	}
+
+	return h.detail(ctx, in.ID)
+}
+
+func (h *Handler) detail(ctx context.Context, id int) (UserDetail, error) {
+	d, err := h.admin.Get(ctx, id)
 
 	return detailOf(d), err
 }
@@ -388,17 +459,23 @@ func (h *Handler) createUser(ctx context.Context, in CreateUserInput) (UserDetai
 		return UserDetail{}, err
 	}
 
-	acc, err := h.admin.Create(ctx, account.CreateAccount{
-		Login: in.Login, Name: in.Name, Email: in.Email, Phone: in.Phone, Locale: in.Locale, Password: in.Password, ActorID: who.Account.ID,
+	created, err := h.admin.CreateWithExt(ctx, account.CreateAccount{
+		Login: in.Login, Name: in.Name, Email: in.Email, Phone: in.Phone, Locale: in.Locale, Password: in.Password,
+		ActorID: who.Account.ID, Ext: in.Ext,
 	})
 	if err != nil {
 		return UserDetail{}, err
 	}
 
-	return detailOf(account.Detail{Account: acc}), nil
+	return detailOf(created), nil
 }
 
 func (h *Handler) updateUser(ctx context.Context, in UpdateUserInput) (UserDetail, error) {
+	err := h.reach(ctx, UpdateUser, in.ID)
+	if err != nil {
+		return UserDetail{}, err
+	}
+
 	who, err := h.actor(ctx)
 	if err != nil {
 		return UserDetail{}, err
@@ -410,33 +487,60 @@ func (h *Handler) updateUser(ctx context.Context, in UpdateUserInput) (UserDetai
 	}
 
 	if _, err := h.admin.Update(ctx, account.UpdateAccount{
-		ID: in.ID, Login: in.Login, Name: in.Name, Email: in.Email, Phone: in.Phone, Locale: in.Locale, ActorID: who.Account.ID,
+		ID: in.ID, Login: in.Login, Name: in.Name, Email: in.Email, Phone: in.Phone, Locale: in.Locale,
+		ActorID: who.Account.ID, Ext: in.Ext,
 	}); err != nil {
 		return UserDetail{}, err
 	}
 
-	return h.showUser(ctx, UserInput{ID: in.ID})
+	return h.detail(ctx, in.ID)
 }
 
 func (h *Handler) setUserPassword(ctx context.Context, in SetPasswordInput) (route.Empty, error) {
+	err := h.reach(ctx, SetUserPassword, in.ID)
+	if err != nil {
+		return route.Empty{}, err
+	}
+
 	who, err := h.actor(ctx)
 	if err != nil {
 		return route.Empty{}, err
 	}
 
-	return route.Empty{}, h.admin.SetPassword(ctx, account.SetPassword{ID: in.ID, Password: in.Password, ActorID: who.Account.ID})
+	set := account.SetPassword{ID: in.ID, Password: in.Password, ActorID: who.Account.ID, KeepToken: ""}
+
+	if in.ID == who.Account.ID { // an administrator who sets their own password stays signed in
+		x := route.ExchangeOf(ctx)
+		set.KeepToken = tokenOf(x.Header("Authorization"), x.Cookie(h.cookies.Access))
+	}
+
+	return route.Empty{}, h.admin.SetPassword(ctx, set) //nolint:wrapcheck // the service names the call
 }
 
-func (h *Handler) deactivateUser(ctx context.Context, in UserInput) (route.Empty, error) {
-	who, err := h.actor(ctx)
+func (h *Handler) deactivateUser(ctx context.Context, req DeactivateUserInput) (DeactivateResult, error) {
+	err := h.reach(ctx, DeactivateUser, req.ID)
 	if err != nil {
-		return route.Empty{}, err
+		return DeactivateResult{}, err
 	}
 
-	return route.Empty{}, h.admin.Deactivate(ctx, account.DeactivateInput{ID: in.ID, ActorID: who.Account.ID})
+	who, err := h.actor(ctx)
+	if err != nil {
+		return DeactivateResult{}, err
+	}
+
+	ext, err := h.admin.DeactivateWithExt(ctx, account.DeactivateInput{
+		ID: req.ID, ActorID: who.Account.ID, Details: req.Details,
+	})
+
+	return DeactivateResult{Ext: ext}, err //nolint:wrapcheck // the service names the call
 }
 
 func (h *Handler) activateUser(ctx context.Context, in UserInput) (route.Empty, error) {
+	err := h.reach(ctx, ActivateUser, in.ID)
+	if err != nil {
+		return route.Empty{}, err
+	}
+
 	who, err := h.actor(ctx)
 	if err != nil {
 		return route.Empty{}, err
@@ -446,6 +550,11 @@ func (h *Handler) activateUser(ctx context.Context, in UserInput) (route.Empty, 
 }
 
 func (h *Handler) unlockUser(ctx context.Context, in UserInput) (UnlockResult, error) {
+	err := h.reach(ctx, UnlockUser, in.ID)
+	if err != nil {
+		return UnlockResult{}, err
+	}
+
 	who, err := h.actor(ctx)
 	if err != nil {
 		return UnlockResult{}, err
@@ -466,6 +575,11 @@ func signInRows(rows []account.SignInEntry, who people) []SignInRow {
 }
 
 func (h *Handler) userSignIns(ctx context.Context, in SignInsInput) (datatable.DatatableResult[SignInRow], error) {
+	err := h.reach(ctx, UserSignIns, in.ID)
+	if err != nil {
+		return datatable.DatatableResult[SignInRow]{}, err
+	}
+
 	page, err := h.admin.SignIns(ctx, in.ID, in.View, pagingOf(in.Page, in.PerPage))
 
 	return h.signInPage(ctx, page, err, in.Page, in.PerPage)
@@ -489,6 +603,11 @@ func (h *Handler) signInPage(ctx context.Context, page account.SignInPage, err e
 }
 
 func (h *Handler) userChanges(ctx context.Context, in ChangesInput) (datatable.DatatableResult[ChangeRow], error) {
+	err := h.reach(ctx, UserChanges, in.ID)
+	if err != nil {
+		return datatable.DatatableResult[ChangeRow]{}, err
+	}
+
 	page, err := h.admin.Changes(ctx, in.ID, in.View, pagingOf(in.Page, in.PerPage))
 	if err != nil {
 		return datatable.DatatableResult[ChangeRow]{}, err
@@ -508,7 +627,7 @@ func (h *Handler) userChanges(ctx context.Context, in ChangesInput) (datatable.D
 	for i, r := range page.Rows {
 		out[i] = ChangeRow{
 			ID: r.ID, Action: r.Action, Fields: nonNil(r.Fields), Before: nonNilMap(r.Before), After: nonNilMap(r.After),
-			Actor: who.ref(r.ActorID), CreatedAt: r.At.UTC(),
+			Actor: who.ref(r.ActorID), CreatedAt: r.At.UTC(), Ext: r.Ext,
 		}
 	}
 
@@ -557,6 +676,11 @@ func sessionItems(sessions []account.Session, current int, who people) SessionLi
 }
 
 func (h *Handler) userSessions(ctx context.Context, in UserInput) (SessionList, error) {
+	err := h.reach(ctx, UserSessions, in.ID)
+	if err != nil {
+		return SessionList{}, err
+	}
+
 	sessions, err := h.admin.Sessions(ctx, in.ID)
 	if err != nil {
 		return SessionList{}, err
@@ -576,6 +700,11 @@ func (h *Handler) userSessions(ctx context.Context, in UserInput) (SessionList, 
 }
 
 func (h *Handler) revokeUserSession(ctx context.Context, in UserSessionInput) (route.Empty, error) {
+	err := h.reach(ctx, RevokeUserSession, in.ID)
+	if err != nil {
+		return route.Empty{}, err
+	}
+
 	who, err := h.actor(ctx)
 	if err != nil {
 		return route.Empty{}, err
@@ -585,6 +714,11 @@ func (h *Handler) revokeUserSession(ctx context.Context, in UserSessionInput) (r
 }
 
 func (h *Handler) revokeUserSessions(ctx context.Context, in UserInput) (route.Empty, error) {
+	err := h.reach(ctx, RevokeUserSessions, in.ID)
+	if err != nil {
+		return route.Empty{}, err
+	}
+
 	who, err := h.actor(ctx)
 	if err != nil {
 		return route.Empty{}, err
@@ -614,6 +748,11 @@ func dayOf(field, v string) (time.Time, error) {
 }
 
 func (h *Handler) userActivity(ctx context.Context, in ActivityInput) (datatable.DatatableResult[ActivityRow], error) {
+	err := h.reach(ctx, UserActivity, in.ID)
+	if err != nil {
+		return datatable.DatatableResult[ActivityRow]{}, err
+	}
+
 	from, err := dayOf("from", in.From)
 	if err != nil {
 		return datatable.DatatableResult[ActivityRow]{}, err

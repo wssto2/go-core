@@ -12,8 +12,12 @@ func TestMemoryStoresConform(t *testing.T) {
 	storetest.Run(t, func(*testing.T) storetest.Stores {
 		changes, sessions := identitytest.NewChangeLog(identitytest.NewClock(identitytest.Epoch)), identitytest.NewSessions()
 
-		return storetest.Stores{Accounts: identitytest.NewAccounts(), SignIns: identitytest.NewSignIns(), Sessions: sessions,
+		signIns := identitytest.NewSignIns()
+
+		return storetest.Stores{
+			Accounts: identitytest.NewAccounts().WithSignIns(signIns), SignIns: signIns, Sessions: sessions,
 			Codes: identitytest.NewCodes(), Reauth: identitytest.NewReauth(),
-			Changes: changes, Activity: identitytest.NewActivityLog(changes, sessions)}
+			Changes: changes, Activity: identitytest.NewActivityLog(changes, sessions),
+		}
 	})
 }

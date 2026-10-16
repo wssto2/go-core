@@ -2,6 +2,7 @@ package identitytest
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -15,10 +16,19 @@ type Accounts struct {
 	mu   sync.Mutex
 	next int
 	rows map[int]account.Account
+	// history is the sign-in log the last sign-in filter reads; the Kit sets it.
+	history account.SignInHistory
 }
 
 // NewAccounts returns an empty store.
 func NewAccounts() *Accounts { return &Accounts{next: 1, rows: map[int]account.Account{}} }
+
+// WithSignIns gives the store the sign-in log that the list's last sign-in filter reads; the Kit does it for its own.
+func (s *Accounts) WithSignIns(history account.SignInHistory) *Accounts {
+	s.history = history
+
+	return s
+}
 
 // Find implements account.Store.
 func (s *Accounts) Find(_ context.Context, id int) (account.Account, error) {
@@ -198,82 +208,97 @@ func (s *Accounts) Update(_ context.Context, id int, c account.Changes) error {
 }
 
 // Search implements account.Searcher.
-func (s *Accounts) Search(_ context.Context, q account.Query) (account.Page, error) {
+func (s *Accounts) Search(ctx context.Context, query account.Query) (account.Page, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	term := strings.ToLower(q.Search)
-
 	var rows []account.Account
 
-	for _, a := range s.rows {
-		if term != "" && !strings.Contains(strings.ToLower(a.Login+"\x00"+a.Name+"\x00"+a.Email), term) {
-			continue
+	for _, acc := range s.rows {
+		ok, err := accepts(ctx, s.history, query, acc)
+		if err != nil {
+			return account.Page{}, err
 		}
 
-		if q.Active != nil && a.Active != *q.Active {
-			continue
-		}
-
-		if q.Locked != nil && slices.Contains(q.LockedIDs, a.ID) != *q.Locked {
-			continue
-		}
-
-		rows = append(rows, a)
-	}
-
-	key := func(a account.Account) string {
-		switch q.OrderBy {
-		case account.OrderName:
-			return strings.ToLower(a.Name)
-		case account.OrderEmail:
-			return strings.ToLower(a.Email)
-		case account.OrderCreated:
-			return a.CreatedAt.Format(time.RFC3339Nano)
-		default:
-			return a.Login
+		if ok {
+			rows = append(rows, acc)
 		}
 	}
 
 	slices.SortFunc(rows, func(a, b account.Account) int {
-		c := strings.Compare(key(a), key(b))
-		if c == 0 {
-			c = a.ID - b.ID
+		order := strings.Compare(orderKey(query.OrderBy, a), orderKey(query.OrderBy, b))
+		if order == 0 {
+			order = a.ID - b.ID
 		}
 
-		if q.Desc {
-			return -c
+		if query.Desc {
+			return -order
 		}
 
-		return c
+		return order
 	})
 
 	page := account.Page{Total: len(rows)}
-	perPage := max(q.PerPage, 1)
-	from := min((max(q.Page, 1)-1)*perPage, len(rows))
+	perPage := max(query.PerPage, 1)
+	from := min((max(query.Page, 1)-1)*perPage, len(rows))
 	page.Accounts = rows[from:min(from+perPage, len(rows))]
 
 	return page, nil
 }
 
+// orderKey is what a list sorted by the column compares an account by.
+func orderKey(by account.Order, acc account.Account) string {
+	switch by {
+	case account.OrderName:
+		return strings.ToLower(acc.Name)
+	case account.OrderEmail:
+		return strings.ToLower(acc.Email)
+	case account.OrderCreated:
+		return acc.CreatedAt.Format(time.RFC3339Nano)
+	case account.OrderLogin:
+		return acc.Login
+	default:
+		return acc.Login
+	}
+}
+
+// accepts says whether the account is in the page the query asks for: matches, in the status and the lock.
+func accepts(
+	ctx context.Context, history account.SignInHistory, query account.Query, acc account.Account,
+) (bool, error) {
+	ok, err := matches(ctx, history, query, acc)
+	if err != nil || !ok {
+		return false, err
+	}
+
+	if query.Active != nil && acc.Active != *query.Active {
+		return false, nil
+	}
+
+	return query.Locked == nil || slices.Contains(query.LockedIDs, acc.ID) == *query.Locked, nil
+}
+
 // Counts implements account.Searcher.
-func (s *Accounts) Counts(_ context.Context, q account.Query) (account.StatusCounts, error) {
+func (s *Accounts) Counts(ctx context.Context, query account.Query) (account.StatusCounts, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	term := strings.ToLower(q.Search)
 
 	var out account.StatusCounts
 
 	for _, a := range s.rows {
-		if term != "" && !strings.Contains(strings.ToLower(a.Login+"\x00"+a.Name+"\x00"+a.Email), term) {
+		ok, err := matches(ctx, s.history, query, a)
+		if err != nil {
+			return out, err
+		}
+
+		if !ok {
 			continue
 		}
 
 		switch {
 		case !a.Active:
 			out.Inactive++
-		case slices.Contains(q.LockedIDs, a.ID):
+		case slices.Contains(query.LockedIDs, a.ID):
 			out.Locked++
 		default:
 			out.Active++
@@ -281,6 +306,37 @@ func (s *Accounts) Counts(_ context.Context, q account.Query) (account.StatusCou
 	}
 
 	return out, nil
+}
+
+// matches says whether the account passes the query's search and last sign-in filter, as the history says (the
+// filter is not applied when the store was not given the sign-in log; the Kit gives it).
+func matches(
+	ctx context.Context, history account.SignInHistory, query account.Query, acc account.Account,
+) (bool, error) {
+	term := strings.ToLower(query.Search)
+	if term != "" && !strings.Contains(strings.ToLower(acc.Login+"\x00"+acc.Name+"\x00"+acc.Email), term) {
+		return false, nil
+	}
+
+	if query.LastSignIn == "" || history == nil {
+		return true, nil
+	}
+
+	last, err := history.LastSignIns(ctx, []int{acc.ID})
+	if err != nil {
+		return false, fmt.Errorf("identitytest: last sign-ins: %w", err)
+	}
+
+	signed, ever := last[acc.ID]
+
+	switch query.LastSignIn {
+	case account.LastSignInNever:
+		return !ever, nil
+	case account.LastSignInIdle:
+		return ever && signed.Before(query.IdleBefore), nil
+	}
+
+	return true, nil
 }
 
 // SignIns is a memory account.SignInLog.

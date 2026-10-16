@@ -27,6 +27,7 @@ type Handler struct {
 	access     AccessProvider
 	navigation NavigationProvider
 	limits     account.Limits
+	userReach  UserReach
 }
 
 // Config is what the handler is built from. Services, Profile and Clock
@@ -49,6 +50,8 @@ type Config struct {
 	// Limits are the widths the store keeps (the same as account.Config.Limits): a longer
 	// login, name, e-mail address or phone is refused with 422 like a tag's max.
 	Limits account.Limits
+	// Reach, when set, is asked by every users route that names a person (UserReach).
+	Reach UserReach
 }
 
 // NewHandler returns the handler for the configuration.
@@ -56,7 +59,7 @@ func NewHandler(cfg Config) *Handler {
 	h := &Handler{
 		signIn: cfg.Services.SignIn, users: cfg.Services.Users, admin: cfg.Admin, profile: cfg.Profile, clock: cfg.Clock,
 		cookies: cfg.Cookies.withDefaults(), project: cfg.Project, principal: cfg.Principal,
-		access: cfg.Access, navigation: cfg.Navigation, limits: cfg.Limits.WithDefaults(),
+		access: cfg.Access, navigation: cfg.Navigation, limits: cfg.Limits.WithDefaults(), userReach: cfg.Reach,
 	}
 
 	if h.project == nil {

@@ -2,6 +2,7 @@ package account
 
 import (
 	"context"
+	"net/url"
 	"time"
 )
 
@@ -48,6 +49,21 @@ const (
 	OrderCreated Order = "created_at"
 )
 
+// LastSignInFilter is a filter on when the account last signed in.
+type LastSignInFilter string
+
+// The sign-in filters of the list.
+const (
+	// LastSignInNever is the accounts that never signed in.
+	LastSignInNever LastSignInFilter = "never"
+	// LastSignInIdle is the accounts that signed in before, but not within the idle time
+	// (AdminDeps.IdleAfter, 60 days unless set): those who never did are LastSignInNever's.
+	LastSignInIdle LastSignInFilter = "idle"
+)
+
+// DefaultIdleAfter is how long without signing in makes an account idle (LastSignInIdle).
+const DefaultIdleAfter = 60 * 24 * time.Hour
+
 // Query is a page of accounts.
 type Query struct {
 	// Search matches the login, the name and the e-mail address, without case.
@@ -59,8 +75,18 @@ type Query struct {
 	// the service works it out and hands the store the ids.
 	Locked    *bool
 	LockedIDs []int
-	OrderBy   Order
-	Desc      bool
+	// Filters are the application's own filters, the query keys of the list that identity has
+	// no field for (an application's dealer or role, say): its Searcher reads the ones it knows
+	// and leaves the others. The default store knows none and ignores them.
+	Filters url.Values
+	// LastSignIn, when set, restricts the list to the accounts that never signed in, or that
+	// did but not since IdleBefore. A store answers it from the sign-in history (rows of the
+	// event signed_in), as in "NOT EXISTS (a signed_in row)" and "EXISTS (one) AND NOT EXISTS
+	// (one at or after IdleBefore)".
+	LastSignIn LastSignInFilter
+	IdleBefore time.Time
+	OrderBy    Order
+	Desc       bool
 	// Page counts from 1.
 	Page, PerPage int
 }
@@ -83,8 +109,9 @@ func (c StatusCounts) All() int { return c.Active + c.Locked + c.Inactive }
 // Searcher lists and searches accounts.
 type Searcher interface {
 	Search(ctx context.Context, q Query) (Page, error)
-	// Counts says how many accounts match q.Search in each status, in one query; q.LockedIDs
-	// are the locked ones, and the rest of q (the status, the order, the page) is ignored.
+	// Counts says how many accounts match q.Search, q.Filters and q.LastSignIn in each status, in one
+	// query; q.LockedIDs are the locked ones, and the rest of q (the status, the order, the page)
+	// is ignored.
 	Counts(ctx context.Context, q Query) (StatusCounts, error)
 }
 
@@ -155,6 +182,9 @@ type ChangeEntry struct {
 	ID int
 	Change
 	At time.Time
+	// Ext is what a ChangeLog of the application's own adds to a row (WithChangeLog), such as the
+	// records a deactivation handed over; the response carries it as "ext". The default log sets none.
+	Ext any
 }
 
 // ChangeLog keeps the history of changes to accounts. The default is go-core's

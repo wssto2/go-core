@@ -132,6 +132,13 @@ type options struct {
 	policy account.PasswordPolicy
 	hooks  []account.DeactivationHook
 	noMail bool
+	// extension and idleAfter are the users module's.
+	extension account.UserExtension
+	idleAfter time.Duration
+	// search wraps the Searcher the users module lists with.
+	search func(account.Searcher) account.Searcher
+	// changes wraps the ChangeLog the users module reads the changes of a person with.
+	changes func(account.ChangeLog) account.ChangeLog
 }
 
 // WithoutMail builds the Profile without codes: changing the e-mail address is
@@ -145,6 +152,23 @@ func WithPasswordPolicy(p account.PasswordPolicy) Option { return func(o *option
 func WithDeactivationHooks(h ...account.DeactivationHook) Option {
 	return func(o *options) { o.hooks = append(o.hooks, h...) }
 }
+
+// WithUserExtension gives the users module the application's own data on people.
+func WithUserExtension(x account.UserExtension) Option { return func(o *options) { o.extension = x } }
+
+// WithSearcher wraps the Searcher the users module lists with, such as one that records the queries it gets.
+func WithSearcher(wrap func(account.Searcher) account.Searcher) Option {
+	return func(o *options) { o.search = wrap }
+}
+
+// WithChangeLogWrap wraps the ChangeLog the users module reads the changes of a person with (it still writes to
+// the Kit's own), such as one that adds an Ext to the rows.
+func WithChangeLogWrap(wrap func(account.ChangeLog) account.ChangeLog) Option {
+	return func(o *options) { o.changes = wrap }
+}
+
+// WithIdleAfter sets how long without signing in makes an account idle in the list.
+func WithIdleAfter(d time.Duration) Option { return func(o *options) { o.idleAfter = d } }
 
 // WithCodeRules sets the limits of one-time codes, such as a shorter cooldown.
 func WithCodeRules(r account.CodeRules) Option { return func(o *options) { o.codes = r } }
@@ -208,6 +232,7 @@ func New(t testing.TB, seed []account.Account, opts ...Option) Kit {
 	}
 
 	kit := Kit{Clock: NewClock(Epoch), Accounts: NewAccounts(), SignIns: NewSignIns(), Sessions: NewSessions()}
+	kit.Accounts.WithSignIns(kit.SignIns)
 
 	for _, a := range seed {
 		if _, err := kit.Accounts.Create(t.Context(), a); err != nil {
@@ -245,9 +270,19 @@ func New(t testing.TB, seed []account.Account, opts ...Option) Kit {
 	kit.Changes = NewChangeLog(kit.Clock)
 	kit.Activity = NewActivityLog(kit.Changes, kit.Sessions)
 
+	var search account.Searcher = kit.Accounts
+	if o.search != nil {
+		search = o.search(search)
+	}
+
+	var changes account.ChangeLog = kit.Changes
+	if o.changes != nil {
+		changes = o.changes(changes)
+	}
+
 	kit.Admin, err = account.NewAdmin(account.AdminDeps{
-		Users: svc.Users, Search: kit.Accounts, History: kit.SignIns, Changes: kit.Changes, Activity: kit.Activity, Transact: Transactor{},
-		Policy: o.policy, Hooks: o.hooks,
+		Users: svc.Users, Search: search, History: kit.SignIns, Changes: changes, Activity: kit.Activity,
+		Transact: Transactor{}, Policy: o.policy, Hooks: o.hooks, Extension: o.extension, IdleAfter: o.idleAfter,
 	})
 	if err != nil {
 		t.Fatalf("identitytest: %v", err)
