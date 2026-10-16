@@ -50,7 +50,11 @@ var (
 		UserSignIns, UserChanges, UserActivity, UserSessions, RevokeUserSession, RevokeUserSessions,
 		ShowProfile, UpdateProfile, ChangeOwnPassword, RequestEmailChange, ResendEmailCode, ConfirmEmailChange,
 		CancelEmailChange, OwnSignIns, OwnSessions, RevokeOwnSession,
-	).Types(User{}, PersonRef{}, datatable.ViewCount{}, Statuses, SignInEvents, ChangeActions, ActivityActions, SignInViews, ChangeViews, UserViews, LastSignIns)
+	).Types(
+		User{}, PersonRef{}, datatable.ViewCount{}, //nolint:exhaustruct,exhaustruct_v5 // zero by design
+		Statuses, SignInEvents, ChangeActions, ActivityActions, SignInViews, ChangeViews, UserViews,
+		route.Enum(account.LastSignInNever, account.LastSignInIdle).As("LastSignInFilter"),
+	)
 )
 
 // Status is where an account stands: usable, locked after wrong passwords, or deactivated.
@@ -70,7 +74,6 @@ var (
 	SignInEvents    = route.Enum(account.SignedIn, account.WrongPassword, account.LockedOut, account.RefusedInactive, account.SignedInAs, account.Unlocked, account.SignedOutEverywhere, account.SessionRevoked)
 	ActivityActions = route.Enum(account.ActivityCreated, account.ActivityChanged, account.ActivityDeleted)
 	UserViews       = route.Enum(account.ViewActive, account.ViewLocked, account.ViewInactive, account.ViewAll).As("UserView")
-	LastSignIns     = route.Enum(account.LastSignInNever, account.LastSignInIdle).As("LastSignInFilter")
 	SignInViews     = route.Enum(account.SignInsAll, account.SignInsFailed)
 	ChangeViews     = route.Enum(account.ChangesAll, account.ChangesAccess, account.ChangesDetails)
 	ChangeActions   = route.Enum(account.ChangeCreated, account.ChangeUpdated, account.ChangeDeactivated, account.ChangeActivated, account.ChangePassword, account.ChangeEmail, account.ChangeProfile)

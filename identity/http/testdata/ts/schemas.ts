@@ -74,11 +74,11 @@ export type UserView = z.infer<typeof UserViewSchema>;
 export const ListUsersInputSchema = z.object({
   view: UserViewSchema.optional(),
   search: z.string().max(100).optional(),
-  last_sign_in: LastSignInFilterSchema.optional(),
   order_col: z.string().max(16).optional(),
   order_dir: z.string().max(4).optional(),
   page: z.number().int().optional(),
   per_page: z.number().int().optional(),
+  last_sign_in: LastSignInFilterSchema.optional(),
 });
 
 export type ListUsersInput = z.infer<typeof ListUsersInputSchema>;

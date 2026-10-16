@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,goconst,lll,noinlineerr,paralleltest,thelper,varnamelen,wrapcheck // tests in the style of the package's others
 package gormstore_test
 
 import (
@@ -26,14 +27,6 @@ type scribbler struct {
 	got    json.RawMessage
 }
 
-func (s *scribbler) scribble(ctx context.Context, id int) error {
-	if err := s.stores.Accounts.SetLocale(ctx, id, "de"); err != nil {
-		return err
-	}
-
-	return s.refuse
-}
-
 func (s *scribbler) Create(ctx context.Context, id int, ext json.RawMessage, _ int) (any, error) {
 	s.got = ext
 
@@ -53,6 +46,14 @@ func (s *scribbler) Deactivate(ctx context.Context, a account.Account, details j
 }
 
 func (s *scribbler) Ext(context.Context, []int) (map[int]any, error) { return nil, nil } //nolint:nilnil // nothing to add
+
+func (s *scribbler) scribble(ctx context.Context, id int) error {
+	if err := s.stores.Accounts.SetLocale(ctx, id, "de"); err != nil {
+		return err
+	}
+
+	return s.refuse
+}
 
 var errRefused = apperr.New(nil, "dealer_bindings", apperr.CodeAlreadyExists).WithReason("shop.user.dealer_bindings")
 

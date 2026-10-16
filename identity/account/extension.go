@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 )
 
-// UserExtension is the application's own data on a person (their dealer, their roles, a mobile
-// phone): it adds an "ext" to the list rows and the record of the users routes, takes one in the
+// UserExtension is the application's own data on a person (their dealer, their roles, a mobile phone;
+// IDENTITY-ADMIN-003): it adds an "ext" to the list rows and the record of the users routes, takes one in the
 // body of create, update and deactivate, and writes it in the transaction of go-core's own write,
 // so an error from it undoes both. What "ext" holds is the application's to define: identity
 // carries it as JSON and reads nothing in it. identity.WithUserExtension installs it.

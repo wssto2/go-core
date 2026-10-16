@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,forcetypeassert,goconst,lll,noinlineerr,paralleltest,tagliatelle,varnamelen,wrapcheck // tests in the style of the package's others
 package http_test
 
 import (
@@ -22,23 +23,6 @@ type dealers struct {
 	dealer map[int]int
 	calls  []string
 	refuse error // returned by Update and Deactivate
-}
-
-func (d *dealers) log(s string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	d.calls = append(d.calls, s)
-}
-
-func (d *dealers) take() []string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	out := d.calls
-	d.calls = nil
-
-	return out
 }
 
 func (d *dealers) Ext(_ context.Context, ids []int) (map[int]any, error) {
@@ -105,6 +89,23 @@ func (d *dealers) Deactivate(_ context.Context, a account.Account, details json.
 	}
 
 	return map[string]any{"moved": 3}, nil
+}
+
+func (d *dealers) log(s string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.calls = append(d.calls, s)
+}
+
+func (d *dealers) take() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	out := d.calls
+	d.calls = nil
+
+	return out
 }
 
 func extHarness(t *testing.T, x *dealers) (*harness, func(*nethttp.Request)) {
@@ -212,6 +213,7 @@ func TestDeactivateGivesDetailsAndAnswersExt(t *testing.T) {
 // extra query keys reach the Searcher, which is how an application filters its list.
 type filterSpy struct {
 	account.Searcher
+
 	mu   sync.Mutex
 	seen []account.Query
 }
@@ -287,9 +289,11 @@ func TestTheLastSignInFilterOverHTTP(t *testing.T) {
 		out := h.do(nethttp.MethodGet, "/v1/iam/users?view=all&"+query, nil, ana)
 		require.Equal(t, nethttp.StatusOK, out.Code, out.Body.String())
 
-		var got []string
-		for _, row := range changesRows(t, out) {
-			got = append(got, row["login"].(string))
+		rows := changesRows(t, out)
+		got := make([]string, len(rows))
+
+		for i, row := range rows {
+			got[i] = row["login"].(string)
 		}
 
 		return got

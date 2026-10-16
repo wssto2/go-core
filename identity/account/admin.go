@@ -160,6 +160,16 @@ type CreateAccount struct {
 	Ext json.RawMessage
 }
 
+// The names of the account's fields on its history.
+const (
+	loginField  = "login"
+	nameField   = "name"
+	emailField  = "email"
+	phoneField  = "phone"
+	localeField = "locale"
+	activeField = "active"
+)
+
 // Create makes an active account (IDENTITY-ADMIN-001). The login and the address are normalised, a
 // login or an address that belongs to somebody is refused (identity.login.taken,
 // identity.email.taken), the password must satisfy the policy, and the creation
@@ -170,17 +180,17 @@ func (a *Admin) Create(ctx context.Context, in CreateAccount) (Account, error) {
 	return created.Account, err
 }
 
-// CreateWithExt is Create for an application with a UserExtension: it also gives in.Ext to the
-// extension, in the transaction of the creation, and returns what the extension answered in Ext.
-func (a *Admin) CreateWithExt(ctx context.Context, in CreateAccount) (Detail, error) {
+// CreateWithExt is Create for an application with a UserExtension: it also gives in.Ext to the extension, in the
+// transaction of the creation, and returns what the extension answered in Ext.
+func (a *Admin) CreateWithExt(ctx context.Context, req CreateAccount) (Detail, error) {
 	acc := Account{
-		Login: NormalizeLogin(in.Login), Email: NormalizeEmail(in.Email), Name: strings.TrimSpace(in.Name),
-		Phone: strings.TrimSpace(in.Phone), Locale: in.Locale, Active: true,
+		Login: NormalizeLogin(req.Login), Email: NormalizeEmail(req.Email), Name: strings.TrimSpace(req.Name),
+		Phone: strings.TrimSpace(req.Phone), Locale: req.Locale, Active: true,
 	}
 
 	if err := checkAll(
 		checkLogin(acc.Login), checkName(acc.Name), checkEmail("email", acc.Email), checkPhone(acc.Phone),
-		a.checkLocale(acc.Locale), checkPassword(a.d.Policy, "password", in.Password),
+		a.checkLocale(acc.Locale), checkPassword(a.d.Policy, "password", req.Password),
 	); err != nil {
 		return Detail{}, err
 	}
@@ -189,7 +199,7 @@ func (a *Admin) CreateWithExt(ctx context.Context, in CreateAccount) (Detail, er
 		return Detail{}, err
 	}
 
-	hash, err := a.deps().Hasher.Hash(in.Password)
+	hash, err := a.deps().Hasher.Hash(req.Password)
 	if err != nil {
 		return Detail{}, apperr.Internal(err)
 	}
@@ -206,25 +216,26 @@ func (a *Admin) CreateWithExt(ctx context.Context, in CreateAccount) (Detail, er
 
 		acc = created
 
-		err = a.d.Changes.Record(ctx, Change{
-			AccountID: acc.ID, ActorID: in.ActorID, Action: ChangeCreated, Fields: []string{"login", "name", "email", "phone", "locale"},
-			After: map[string]string{"login": acc.Login, "name": acc.Name, "email": acc.Email, "phone": acc.Phone, "locale": acc.Locale},
-		})
-		if err != nil || a.d.Extension == nil {
+		ext, err = a.extendCreate(ctx, acc.ID, req)
+		if err != nil {
 			return err
 		}
 
-		ext, err = a.d.Extension.Create(ctx, acc.ID, in.Ext, in.ActorID)
-
-		return err
+		return a.d.Changes.Record(ctx, Change{
+			AccountID: acc.ID, ActorID: req.ActorID, Action: ChangeCreated, Before: nil,
+			Fields: []string{loginField, nameField, emailField, phoneField, localeField},
+			After: map[string]string{
+				loginField: acc.Login, nameField: acc.Name, emailField: acc.Email, phoneField: acc.Phone, localeField: acc.Locale,
+			},
+		})
 	})
 	if err != nil {
 		return Detail{}, err
 	}
 
-	a.deps().Notices.AccountCreated(ctx, acc.ID, in.ActorID)
+	a.deps().Notices.AccountCreated(ctx, acc.ID, req.ActorID)
 
-	return Detail{Account: acc, Ext: ext}, nil
+	return Detail{Account: acc, LastSignIn: time.Time{}, LockedUntil: time.Time{}, Ext: ext}, nil
 }
 
 // checkAll returns the first error, or nil. A field error names its field, so a
@@ -310,22 +321,20 @@ func (a *Admin) Update(ctx context.Context, in UpdateAccount) (Account, error) {
 	}
 
 	err = a.within(ctx, func(ctx context.Context) error {
-		if len(fields) > 0 {
-			if err := a.deps().Accounts.Update(ctx, current.ID, changes); err != nil {
-				return stored(err)
-			}
-
-			err := a.d.Changes.Record(ctx, Change{AccountID: current.ID, ActorID: in.ActorID, Action: ChangeUpdated, Fields: fields, Before: before, After: after})
-			if err != nil {
-				return err
-			}
+		if len(fields) == 0 { // only the extension has something to write
+			return a.extendUpdate(ctx, current.ID, in)
 		}
 
-		if a.d.Extension == nil {
-			return nil
+		if err := a.deps().Accounts.Update(ctx, current.ID, changes); err != nil {
+			return stored(err)
 		}
 
-		return a.d.Extension.Update(ctx, current.ID, in.Ext, in.ActorID)
+		err := a.extendUpdate(ctx, current.ID, in)
+		if err != nil {
+			return err
+		}
+
+		return a.d.Changes.Record(ctx, Change{AccountID: current.ID, ActorID: in.ActorID, Action: ChangeUpdated, Fields: fields, Before: before, After: after})
 	})
 	if err != nil {
 		return Account{}, err
@@ -345,8 +354,8 @@ type SetPassword struct {
 	ID       int
 	Password string
 	ActorID  int
-	// KeepToken, when it is an access token of one of the account's live sessions, keeps that
-	// session: an administrator who sets their own password stays signed in.
+	// KeepToken, when it is an access token of one of the account's live sessions, keeps that session: an
+	// administrator who sets their own password stays signed in.
 	KeepToken string
 }
 
@@ -423,14 +432,14 @@ func (a *Admin) Deactivate(ctx context.Context, in DeactivateInput) error {
 	return err
 }
 
-// DeactivateWithExt is Deactivate for an application with a UserExtension: the extension is given
-// in.Details after the hooks, in the same transaction, and what it answered is returned.
-func (a *Admin) DeactivateWithExt(ctx context.Context, in DeactivateInput) (any, error) {
-	if in.ActorID != 0 && in.ActorID == in.ID {
+// DeactivateWithExt is Deactivate for an application with a UserExtension: the extension is given in.Details after the
+// hooks, in the same transaction, and what it answered is returned.
+func (a *Admin) DeactivateWithExt(ctx context.Context, req DeactivateInput) (any, error) {
+	if req.ActorID != 0 && req.ActorID == req.ID {
 		return nil, apperr.BadRequest(string(ReasonSelfDeactivate)).WithReason(ReasonSelfDeactivate)
 	}
 
-	acc, err := a.d.Users.Get(ctx, in.ID)
+	acc, err := a.d.Users.Get(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -445,35 +454,26 @@ func (a *Admin) DeactivateWithExt(ctx context.Context, in DeactivateInput) (any,
 	)
 
 	err = a.within(ctx, func(ctx context.Context) error {
-		for _, hook := range a.d.Hooks {
-			if err := hook.Deactivating(ctx, acc, in.ActorID); err != nil {
-				return err
-			}
-		}
+		var err error
 
-		if a.d.Extension != nil {
-			var err error
-
-			if ext, err = a.d.Extension.Deactivate(ctx, acc, in.Details, in.ActorID); err != nil {
-				return err
-			}
+		ext, err = a.deactivating(ctx, acc, req)
+		if err != nil {
+			return err
 		}
 
 		if err := a.deps().Accounts.SetActive(ctx, acc.ID, false); err != nil {
 			return stored(err)
 		}
 
-		var err error
-
 		pending, err = a.d.Users.revokeSessions(ctx, RevokeSessionsInput{
-			AccountID: acc.ID, KeepToken: "", ActorID: in.ActorID, Reason: EndedDeactivated,
+			AccountID: acc.ID, KeepToken: "", ActorID: req.ActorID, Reason: EndedDeactivated,
 		})
 		if err != nil {
 			return err
 		}
 
 		return a.d.Changes.Record(ctx, Change{
-			AccountID: acc.ID, ActorID: in.ActorID, Action: ChangeDeactivated, Fields: []string{"active"},
+			AccountID: acc.ID, ActorID: req.ActorID, Action: ChangeDeactivated, Fields: []string{activeField},
 			Before: map[string]string{"active": "true"}, After: map[string]string{"active": "false"},
 		})
 	})
@@ -482,7 +482,7 @@ func (a *Admin) DeactivateWithExt(ctx context.Context, in DeactivateInput) (any,
 	}
 
 	pending.announce(ctx, a.deps().Notices)
-	a.deps().Notices.AccountDeactivated(ctx, acc.ID, in.ActorID)
+	a.deps().Notices.AccountDeactivated(ctx, acc.ID, req.ActorID)
 	a.deps().Notices.AccountChanged(ctx, acc.ID)
 
 	return ext, nil
@@ -558,8 +558,8 @@ func (u *Users) lockedUntil(ctx context.Context, accountID int) (time.Time, bool
 }
 
 // Detail is an account with what the users module adds to it: when the person
-// last signed in (zero: never), until when sign-in is locked (zero: not locked) and the application's
-// own data (Ext).
+// last signed in (zero: never), until when sign-in is locked (zero: not locked) and the application's own
+// data (Ext).
 type Detail struct {
 	Account
 	LastSignIn  time.Time
@@ -598,20 +598,6 @@ func (a *Admin) Get(ctx context.Context, id int) (Detail, error) {
 	d.Ext = exts[id]
 
 	return d, nil
-}
-
-// exts reads the application's data for the people, none without an extension.
-func (a *Admin) exts(ctx context.Context, ids []int) (map[int]any, error) {
-	if a.d.Extension == nil {
-		return map[int]any{}, nil
-	}
-
-	exts, err := a.d.Extension.Ext(ctx, ids)
-	if err != nil {
-		return nil, stored(err)
-	}
-
-	return exts, nil
 }
 
 // View is which accounts a list shows.
@@ -709,10 +695,9 @@ func (a *Admin) List(ctx context.Context, in ListInput) (Listing, error) {
 	}
 
 	paging := in.resolved()
-	q := Query{
-		Search: strings.TrimSpace(in.Search), OrderBy: order, Desc: in.Desc, Page: paging.Page, PerPage: paging.PerPage,
-		Filters: in.Filters, LastSignIn: in.LastSignIn, IdleBefore: a.deps().Clock.Now().Add(-a.d.IdleAfter),
-	}
+	q := Query{Search: strings.TrimSpace(in.Search), OrderBy: order, Desc: in.Desc, Page: paging.Page, PerPage: paging.PerPage}
+
+	q.Filters, q.LastSignIn, q.IdleBefore = in.Filters, in.LastSignIn, a.deps().Clock.Now().Add(-a.d.IdleAfter)
 
 	locks, err := a.locks(ctx)
 	if err != nil {
@@ -743,9 +728,10 @@ func (a *Admin) List(ctx context.Context, in ListInput) (Listing, error) {
 		return Listing{}, apperr.Internal(err)
 	}
 
-	counts, err := a.d.Search.Counts(ctx, Query{
-		Search: q.Search, Filters: q.Filters, LastSignIn: q.LastSignIn, IdleBefore: q.IdleBefore, LockedIDs: ids,
-	})
+	// counts say who is locked whatever the view; the rest of q (status, order, page) they ignore
+	q.LockedIDs = ids
+
+	counts, err := a.d.Search.Counts(ctx, q)
 	if err != nil {
 		return Listing{}, apperr.Internal(err)
 	}
@@ -814,7 +800,8 @@ func (a *Admin) Sessions(ctx context.Context, accountID int) ([]Session, error) 
 // RevokeSession ends one live session of the account, on behalf of actorID: an account that does not exist is
 // identity.account.not_found, a session that is not its live one identity.session.not_found.
 func (a *Admin) RevokeSession(ctx context.Context, accountID, sessionID, actorID int) error {
-	if _, err := a.d.Users.Get(ctx, accountID); err != nil { // like the other methods, so a missing account is not a missing session
+	_, err := a.d.Users.Get(ctx, accountID) // like the other methods, so a missing account is not a missing session
+	if err != nil {
 		return err
 	}
 
@@ -892,4 +879,61 @@ func (a *Admin) checkLocale(locale string) error {
 	}
 
 	return a.d.Users.cfg.offers("locale", locale)
+}
+
+// exts reads the application's data for the people, none without an extension.
+func (a *Admin) exts(ctx context.Context, ids []int) (map[int]any, error) {
+	if a.d.Extension == nil {
+		return map[int]any{}, nil
+	}
+
+	exts, err := a.d.Extension.Ext(ctx, ids)
+	if err != nil {
+		return nil, stored(err)
+	}
+
+	return exts, nil
+}
+
+// extendCreate gives the extension, if any, the new account and the body's ext, in the transaction of the creation.
+func (a *Admin) extendCreate(ctx context.Context, accountID int, req CreateAccount) (any, error) {
+	var none any
+
+	if a.d.Extension == nil {
+		return none, nil
+	}
+
+	ext, err := a.d.Extension.Create(ctx, accountID, req.Ext, req.ActorID)
+
+	return ext, stored(err)
+}
+
+// extendUpdate gives the extension, if any, the body's ext, in the transaction of the update.
+func (a *Admin) extendUpdate(ctx context.Context, accountID int, req UpdateAccount) error {
+	if a.d.Extension == nil {
+		return nil
+	}
+
+	return stored(a.d.Extension.Update(ctx, accountID, req.Ext, req.ActorID))
+}
+
+// deactivating asks the hooks, then the extension, in the transaction of the deactivation; the extension's answer is
+// returned.
+func (a *Admin) deactivating(ctx context.Context, acc Account, req DeactivateInput) (any, error) {
+	var none any
+
+	for _, hook := range a.d.Hooks {
+		err := hook.Deactivating(ctx, acc, req.ActorID)
+		if err != nil {
+			return none, stored(err)
+		}
+	}
+
+	if a.d.Extension == nil {
+		return none, nil
+	}
+
+	ext, err := a.d.Extension.Deactivate(ctx, acc, req.Details, req.ActorID)
+
+	return ext, stored(err)
 }

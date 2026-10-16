@@ -161,8 +161,8 @@ func WithSearcher(wrap func(account.Searcher) account.Searcher) Option {
 	return func(o *options) { o.search = wrap }
 }
 
-// WithChangeLogWrap wraps the ChangeLog the users module reads the changes of a person with (it still writes to the Kit's own),
-// such as one that adds an Ext to the rows.
+// WithChangeLogWrap wraps the ChangeLog the users module reads the changes of a person with (it still writes to
+// the Kit's own), such as one that adds an Ext to the rows.
 func WithChangeLogWrap(wrap func(account.ChangeLog) account.ChangeLog) Option {
 	return func(o *options) { o.changes = wrap }
 }
@@ -281,8 +281,8 @@ func New(t testing.TB, seed []account.Account, opts ...Option) Kit {
 	}
 
 	kit.Admin, err = account.NewAdmin(account.AdminDeps{
-		Users: svc.Users, Search: search, History: kit.SignIns, Changes: changes, Activity: kit.Activity, Transact: Transactor{},
-		Policy: o.policy, Hooks: o.hooks, Extension: o.extension, IdleAfter: o.idleAfter,
+		Users: svc.Users, Search: search, History: kit.SignIns, Changes: changes, Activity: kit.Activity,
+		Transact: Transactor{}, Policy: o.policy, Hooks: o.hooks, Extension: o.extension, IdleAfter: o.idleAfter,
 	})
 	if err != nil {
 		t.Fatalf("identitytest: %v", err)

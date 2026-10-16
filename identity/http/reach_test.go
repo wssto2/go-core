@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,goconst,lll,misspell,paralleltest,varnamelen // tests in the style of the package's others
 package http_test
 
 import (
@@ -22,20 +23,22 @@ type reachCase struct {
 	body   any
 }
 
-// every route that names a person; a test that lists them is the guard that a new one is not forgotten.
-var reachCases = []reachCase{
-	{identityhttp.ShowUser, nethttp.MethodGet, "/v1/iam/users/%d", nil},
-	{identityhttp.UpdateUser, nethttp.MethodPut, "/v1/iam/users/%d", map[string]any{"login": "x", "name": "X", "email": "x@example.test", "locale": "hr"}},
-	{identityhttp.SetUserPassword, nethttp.MethodPut, "/v1/iam/users/%d/password", map[string]any{"password": "brand-new-password"}},
-	{identityhttp.DeactivateUser, nethttp.MethodPost, "/v1/iam/users/%d/deactivate", map[string]any{}},
-	{identityhttp.ActivateUser, nethttp.MethodPost, "/v1/iam/users/%d/activate", map[string]any{}},
-	{identityhttp.UnlockUser, nethttp.MethodPost, "/v1/iam/users/%d/unlock", map[string]any{}},
-	{identityhttp.UserSignIns, nethttp.MethodGet, "/v1/iam/users/%d/signins", nil},
-	{identityhttp.UserChanges, nethttp.MethodGet, "/v1/iam/users/%d/changes", nil},
-	{identityhttp.UserActivity, nethttp.MethodGet, "/v1/iam/users/%d/activity", nil},
-	{identityhttp.UserSessions, nethttp.MethodGet, "/v1/iam/users/%d/sessions", nil},
-	{identityhttp.RevokeUserSession, nethttp.MethodDelete, "/v1/iam/users/%d/sessions/1", nil},
-	{identityhttp.RevokeUserSessions, nethttp.MethodDelete, "/v1/iam/users/%d/sessions", nil},
+// reachCases are every route that names a person; TestEveryUserRouteAsksTheReach is the guard that a new one is not forgotten.
+func reachCases() []reachCase {
+	return []reachCase{
+		{identityhttp.ShowUser, nethttp.MethodGet, "/v1/iam/users/%d", nil},
+		{identityhttp.UpdateUser, nethttp.MethodPut, "/v1/iam/users/%d", map[string]any{"login": "x", "name": "X", "email": "x@example.test", "locale": "hr"}},
+		{identityhttp.SetUserPassword, nethttp.MethodPut, "/v1/iam/users/%d/password", map[string]any{"password": "brand-new-password"}},
+		{identityhttp.DeactivateUser, nethttp.MethodPost, "/v1/iam/users/%d/deactivate", map[string]any{}},
+		{identityhttp.ActivateUser, nethttp.MethodPost, "/v1/iam/users/%d/activate", map[string]any{}},
+		{identityhttp.UnlockUser, nethttp.MethodPost, "/v1/iam/users/%d/unlock", map[string]any{}},
+		{identityhttp.UserSignIns, nethttp.MethodGet, "/v1/iam/users/%d/signins", nil},
+		{identityhttp.UserChanges, nethttp.MethodGet, "/v1/iam/users/%d/changes", nil},
+		{identityhttp.UserActivity, nethttp.MethodGet, "/v1/iam/users/%d/activity", nil},
+		{identityhttp.UserSessions, nethttp.MethodGet, "/v1/iam/users/%d/sessions", nil},
+		{identityhttp.RevokeUserSession, nethttp.MethodDelete, "/v1/iam/users/%d/sessions/1", nil},
+		{identityhttp.RevokeUserSessions, nethttp.MethodDelete, "/v1/iam/users/%d/sessions", nil},
+	}
 }
 
 func at(path string, id int) string { return fmt.Sprintf(path, id) }
@@ -79,7 +82,7 @@ func TestEveryUserRouteAsksTheReach(t *testing.T) {
 
 	covered := map[string]bool{}
 
-	for _, tc := range reachCases {
+	for _, tc := range reachCases() {
 		covered[tc.route.Spec().Name] = true
 		name := tc.method + " " + tc.path
 
@@ -124,7 +127,7 @@ func TestAnOutOfReachPersonIsLeftAlone(t *testing.T) {
 	before, err := h.kit.Accounts.Find(t.Context(), 2)
 	require.NoError(t, err)
 
-	for _, tc := range reachCases {
+	for _, tc := range reachCases() {
 		h.do(tc.method, at(tc.path, 2), tc.body, ana)
 	}
 
@@ -159,7 +162,7 @@ func TestWithoutReachEveryPersonIsServed(t *testing.T) {
 	h := newHarness(t, nil)
 	ana := h.as("ana", "secret")
 
-	for _, tc := range reachCases {
+	for _, tc := range reachCases() {
 		out := h.do(tc.method, at(tc.path, 2), tc.body, ana)
 		assert.NotEqual(t, "identity.account.not_found", out.json()["code"], tc.method+" "+tc.path+": "+out.Body.String())
 	}

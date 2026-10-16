@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,goconst,lll,paralleltest,varnamelen // tests in the style of the package's others
 package identity_test
 
 import (
@@ -16,7 +17,11 @@ import (
 // ownLog is a change log of the application's own: it reads what it likes, and writes nothing.
 type ownLog struct{ writes int }
 
-func (l *ownLog) Record(context.Context, account.Change) error { l.writes++; return nil }
+func (l *ownLog) Record(context.Context, account.Change) error {
+	l.writes++
+
+	return nil
+}
 
 func (*ownLog) Changes(_ context.Context, q account.ChangeQuery) ([]account.ChangeEntry, int, error) {
 	return []account.ChangeEntry{{ID: 1, Change: account.Change{AccountID: q.AccountID, Action: account.ChangeActivated}, Ext: "mine"}}, 1, nil
@@ -39,9 +44,10 @@ func (s shop) Ext(_ context.Context, ids []int) (map[int]any, error) {
 }
 
 func (s shop) Create(_ context.Context, id int, ext json.RawMessage, _ int) (any, error) {
-	var in struct{ DealerID int }
+	var in map[string]int
+
 	_ = json.Unmarshal(ext, &in)
-	s.dealer[id] = in.DealerID
+	s.dealer[id] = in["DealerID"]
 
 	return "created", nil
 }
@@ -59,7 +65,7 @@ func TestTheUserAdminHooksAreWiredByInstall(t *testing.T) {
 	ext := shop{dealer: map[int]int{}}
 
 	users := identity.Install(app, identity.WithoutMail(),
-		identity.WithUserReach(func(_ context.Context, permission string, id int) (bool, error) { return id != 3, nil }),
+		identity.WithUserReach(func(_ context.Context, _ string, id int) (bool, error) { return id != 3, nil }),
 		identity.WithUserExtension(ext),
 		identity.WithChangeLog(log),
 		identity.WithIdleAfter(24*time.Hour),

@@ -14,8 +14,10 @@ func TestMemoryStoresConform(t *testing.T) {
 
 		signIns := identitytest.NewSignIns()
 
-		return storetest.Stores{Accounts: identitytest.NewAccounts().WithSignIns(signIns), SignIns: signIns, Sessions: sessions,
+		return storetest.Stores{
+			Accounts: identitytest.NewAccounts().WithSignIns(signIns), SignIns: signIns, Sessions: sessions,
 			Codes: identitytest.NewCodes(), Reauth: identitytest.NewReauth(),
-			Changes: changes, Activity: identitytest.NewActivityLog(changes, sessions)}
+			Changes: changes, Activity: identitytest.NewActivityLog(changes, sessions),
+		}
 	})
 }
