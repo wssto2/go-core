@@ -1,6 +1,7 @@
 package go2ts
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
@@ -244,6 +245,12 @@ func mapGoTypeToTs(t reflect.Type, parentName string, children map[string]interf
 			children[name] = en.used()
 		}
 	case reflect.Slice, reflect.Array:
+		if t == reflect.TypeFor[json.RawMessage]() { // any JSON value, read it before use
+			tsType = "unknown"
+
+			break
+		}
+
 		elemType := mapCollectionElemTypeToTs(t.Elem(), parentName, children, ctx)
 		tsType = fmt.Sprintf("%s[]", elemType)
 	case reflect.Struct:

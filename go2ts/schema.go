@@ -1,6 +1,7 @@
 package go2ts
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
@@ -103,6 +104,10 @@ func mapGoTypeToZodBaseScoped(t reflect.Type, parentName string, ctx *GenContext
 
 		return "z.string()", isNullable
 	case reflect.Slice, reflect.Array:
+		if t == reflect.TypeFor[json.RawMessage]() {
+			return "z.unknown()", isNullable
+		}
+
 		elemExpr, _ := mapGoTypeToZodBaseScoped(t.Elem(), parentName, ctx, children)
 		return fmt.Sprintf("z.array(%s)", elemExpr), isNullable
 	case reflect.Struct:
