@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/wssto2/go-core/apperr"
@@ -300,7 +299,7 @@ func (s *Store) Bind(ctx context.Context, actor authz.Subject, b authz.Binding) 
 		if err := tx.Create(&row).Error; err != nil {
 			// a concurrent identical Bind may have committed after our pre-check; under
 			// REPEATABLE READ we cannot see it, but the unique index refuses the insert
-			if isDuplicateKey(err) {
+			if database.IsDuplicateKey(err) {
 				return authz.ErrDuplicateBinding
 			}
 			return apperr.Wrap(err, "create binding", apperr.CodeInternal)
@@ -493,16 +492,4 @@ func snapshotBinding(b authz.Binding) any {
 		role = fmt.Sprintf("#%d", b.Role.ID)
 	}
 	return bindingSnapshot{Subject: b.Subject.String(), Role: role, Scope: b.Scope.String()}
-}
-
-// isDuplicateKey recognises a unique-index violation without importing a
-// database driver: gorm's translated error when the application enabled
-// TranslateError, otherwise the message MySQL / MariaDB ("Duplicate entry") and
-// SQLite ("UNIQUE constraint failed") give.
-func isDuplicateKey(err error) bool {
-	if errors.Is(err, gorm.ErrDuplicatedKey) {
-		return true
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "Duplicate entry") || strings.Contains(msg, "UNIQUE constraint failed")
 }

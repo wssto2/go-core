@@ -204,7 +204,7 @@ func structToTs(s interface{}, ctx *GenContext) (string, string, map[string]inte
 
 		jsonName := wireName(field)
 
-		canBeUndefined := strings.Contains(jsonTag, "omitempty")
+		canBeUndefined := jsonOmitsEmpty(jsonTag)
 
 		fieldType := mapGoTypeToTs(field.Type, typeName, children, ctx)
 

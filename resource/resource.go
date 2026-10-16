@@ -9,6 +9,7 @@ import (
 
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/types"
+	"github.com/wssto2/go-core/pagination"
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 )
@@ -248,4 +249,10 @@ func extractIntField(v any, fieldName string) int {
 		}
 	}
 	return 0
+}
+
+// ToPagination converts the response into the pagination.Resource a repository port returns, so the layers above
+// need not import resource.
+func (r Response[T]) ToPagination() pagination.Resource[T] {
+	return pagination.Resource[T]{Data: r.Data, Meta: r.Meta}
 }
