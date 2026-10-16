@@ -69,6 +69,9 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 * `i18n` → localization helpers
 * `go2ts` → Go → TypeScript type generation
 * `utils` → generic helpers
+* `retention` → delete or redact an application's own rows past a window, from rules it owns (`retention.New(db, clock, rules...)`, `Run` with `DryRun` and `Only`)
+* `validation` → input validation; `CheckStorable` is the opt-in check for legacy utf8mb3 columns (code `unsupported_characters`)
+* `pdf` → document rendering; `pdf/widget` has the paper-form widgets (`SignatureLine`, `LabelWithValue`, `TextLines`, `CodeBoxes`, `YesNo`, `PageBreak`)
 
 ### Example App
 
