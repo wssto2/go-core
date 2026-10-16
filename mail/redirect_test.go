@@ -1,4 +1,4 @@
-//nolint:exhaustruct,exhaustruct_v5,goconst,paralleltest,varnamelen // tests in the style of the package's others
+//nolint:exhaustruct,exhaustruct_v5,goconst,lll,paralleltest // tests in the style of the package's others
 package mail_test
 
 import (

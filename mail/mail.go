@@ -97,7 +97,7 @@ func (m Message) Check() error {
 
 // Redirect returns a Sender that delivers every message to one address, for a
 // development or staging copy of production data, where a real recipient must
-// never get a mail. To is replaced by the one address; a Message has no Cc, Bcc
+// never get a mail. To is replaced by the address; a Message has no Cc, Bcc
 // or headers, so the original recipients are kept in the subject, "[to a@x.hr,
 // b@y.hr] Subject". Text, HTML and Inline are untouched, a message is sent once
 // however many recipients it had, and an error from next is returned as it is.
@@ -107,14 +107,16 @@ func (m Message) Check() error {
 // An address that is not an e-mail address is reported by every Send, like an
 // SMTP configuration that cannot work; the message is never sent to its own
 // recipients.
-func Redirect(next Sender, to string) Sender {
-	if _, err := mail.ParseAddress(to); err != nil || strings.ContainsAny(to, "\r\n") {
-		return failing{fmt.Errorf("mail: Redirect address %q is not an e-mail address: set it like \"dev@example.com\"", to)}
+func Redirect(next Sender, address string) Sender { //nolint:ireturn // Sender is the port every sender here implements
+	_, err := mail.ParseAddress(address)
+	if err != nil || strings.ContainsAny(address, "\r\n") {
+		//nolint:err113 // names it
+		return failing{fmt.Errorf("mail: Redirect address %q is not an e-mail address: use \"dev@example.com\"", address)}
 	}
 
 	return SenderFunc(func(ctx context.Context, m Message) error {
 		m.Subject = "[to " + strings.Join(m.To, ", ") + "] " + m.Subject
-		m.To = []string{to}
+		m.To = []string{address}
 
 		return next.Send(ctx, m)
 	})
