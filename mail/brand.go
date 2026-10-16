@@ -37,7 +37,7 @@ type Brand struct {
 	Logo *Inline
 	// Color is the colour of the header and the button, a CSS value such as "#334155". Default "#334155".
 	Color string
-	// Lang is the language of the HTML, such as "hr". Default "en".
+	// Lang is the language of the HTML, such as "de". Default "en".
 	Lang string
 	// Greeting is the first line when the Page has none, such as "Hello,". Default: no greeting.
 	Greeting string

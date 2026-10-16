@@ -2,6 +2,7 @@
 package mail_test
 
 import (
+	"encoding/base64"
 	"os"
 	"strings"
 	"testing"
@@ -10,15 +11,17 @@ import (
 	"github.com/wssto2/go-core/mail"
 )
 
-// arvBrand is the brand of the application whose mail frame this one was made from. Its values
-// live here only: the golden files in testdata are what that application rendered with its own template.
-var arvBrand = mail.Brand{
-	Name:     "ARV",
-	Logo:     &mail.Inline{CID: "arv-logo@arv-next", ContentType: "image/png", Name: "arv-logo.png", Data: []byte("png")},
-	Color:    "#1e293b",
-	Lang:     "hr",
-	Greeting: "Poštovani,",
-	Footer:   "Ova poruka je automatski generirana iz ARV sustava.",
+// logoPNG is a 1x1 PNG.
+var logoPNG, _ = base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
+// exampleBrand sets every field of a Brand to a value that is not the default.
+var exampleBrand = mail.Brand{
+	Name:     "Example",
+	Logo:     &mail.Inline{CID: "logo@example.com", ContentType: "image/png", Name: "logo.png", Data: logoPNG},
+	Color:    "#0f766e",
+	Lang:     "en",
+	Greeting: "Hello,",
+	Footer:   "This message was sent automatically.",
 }
 
 var fullPage = mail.Page{
@@ -31,28 +34,33 @@ var fullPage = mail.Page{
 	ActionURL:   "https://app.example.com/orders/42?tab=details&lang=en",
 }
 
-func golden(t *testing.T, name string) string {
+func checkGolden(t *testing.T, name, got string) {
 	t.Helper()
 
-	b, err := os.ReadFile("testdata/" + name)
-	require.NoError(t, err)
+	if os.Getenv("UPDATE_GOLDEN") != "" {
+		require.NoError(t, os.WriteFile("testdata/"+name, []byte(got), 0o600))
+	}
 
-	return string(b)
+	want, err := os.ReadFile("testdata/" + name)
+	require.NoError(t, err)
+	require.Equal(t, string(want), got)
 }
 
-// The same page in the same brand is the same HTML the application rendered before: byte for byte.
-func TestBrandRendersTheMarkupItWasMadeFrom(t *testing.T) {
-	full, err := arvBrand.Render(fullPage)
+// The frame is fixed markup: the goldens in testdata change only when the layout is meant to (write them with
+// UPDATE_GOLDEN=1).
+func TestBrandRendersTheFrame(t *testing.T) {
+	full, err := exampleBrand.Render(fullPage)
 	require.NoError(t, err)
-	require.Equal(t, golden(t, "layout_full.html"), full.HTML)
+	checkGolden(t, "layout_full.html", full.HTML)
 
-	minimal, err := arvBrand.Render(mail.Page{Paragraphs: []string{"Hello."}})
+	minimal, err := exampleBrand.Render(mail.Page{Paragraphs: []string{"Hello."}})
 	require.NoError(t, err)
-	require.Equal(t, golden(t, "layout_minimal.html"), minimal.HTML, "the brand's greeting fills in a page without one")
+	checkGolden(t, "layout_minimal.html", minimal.HTML)
+	require.Contains(t, minimal.HTML, "Hello,", "the brand's greeting fills in a page without one")
 }
 
 func TestBrandTextIsTheSamePageAsPlainText(t *testing.T) {
-	c, err := arvBrand.Render(fullPage)
+	c, err := exampleBrand.Render(fullPage)
 	require.NoError(t, err)
 
 	require.Equal(t, `Dear Ana & Bob,
@@ -69,19 +77,19 @@ Questions? Just reply.
 Open order: https://app.example.com/orders/42?tab=details&lang=en
 
 -- 
-Ova poruka je automatski generirana iz ARV sustava.
+This message was sent automatically.
 `, c.Text, "plain text is not HTML-escaped; an empty row is left out")
 
-	short, err := arvBrand.Render(mail.Page{Paragraphs: []string{"Hello."}})
+	short, err := exampleBrand.Render(mail.Page{Paragraphs: []string{"Hello."}})
 	require.NoError(t, err)
-	require.Equal(t, "Poštovani,\n\nHello.\n\n-- \nOva poruka je automatski generirana iz ARV sustava.\n", short.Text)
+	require.Equal(t, "Hello,\n\nHello.\n\n-- \nThis message was sent automatically.\n", short.Text)
 }
 
 func TestBrandLogoTravelsInTheContent(t *testing.T) {
-	c, err := arvBrand.Render(mail.Page{Paragraphs: []string{"Hi"}})
+	c, err := exampleBrand.Render(mail.Page{Paragraphs: []string{"Hi"}})
 	require.NoError(t, err)
-	require.Equal(t, []mail.Inline{*arvBrand.Logo}, c.Inline)
-	require.Contains(t, c.HTML, `src="cid:arv-logo@arv-next"`)
+	require.Equal(t, []mail.Inline{*exampleBrand.Logo}, c.Inline)
+	require.Contains(t, c.HTML, `src="cid:logo@example.com"`)
 
 	c.Subject = "Hello"
 	m := c.To("ana@example.com")

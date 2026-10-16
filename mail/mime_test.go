@@ -129,7 +129,7 @@ func TestMIMEGoldenHTMLWithInline(t *testing.T) {
 // The output parsed the way a mail client does: alternative, text first, then related with the HTML and the image.
 func TestMIMEStructureParses(t *testing.T) {
 	raw, _ := sendThrough(t, mail.Message{
-		To: []string{"ana@example.com"}, Subject: "Šifra", Text: "Hello Ana", HTML: `<img src="cid:a@x"><img src="cid:b@x">`,
+		To: []string{"ana@example.com"}, Subject: "Grüße", Text: "Hello Ana", HTML: `<img src="cid:a@x"><img src="cid:b@x">`,
 		Inline: []mail.Inline{
 			{CID: "a@x", ContentType: "image/png", Name: "a.png", Data: png70},
 			{CID: "b@x", ContentType: "image/gif", Data: []byte("GIF89a")},
