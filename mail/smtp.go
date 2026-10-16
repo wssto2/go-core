@@ -3,6 +3,7 @@ package mail
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -156,7 +157,8 @@ func (s *smtpSender) Send(ctx context.Context, m Message) error {
 }
 
 // render is the RFC 5322 message: text only is a text/plain body; with HTML it
-// is multipart/alternative with the text first.
+// is multipart/alternative with the text first; with inline parts the HTML and
+// those parts are a multipart/related part of it.
 func (s *smtpSender) render(m Message) ([]byte, error) {
 	var b strings.Builder
 
@@ -186,29 +188,132 @@ func (s *smtpSender) render(m Message) ([]byte, error) {
 
 	mw := multipart.NewWriter(&parts)
 
-	for _, p := range []struct{ kind, body string }{{"text/plain", m.Text}, {"text/html", m.HTML}} {
-		h := textproto.MIMEHeader{}
-		h.Set("Content-Type", p.kind+"; charset=UTF-8")
-		h.Set("Content-Transfer-Encoding", "quoted-printable")
-
-		w, err := mw.CreatePart(h)
-		if err != nil {
-			return nil, err
-		}
-
-		if err := encode(w, p.body); err != nil {
-			return nil, err
-		}
+	err := alternatives(mw, m)
+	if err != nil {
+		return nil, err
 	}
 
-	if err := mw.Close(); err != nil {
-		return nil, err
+	err = mw.Close()
+	if err != nil {
+		return nil, fmt.Errorf("mail: closing the message: %w", err)
 	}
 
 	b.WriteString("Content-Type: multipart/alternative; boundary=" + mw.Boundary() + "\r\n\r\n")
 	b.WriteString(parts.String())
 
 	return []byte(b.String()), nil
+}
+
+// alternatives writes the text, then the HTML: alone, or with its inline parts as a multipart/related part.
+func alternatives(parts *multipart.Writer, msg Message) error {
+	err := textPart(parts, "text/plain", msg.Text)
+	if err != nil {
+		return err
+	}
+
+	if len(msg.Inline) == 0 {
+		return textPart(parts, "text/html", msg.HTML)
+	}
+
+	return relatedPart(parts, msg)
+}
+
+// textPart adds a quoted-printable UTF-8 part.
+func textPart(mw *multipart.Writer, kind, body string) error {
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Type", kind+"; charset=UTF-8")
+	header.Set("Content-Transfer-Encoding", "quoted-printable")
+
+	w, err := mw.CreatePart(header)
+	if err != nil {
+		return fmt.Errorf("mail: adding the %s part: %w", kind, err)
+	}
+
+	return encode(w, body)
+}
+
+// relatedPart adds the multipart/related part of the alternative: the HTML first, then each
+// inline part, so a "cid:" in the HTML finds its part in the same container.
+func relatedPart(alt *multipart.Writer, msg Message) error {
+	var buf strings.Builder
+
+	related := multipart.NewWriter(&buf)
+
+	err := textPart(related, "text/html", msg.HTML)
+	if err != nil {
+		return err
+	}
+
+	for _, part := range msg.Inline {
+		err = inlinePart(related, part)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = related.Close()
+	if err != nil {
+		return fmt.Errorf("mail: closing the related part: %w", err)
+	}
+
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Type", mime.FormatMediaType("multipart/related",
+		map[string]string{"type": "text/html", "boundary": related.Boundary()}))
+
+	body, err := alt.CreatePart(header)
+	if err != nil {
+		return fmt.Errorf("mail: adding the related part: %w", err)
+	}
+
+	// The writer of the alternative adds the line break before its next boundary.
+	_, err = io.WriteString(body, strings.TrimSuffix(buf.String(), "\r\n"))
+	if err != nil {
+		return fmt.Errorf("mail: writing the related part: %w", err)
+	}
+
+	return nil
+}
+
+func inlinePart(related *multipart.Writer, part Inline) error {
+	mediaType, _, _ := mime.ParseMediaType(part.ContentType) // Check parsed it
+
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Type", mime.FormatMediaType(mediaType, nameParam("name", part.Name)))
+	header.Set("Content-Transfer-Encoding", "base64")
+	header["Content-ID"] = []string{"<" + part.CID + ">"} // by key: Set would write it as Content-Id
+	header.Set("Content-Disposition", mime.FormatMediaType("inline", nameParam("filename", part.Name)))
+
+	w, err := related.CreatePart(header)
+	if err != nil {
+		return fmt.Errorf("mail: adding the inline part %q: %w", part.CID, err)
+	}
+
+	_, err = io.WriteString(w, wrap76(base64.StdEncoding.EncodeToString(part.Data)))
+	if err != nil {
+		return fmt.Errorf("mail: writing the inline part %q: %w", part.CID, err)
+	}
+
+	return nil
+}
+
+func nameParam(key, name string) map[string]string {
+	if name == "" {
+		return nil
+	}
+
+	return map[string]string{key: name}
+}
+
+// wrap76 breaks base64 into the lines of at most 76 characters RFC 2045 asks for.
+func wrap76(text string) string {
+	var out strings.Builder
+
+	for len(text) > 76 {
+		out.WriteString(text[:76] + "\r\n")
+		text = text[76:]
+	}
+
+	return out.String() + text
 }
 
 func encode(w io.Writer, body string) error {

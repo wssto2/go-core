@@ -26,6 +26,11 @@ func (s *Sink) Send(_ context.Context, m Message) error {
 	}
 
 	m.To = slices.Clone(m.To)
+	m.Inline = slices.Clone(m.Inline)
+
+	for i := range m.Inline {
+		m.Inline[i].Data = slices.Clone(m.Inline[i].Data)
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

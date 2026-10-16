@@ -9,6 +9,11 @@
 // multipart/alternative, text first, so a client that cannot show HTML shows
 // the text. Subjects and names are encoded, so non-ASCII text is safe.
 //
+// An HTML mail can carry images the HTML shows with "cid:" (Message.Inline): the HTML and
+// its images are then a multipart/related part of the alternative, so the image shows
+// without the reader's client fetching anything. Brand.Render makes the HTML and text of
+// a branded mail, with a logo, from a Page.
+//
 // In a test, or on a development machine without a relay, use a Sink:
 //
 //	sink := mail.NewSink()
@@ -32,6 +37,8 @@ type Message struct {
 	Subject string
 	Text    string
 	HTML    string
+	// Inline is the images (or other parts) the HTML refers to as "cid:<CID>". It needs HTML.
+	Inline []Inline
 }
 
 // Sender delivers a Message. Implementations are safe for concurrent use.
@@ -59,7 +66,8 @@ func (permanent) Is(target error) bool { return target == ErrPermanent }
 
 // Check says what is wrong with the message, or nil. The senders call it, so
 // a bad message never reaches a relay: a recipient that is not an address, a
-// line break in the subject (it would add headers), no recipient, no text. What it
+// line break in the subject (it would add headers), no recipient, no text, an inline part
+// without HTML, with a CID that could add headers, a repeated CID or no data. What it
 // finds is ErrPermanent: retrying the same message cannot help.
 func (m Message) Check() error {
 	if len(m.To) == 0 {
@@ -80,5 +88,9 @@ func (m Message) Check() error {
 		return permanent{errors.New("mail: the message has no Text: every message carries a plain-text body, HTML is the extra")}
 	}
 
-	return nil
+	if len(m.Inline) > 0 && m.HTML == "" {
+		return permanent{fmt.Errorf("%w: the message has Inline parts but no HTML, which is what refers to them", errInline)}
+	}
+
+	return checkInline(m.Inline)
 }
