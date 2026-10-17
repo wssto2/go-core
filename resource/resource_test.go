@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/wssto2/go-core/database"
+	"github.com/wssto2/go-core/database/types"
 	"gorm.io/gorm"
 )
 
@@ -109,5 +110,50 @@ func TestResponse_ToPagination(t *testing.T) {
 
 	if got.Data != "row" || got.Meta["k"] != 1 {
 		t.Fatalf("ToPagination() = %+v", got)
+	}
+}
+
+type testAuthor struct{ ID int }
+
+func (a testAuthor) GetID() int { return a.ID }
+
+type authoredItem struct {
+	ID      uint `gorm:"primaryKey"`
+	Created types.Int
+	Edited  types.Int
+	Ptr     *types.Int
+	Null    types.NullInt
+}
+
+func TestResource_FindByID_AuthorFieldsOfTheTypesPackage(t *testing.T) {
+	db, cleanup := database.MustPrepareTestDB()
+	defer cleanup()
+	if err := db.AutoMigrate(&authoredItem{}); err != nil {
+		t.Fatalf("AutoMigrate: %v", err)
+	}
+	ptr := types.NewInt(9)
+	db.Create(&authoredItem{ID: 1, Created: types.NewInt(7), Edited: types.NewInt(8), Ptr: &ptr, Null: types.NewNullInt(5)})
+
+	loader := func(_ *gorm.DB, ids []int) ([]any, error) {
+		out := make([]any, 0, len(ids))
+		for _, id := range ids {
+			out = append(out, testAuthor{ID: id})
+		}
+		return out, nil
+	}
+	for _, c := range []struct{ name, author, editor string }{
+		{"Int", "Created", "Edited"},
+		{"*Int", "Ptr", "Ptr"},
+		{"NullInt", "Null", "Null"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			resp, err := New[authoredItem](db).WithAuthorLoader(c.author, c.editor, loader).FindByID(context.Background(), 1)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Meta["author"] == nil || resp.Meta["editor"] == nil {
+				t.Errorf("author and editor must be loaded, got %v and %v", resp.Meta["author"], resp.Meta["editor"])
+			}
+		})
 	}
 }
