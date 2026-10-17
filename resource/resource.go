@@ -257,6 +257,7 @@ func typesInt(v any) int {
 	case types.NullInt:
 		return t.GetOrEmpty()
 	}
+
 	return 0
 }
 

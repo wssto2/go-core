@@ -126,31 +126,48 @@ type authoredItem struct {
 }
 
 func TestResource_FindByID_AuthorFieldsOfTheTypesPackage(t *testing.T) {
-	db, cleanup := database.MustPrepareTestDB()
-	defer cleanup()
-	if err := db.AutoMigrate(&authoredItem{}); err != nil {
+	t.Parallel()
+
+	conn, cleanup := database.MustPrepareTestDB()
+	t.Cleanup(cleanup)
+
+	err := conn.AutoMigrate(&authoredItem{
+		ID: 0, Created: types.NewInt(0), Edited: types.NewInt(0), Ptr: nil, Null: types.NewNullInt(0),
+	})
+	if err != nil {
 		t.Fatalf("AutoMigrate: %v", err)
 	}
+
 	ptr := types.NewInt(9)
-	db.Create(&authoredItem{ID: 1, Created: types.NewInt(7), Edited: types.NewInt(8), Ptr: &ptr, Null: types.NewNullInt(5)})
+
+	conn.Create(&authoredItem{
+		ID: 1, Created: types.NewInt(7), Edited: types.NewInt(8), Ptr: &ptr, Null: types.NewNullInt(5),
+	})
 
 	loader := func(_ *gorm.DB, ids []int) ([]any, error) {
 		out := make([]any, 0, len(ids))
 		for _, id := range ids {
 			out = append(out, testAuthor{ID: id})
 		}
+
 		return out, nil
 	}
-	for _, c := range []struct{ name, author, editor string }{
+
+	for _, tcase := range []struct{ name, author, editor string }{
 		{"Int", "Created", "Edited"},
 		{"*Int", "Ptr", "Ptr"},
 		{"NullInt", "Null", "Null"},
 	} {
-		t.Run(c.name, func(t *testing.T) {
-			resp, err := New[authoredItem](db).WithAuthorLoader(c.author, c.editor, loader).FindByID(context.Background(), 1)
+		t.Run(tcase.name, func(t *testing.T) {
+			t.Parallel()
+
+			res := New[authoredItem](conn).WithAuthorLoader(tcase.author, tcase.editor, loader)
+
+			resp, err := res.FindByID(context.Background(), 1)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
+
 			if resp.Meta["author"] == nil || resp.Meta["editor"] == nil {
 				t.Errorf("author and editor must be loaded, got %v and %v", resp.Meta["author"], resp.Meta["editor"])
 			}
