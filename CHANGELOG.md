@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.15.1 (unreleased)
+
+### Fixed
+
+- resource: `WithAuthorLoader` reads an author or editor column of type `types.Int` or `*types.Int` (it read 0, so `meta.author` and `meta.editor` stayed null); `int`, `*int` and `types.NullInt` are unchanged.
+
 ## v1.15.0 (unreleased)
 
 The last generic pieces an application kept to itself: hooks that let an app run its own user administration on identity's routes and screens, transaction and MySQL error helpers, env loaders for mail, incident alerts and push, and a go2ts that keeps a generated folder in sync.

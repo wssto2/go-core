@@ -240,13 +240,22 @@ func extractIntField(v any, fieldName string) int {
 		switch elem.Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 			return int(elem.Int())
+		case reflect.Struct:
+			return typesInt(elem.Interface())
 		}
 	case reflect.Struct:
-		if ni, ok := fv.Interface().(types.NullInt); ok {
-			if p := ni.Get(); p != nil {
-				return *p
-			}
-		}
+		return typesInt(fv.Interface())
+	}
+	return 0
+}
+
+// typesInt reads the number of a types.Int or types.NullInt (0 for NULL and for any other struct).
+func typesInt(v any) int {
+	switch t := v.(type) {
+	case types.Int:
+		return t.Get()
+	case types.NullInt:
+		return t.GetOrEmpty()
 	}
 	return 0
 }
