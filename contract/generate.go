@@ -601,7 +601,9 @@ func planEnums(p *plan, g *route.Contract, claimAs func(string, reflect.Type) er
 
 		switch {
 		case (t.Kind() != reflect.String && !go2ts.WritesText(t)) || t.Name() == "" || t.PkgPath() == "":
-			return fmt.Errorf("enum of %s: an enumeration needs a named string type (type Status string) or a named type written as text (MarshalText without MarshalJSON, route.TextEnum), not %s", t, t)
+			//nolint:err113 // a message for the author of the declaration, like those around it
+			return fmt.Errorf("enum of %s: an enumeration needs a named string type (type Status string) "+
+				"or a named type written as text (MarshalText without MarshalJSON, route.TextEnum), not %s", t, t)
 		case len(e.Values()) == 0:
 			return fmt.Errorf("enum of %s has no values: pass the constants, route.Enum(%sA, %sB)", t, t.Name(), t.Name())
 		case seen[t]:

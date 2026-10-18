@@ -85,22 +85,24 @@ func (e EnumEntry) used() EnumEntry {
 // encoding/json prefers MarshalJSON, so a type with one is not text, and the
 // types go2ts maps by name (time.Time, go-core's database/types) keep their
 // mapping. A named string type is not listed here: its kind says string already.
-func WritesText(t reflect.Type) bool {
+func WritesText(typ reflect.Type) bool {
 	switch {
-	case t.Name() == "" || t.Kind() == reflect.String || t.Kind() == reflect.Interface || t.Kind() == reflect.Pointer:
+	case typ.Name() == "" || typ.Kind() == reflect.String:
 		return false
-	case t.Kind() == reflect.Struct && knownCustomType(t.Name()):
+	case typ.Kind() == reflect.Interface || typ.Kind() == reflect.Pointer:
+		return false
+	case typ.Kind() == reflect.Struct && knownCustomType(typ.Name()):
 		return false
 	}
 
-	return isMarshaled[encoding.TextMarshaler](t) && !isMarshaled[json.Marshaler](t)
+	return isMarshaled[encoding.TextMarshaler](typ) && !isMarshaled[json.Marshaler](typ)
 }
 
 // isMarshaled reports whether t or *t implements M.
-func isMarshaled[M any](t reflect.Type) bool {
+func isMarshaled[M any](typ reflect.Type) bool {
 	m := reflect.TypeFor[M]()
 
-	return t.Implements(m) || reflect.PointerTo(t).Implements(m)
+	return typ.Implements(m) || reflect.PointerTo(typ).Implements(m)
 }
 
 // wireKind is the kind go2ts maps t by: string for a type written as text.

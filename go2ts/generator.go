@@ -232,7 +232,7 @@ func mapGoTypeToTs(t reflect.Type, parentName string, children map[string]interf
 
 	var tsType string
 
-	switch wireKind(t) {
+	switch wireKind(t) { //nolint:exhaustive // the default case covers the kinds JSON carries as unknown
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Float32, reflect.Float64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		tsType = "number"

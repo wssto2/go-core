@@ -111,7 +111,7 @@ const (
 
 func (r Rank) MarshalText() ([]byte, error) {
 	if r < RankLow || r > RankHigh {
-		return nil, errors.New("invalid rank")
+		return nil, errors.New("invalid rank") //nolint:err113 // a test double
 	}
 
 	return []byte([]string{"", "low", "high"}[r]), nil
@@ -135,22 +135,26 @@ type RankOut struct {
 }
 
 func TestATextEnumIsRenderedAsAUnionAndAZodEnum(t *testing.T) {
-	set := route.Post[RankInput, RankOut]("/rank").Name("tickets.rank")
-	g := route.Group("tickets", set).Types(route.TextEnum(RankLow, RankHigh))
+	t.Parallel()
 
-	entities := generated(t, g, "entities.ts")
+	set := route.Post[RankInput, RankOut]("/rank").Name("tickets.rank")
+	grp := route.Group("tickets", set).Types(route.TextEnum(RankLow, RankHigh))
+
+	entities := generated(t, grp, "entities.ts")
 	require.Contains(t, entities, `export type Rank = "low" | "high";`)
 	require.Contains(t, entities, "rank: Rank;")
 	require.Contains(t, entities, "other: Rank | null;")
 	require.Contains(t, entities, "many: Rank[];")
 	require.Contains(t, entities, "plain: number;", "MarshalJSON wins over MarshalText")
 
-	schemas := generated(t, g, "schemas.ts")
+	schemas := generated(t, grp, "schemas.ts")
 	require.Contains(t, schemas, `export const RankSchema = z.enum(["low", "high"]);`)
 	require.Contains(t, schemas, "rank: RankSchema,")
 }
 
 func TestATextMarshalerThatIsNotDeclaredIsAString(t *testing.T) {
+	t.Parallel()
+
 	set := route.Post[RankInput, RankOut]("/rank").Name("tickets.rank")
 	g := route.Group("tickets", set)
 
@@ -159,6 +163,8 @@ func TestATextMarshalerThatIsNotDeclaredIsAString(t *testing.T) {
 }
 
 func TestATextEnumNeedsATypeWrittenAsText(t *testing.T) {
+	t.Parallel()
+
 	show := route.Get[ShowInput, RankOut]("/rank/:id")
 
 	err := contract.Generate(t.TempDir(), route.Group("tickets", show).Types(route.TextEnum(JSONRank(1))))

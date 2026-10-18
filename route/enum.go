@@ -48,18 +48,18 @@ func Enum[T ~string](values ...T) Enumeration {
 // The type must not have MarshalJSON, which encoding/json prefers. It panics when
 // a value does not marshal: a declaration is made once, at start.
 func TextEnum[T encoding.TextMarshaler](values ...T) Enumeration {
-	e := Enumeration{typ: reflect.TypeFor[T](), values: make([]string, len(values))}
+	enum := Enumeration{typ: reflect.TypeFor[T](), values: make([]string, len(values)), name: ""}
 
-	for i, v := range values {
+	for idx, v := range values {
 		text, err := v.MarshalText()
 		if err != nil {
-			panic(fmt.Sprintf("route: TextEnum of %s: value %d does not marshal: %v", e.typ, i, err))
+			panic(fmt.Sprintf("route: TextEnum of %s: value %d does not marshal: %v", enum.typ, idx, err))
 		}
 
-		e.values[i] = string(text)
+		enum.values[idx] = string(text)
 	}
 
-	return e
+	return enum
 }
 
 // Type is the Go type the values belong to.

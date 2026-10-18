@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,paralleltest // tests in the style of the package's others
 package go2ts_test
 
 import (
@@ -41,13 +42,13 @@ func (d Digest) MarshalText() ([]byte, error) { return []byte("digest"), nil }
 type PlainLevel int // no methods: stays a number
 
 type TextFields struct {
-	Level    Level              `json:"level" validation:"required"`
+	Level    Level              `json:"level"              validation:"required"`
 	Maybe    *Level             `json:"maybe"`
 	Many     []Level            `json:"many"`
-	ByKey    map[Level]string   `json:"by_key"`
-	ByName   map[string]Level   `json:"by_name"`
+	ByKey    map[Level]string   `json:"byKey"`
+	ByName   map[string]Level   `json:"byName"`
 	Ptr      PtrLevel           `json:"ptr"`
-	PtrMany  []*PtrLevel        `json:"ptr_many"`
+	PtrMany  []*PtrLevel        `json:"ptrMany"`
 	JSON     JSONLevel          `json:"json"`
 	Addr     Addr               `json:"addr"`
 	Digest   Digest             `json:"digest"`
@@ -74,10 +75,10 @@ func TestATextMarshalerIsAStringInTypes(t *testing.T) {
 		"level: string;",
 		"maybe: string | null;",
 		"many: string[];",
-		"by_key: Record<string, string>;",
-		"by_name: Record<string, string>;",
+		"byKey: Record<string, string>;",
+		"byName: Record<string, string>;",
 		"ptr: string;",
-		"ptr_many: string[];",
+		"ptrMany: string[];",
 		"json: number;",
 		"addr: string;",
 		"digest: string;",
@@ -112,6 +113,7 @@ func TestATextMarshalerIsAStringInZod(t *testing.T) {
 	}
 
 	require.NotContains(t, src, "refine")
+
 	_, err := os.Stat(filepath.Join(dir, "Addr.ts"))
 	require.True(t, os.IsNotExist(err), "a struct written as text has no schema of its own")
 }
@@ -124,7 +126,10 @@ func TestADeclaredEnumOfATextMarshalerIsItsUnion(t *testing.T) {
 	require.NoError(t, go2ts.GenerateTypes(entries, types))
 
 	src := read(t, types, "TextFields.ts")
-	for _, want := range []string{"level: Level;", "maybe: Level | null;", "many: Level[];", "ptr: string;", "by_key: Record<string, string>;", "optional?: Level;"} {
+	for _, want := range []string{
+		"level: Level;", "maybe: Level | null;", "many: Level[];", "ptr: string;",
+		"byKey: Record<string, string>;", "optional?: Level;",
+	} {
 		require.Contains(t, src, want)
 	}
 
@@ -135,7 +140,10 @@ func TestADeclaredEnumOfATextMarshalerIsItsUnion(t *testing.T) {
 	require.NoError(t, go2ts.GenerateSchemas(entries, schemas))
 
 	zod := read(t, schemas, "TextFields.ts")
-	for _, want := range []string{"level: LevelSchema,", "maybe: LevelSchema.nullable().optional(),", "many: z.array(LevelSchema),", "optional: LevelSchema.optional(),"} {
+	for _, want := range []string{
+		"level: LevelSchema,", "maybe: LevelSchema.nullable().optional(),",
+		"many: z.array(LevelSchema),", "optional: LevelSchema.optional(),",
+	} {
 		require.Contains(t, zod, want)
 	}
 
@@ -146,18 +154,18 @@ type Pinned struct {
 	When    time.Time            `json:"when"`
 	Maybe   *time.Time           `json:"maybe"`
 	Day     types.Date           `json:"day"`
-	NullDay types.NullDate       `json:"null_day"`
+	NullDay types.NullDate       `json:"nullDay"`
 	At      types.DateTime       `json:"at"`
 	Name    types.String         `json:"name"`
-	NullStr types.NullString     `json:"null_str"`
+	NullStr types.NullString     `json:"nullStr"`
 	Count   types.Int            `json:"count"`
-	NullInt types.NullInt        `json:"null_int"`
+	NullInt types.NullInt        `json:"nullInt"`
 	Ratio   types.Float          `json:"ratio"`
 	Flag    types.Bool           `json:"flag"`
 	Kind    types.Enum           `json:"kind"`
 	Legacy  types.LegacyBoolEnum `json:"legacy"`
-	ZeroDay types.ZeroDate       `json:"zero_day"`
-	ByTime  map[string]time.Time `json:"by_time"`
+	ZeroDay types.ZeroDate       `json:"zeroDay"`
+	ByTime  map[string]time.Time `json:"byTime"`
 }
 
 // The mapping of the types go2ts names itself must not move when a type that
@@ -168,9 +176,10 @@ func TestTheTypesGo2tsKnowAreUnchanged(t *testing.T) {
 
 	src := read(t, types, "Pinned.ts")
 	for _, want := range []string{
-		"when: string;", "maybe: string | null;", "day: string;", "null_day: string | null;", "at: string;",
-		"name: string;", "null_str: string | null;", "count: number;", "null_int: number | null;", "ratio: number;",
-		"flag: boolean;", "kind: boolean;", "legacy: LegacyBoolEnum;", "zero_day: ZeroDate;", "by_time: Record<string, string>;",
+		"when: string;", "maybe: string | null;", "day: string;", "nullDay: string | null;", "at: string;",
+		"name: string;", "nullStr: string | null;", "count: number;", "nullInt: number | null;", "ratio: number;",
+		"flag: boolean;", "kind: boolean;", "legacy: LegacyBoolEnum;", "zeroDay: ZeroDate;",
+		"byTime: Record<string, string>;",
 	} {
 		require.Contains(t, src, want)
 	}
@@ -180,10 +189,15 @@ func TestTheTypesGo2tsKnowAreUnchanged(t *testing.T) {
 
 	zod := read(t, schemas, "Pinned.ts")
 	for _, want := range []string{
-		"when: z.string().datetime({ offset: true }),", "maybe: z.string().datetime({ offset: true }).nullable().optional(),", "day: z.string().date(),",
-		"null_day: z.string().date().nullable().optional(),", "at: z.string().datetime({ offset: true }),", "name: z.string(),",
-		"null_str: z.string().nullable().optional(),", "count: z.number().int(),", "ratio: z.number(),", "flag: z.boolean(),",
-		"kind: z.number().int(),", "legacy: LegacyBoolEnumSchema,", "zero_day: ZeroDateSchema,",
+		"when: z.string().datetime({ offset: true }),",
+		"maybe: z.string().datetime({ offset: true }).nullable().optional(),",
+		"day: z.string().date(),",
+		"nullDay: z.string().date().nullable().optional(),",
+		"at: z.string().datetime({ offset: true }),",
+		"name: z.string(),",
+		"nullStr: z.string().nullable().optional(),",
+		"count: z.number().int(),", "ratio: z.number(),", "flag: z.boolean(),",
+		"kind: z.number().int(),", "legacy: LegacyBoolEnumSchema,", "zeroDay: ZeroDateSchema,",
 	} {
 		require.Contains(t, zod, want)
 	}

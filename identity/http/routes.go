@@ -76,9 +76,14 @@ var (
 	UserViews       = route.Enum(account.ViewActive, account.ViewLocked, account.ViewInactive, account.ViewAll).As("UserView")
 	SignInViews     = route.Enum(account.SignInsAll, account.SignInsFailed)
 	ChangeViews     = route.Enum(account.ChangesAll, account.ChangesAccess, account.ChangesDetails)
-	Qualifiers      = route.TextEnum(authz.QualifierOwn, authz.QualifierOwnLocation, authz.QualifierAll)
 	ChangeActions   = route.Enum(account.ChangeCreated, account.ChangeUpdated, account.ChangeDeactivated, account.ChangeActivated, account.ChangePassword, account.ChangeEmail, account.ChangeProfile)
 )
+
+// Qualifiers is authz.Qualifier, an int the wire writes as "own" | "own_location" | "all":
+// the generated types say so for the access a session carries.
+//
+//nolint:gochecknoglobals // declared once, as a value
+var Qualifiers = route.TextEnum(authz.QualifierOwn, authz.QualifierOwnLocation, authz.QualifierAll)
 
 // LoginInput is a sign-in attempt.
 type LoginInput struct {
