@@ -29,6 +29,7 @@ const (
 	ServiceRepositories   = "service-repositories"
 	RepositoryShape       = "repository-shape"
 	SQLPortability        = "sql-portability"
+	RoutePersonOnly       = "route-person-only"
 )
 
 // bannedRule is the name of the Config.Banned checks in a Result; they have no
@@ -41,7 +42,7 @@ func ruleNames() []string {
 		NoPanic, NoContextBackground, NoSleep, NoDatabaseSQL, ErrorfWrap, HandlersNoPersistence, LayerImports,
 		DomainPurity, ApplicationPurity, NoTimeNowDomain, NoTimeNowApplication, CrossAggregate, DomainContextFirst,
 		ServiceContextFirst, BoundedStrings, RoutePaths, RouteIdentifiers, ValidationRules, RouteAccess,
-		ServiceRepositories, RepositoryShape, SQLPortability, bannedRule,
+		ServiceRepositories, RepositoryShape, SQLPortability, RoutePersonOnly, bannedRule,
 	}
 }
 
@@ -109,6 +110,26 @@ type Config struct {
 	// SQL switches on SQLPortability: the Go sources of these directories may
 	// not carry SQL that MariaDB 10.3 rejects.
 	SQL SQL
+
+	// PersonOnly switches on RoutePersonOnly.
+	PersonOnly PersonOnly
+}
+
+// PersonOnly names the areas of the API that only make sense for a person (a
+// session, a profile, preferences, notifications): a service account's key
+// must be refused on every route in them.
+type PersonOnly struct {
+	// Prefix is what the server mounts the declared paths under ("/api"); it
+	// is put before every declared path before the areas are compared.
+	Prefix string
+	// Areas are the path prefixes, Prefix included ("/api/v1/home"). A route
+	// whose full path is an area or under it declares PersonOnly or Public.
+	// Empty leaves the rule off.
+	Areas []string
+	// External are Areas served by a library, so the module declares no route
+	// in them. Without it an area with no route in the sources fails, because
+	// a typo or a renamed path would go on protecting nothing.
+	External []string
 }
 
 // Repository names the one file of the repository package that may use a

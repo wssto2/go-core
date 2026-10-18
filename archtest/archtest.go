@@ -20,6 +20,8 @@
 //     Authenticated);
 //   - SQLPortability (opt-in, Config.SQL): no SQL literal or gorm locking clause in the
 //     Go sources that MariaDB 10.3 rejects;
+//   - RoutePersonOnly (opt-in, Config.PersonOnly): every route in an area of the API that
+//     only a person may use declares PersonOnly or Public, and every area has a route;
 //   - ServiceRepositories: a service injects only its own aggregate's repositories;
 //   - RepositoryShape: the transaction and tenant-scope plumbing of go-core is
 //     reached from one file of the repository package only.

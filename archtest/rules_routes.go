@@ -271,6 +271,51 @@ func (p *project) routeAccess() []finding {
 	return out
 }
 
+// routePersonOnly: every route whose full path (PersonOnly.Prefix plus the
+// declared path) is in an area carries PersonOnly or Public, and every area is
+// the area of some route. A path that is not constant is left to RoutePaths.
+func (p *project) routePersonOnly() []finding {
+	cfg := p.cfg.PersonOnly
+	consts := p.packageConsts()
+	hit := map[string]bool{}
+
+	var out []finding
+
+	for _, route := range p.routes() {
+		declared, found := evalPath(route.pathArg, consts[path.Dir(route.src.Rel)], 0)
+		if !found {
+			continue
+		}
+
+		full := cfg.Prefix + declared
+		inside := false
+
+		for _, area := range cfg.Areas {
+			if full == area || strings.HasPrefix(full, area+"/") {
+				hit[area], inside = true, true
+			}
+		}
+
+		if !inside {
+			continue
+		}
+
+		if !slices.Contains(route.chain, "PersonOnly") && !slices.Contains(route.chain, "Public") {
+			out = append(out, finding{key: route.src.Rel, text: route.src.At(route.call) + "  " + route.method + " " + full +
+				" is in a person-only area: declare it .PersonOnly()"})
+		}
+	}
+
+	for _, area := range cfg.Areas {
+		if !hit[area] && !slices.Contains(cfg.External, area) {
+			out = append(out, finding{key: area, text: "person-only area " + strconv.Quote(area) +
+				" has no route: fix the area, or list it in PersonOnly.External when a library serves it"})
+		}
+	}
+
+	return out
+}
+
 // routeIdentifiers: the names that identify a feature are single lowercase
 // words: every segment of the literal prefix of a .Group("...") call (route.Group
 // anywhere, any other .Group in the handlers), and every dot-separated namespace

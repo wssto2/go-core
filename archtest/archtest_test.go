@@ -288,3 +288,41 @@ func withSQL(cfg archtest.Config) archtest.Config {
 
 	return cfg
 }
+
+func TestRoutePersonOnly(t *testing.T) {
+	t.Parallel()
+
+	const routes = "internal/infrastructure/http/home/routes.go"
+
+	cfg := testConfig(fixture(t, "route-person-only"))
+	results, err := archtest.Check(cfg)
+	require.NoError(t, err)
+
+	for _, result := range results {
+		require.NotEqual(t, archtest.RoutePersonOnly, result.Rule, "opt-in")
+	}
+
+	cfg.PersonOnly.Prefix = "/api"
+	cfg.PersonOnly.Areas = []string{"/api/v1/home", "/api/v1/auth", "/api/v1/search"}
+
+	got := problems(t, cfg, archtest.RoutePersonOnly)
+	require.Contains(t, got, routes+":10  GET /api/v1/home/b")
+	require.Contains(t, got, routes+":11  GET /api/v1/search")
+	require.Equal(t, 2, strings.Count(got, routes), "PersonOnly and Public pass, /v1/homes is not in the area of /v1/home: %s", got)
+
+	// An area no route is in protects nothing while looking as if it did.
+	cfg.PersonOnly.Areas = append(cfg.PersonOnly.Areas, "/api/v1/ghost")
+	require.Contains(t, problems(t, cfg, archtest.RoutePersonOnly), `"/api/v1/ghost" has no route`)
+
+	// External areas are served by a library: the module declares no route in them.
+	cfg.PersonOnly.External = []string{"/api/v1/ghost"}
+	require.NotContains(t, problems(t, cfg, archtest.RoutePersonOnly), "ghost")
+
+	cfg.Allowed = map[string][]string{archtest.RoutePersonOnly: {routes}}
+	require.Empty(t, problems(t, cfg, archtest.RoutePersonOnly))
+
+	good := testConfig(fixture(t))
+	good.PersonOnly.Prefix = "/api"
+	good.PersonOnly.Areas = []string{"/api/v1/orders"}
+	require.Contains(t, problems(t, good, archtest.RoutePersonOnly), "/api/v1/orders/:id/send-order")
+}

@@ -16,6 +16,7 @@ func (p *project) rules() []rule {
 	p.dataRules(set)
 	p.routeRules(set)
 	p.portabilityRules(set)
+	p.personOnlyRules(set)
 
 	if len(p.cfg.Banned) > 0 && !slices.Contains(p.cfg.Skip, bannedRule) {
 		set.rules = append(set.rules, rule{name: bannedRule, check: p.banned})
@@ -113,6 +114,14 @@ func (p *project) routeRules(set *ruleSet) {
 	set.add(true, RouteAccess, "every route declares who may call it",
 		"end the declaration chain with Requires, RequiresAny, RequiresAll, Public, PersonOnly or Authenticated; "+
 			"an undeclared route is open to every signed-in caller", p.routeAccess)
+}
+
+func (p *project) personOnlyRules(set *ruleSet) {
+	set.add(len(p.cfg.PersonOnly.Areas) > 0, RoutePersonOnly, "routes of a person-only area are PersonOnly",
+		"end the declaration chain of every route in a PersonOnly.Areas area with PersonOnly() (or Public() for a route "+
+			"with nobody to refuse yet, such as sign-in), so a service account's key is refused on it; an area with no "+
+			"route is a typo or a renamed path: fix the area, or list it in PersonOnly.External when a library serves it",
+		p.routePersonOnly)
 }
 
 func (p *project) appAndDomain() []Source {
