@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.16.0 (unreleased)
+
+The guards and generators an application kept to itself: SQL portability in Go sources, Logic-ID anchors, person-only route areas, a wire audit of the response types, the entity generator's column-type map and a rolled-back transaction for contract tests on an existing schema. Every new rule is opt-in.
+
+### Added
+
+- archtest: opt-in rule `sql-portability` (`Config.SQL{Dirs}`) flags SQL that MariaDB 10.3 rejects in the string literals and the gorm `clause.Locking` forms of the Go sources (RETURNING only in capitals there). The pattern table is `archtest.SQLRules()`; `dbtest.Portability` uses it.
+- archtest: `LogicIDs(t, LogicIDConfig)` and `CheckLogicIDs` hold the code to a registry of Logic IDs: comment anchors in Go, text anchors in frontend files, a `NotYetPorted` ratchet, and rule headings checked against the mapping. go-core's own docs test uses it.
+- archtest: opt-in rule `route-person-only` (`Config.PersonOnly{Prefix, Areas, External}`): every route in a person-only area declares `PersonOnly` or `Public`, and every area that is not `External` has a route.
+- contract: `Wire(groups, WireRules{Forbidden, Except})` audits the response types of the typed routes by reflection: an exported field without a json name, and an output type declared in a forbidden package.
+- database/types: `ColumnTypes()`, the entity generator's column-type map (tinyint(1) as Bool, NOT NULL zero-date defaults as ZeroDate/ZeroDateTime, enum('0','1') as LegacyBoolEnum, Null* for nullable columns), for gorm.io/gen's `WithDataTypeMap`; go-core does not import gen.
+- dbtest: `Tx(tb, dsnEnv)`, a rolled-back transaction on an existing MySQL/MariaDB schema: skips when the variable is unset, adds `clientFoundRows=true`, one connection, rollback then pool close on cleanup.
+
+### Fixed
+
+- dbtest: `RequirePortable` no longer reports "no .sql files" for an FS whose SQL is in subfolders (`local/*.sql`).
+- `cmd/go-core` is part of the root module, so `go run github.com/wssto2/go-core/cmd/go-core@vX` resolves with every go-core tag (only the nested `cmd/go-core/v1.10.0` was ever tagged). go-core's go.mod gains cobra, huh and lipgloss; an application's go.sum is unchanged.
+
 ## v1.15.1 (unreleased)
 
 ### Fixed
