@@ -95,9 +95,18 @@ type App struct {
 	// autoMigrate, when set, applies migrations as they are collected.
 	autoMigrate context.Context //nolint:containedctx // test option: the context of the test
 
-	// offline is set by Offline: no database, no serving.
+	// offline is set by Offline, or by New for ts:generate: no database, no serving.
 	offline   bool
 	offlineDB *gorm.DB
+
+	// args and argsSet are WithArgs: the command line New and Run read instead of os.Args[1:].
+	args    []string
+	argsSet bool
+	// ts is WithTypeScript, which also enables the ts:generate command.
+	ts *TS
+	// shipping counts the open Shipping scopes; shipped are the route groups installed inside one: go-core's own.
+	shipping int
+	shipped  map[*route.Contract]bool
 
 	prefix   string
 	problems []Problem
@@ -215,6 +224,10 @@ func New(cfg bootstrap.Config, opts ...Option) *App {
 
 	for _, opt := range opts {
 		opt(app)
+	}
+
+	if !app.offline && asksForOffline(app.commandLine()) {
+		app.offline = true
 	}
 
 	if app.offline {
@@ -411,6 +424,7 @@ func (a *App) Database(conn ...database.Connection) *gorm.DB {
 func (a *App) Routes(routes ...route.Handled) {
 	for _, r := range routes {
 		a.routes = append(a.routes, mounted{Handled: r, own: nil})
+		a.noteShipped(r)
 	}
 }
 
@@ -420,6 +434,7 @@ func (a *App) Routes(routes ...route.Handled) {
 func (a *App) Root(routes ...route.Handled) {
 	for _, r := range routes {
 		a.routes = append(a.routes, mounted{Handled: r, own: nil, root: true})
+		a.noteShipped(r)
 	}
 }
 
@@ -439,6 +454,7 @@ func (a *App) Root(routes ...route.Handled) {
 func (a *App) RoutesWith(security route.Security, routes ...route.Handled) {
 	for _, r := range routes {
 		a.routes = append(a.routes, mounted{Handled: r, own: &security})
+		a.noteShipped(r)
 	}
 }
 
@@ -509,8 +525,10 @@ func (a *App) Served() []route.Served {
 	return out
 }
 
-// Contracts lists the groups the installed routes belong to, each once, in the order their routes were collected:
-// what the TypeScript generator writes for this application. A group none of whose routes is installed is not listed.
+// Contracts lists the groups the installed routes belong to, each once, in the order their routes were collected.
+// A group none of whose routes is installed is not listed. It includes the groups of go-core's own modules (identity,
+// access, notification...); the TypeScript generator leaves those out, because the frontend library ships their route
+// tables (see Shipping).
 func (a *App) Contracts() []*route.Contract { return route.Contracts(a.handled()...) }
 
 func (a *App) handled() []route.Handled {

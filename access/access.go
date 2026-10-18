@@ -95,6 +95,8 @@ type Access struct {
 // Define the application's permissions before Install: building the engine
 // freezes the catalogue.
 func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory, opts ...Option) *Access {
+	defer app.Shipping()()
+
 	s := settings{scopes: NoScopes()}
 	for _, opt := range opts {
 		opt(&s)

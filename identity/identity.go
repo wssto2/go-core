@@ -510,6 +510,8 @@ func DefinePermissions(c *authz.Catalogue) error {
 // the application runs with "./app migrate"), its routes and the authentication
 // every other route is behind. It returns what other features need.
 func Install(app *gocore.App, opts ...Option) *Users {
+	defer app.Shipping()()
+
 	var s settings
 	for _, opt := range opts {
 		opt(&s)

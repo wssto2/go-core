@@ -26,6 +26,8 @@ import (
 
 // Install puts the saved views into app: the table and the routes.
 func Install(app *gocore.App) {
+	defer app.Shipping()()
+
 	app.Schema(gocore.Schema{Files: migrations.Files, Models: gormstore.Migrate})
 
 	service := core.New(gormstore.New(app.Database()), app.Clock())

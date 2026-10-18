@@ -69,6 +69,8 @@ type Incidents struct {
 //
 // A bad option is a start-up problem Run lists with the fix.
 func Install(app *gocore.App, people People, opts ...Option) *Incidents {
+	defer app.Shipping()()
+
 	if people == nil {
 		app.Fail("incident needs the people to name", "pass the users as the second argument: incident.Install(app, users)")
 

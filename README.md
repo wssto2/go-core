@@ -257,9 +257,28 @@ app.Command("db:prune", "delete rows past their retention window",
     })
 ```
 
-`./myapp db:prune --dry-run` runs it like `migrate`: the databases are open (`app.Database()`), nothing is checked, served or booted, no worker or `OnStart` runs, and the databases close afterwards. The arguments after the name arrive unparsed; the command parses its own with the standard `flag` package. The error it returns is `Run`'s error, so the process exits non-zero. A name may contain `:` (`iam:check-placement`); an empty one, one with whitespace or a leading `-`, `migrate` or `help`, one registered twice and a nil function are App problems, listed by `Check` and `Run`, and a failed `Install` stops a command as it stops serving. `help` lists the built-ins, then the application's commands with their text, sorted; an unknown command's error names them all.
+`./myapp db:prune --dry-run` runs it like `migrate`: the databases are open (`app.Database()`), nothing is checked, served or booted, no worker or `OnStart` runs, and the databases close afterwards. The arguments after the name arrive unparsed; the command parses its own with the standard `flag` package. The error it returns is `Run`'s error, so the process exits non-zero. A name may contain `:` (`iam:check-placement`); an empty one, one with whitespace or a leading `-`, `migrate`, `help` or `ts:generate`, one registered twice and a nil function are App problems, listed by `Check` and `Run`, and a failed `Install` stops a command as it stops serving. `help` lists the built-ins, then the application's commands with their text, sorted; an unknown command's error names them all.
 
 `gocore.LoadEnv(".env")` puts a file of `KEY=value` lines into the process environment, the way `godotenv.Load` does (a variable already set keeps its value; comments, `export`, quotes, `\n` in double quotes and `$NAME` from earlier lines are read). It is a call at the top of `main`, not an option, because the configuration `New` takes is read from the environment before `New` runs. A missing file is an error that is `fs.ErrNotExist`, so `if err := gocore.LoadEnv(".env"); err != nil && !errors.Is(err, fs.ErrNotExist)` makes the file optional and dropping the `errors.Is` makes it required.
+
+### Generating TypeScript
+
+`gocore.WithTypeScript` adds the built-in command `ts:generate`, which writes the frontend's generated sources from the installed application: the route tables of its `route.Group`s, the permission union and metadata of its catalogue, and the entity and Zod schema files for the two lists of Go types the application hands over:
+
+```go
+app := gocore.New(cfg, gocore.WithTypeScript(gocore.TS{
+    Entities: []any{go2ts.As(dto.TicketResponse{}, "Ticket"), dto.Settings{}}, // go2ts.GenerateTypes' list
+    Inputs:   []any{tickets.CreateInput{}},                                     // go2ts.GenerateSchemas' list
+    Dir:      "frontend/generated",                                             // the default
+}))
+```
+
+```
+./myapp ts:generate               write routes/, entities/, schemas/ and permissions.ts under Dir
+./myapp ts:generate routes        or one part: entities, schemas, permissions, routes
+```
+
+`routes/` is removed and written again (`contract.Generate`), `entities/` and `schemas/` go through `go2ts.Sync` (files no longer generated are deleted; an empty list leaves its folder alone), and `permissions.ts` is overwritten. The output is deterministic, so CI regenerates and diffs. The command runs offline: `New` reads the command line (`os.Args[1:]`, or `gocore.WithArgs(...)` in a test) and makes the App `Offline` when it asks for `ts:generate`, so `main` is the same as for serving and needs no database. Every `Install` still runs and still needs the settings it reads, so CI supplies placeholders. Only the application's own parts are written: a go-core module (identity, access, notification, savedview, incident) marks its `Install` with `defer app.Shipping()()`, and the groups of its routes are left out, because `@wssto2/vue-core` ships those route tables. The permission union is written from one catalogue (the same one handed to `Permissions` twice, as `access.Install` does, counts once; two different ones stop the command).
 
 All sources of a connection run as one set in version order; two files with one version stop the run and name both. A module's files use its release date as version and never change once tagged.
 

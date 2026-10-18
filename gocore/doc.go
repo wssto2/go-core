@@ -41,10 +41,14 @@
 //	tickets.Install(app, users)
 //	routes, permissions := app.Contracts(), app.Catalogues()
 //
-// The command line is Run's: serve, migrate, help, and the application's own
-// commands, added with Command (they run like migrate, each parsing its own
-// flags). LoadEnv, called first in main, reads a .env into the environment
-// before the configuration is.
+// WithTypeScript adds the built-in command ts:generate, which writes the application's route tables, permission union,
+// entities and schemas into frontend/generated from the installed application. New makes the App offline for it by
+// itself, from the command line (os.Args[1:], or WithArgs in tests), so main is the same as for serving. The groups of
+// go-core's own modules are left out (Shipping).
+//
+// The command line is Run's: serve, migrate, help, ts:generate and the application's own commands, added with Command
+// (they run like migrate, each parsing its own flags). LoadEnv, called first in main, reads a .env into the
+// environment before the configuration is.
 //
 // The application is built on the bootstrap package: old-style
 // bootstrap.Modules run in the same App (see App.Modules), so an application

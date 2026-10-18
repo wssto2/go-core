@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"slices"
 
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/database"
@@ -30,16 +31,29 @@ var errOffline = errors.New(
 //     root when the spec is built, before the App sees it, so declare disks a generator does not need conditionally,
 //     or with Memory().
 //
+// An application does not have to pass Offline for a generator: New makes the App offline when the command line asks
+// for ts:generate (see WithArgs), so main stays as it is.
+//
 // Check works as ever and reports the same wiring problems (an unset Later, a permission no catalogue defines, a
 // route that declares no access): it reads no database. Handler works too.
 func Offline() Option {
 	return func(app *App) { app.offline = true }
 }
 
-// Catalogues lists the permission catalogues the installed features handed to Permissions, in the order they were
-// added: what the TypeScript generator writes the permission union from.
+// Catalogues lists the permission catalogues the installed features handed to Permissions, each once, in the order
+// they were first added: what the TypeScript generator writes the permission union from. go-core's modules add none
+// of their own: access and notification define their permissions in the application's catalogue, which the
+// application passes to access.Install (and may hand to Permissions as well), so this is the application's.
 func (a *App) Catalogues() []*authz.Catalogue {
-	return append([]*authz.Catalogue(nil), a.catalogues...)
+	out := make([]*authz.Catalogue, 0, len(a.catalogues))
+
+	for _, c := range a.catalogues {
+		if !slices.Contains(out, c) {
+			out = append(out, c)
+		}
+	}
+
+	return out
 }
 
 // offlineLogger is the logger of an offline App: no files, nothing on standard output.

@@ -160,7 +160,7 @@ func (a *App) Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	return a.RunCommand(ctx, os.Args[1:], os.Stdout)
+	return a.RunCommand(ctx, a.commandLine(), os.Stdout)
 }
 
 // RunContext serves like Run without arguments, and stops when ctx is done

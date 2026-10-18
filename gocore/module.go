@@ -1,10 +1,13 @@
 package gocore
 
-import "github.com/wssto2/go-core/authz"
+import (
+	"github.com/wssto2/go-core/authz"
+	"github.com/wssto2/go-core/route"
+)
 
-// The two methods below are for features that ship as a module (access,
-// identity): they report problems at start-up and set what the whole
-// application shares.
+// The methods below are for features that ship as a module (access,
+// identity): they report problems at start-up, set what the whole
+// application shares and say which routes are the module's.
 
 // Authorize sets the authorizer that checks the permission of every route that
 // Requires one, for a feature that builds the engine itself (access.Install).
@@ -27,3 +30,34 @@ func (a *App) Authorize(authorizer authz.Authorizer) {
 //
 //	if engine, ok := app.Authorizer().(interface{ MyAccess(context.Context) (authz.MyAccess, error) }); ok { ... }
 func (a *App) Authorizer() authz.Authorizer { return a.authorizer }
+
+// Shipping marks everything the caller hands to Routes, Root and RoutesWith until the returned function is called as
+// part of go-core's own modules, not the application's. A module's Install starts with it:
+//
+//	func Install(app *gocore.App, ...) *Users {
+//	    defer app.Shipping()()
+//
+// The route groups (route.Group) of such routes stay in Contracts, but the TypeScript generator (ts:generate)
+// leaves them out: the frontend library ships those route tables, so the application's generated folder holds only
+// its own.
+// Scopes nest. An application's own features do not call it.
+func (a *App) Shipping() func() {
+	a.shipping++
+
+	return func() { a.shipping-- }
+}
+
+// noteShipped records the groups of a route handed over inside a Shipping scope.
+func (a *App) noteShipped(handled route.Handled) {
+	if a.shipping == 0 {
+		return
+	}
+
+	if a.shipped == nil {
+		a.shipped = map[*route.Contract]bool{}
+	}
+
+	for _, c := range route.Contracts(handled) {
+		a.shipped[c] = true
+	}
+}

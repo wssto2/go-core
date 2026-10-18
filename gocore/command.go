@@ -20,6 +20,8 @@ import (
 //	migrate mark-applied <connection> <version|file>...
 //	                record migrations as applied without running them, for a database
 //	                whose tables already exist, then return
+//	ts:generate [entities|schemas|permissions|routes]
+//	                write the application's TypeScript (only with WithTypeScript), then return
 //	help            list these commands, then return
 //	<name> [args]   a command the application added with Command, then return
 //
@@ -30,6 +32,10 @@ import (
 // Applications do not call it: main is app.Run(). Tests do, with their own
 // args and a buffer.
 func (a *App) RunCommand(ctx context.Context, args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] == tsCommand && a.ts != nil {
+		return a.command(func() error { return a.generateTypeScript(args[1:], out) })
+	}
+
 	if len(args) > 0 {
 		if c := a.appCommand(args[0]); c != nil {
 			return a.command(func() error { return a.runAppCommand(ctx, c, args[1:], out) })
@@ -51,7 +57,7 @@ func (a *App) RunCommand(ctx context.Context, args []string, out io.Writer) erro
 		return a.command(func() error { return a.migrationStatus(ctx, out) })
 	case "help", "-h", "--help":
 		return a.command(func() error {
-			_, err := fmt.Fprint(out, usage(a.sortedCommands()))
+			_, err := fmt.Fprint(out, usage(a.sortedCommands(), a.ts != nil))
 
 			return err
 		})
@@ -75,7 +81,7 @@ func (a *App) command(fn func() error) error {
 	return fn()
 }
 
-func usage(extra []appCommand) string {
+func usage(extra []appCommand, typescript bool) string {
 	name := binary()
 
 	text := fmt.Sprintf(`Usage: %[1]s [command]
@@ -86,8 +92,8 @@ Commands:
   migrate status  list applied and pending migrations, then exit
   migrate mark-applied <connection> <version|file>...
                   record migrations as applied without running them, then exit
-  help            show this list
-`, name)
+%[2]s  help            show this list
+`, name, tsUsage(typescript))
 
 	if len(extra) == 0 {
 		return text
@@ -109,6 +115,16 @@ Commands:
 	return buf.String()
 }
 
+// tsUsage is the help lines of ts:generate, empty for an application that does not use it.
+func tsUsage(typescript bool) string {
+	if !typescript {
+		return ""
+	}
+
+	return "  " + tsCommand + " [entities|schemas|permissions|routes]\n" +
+		"                  write the application's TypeScript, then exit\n"
+}
+
 // CommandFunc is a command the application added with App.Command. args are
 // what follows the command's name on the command line, unparsed; out is where
 // the command writes.
@@ -120,7 +136,7 @@ type appCommand struct {
 }
 
 // isBuiltin is whether name is a command word go-core owns; an application cannot reuse it.
-func isBuiltin(name string) bool { return name == "migrate" || name == "help" }
+func isBuiltin(name string) bool { return name == "migrate" || name == "help" || name == tsCommand }
 
 // Command adds a command to the application's command line, next to migrate
 // and help: "./myapp db:prune --dry-run" runs run with ["--dry-run"]. short is
@@ -163,7 +179,7 @@ func (a *App) Command(name, short string, run CommandFunc) {
 		a.fail(fmt.Sprintf("command %q starts with \"-\"", name), "that is a flag; name the command without it")
 	case isBuiltin(name):
 		a.fail(fmt.Sprintf("command %q is a built-in command", name),
-			"choose another name; migrate and help belong to go-core")
+			"choose another name; migrate, help and ts:generate belong to go-core")
 	case run == nil:
 		a.fail(fmt.Sprintf("command %q has no function", name),
 			"pass the function to run as the third argument of app.Command")
@@ -193,13 +209,19 @@ func (a *App) sortedCommands() []appCommand {
 }
 
 // commandWords is how many built-in commands there are, counting the two-word ones.
-const commandWords = 4
+const commandWords = 5
 
 // commandNames lists every command for an error message: "a, b and c".
 func (a *App) commandNames() string {
 	sorted := a.sortedCommands()
 	names := make([]string, 0, len(sorted)+commandWords)
-	names = append(names, "migrate", "migrate status", "migrate mark-applied", "help")
+	names = append(names, "migrate", "migrate status", "migrate mark-applied")
+
+	if a.ts != nil {
+		names = append(names, tsCommand)
+	}
+
+	names = append(names, "help")
 
 	for _, c := range sorted {
 		names = append(names, c.name)

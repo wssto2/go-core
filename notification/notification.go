@@ -198,6 +198,8 @@ type Notices struct {
 //
 // A bad or repeated category code or option is a start-up problem Run lists with the fix.
 func Install(app *gocore.App, users People, opts ...Option) *Notices {
+	defer app.Shipping()()
+
 	if users == nil {
 		app.Fail("notification needs the people to notify", "pass the users as the second argument: notification.Install(app, users, categories...)")
 
