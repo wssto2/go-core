@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.17.0 (unreleased)
+
+One binary: an application adds its own commands to the command line, loads its .env through go-core, and gets its TypeScript from the installed App instead of hand lists. Everything new is opt-in; an application that uses none of it starts, serves and prints help exactly as before.
+
+### Added
+
+- gocore: `App.Command(name, short, run)` adds an application command (`./myapp db:prune -dry-run`). It runs like `migrate`: the databases New opened are there (`app.Database`), nothing is served, no worker or OnStart runs; it parses its own arguments (a `flag.ErrHelp` is a success, so `-h` exits 0). `help` and the unknown-command error list the application's commands. An empty, spaced, `-`-prefixed, built-in or duplicate name is a start-up problem, and a failed Install stops a command.
+- gocore: `LoadEnv(path)` reads a .env file into the environment with godotenv's rules (existing variables win; a missing file is `fs.ErrNotExist`). Call it first in main, before the configuration is read.
+- gocore: `Offline()` makes an App that is installed and inspected but never run: Installs run, no database is opened (`App.Database` returns handles that fail on use), nothing is served, started or migrated (`Run` and `migrate` return an error), and the logger writes warnings to stderr without files. `App.Catalogues()` lists the permission catalogues handed to `Permissions`, each once.
+- gocore: `WithTypeScript(TS{Entities, Inputs, Dir})` adds the built-in `ts:generate [entities|schemas|permissions|routes]`, which writes the application's route tables (`App.OwnContracts`), permission union (its catalogue), entities and schemas (`go2ts.Sync`) under `Dir` (default `frontend/generated`). `New` makes the App offline by itself when the command line asks for `ts:generate`; `WithArgs(args...)` sets the command line (default `os.Args[1:]`).
+- gocore: `App.Shipping()` marks the routes a go-core module installs, and `App.OwnContracts()` lists the application's own route groups (what ts:generate and a `contract.Wire` audit walk). identity, access, notification, savedview and incident mark theirs.
+
+### Changed
+
+- `ts:generate` is a reserved command name for `App.Command`; `help` lists it only for an application that uses `WithTypeScript`.
+
 ## v1.16.1 (unreleased)
 
 ### Fixed
