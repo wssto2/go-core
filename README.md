@@ -455,7 +455,7 @@ In a test, `identity.Install` runs on `gocoretest.New(t)`: SQLite tables are cre
 * GORM-based repositories
 * Transaction support via context
 * Custom nullable & typed fields
-* SQL migrations per connection (`database/migrate`, goose): `migrations/<connection>/<yyyymmddhhmmss>_<name>.sql`, each database records its own versions; `MarkApplied` adopts a database whose changes ran by hand. `go-core new migration <name> -c <connection>` creates one
+* SQL migrations per connection (`database/migrate`, goose): `migrations/<connection>/<yyyymmddhhmmss>_<name>.sql`, each database records its own versions; `MarkApplied` adopts a database whose changes ran by hand. `go-core new migration <name> -c <connection>` creates one (the CLI also scaffolds `new feature`, `new module` and `new event`: `go run github.com/wssto2/go-core/cmd/go-core@vX new …`, versioned with every go-core tag)
 
 ---
 
