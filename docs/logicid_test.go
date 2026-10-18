@@ -13,10 +13,12 @@ import (
 // every rule heading of docs/rules is listed in the mapping. Nothing is
 // waiting to be implemented, and nothing should be added to NotYetPorted.
 func TestLogicIDsAreAnchoredInCode(t *testing.T) {
-	archtest.LogicIDs(t, archtest.LogicIDConfig{
-		Root:      "..",
-		Mapping:   "docs/rules/mapping.md",
-		Go:        []string{"."},
-		RuleFiles: []string{"docs/rules/*/*.md"},
-	})
+	var cfg archtest.LogicIDConfig
+
+	cfg.Root = ".."
+	cfg.Mapping = "docs/rules/mapping.md"
+	cfg.Go = []string{"."}
+	cfg.RuleFiles = []string{"docs/rules/*/*.md"}
+
+	archtest.LogicIDs(t, cfg)
 }

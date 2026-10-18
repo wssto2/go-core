@@ -95,16 +95,25 @@ func CheckLogicIDs(cfg LogicIDConfig) ([]string, error) {
 		return nil, err
 	}
 
+	out := ledger(cfg, declared, anchored)
+
+	unlisted, err := unlistedRules(root, cfg, declared)
+
+	return append(out, unlisted...), err
+}
+
+// ledger settles the declared IDs against the anchors and the NotYetPorted ratchet.
+func ledger(cfg LogicIDConfig, declared []string, anchored map[string]bool) []string {
 	var missing, stale []string
 
-	for _, id := range declared {
-		notYet := slices.Contains(cfg.NotYetPorted, id)
+	for _, ident := range declared {
+		notYet := slices.Contains(cfg.NotYetPorted, ident)
 
 		switch {
-		case anchored[id] && notYet:
-			stale = append(stale, id)
-		case !anchored[id] && !notYet:
-			missing = append(missing, id)
+		case anchored[ident] && notYet:
+			stale = append(stale, ident)
+		case !anchored[ident] && !notYet:
+			missing = append(missing, ident)
 		}
 	}
 
@@ -128,13 +137,11 @@ func CheckLogicIDs(cfg LogicIDConfig) ([]string, error) {
 			"  Fix: remove them from NotYetPorted.")
 	}
 
-	unlisted, err := unlistedRules(root, cfg, declared)
-
-	return append(out, unlisted...), err
+	return out
 }
 
 func declaredLogicIDs(root, mapping string) ([]string, error) {
-	src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(mapping)))
+	src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(mapping))) //nolint:gosec // the module under test
 	if err != nil {
 		return nil, fmt.Errorf("archtest: the Logic ID registry: %w", err)
 	}
@@ -194,8 +201,8 @@ func anchoredLogicIDs(root string, cfg LogicIDConfig) (map[string]bool, error) {
 	fset := token.NewFileSet()
 
 	collect := func(text string) {
-		for _, id := range logicID.FindAllString(text, -1) {
-			found[id] = true
+		for _, ident := range logicID.FindAllString(text, -1) {
+			found[ident] = true
 		}
 	}
 
@@ -205,48 +212,52 @@ func anchoredLogicIDs(root string, cfg LogicIDConfig) (map[string]bool, error) {
 	}
 
 	for _, dir := range cfg.Go {
-		err := walkFiles(root, dir, func(full string) error {
-			if !strings.HasSuffix(full, ".go") {
-				return nil
-			}
-
-			parsed, err := parser.ParseFile(fset, full, nil, parser.ParseComments|parser.SkipObjectResolution)
-			if err != nil {
-				return fmt.Errorf("parsing %s: %w", relTo(root, full), err)
-			}
-
-			for _, group := range parsed.Comments {
-				collect(group.Text())
-			}
-
-			return nil
-		})
+		err := walkFiles(root, dir, func(full string) error { return goComments(root, fset, full, collect) })
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	for _, dir := range cfg.Text {
-		err := walkFiles(root, dir, func(full string) error {
-			if !slices.Contains(exts, filepath.Ext(full)) {
-				return nil
-			}
-
-			src, err := os.ReadFile(full) //nolint:gosec // a source file of the module under test
-			if err != nil {
-				return fmt.Errorf("reading %s: %w", relTo(root, full), err)
-			}
-
-			collect(string(src))
-
-			return nil
-		})
+		err := walkFiles(root, dir, func(full string) error { return fileText(root, full, exts, collect) })
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	return found, nil
+}
+
+func goComments(root string, fset *token.FileSet, full string, collect func(string)) error {
+	if !strings.HasSuffix(full, ".go") {
+		return nil
+	}
+
+	parsed, err := parser.ParseFile(fset, full, nil, parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		return fmt.Errorf("parsing %s: %w", relTo(root, full), err)
+	}
+
+	for _, group := range parsed.Comments {
+		collect(group.Text())
+	}
+
+	return nil
+}
+
+func fileText(root, full string, exts []string, collect func(string)) error {
+	if !slices.Contains(exts, filepath.Ext(full)) {
+		return nil
+	}
+
+	src, err := os.ReadFile(full) //nolint:gosec // a source file of the module under test
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", relTo(root, full), err)
+	}
+
+	collect(string(src))
+
+	return nil
 }
 
 func relTo(root, full string) string {

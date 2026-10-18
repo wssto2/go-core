@@ -20,6 +20,7 @@ const (
 	customerDom  = "customer"
 	orderApp     = "internal/application/order"
 	mainFile     = "cmd/app/main.go"
+	internalDir  = "internal"
 )
 
 // fixture is the good module of testdata/good, which breaks no rule, with the
@@ -259,7 +260,7 @@ func TestSQLPortabilityRule(t *testing.T) {
 		require.NotEqual(t, archtest.SQLPortability, result.Rule)
 	}
 
-	cfg.SQL.Dirs = []string{"internal"}
+	cfg.SQL.Dirs = []string{internalDir}
 	got := problems(t, cfg, archtest.SQLPortability)
 
 	// Lines 6-15 are the violations, 16-19 are what MariaDB 10.3 accepts.
@@ -276,7 +277,7 @@ func TestSQLPortabilityRule(t *testing.T) {
 	cfg.SQL.Dirs = []string{"cmd"}
 	require.Empty(t, problems(t, cfg, archtest.SQLPortability), "only the configured directories are scanned")
 
-	cfg.SQL.Dirs = []string{"internal"}
+	cfg.SQL.Dirs = []string{internalDir}
 	cfg.Allowed = map[string][]string{archtest.SQLPortability: {locks}}
 	require.Empty(t, problems(t, cfg, archtest.SQLPortability))
 
@@ -284,7 +285,7 @@ func TestSQLPortabilityRule(t *testing.T) {
 }
 
 func withSQL(cfg archtest.Config) archtest.Config {
-	cfg.SQL.Dirs = []string{"internal", "cmd"}
+	cfg.SQL.Dirs = []string{internalDir, "cmd"}
 
 	return cfg
 }
@@ -308,7 +309,8 @@ func TestRoutePersonOnly(t *testing.T) {
 	got := problems(t, cfg, archtest.RoutePersonOnly)
 	require.Contains(t, got, routes+":10  GET /api/v1/home/b")
 	require.Contains(t, got, routes+":11  GET /api/v1/search")
-	require.Equal(t, 2, strings.Count(got, routes), "PersonOnly and Public pass, /v1/homes is not in the area of /v1/home: %s", got)
+	// PersonOnly and Public pass, and /v1/homes is not in the area /v1/home.
+	require.Equal(t, 2, strings.Count(got, routes), got)
 
 	// An area no route is in protects nothing while looking as if it did.
 	cfg.PersonOnly.Areas = append(cfg.PersonOnly.Areas, "/api/v1/ghost")

@@ -288,16 +288,14 @@ func (p *project) routePersonOnly() []finding {
 		}
 
 		full := cfg.Prefix + declared
-		inside := false
 
-		for _, area := range cfg.Areas {
-			if full == area || strings.HasPrefix(full, area+"/") {
-				hit[area], inside = true, true
-			}
+		areas := areasOf(cfg.Areas, full)
+		if len(areas) == 0 {
+			continue
 		}
 
-		if !inside {
-			continue
+		for _, area := range areas {
+			hit[area] = true
 		}
 
 		if !slices.Contains(route.chain, "PersonOnly") && !slices.Contains(route.chain, "Public") {
@@ -305,6 +303,12 @@ func (p *project) routePersonOnly() []finding {
 				" is in a person-only area: declare it .PersonOnly()"})
 		}
 	}
+
+	return append(out, areasWithoutRoute(cfg, hit)...)
+}
+
+func areasWithoutRoute(cfg PersonOnly, hit map[string]bool) []finding {
+	var out []finding
 
 	for _, area := range cfg.Areas {
 		if !hit[area] && !slices.Contains(cfg.External, area) {
@@ -314,6 +318,13 @@ func (p *project) routePersonOnly() []finding {
 	}
 
 	return out
+}
+
+// areasOf are the areas the path is, or is under.
+func areasOf(areas []string, full string) []string {
+	return slices.DeleteFunc(slices.Clone(areas), func(area string) bool {
+		return full != area && !strings.HasPrefix(full, area+"/")
+	})
 }
 
 // routeIdentifiers: the names that identify a feature are single lowercase

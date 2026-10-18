@@ -8,7 +8,11 @@ import (
 	"github.com/wssto2/go-core/archtest"
 )
 
-const mappingFile = "documentation/mapping.md"
+const (
+	mappingFile = "documentation/mapping.md"
+	literalID   = "VEH-LITERAL-003"
+	nowhereID   = "VEH-NOWHERE-004"
+)
 
 // logicIDModule is a scratch module with a registry of four rules: one anchored
 // in a Go comment, one in a frontend file, one named only in a string literal,
@@ -24,17 +28,20 @@ func logicIDModule(t *testing.T) (string, archtest.LogicIDConfig) {
 		"- VEH-LITERAL-003 — only in a string\n"+
 		"- VEH-NOWHERE-004 — nobody implements it\n"+
 		"Not a line: VEH-PROSE-005 — mentioned in prose\n")
-	write(t, root, "internal/vehicle.go", "package vehicle\n\n// Create (VEH-CREATE-001) needs a VIN.\nfunc Create() {}\n\nvar _ = \"VEH-LITERAL-003\"\n")
+	write(t, root, "internal/vehicle.go", "package vehicle\n\n// Create (VEH-CREATE-001) needs a VIN.\n"+
+		"func Create() {}\n\nvar _ = \""+literalID+"\"\n")
 	write(t, root, "frontend/features/price.ts", "// VEH-PRICE-002 a price is positive\nexport const a = 1\n")
 	write(t, root, "frontend/features/ignored.md", "VEH-NOWHERE-004\n")
 
-	return root, archtest.LogicIDConfig{
-		Root:    root,
-		Mapping: mappingFile,
-		Go:      []string{"internal"},
-		Text:    []string{"frontend/features"},
-		TextExt: []string{".ts", ".vue"},
-	}
+	var cfg archtest.LogicIDConfig
+
+	cfg.Root = root
+	cfg.Mapping = mappingFile
+	cfg.Go = []string{internalDir}
+	cfg.Text = []string{"frontend/features"}
+	cfg.TextExt = []string{".ts", ".vue"}
+
+	return root, cfg
 }
 
 func TestLogicIDsReportsWhatIsNotAnchored(t *testing.T) {
@@ -47,14 +54,14 @@ func TestLogicIDsReportsWhatIsNotAnchored(t *testing.T) {
 
 	text := strings.Join(got, "\n")
 	require.Contains(t, text, "UNANCHORED LOGIC IDs")
-	require.Contains(t, text, "VEH-LITERAL-003", "a string literal is not an anchor")
-	require.Contains(t, text, "VEH-NOWHERE-004", "a text file of another extension is not an anchor")
+	require.Contains(t, text, literalID, "a string literal is not an anchor")
+	require.Contains(t, text, nowhereID, "a text file of another extension is not an anchor")
 	require.NotContains(t, text, "VEH-CREATE-001")
 	require.NotContains(t, text, "VEH-PRICE-002")
 	require.NotContains(t, text, "VEH-PROSE-005", "only a mapping line declares an ID")
 	require.NotContains(t, text, "STALE")
 
-	cfg.NotYetPorted = []string{"VEH-LITERAL-003", "VEH-NOWHERE-004"}
+	cfg.NotYetPorted = []string{literalID, nowhereID}
 
 	got, err = archtest.CheckLogicIDs(cfg)
 	require.NoError(t, err)
@@ -65,24 +72,25 @@ func TestLogicIDsNotYetPortedIsARatchet(t *testing.T) {
 	t.Parallel()
 
 	_, cfg := logicIDModule(t)
-	cfg.NotYetPorted = []string{"VEH-LITERAL-003", "VEH-NOWHERE-004", "VEH-CREATE-001"}
+	cfg.NotYetPorted = []string{literalID, nowhereID, "VEH-CREATE-001"}
 
 	got, err := archtest.CheckLogicIDs(cfg)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Contains(t, got[0], "STALE NotYetPorted")
 	require.Contains(t, got[0], "VEH-CREATE-001")
-	require.NotContains(t, got[0], "VEH-NOWHERE-004")
+	require.NotContains(t, got[0], nowhereID)
 }
 
 func TestLogicIDsHoldRuleFilesToTheMapping(t *testing.T) {
 	t.Parallel()
 
 	root, cfg := logicIDModule(t)
-	cfg.NotYetPorted = []string{"VEH-LITERAL-003", "VEH-NOWHERE-004"}
+	cfg.NotYetPorted = []string{literalID, nowhereID}
 	cfg.RuleFiles = []string{"documentation/rules/*.md", mappingFile}
 
-	write(t, root, "documentation/rules/vehicle.md", "## VEH-CREATE-001 — create\n\n## VEH-NEW-009 — not in the registry\n")
+	write(t, root, "documentation/rules/vehicle.md",
+		"## VEH-CREATE-001 — create\n\n## VEH-NEW-009 — not in the registry\n")
 
 	got, err := archtest.CheckLogicIDs(cfg)
 	require.NoError(t, err)
@@ -114,6 +122,7 @@ func TestLogicIDsErrors(t *testing.T) {
 
 	root, cfg = logicIDModule(t)
 	write(t, root, "internal/broken.go", "package vehicle\nfunc (\n")
+
 	_, err = archtest.CheckLogicIDs(cfg)
 	require.ErrorContains(t, err, "internal/broken.go")
 }

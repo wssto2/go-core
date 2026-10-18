@@ -62,22 +62,32 @@ func (r *recorder) Errorf(format string, a ...any) {
 }
 func (r *recorder) Fatal(a ...any) { r.errs = append(r.errs, fmt.Sprint(a...)) }
 
+// file is an FS of one file.
+func file(path, content string) fstest.MapFS {
+	one := new(fstest.MapFile)
+	one.Data = []byte(content)
+
+	return fstest.MapFS{path: one}
+}
+
 // Migrations live in folders (local/, shared/): the guard scans them, so it
 // must not call them "no .sql files".
 func TestRequirePortableAcceptsSQLInSubfolders(t *testing.T) {
+	t.Parallel()
+
 	var rec recorder
 
-	dbtest.RequirePortable(&rec, fstest.MapFS{"local/a.sql": {Data: []byte("SELECT 1;")}})
+	dbtest.RequirePortable(&rec, file("local/a.sql", "SELECT 1;"))
 
 	if len(rec.errs) != 0 {
 		t.Fatalf("a clean FS with local/a.sql was reported: %v", rec.errs)
 	}
 
-	rec = recorder{}
+	var empty recorder
 
-	dbtest.RequirePortable(&rec, fstest.MapFS{"readme.md": {Data: []byte("x")}})
+	dbtest.RequirePortable(&empty, file("readme.md", "x"))
 
-	if len(rec.errs) != 1 || !strings.Contains(rec.errs[0], "no .sql files") {
-		t.Fatalf("an FS without SQL must still fail: %v", rec.errs)
+	if len(empty.errs) != 1 || !strings.Contains(empty.errs[0], "no .sql files") {
+		t.Fatalf("an FS without SQL must still fail: %v", empty.errs)
 	}
 }
