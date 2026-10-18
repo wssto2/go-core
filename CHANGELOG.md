@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.16.1 (unreleased)
+
+### Fixed
+
+- go2ts: a type encoding/json writes as text (MarshalText without MarshalJSON) was written by its kind: `authz.Qualifier` came out as `number`. It is now `string` (Zod `z.string()`, no non-zero refine), or its declared enum; a map key with MarshalText is `string`. The types go2ts maps by name (time.Time, database/types) are unchanged.
+
+### Added
+
+- route: `TextEnum(values...)` declares the values of such a type from its MarshalText; go2ts and contract accept it as an enumeration. `go2ts.WritesText(t)` is exported.
+- identity: its contract declares `Qualifier`, so the generated entities say `qualifier: Qualifier` ("own" | "own_location" | "all").
+
 ## v1.16.0 (unreleased)
 
 The guards and generators an application kept to itself: SQL portability in Go sources, Logic-ID anchors, person-only route areas, a wire audit of the response types, the entity generator's column-type map and a rolled-back transaction for contract tests on an existing schema. Every new rule is opt-in.
