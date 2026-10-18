@@ -22,7 +22,7 @@ import (
 // A feature that only publishes calls Events with no consumers, so the outbox
 // table exists for its Publish. Delivery is at least once: see event.Event.To.
 func (a *App) Events(consumers ...event.Consumer) {
-	if a.registry == nil {
+	if a.registry == nil && !a.offline {
 		a.fail("a feature uses events but no database is configured",
 			"add a connection to the database config, or pass gocore.WithRegistry: the event queue lives in the primary database")
 

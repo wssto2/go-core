@@ -166,6 +166,10 @@ func (a *App) Run() error {
 // RunContext serves like Run without arguments, and stops when ctx is done
 // instead of on a signal.
 func (a *App) RunContext(ctx context.Context) error {
+	if a.offline {
+		return errOffline
+	}
+
 	if a.started {
 		return errors.New("gocore: Run was already called on this App")
 	}

@@ -92,6 +92,10 @@ type App struct {
 	// autoMigrate, when set, applies migrations as they are collected.
 	autoMigrate context.Context //nolint:containedctx // test option: the context of the test
 
+	// offline is set by Offline: no database, no serving.
+	offline   bool
+	offlineDB *gorm.DB
+
 	prefix   string
 	problems []Problem
 	laters   []unsetter
@@ -210,6 +214,14 @@ func New(cfg bootstrap.Config, opts ...Option) *App {
 		opt(app)
 	}
 
+	if app.offline {
+		app.registry = nil
+	}
+
+	if app.log == nil && app.offline {
+		app.log = offlineLogger()
+	}
+
 	if app.log == nil {
 		log, err := logger.New(logger.Config{
 			AppName:    cfg.App.Name,
@@ -231,7 +243,7 @@ func New(cfg bootstrap.Config, opts ...Option) *App {
 
 	app.tel = observability.New(app.log, cfg.App.Name)
 
-	if app.registry == nil && len(cfg.Database.Connections) > 0 {
+	if app.registry == nil && !app.offline && len(cfg.Database.Connections) > 0 {
 		reg, err := bootstrap.OpenDatabase(app.log, cfg.Database)
 		if err != nil {
 			app.fail("the database could not be opened: "+err.Error(), "check the connection settings and that the server is reachable")
@@ -357,6 +369,10 @@ func (a *App) Telemetry() *observability.Telemetry { return a.tel }
 func (a *App) Database(conn ...database.Connection) *gorm.DB {
 	if len(conn) > 1 {
 		a.fail("Database was given more than one connection", "call Database once per connection")
+	}
+
+	if a.offline {
+		return a.offlineDatabase()
 	}
 
 	if a.registry == nil {

@@ -226,6 +226,10 @@ func (a *App) createFromModels() error {
 
 // migrator is nil when no migrations were collected.
 func (a *App) migrator() (*migrate.Migrator, error) {
+	if a.offline {
+		return nil, errOffline
+	}
+
 	if len(a.migrations) == 0 {
 		return nil, nil
 	}

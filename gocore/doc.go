@@ -32,6 +32,15 @@
 // middleware that runs before every route, WithCSP for Content-Security-Policy
 // sources, WithServiceWorker for /sw.js, and Telemetry for the metrics handle.
 //
+// An application that is only inspected, never run, is created with Offline: every Install runs, but no database
+// is opened (App.Database hands out handles that fail on use), nothing is served, started or migrated, and Run
+// returns an error. That is what a generator needs: App.Contracts and App.Catalogues are the installed ones.
+//
+//	app := gocore.New(cfg, gocore.Offline())
+//	identity.Install(app)
+//	tickets.Install(app, users)
+//	routes, permissions := app.Contracts(), app.Catalogues()
+//
 // The application is built on the bootstrap package: old-style
 // bootstrap.Modules run in the same App (see App.Modules), so an application
 // can move to Install one feature at a time.
