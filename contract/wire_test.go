@@ -171,3 +171,16 @@ func TestWireFailsLikeReachable(t *testing.T) {
 		t.Error("want the error Reachable gives for an output with no TypeScript form")
 	}
 }
+
+func TestWireFlagsAForbiddenTypeBehindASliceOrPointer(t *testing.T) {
+	t.Parallel()
+
+	group := route.Group("wire",
+		route.Get[route.None, []WireTaggedOwner]("/owners").Name("wire.owners"),
+		route.Get[route.None, *WireTaggedOwner]("/owner").Name("wire.owner"))
+
+	got := wireOf(t, group, contract.WireRules{Forbidden: []string{testPkg}})
+	if len(got) == 0 || !strings.Contains(got[0], "WireTaggedOwner") {
+		t.Errorf("a slice or pointer of a forbidden type is not flagged: %v", got)
+	}
+}
