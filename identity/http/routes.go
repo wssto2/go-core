@@ -52,7 +52,7 @@ var (
 		CancelEmailChange, OwnSignIns, OwnSessions, RevokeOwnSession,
 	).Types(
 		User{}, PersonRef{}, datatable.ViewCount{}, //nolint:exhaustruct,exhaustruct_v5 // zero by design
-		Statuses, SignInEvents, ChangeActions, ActivityActions, SignInViews, ChangeViews, UserViews,
+		Statuses, SignInEvents, ChangeActions, ActivityActions, SignInViews, ChangeViews, UserViews, Qualifiers,
 		route.Enum(account.LastSignInNever, account.LastSignInIdle).As("LastSignInFilter"),
 	)
 )
@@ -76,6 +76,7 @@ var (
 	UserViews       = route.Enum(account.ViewActive, account.ViewLocked, account.ViewInactive, account.ViewAll).As("UserView")
 	SignInViews     = route.Enum(account.SignInsAll, account.SignInsFailed)
 	ChangeViews     = route.Enum(account.ChangesAll, account.ChangesAccess, account.ChangesDetails)
+	Qualifiers      = route.TextEnum(authz.QualifierOwn, authz.QualifierOwnLocation, authz.QualifierAll)
 	ChangeActions   = route.Enum(account.ChangeCreated, account.ChangeUpdated, account.ChangeDeactivated, account.ChangeActivated, account.ChangePassword, account.ChangeEmail, account.ChangeProfile)
 )
 
