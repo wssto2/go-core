@@ -9,6 +9,7 @@
 //	POST /v1/auth/logout                                       ends the session, clears the cookies
 //	GET  /v1/auth/me                                           the session payload
 //	POST /v1/auth/change-locale           {locale}             sets the person's language
+//	PUT  /v1/auth/preferences             {preferences}        merges a part into the person's preferences (identity.WithPreferences only)
 //	POST /v1/auth/login-as                {user_id}            signs in as somebody, when the application allows it
 //	POST /v1/auth/login-as/return                              ends that session and signs in as oneself, no password
 //
@@ -16,11 +17,11 @@
 // (gocore.WithPrefix("/api") serves /api/v1/auth/login). A v2 is new
 // declarations in another group beside these.
 //
-// The session payload is {user, expires_at, impersonator, access, navigation}: impersonator (absent for a
+// The session payload is {user, expires_at, impersonator, access, navigation, preferences}: impersonator (absent for a
 // person's own session) is who really signed in, when the session was opened by login-as; user is what
 // the UserProjector makes of the account (it must hold the id), access is the
 // authz engine's MyAccess of the person, navigation the application's menu cut
-// down to what they may reach. The client reads it with vue-core's
+// down to what they may reach, preferences (only with identity.WithPreferences, {} when nothing is stored) the person's JSON object. The client reads it with vue-core's
 // parseSessionPayload.
 //
 // Authentication (Authenticator, which Authentication wraps) resolves the access token to a live session of an

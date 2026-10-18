@@ -9,6 +9,7 @@ import (
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/identity/account"
+	"github.com/wssto2/go-core/identity/preferences"
 	"github.com/wssto2/go-core/navigation"
 	"github.com/wssto2/go-core/route"
 	"github.com/wssto2/go-core/validation"
@@ -28,6 +29,8 @@ type Handler struct {
 	navigation NavigationProvider
 	limits     account.Limits
 	userReach  UserReach
+	// preferences is nil without identity.WithPreferences: no route, no field.
+	preferences *preferences.Service
 }
 
 // Config is what the handler is built from. Services, Profile and Clock
@@ -52,6 +55,8 @@ type Config struct {
 	Limits account.Limits
 	// Reach, when set, is asked by every users route that names a person (UserReach).
 	Reach UserReach
+	// Preferences, when set, mounts UpdatePreferences and puts "preferences" in the session payload.
+	Preferences *preferences.Service
 }
 
 // NewHandler returns the handler for the configuration.
@@ -59,7 +64,7 @@ func NewHandler(cfg Config) *Handler {
 	h := &Handler{
 		signIn: cfg.Services.SignIn, users: cfg.Services.Users, admin: cfg.Admin, profile: cfg.Profile, clock: cfg.Clock,
 		cookies: cfg.Cookies.withDefaults(), project: cfg.Project, principal: cfg.Principal,
-		access: cfg.Access, navigation: cfg.Navigation, limits: cfg.Limits.WithDefaults(), userReach: cfg.Reach,
+		access: cfg.Access, navigation: cfg.Navigation, limits: cfg.Limits.WithDefaults(), userReach: cfg.Reach, preferences: cfg.Preferences,
 	}
 
 	if h.project == nil {
@@ -81,6 +86,10 @@ func (h *Handler) Routes() []route.Handled {
 		login = login.Excuses(ListUsers, ShowUser, CreateUser, UpdateUser, SetUserPassword, DeactivateUser,
 			ActivateUser, UnlockUser, UserSignIns, UserChanges, UserActivity, UserSessions,
 			RevokeUserSession, RevokeUserSessions)
+	}
+
+	if h.preferences == nil {
+		login = login.Excuses(UpdatePreferences)
 	}
 
 	routes := []route.Handled{
@@ -110,6 +119,10 @@ func (h *Handler) Routes() []route.Handled {
 			RevokeUserSession.To(h.revokeUserSession),
 			RevokeUserSessions.To(h.revokeUserSessions),
 		)
+	}
+
+	if h.preferences != nil {
+		routes = append(routes, UpdatePreferences.To(h.updatePreferences))
 	}
 
 	return append(routes,
@@ -253,6 +266,12 @@ func (h *Handler) payload(ctx context.Context, acc account.Account, actor *accou
 	}
 
 	out := SessionResponse{User: user, ExpiresAt: expires.UTC(), Access: held}
+
+	if h.preferences != nil {
+		if out.Preferences, err = h.preferences.Get(ctx, acc.ID); err != nil {
+			return SessionResponse{}, err
+		}
+	}
 
 	if actor != nil {
 		out.Impersonator = &Impersonator{ID: actor.ID, Name: actor.Name}

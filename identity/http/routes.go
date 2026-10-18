@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/wssto2/go-core/authz"
@@ -32,6 +33,11 @@ var (
 	//nolint:gochecknoglobals // a route is declared once, as a value
 	ChangeLocale = route.Post[ChangeLocaleInput, route.Empty](base + "/change-locale").
 			Name("identity.change-locale").PersonOnly()
+	// UpdatePreferences merges a partial object into the signed-in person's stored preferences and answers the whole
+	// object. Mounted only by identity.WithPreferences.
+	//nolint:gochecknoglobals // a route is declared once, as a value
+	UpdatePreferences = route.Put[UpdatePreferencesInput, PreferencesResponse](base + "/preferences").
+				Name("identity.preferences.update").PersonOnly()
 	// LoginAs signs in as somebody else, when the application has said who may.
 	//nolint:gochecknoglobals // a route is declared once, as a value
 	LoginAs = route.Post[LoginAsInput, SessionResponse](base + "/login-as").Name("identity.login-as").PersonOnly()
@@ -45,7 +51,7 @@ var (
 	// Routes is identity's contract: contract.Generate(dir, identity.Routes) writes
 	// its TypeScript. User is the default projection of an account, listed because
 	// no route names it (the payload's user is whatever the application projects).
-	Routes = route.Group("identity", Login, Refresh, Logout, Me, ChangeLocale, LoginAs, ReturnToOwn,
+	Routes = route.Group("identity", Login, Refresh, Logout, Me, ChangeLocale, UpdatePreferences, LoginAs, ReturnToOwn,
 		ListUsers, ShowUser, CreateUser, UpdateUser, SetUserPassword, DeactivateUser, ActivateUser, UnlockUser,
 		UserSignIns, UserChanges, UserActivity, UserSessions, RevokeUserSession, RevokeUserSessions,
 		ShowProfile, UpdateProfile, ChangeOwnPassword, RequestEmailChange, ResendEmailCode, ConfirmEmailChange,
@@ -101,6 +107,17 @@ type ChangeLocaleInput struct {
 	Locale string `json:"locale" validation:"required|max:16"`
 }
 
+// UpdatePreferencesInput is the part of the person's preferences to change: a JSON object merged into the stored
+// one (RFC 7396 unless the application replaced the merge): a key sent replaces, a null removes, the rest stays.
+type UpdatePreferencesInput struct {
+	Preferences json.RawMessage `json:"preferences"`
+}
+
+// PreferencesResponse is the person's whole preferences object after the update.
+type PreferencesResponse struct {
+	Preferences json.RawMessage `json:"preferences"`
+}
+
 // LoginAsInput names the person to sign in as.
 type LoginAsInput struct {
 	UserID int `json:"user_id" validation:"required"`
@@ -121,6 +138,9 @@ type SessionResponse struct {
 	// Navigation is the application's menu filtered by the permissions held; absent
 	// when the application declared none.
 	Navigation []navigation.Node `json:"navigation,omitempty"`
+	// Preferences is the person's preferences object ({} when nothing is stored); present only when the application
+	// installed identity.WithPreferences, absent otherwise.
+	Preferences json.RawMessage `json:"preferences,omitempty"`
 }
 
 // Impersonator is the person behind a session opened by signing in as somebody

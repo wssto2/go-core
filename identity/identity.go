@@ -60,6 +60,9 @@
 // A route declared PersonOnly (identity's own sign-in, session and profile routes are) refuses a service account
 // with 403. WithEmbed serves GET /embed at the site root, for a page embedded in another host's iframe.
 //
+// WithPreferences keeps a JSON object of preferences per person (PUT /v1/auth/preferences, and "preferences" in the
+// session payload), with the application's merge and validation rules as hooks.
+//
 // The users routes take the application's own rules through WithUserReach (whom an administrator may reach),
 // WithUserExtension (the application's data on people, written in the same transaction) and WithChangeLog, and a
 // Searcher of its own reads the list's extra query keys (account.Query.Filters).
@@ -87,6 +90,9 @@ import (
 	identityhttp "github.com/wssto2/go-core/identity/http"
 	"github.com/wssto2/go-core/identity/mailtext"
 	"github.com/wssto2/go-core/identity/migrations"
+	"github.com/wssto2/go-core/identity/preferences"
+	prefgormstore "github.com/wssto2/go-core/identity/preferences/gormstore"
+	prefmigrations "github.com/wssto2/go-core/identity/preferences/migrations"
 	"github.com/wssto2/go-core/identity/serviceaccount"
 	sagormstore "github.com/wssto2/go-core/identity/serviceaccount/gormstore"
 	sahttp "github.com/wssto2/go-core/identity/serviceaccount/http"
@@ -152,6 +158,11 @@ type (
 	PrincipalOf = identityhttp.PrincipalOf
 	// Cookies name and place the cookies the tokens travel in.
 	Cookies = identityhttp.Cookies
+	// Preferences configures the per-person preferences object WithPreferences installs: the store, the merge, the
+	// validation and the size cap. Its zero value is the default of each.
+	Preferences = preferences.Config
+	// PreferenceStore keeps each account's preferences object; Preferences.Store replaces identity's own table.
+	PreferenceStore = preferences.Store
 )
 
 // The change actions of an account's history, the keys of WithAuditRecord's names.
@@ -212,6 +223,7 @@ type settings struct {
 	extension               account.UserExtension
 	reach                   identityhttp.UserReach
 	idleAfter               time.Duration
+	preferences             *preferences.Config
 
 	noUserAdmin bool
 }
@@ -452,6 +464,20 @@ func WithUserExtension(x account.UserExtension) Option { return func(s *settings
 // (default 60 days).
 func WithIdleAfter(d time.Duration) Option { return func(s *settings) { s.idleAfter = d } }
 
+// WithPreferences keeps a JSON object of preferences per person (dark mode, the tips they dismissed, whatever the
+// client remembers between devices): PUT /v1/auth/preferences, person only, merges {"preferences": {...}} into the
+// stored object and answers {"preferences": {...the whole object...}}, and the session payload (login, refresh, me,
+// login-as) carries it as a top-level "preferences" object, {} when nothing is stored. The merge is RFC 7396 (a key
+// sent replaces, a null removes), the merged object is capped at 16 KiB and refused with 422 beyond; the
+// application passes its own rules in the Preferences: Merge, Validate (a *validation.ValidationError answers 422;
+// preferences.Invalid makes one), MaxBytes, and Store for a column it already has. Without a Store the object is kept
+// in identity's table account_preferences (a migration, on the connection of identity's other tables).
+//
+// Without this option there is no route, no table and no "preferences" in the payload.
+//
+//	identity.WithPreferences(identity.Preferences{Validate: onboardingRules})
+func WithPreferences(cfg Preferences) Option { return func(s *settings) { s.preferences = &cfg } }
+
 // WithoutUserAdmin leaves the users administration out: no /v1/iam/users routes are
 // mounted (list, record, create, update, password, deactivate, unlock, and the
 // sign-in history, changes, activity and sessions of another person), the store need not
@@ -658,9 +684,19 @@ func Install(app *gocore.App, opts ...Option) *Users {
 		return svc.Users
 	}
 
+	var prefs *preferences.Service
+
+	if s.preferences != nil {
+		prefs = s.installPreferences(app, db)
+		if prefs == nil {
+			return svc.Users
+		}
+	}
+
 	cfg := identityhttp.Config{
 		Services: svc, Admin: admin, Profile: profile, Clock: app.Clock(), Cookies: s.cookies,
 		Project: s.project, Principal: s.principal, Navigation: s.navigation, Limits: s.cfg.Limits, Reach: s.reach,
+		Preferences: prefs,
 	}
 
 	cfg.Access = s.accessOf(app)
@@ -697,6 +733,27 @@ func Install(app *gocore.App, opts ...Option) *Users {
 	}
 
 	return svc.Users
+}
+
+// installPreferences builds the preferences service, over identity's own table unless the application brought a
+// store. It reports a problem to Run and returns nil.
+func (s settings) installPreferences(app *gocore.App, db *gorm.DB) *preferences.Service {
+	cfg := *s.preferences
+
+	if cfg.Store == nil {
+		cfg.Store = prefgormstore.New(db)
+
+		app.Schema(gocore.Schema{Files: prefmigrations.Files, Models: prefgormstore.Migrate}, s.conn...)
+	}
+
+	prefs, err := preferences.New(cfg)
+	if err != nil {
+		app.Fail("identity could not be installed: "+err.Error(), "check the options given to identity.WithPreferences")
+
+		return nil
+	}
+
+	return prefs
 }
 
 // installServiceAccounts puts the service accounts in: tables, routes, the notices, and what Users and the

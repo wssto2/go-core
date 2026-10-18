@@ -143,6 +143,12 @@ export const SignInsInputSchema = z.object({
 
 export type SignInsInput = z.infer<typeof SignInsInputSchema>;
 
+export const UpdatePreferencesInputSchema = z.object({
+  preferences: z.unknown(),
+});
+
+export type UpdatePreferencesInput = z.infer<typeof UpdatePreferencesInputSchema>;
+
 export const UpdateProfileInputSchema = z.object({
   name: z.string().min(1).max(150),
   phone: z.string().max(30).optional(),

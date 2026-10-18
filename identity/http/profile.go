@@ -261,3 +261,14 @@ func (h *Handler) revokeOwnSession(ctx context.Context, in OwnSessionInput) (rou
 
 	return route.Empty{}, h.profile.RevokeSession(ctx, who.Account.ID, in.SessionID, who.Session.ID)
 }
+
+func (h *Handler) updatePreferences(ctx context.Context, in UpdatePreferencesInput) (PreferencesResponse, error) {
+	who, err := h.actor(ctx)
+	if err != nil {
+		return PreferencesResponse{}, err
+	}
+
+	merged, err := h.preferences.Update(ctx, who.Account.ID, in.Preferences)
+
+	return PreferencesResponse{Preferences: merged}, err
+}

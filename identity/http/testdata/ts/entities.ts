@@ -77,6 +77,10 @@ export type PersonRef = {
   name: string;
 };
 
+export type PreferencesResponse = {
+  preferences: unknown;
+};
+
 export type ProfileResponse = {
   id: number;
   login: string;
@@ -116,6 +120,7 @@ export type SessionResponse = {
   impersonator?: Impersonator | null;
   access: MyAccess;
   navigation?: Node[];
+  preferences?: unknown;
 };
 
 export type SignInEvent = "signed_in" | "wrong_password" | "locked_out" | "refused_inactive" | "signed_in_as" | "unlocked" | "signed_out_everywhere" | "session_revoked";

@@ -30,6 +30,7 @@ it adds a rule file under `docs/rules/<module>/`.
 - IAM-OTP-003 — sixty seconds between sends, five an hour, a fresh code each time, an undelivered code is ended — `identity/account/codes.go` (`Codes.Issue`) — rules: `docs/rules/identity/codes.md`
 - IAM-OTP-004 — one live code per account and purpose, in one transaction — `identity/gormstore/codes.go` (`Codes.Issue`) — rules: `docs/rules/identity/codes.md`
 - IAM-REAUTH-001 — re-confirming the password locks after five wrong ones for fifteen minutes, counted before the check — `identity/account/reauth.go` (`Reauth.Confirm`), `identity/gormstore/reauth.go` — rules: `docs/rules/identity/reauth.md`
+- IAM-PREF-001 — a person's preferences are one JSON object, merged by RFC 7396 patch, capped at 16 KiB and checked by the application's hook — `identity/preferences/preferences.go` (`Service.Update`), `identity/preferences/mergepatch.go` — rules: `docs/rules/identity/preferences.md`
 
 ## access
 

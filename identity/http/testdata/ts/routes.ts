@@ -1,6 +1,6 @@
 import { route, type ListResult, type QueryValue } from "@wssto2/vue-core/client";
-import type { ActivityInput, ChangeLocaleInput, ChangePasswordInput, ChangesInput, ConfirmEmailInput, CreateUserInput, DeactivateUserInput, ListUsersInput, LoginAsInput, LoginInput, OwnSessionInput, OwnSignInsInput, RefreshInput, RequestEmailInput, SetPasswordInput, SignInsInput, UpdateProfileInput, UpdateUserInput, UserInput, UserSessionInput } from "./schemas";
-import type { ActivityRow, ChangeRow, DeactivateResult, PendingEmail, ProfileResponse, SessionList, SessionResponse, SignInRow, UnlockResult, UserDetail, UserRow } from "./entities";
+import type { ActivityInput, ChangeLocaleInput, ChangePasswordInput, ChangesInput, ConfirmEmailInput, CreateUserInput, DeactivateUserInput, ListUsersInput, LoginAsInput, LoginInput, OwnSessionInput, OwnSignInsInput, RefreshInput, RequestEmailInput, SetPasswordInput, SignInsInput, UpdatePreferencesInput, UpdateProfileInput, UpdateUserInput, UserInput, UserSessionInput } from "./schemas";
+import type { ActivityRow, ChangeRow, DeactivateResult, PendingEmail, PreferencesResponse, ProfileResponse, SessionList, SessionResponse, SignInRow, UnlockResult, UserDetail, UserRow } from "./entities";
 
 export const identityRoutes = {
   login: route<LoginInput, SessionResponse>("POST", "/v1/auth/login", { public: true }),
@@ -8,6 +8,7 @@ export const identityRoutes = {
   logout: route<void, void>("POST", "/v1/auth/logout"),
   me: route<void, SessionResponse>("GET", "/v1/auth/me"),
   changeLocale: route<ChangeLocaleInput, void>("POST", "/v1/auth/change-locale"),
+  preferencesUpdate: route<UpdatePreferencesInput, PreferencesResponse>("PUT", "/v1/auth/preferences"),
   loginAs: route<LoginAsInput, SessionResponse>("POST", "/v1/auth/login-as"),
   loginAsReturn: route<void, SessionResponse>("POST", "/v1/auth/login-as/return"),
   usersList: route<ListUsersInput & Record<string, QueryValue>, ListResult<UserRow>>("GET", "/v1/iam/users", { permission: "iam.user:view" }),
