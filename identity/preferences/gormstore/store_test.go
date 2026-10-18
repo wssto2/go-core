@@ -1,4 +1,4 @@
-//nolint:exhaustruct,exhaustruct_v5,paralleltest,thelper // tests in the style of the package's others
+//nolint:exhaustruct,exhaustruct_v5,lll,paralleltest,thelper,varnamelen // tests in the style of the package's others
 package gormstore_test
 
 import (

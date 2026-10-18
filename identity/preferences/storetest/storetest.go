@@ -10,15 +10,23 @@ package storetest
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/identity/preferences"
 )
 
 // Factory returns a new empty store for one subtest.
 type Factory func(t *testing.T) preferences.Store
+
+// padding makes an object wider than a TEXT column (65535 bytes) would hold.
+const padding = 70_000
+
+const (
+	first  = 1
+	second = 2
+)
 
 // Run runs the whole suite.
 func Run(t *testing.T, factory Factory) {
@@ -37,65 +45,84 @@ func Run(t *testing.T, factory Factory) {
 
 func ctx() context.Context { return context.Background() }
 
-// same compares as JSON: a store may reformat whitespace.
-func same(t *testing.T, want string, got json.RawMessage) {
+// set stores raw for the account, failing the test on an error.
+func set(t *testing.T, store preferences.Store, accountID int, raw string) {
 	t.Helper()
 
-	require.JSONEq(t, want, string(got))
+	err := store.Set(ctx(), accountID, json.RawMessage(raw))
+	if err != nil {
+		t.Fatalf("Set(%d): %v", accountID, err)
+	}
 }
 
-func nothingStored(t *testing.T, s preferences.Store) {
+// expect reads the account's object and compares it to want as JSON: a store may reformat whitespace.
+func expect(t *testing.T, store preferences.Store, accountID int, want string) {
 	t.Helper()
 
-	got, err := s.Get(ctx(), 1)
-	require.NoError(t, err)
-	require.Empty(t, strings.TrimSpace(string(got)))
+	got, err := store.Get(ctx(), accountID)
+	if err != nil {
+		t.Fatalf("Get(%d): %v", accountID, err)
+	}
+
+	var wantValue, gotValue any
+
+	err = json.Unmarshal([]byte(want), &wantValue)
+	if err != nil {
+		t.Fatalf("want is not JSON: %v", err)
+	}
+
+	err = json.Unmarshal(got, &gotValue)
+	if err != nil {
+		t.Fatalf("Get(%d) is not JSON: %q: %v", accountID, got, err)
+	}
+
+	if !reflect.DeepEqual(wantValue, gotValue) {
+		t.Errorf("Get(%d): got %.200s, want %.200s", accountID, got, want)
+	}
 }
 
-func setThenGet(t *testing.T, s preferences.Store) {
+func nothingStored(t *testing.T, store preferences.Store) {
 	t.Helper()
 
-	require.NoError(t, s.Set(ctx(), 1, json.RawMessage(`{"dark_mode":true}`)))
+	got, err := store.Get(ctx(), first)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
 
-	got, err := s.Get(ctx(), 1)
-	require.NoError(t, err)
-	same(t, `{"dark_mode":true}`, got)
+	if strings.TrimSpace(string(got)) != "" {
+		t.Errorf("Get of an account with nothing stored: got %q, want empty", got)
+	}
 }
 
-func setReplaces(t *testing.T, s preferences.Store) {
+func setThenGet(t *testing.T, store preferences.Store) {
 	t.Helper()
 
-	require.NoError(t, s.Set(ctx(), 1, json.RawMessage(`{"a":1,"b":2}`)))
-	require.NoError(t, s.Set(ctx(), 1, json.RawMessage(`{"c":3}`)))
-
-	got, err := s.Get(ctx(), 1)
-	require.NoError(t, err)
-	same(t, `{"c":3}`, got)
+	set(t, store, first, `{"dark_mode":true}`)
+	expect(t, store, first, `{"dark_mode":true}`)
 }
 
-func apart(t *testing.T, s preferences.Store) {
+func setReplaces(t *testing.T, store preferences.Store) {
 	t.Helper()
 
-	require.NoError(t, s.Set(ctx(), 1, json.RawMessage(`{"a":1}`)))
-	require.NoError(t, s.Set(ctx(), 2, json.RawMessage(`{"b":2}`)))
-
-	one, err := s.Get(ctx(), 1)
-	require.NoError(t, err)
-	same(t, `{"a":1}`, one)
-
-	two, err := s.Get(ctx(), 2)
-	require.NoError(t, err)
-	same(t, `{"b":2}`, two)
+	set(t, store, first, `{"a":1,"b":2}`)
+	set(t, store, first, `{"c":3}`)
+	expect(t, store, first, `{"c":3}`)
 }
 
-func large(t *testing.T, s preferences.Store) {
+func apart(t *testing.T, store preferences.Store) {
 	t.Helper()
 
-	obj := `{"name":"Žarko Đurić 🌍","pad":"` + strings.Repeat("x", 40_000) + `"}`
+	set(t, store, first, `{"a":1}`)
+	set(t, store, second, `{"b":2}`)
+	expect(t, store, first, `{"a":1}`)
+	expect(t, store, second, `{"b":2}`)
+}
 
-	require.NoError(t, s.Set(ctx(), 1, json.RawMessage(obj)))
+func large(t *testing.T, store preferences.Store) {
+	t.Helper()
 
-	got, err := s.Get(ctx(), 1)
-	require.NoError(t, err)
-	same(t, obj, got)
+	object := `{"name":"Žarko Đurić 🌍","pad":"` + strings.Repeat("x", padding) + `"}`
+
+	set(t, store, first, object)
+	expect(t, store, first, object)
 }

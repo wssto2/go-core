@@ -24,7 +24,8 @@ func (model) TableName() string { return "account_preferences" }
 
 // Migrate creates the table from the model, for tests on SQLite; production runs the file in migrations.
 func Migrate(db *gorm.DB) error {
-	if err := db.AutoMigrate(new(model)); err != nil {
+	err := db.AutoMigrate(new(model))
+	if err != nil {
 		return fmt.Errorf("preferences: migrate: %w", err)
 	}
 
@@ -39,38 +40,42 @@ var _ preferences.Store = (*Store)(nil)
 // New returns the store over db.
 func New(db *gorm.DB) *Store { return &Store{db: db} }
 
-func (s *Store) on(ctx context.Context) *gorm.DB {
-	if tx, ok := database.TxFromContext(ctx); ok {
-		return tx
-	}
-
-	return s.db.WithContext(ctx)
-}
-
 // Get implements preferences.Store.
 func (s *Store) Get(ctx context.Context, accountID int) (json.RawMessage, error) {
-	var m model
+	var row model
 
-	err := s.on(ctx).Where("account_id = ?", accountID).Take(&m).Error
+	err := s.conn(ctx).Where("account_id = ?", accountID).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil //nolint:nilnil // nothing stored is an empty object, not an error
+		return nil, nil // nothing stored: the service reads that as an empty object
 	}
 
 	if err != nil {
 		return nil, fmt.Errorf("preferences: read: %w", err)
 	}
 
-	return json.RawMessage(m.Preferences), nil
+	return json.RawMessage(row.Preferences), nil
 }
 
 // Set implements preferences.Store: an upsert on the account.
 func (s *Store) Set(ctx context.Context, accountID int, prefs json.RawMessage) error {
-	err := s.on(ctx).Clauses(clause.OnConflict{
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	upsert := clause.OnConflict{
 		Columns: []clause.Column{{Name: "account_id"}}, DoUpdates: clause.AssignmentColumns([]string{"preferences"}),
-	}).Create(&model{AccountID: accountID, Preferences: string(prefs)}).Error
+	}
+
+	err := s.conn(ctx).Clauses(upsert).Create(&model{AccountID: accountID, Preferences: string(prefs)}).Error
 	if err != nil {
 		return fmt.Errorf("preferences: write: %w", err)
 	}
 
 	return nil
+}
+
+// conn is the connection of the request's transaction, when it has one.
+func (s *Store) conn(ctx context.Context) *gorm.DB {
+	if tx, ok := database.TxFromContext(ctx); ok {
+		return tx
+	}
+
+	return s.db.WithContext(ctx)
 }

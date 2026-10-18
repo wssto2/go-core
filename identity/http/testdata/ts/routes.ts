@@ -8,7 +8,6 @@ export const identityRoutes = {
   logout: route<void, void>("POST", "/v1/auth/logout"),
   me: route<void, SessionResponse>("GET", "/v1/auth/me"),
   changeLocale: route<ChangeLocaleInput, void>("POST", "/v1/auth/change-locale"),
-  preferencesUpdate: route<UpdatePreferencesInput, PreferencesResponse>("PUT", "/v1/auth/preferences"),
   loginAs: route<LoginAsInput, SessionResponse>("POST", "/v1/auth/login-as"),
   loginAsReturn: route<void, SessionResponse>("POST", "/v1/auth/login-as/return"),
   usersList: route<ListUsersInput & Record<string, QueryValue>, ListResult<UserRow>>("GET", "/v1/iam/users", { permission: "iam.user:view" }),
@@ -35,4 +34,5 @@ export const identityRoutes = {
   profileSignins: route<OwnSignInsInput, ListResult<SignInRow>>("GET", "/v1/iam/profile/signins"),
   profileSessions: route<void, SessionList>("GET", "/v1/iam/profile/sessions"),
   profileRevokeSession: route<OwnSessionInput, void>("DELETE", "/v1/iam/profile/sessions/:session_id"),
+  preferencesUpdate: route<UpdatePreferencesInput, PreferencesResponse>("PUT", "/v1/auth/preferences"),
 } as const;

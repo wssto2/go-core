@@ -64,7 +64,8 @@ func NewHandler(cfg Config) *Handler {
 	h := &Handler{
 		signIn: cfg.Services.SignIn, users: cfg.Services.Users, admin: cfg.Admin, profile: cfg.Profile, clock: cfg.Clock,
 		cookies: cfg.Cookies.withDefaults(), project: cfg.Project, principal: cfg.Principal,
-		access: cfg.Access, navigation: cfg.Navigation, limits: cfg.Limits.WithDefaults(), userReach: cfg.Reach, preferences: cfg.Preferences,
+		access: cfg.Access, navigation: cfg.Navigation, limits: cfg.Limits.WithDefaults(), userReach: cfg.Reach,
+		preferences: cfg.Preferences,
 	}
 
 	if h.project == nil {
@@ -268,8 +269,9 @@ func (h *Handler) payload(ctx context.Context, acc account.Account, actor *accou
 	out := SessionResponse{User: user, ExpiresAt: expires.UTC(), Access: held}
 
 	if h.preferences != nil {
-		if out.Preferences, err = h.preferences.Get(ctx, acc.ID); err != nil {
-			return SessionResponse{}, err
+		out.Preferences, err = h.preferences.Get(ctx, acc.ID)
+		if err != nil {
+			return SessionResponse{}, err //nolint:wrapcheck // the service names the call
 		}
 	}
 

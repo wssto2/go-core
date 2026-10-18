@@ -9,7 +9,7 @@
 //	POST /v1/auth/logout                                       ends the session, clears the cookies
 //	GET  /v1/auth/me                                           the session payload
 //	POST /v1/auth/change-locale           {locale}             sets the person's language
-//	PUT  /v1/auth/preferences             {preferences}        merges a part into the person's preferences (identity.WithPreferences only)
+//	PUT  /v1/auth/preferences             {preferences}        merges a part into the person's preferences
 //	POST /v1/auth/login-as                {user_id}            signs in as somebody, when the application allows it
 //	POST /v1/auth/login-as/return                              ends that session and signs in as oneself, no password
 //
@@ -21,8 +21,8 @@
 // person's own session) is who really signed in, when the session was opened by login-as; user is what
 // the UserProjector makes of the account (it must hold the id), access is the
 // authz engine's MyAccess of the person, navigation the application's menu cut
-// down to what they may reach, preferences (only with identity.WithPreferences, {} when nothing is stored) the person's JSON object. The client reads it with vue-core's
-// parseSessionPayload.
+// down to what they may reach, preferences (only with identity.WithPreferences, {} when nothing is stored) the
+// person's JSON object. The client reads it with vue-core's parseSessionPayload.
 //
 // Authentication (Authenticator, which Authentication wraps) resolves the access token to a live session of an
 // active account and makes the account the request's user, or the application's own type with the RequestUser

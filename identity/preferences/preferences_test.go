@@ -1,3 +1,4 @@
+//nolint:err113,exhaustruct,exhaustruct_v5,goconst // tests in the style of the package's others
 package preferences_test
 
 import (

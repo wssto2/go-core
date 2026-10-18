@@ -51,11 +51,11 @@ var (
 	// Routes is identity's contract: contract.Generate(dir, identity.Routes) writes
 	// its TypeScript. User is the default projection of an account, listed because
 	// no route names it (the payload's user is whatever the application projects).
-	Routes = route.Group("identity", Login, Refresh, Logout, Me, ChangeLocale, UpdatePreferences, LoginAs, ReturnToOwn,
+	Routes = route.Group("identity", Login, Refresh, Logout, Me, ChangeLocale, LoginAs, ReturnToOwn,
 		ListUsers, ShowUser, CreateUser, UpdateUser, SetUserPassword, DeactivateUser, ActivateUser, UnlockUser,
 		UserSignIns, UserChanges, UserActivity, UserSessions, RevokeUserSession, RevokeUserSessions,
 		ShowProfile, UpdateProfile, ChangeOwnPassword, RequestEmailChange, ResendEmailCode, ConfirmEmailChange,
-		CancelEmailChange, OwnSignIns, OwnSessions, RevokeOwnSession,
+		CancelEmailChange, OwnSignIns, OwnSessions, RevokeOwnSession, UpdatePreferences,
 	).Types(
 		User{}, PersonRef{}, datatable.ViewCount{}, //nolint:exhaustruct,exhaustruct_v5 // zero by design
 		Statuses, SignInEvents, ChangeActions, ActivityActions, SignInViews, ChangeViews, UserViews, Qualifiers,

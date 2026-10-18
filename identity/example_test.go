@@ -168,7 +168,8 @@ func ExampleRoutes() {
 	// POST /v1/iam/users iam.user:manage
 	// GET /v1/iam/profile
 	// PUT /v1/iam/profile
-	// 31 routes in all
+	// PUT /v1/auth/preferences
+	// 32 routes in all
 }
 
 func ExampleWithConfig() {
