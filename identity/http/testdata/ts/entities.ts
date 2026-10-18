@@ -27,7 +27,7 @@ export type ChangeView = "all" | "access" | "details";
 
 export type ClauseInfo = {
   scope: Scope;
-  qualifier: number;
+  qualifier: Qualifier;
   attrs?: Record<string, string[]>;
   role?: string;
   binding_id?: number;
@@ -68,7 +68,7 @@ export type PendingEmail = {
 
 export type PermissionAccess = {
   scope: Scope;
-  qualifier: number;
+  qualifier: Qualifier;
   clauses: ClauseInfo[];
 };
 
@@ -87,6 +87,8 @@ export type ProfileResponse = {
   created_at: string;
   pending_email: PendingEmail | null;
 };
+
+export type Qualifier = "own" | "own_location" | "all";
 
 export type Scope = {
   level: string;
