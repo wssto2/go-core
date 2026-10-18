@@ -20,6 +20,9 @@
 // starts. The test may run DDL and use several connections (concurrency
 // tests), because the schema is its own.
 //
+// Tx is the other way in: a rolled-back transaction on an existing schema, for
+// contract tests that need a real, populated database.
+//
 // RequirePortable checks the SQL a module ships against what MariaDB 10.3 rejects.
 package dbtest
 
