@@ -1,3 +1,4 @@
+//nolint:paralleltest,tparallel,thelper,noinlineerr,varnamelen // t.Setenv rules out t.Parallel
 package dbtest_test
 
 import (
@@ -13,7 +14,7 @@ import (
 // existingSchema is a MySQL or MariaDB schema holding table things(id, name)
 // with one row, and DSNEnv names a variable that holds the DSN of that schema,
 // the way an app's contract tests point at an existing database.
-func existingSchema(t *testing.T, db *gorm.DB) (dsnEnv string) {
+func existingSchema(t *testing.T, db *gorm.DB) string {
 	t.Helper()
 
 	for _, stmt := range []string{
@@ -94,8 +95,10 @@ func TestTxReportsMatchedRows(t *testing.T) {
 	}, dbtest.MySQL, dbtest.MariaDB)
 }
 
-func count(t *testing.T, db *gorm.DB) (n int64) {
+func count(t *testing.T, db *gorm.DB) int64 {
 	t.Helper()
+
+	var n int64
 
 	if err := db.Raw("SELECT COUNT(*) FROM things").Scan(&n).Error; err != nil {
 		t.Fatal(err)

@@ -7,6 +7,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const enumColumn = "enum"
+
 // typeName is how generated code spells T from outside this package.
 func typeName[T any]() string { return "types." + reflect.TypeFor[T]().Name() }
 
@@ -33,47 +35,15 @@ func typeName[T any]() string { return "types." + reflect.TypeFor[T]().Name() }
 //
 // The returned map is new on every call, so the caller may add its own types.
 func ColumnTypes() map[string]func(gorm.ColumnType) string {
-	nullable := func(plain, null string) func(gorm.ColumnType) string {
-		return func(c gorm.ColumnType) string {
-			if n, ok := c.Nullable(); ok && n {
-				return null
-			}
-
-			return plain
-		}
-	}
-
-	// zeroDefault picks the Zero type for a NOT NULL column whose default is
-	// the MySQL 5 zero value, which stands for "no value yet".
-	zeroDefault := func(plain, null, zero, zeroValue string) func(gorm.ColumnType) string {
-		return func(c gorm.ColumnType) string {
-			if n, ok := c.Nullable(); ok && n {
-				return null
-			}
-
-			if def, ok := c.DefaultValue(); ok && def == zeroValue {
-				return zero
-			}
-
-			return plain
-		}
-	}
-
-	bytes := func(gorm.ColumnType) string { return "[]byte" }
 	integer := nullable(typeName[Int](), typeName[NullInt]())
 	float := nullable(typeName[Float](), typeName[NullFloat]())
-	str := nullable(typeName[String](), typeName[NullString]())
-	datetime := zeroDefault(typeName[DateTime](), typeName[NullDateTime](), typeName[ZeroDateTime](), "0000-00-00 00:00:00")
+	text := nullable(typeName[String](), typeName[NullString]())
+	datetime := zeroDefault(
+		typeName[DateTime](), typeName[NullDateTime](), typeName[ZeroDateTime](), "0000-00-00 00:00:00")
+	bytes := func(gorm.ColumnType) string { return "[]byte" }
 
 	return map[string]func(gorm.ColumnType) string{
-		// tinyint(1) is MySQL's canonical boolean; wider tinyints are integers.
-		"tinyint": func(c gorm.ColumnType) string {
-			if ct, ok := c.ColumnType(); ok && strings.Contains(ct, "(1)") {
-				return nullable(typeName[Bool](), typeName[NullBool]())(c)
-			}
-
-			return integer(c)
-		},
+		"tinyint":   tinyint,
 		"smallint":  integer,
 		"mediumint": integer,
 		"int":       integer,
@@ -91,29 +61,15 @@ func ColumnTypes() map[string]func(gorm.ColumnType) string {
 		"datetime":  datetime,
 		"timestamp": datetime,
 
-		"char":       str,
-		"varchar":    str,
-		"tinytext":   str,
-		"text":       str,
-		"mediumtext": str,
-		"longtext":   str,
-		"set":        str,
+		"char":       text,
+		"varchar":    text,
+		"tinytext":   text,
+		"text":       text,
+		"mediumtext": text,
+		"longtext":   text,
+		"set":        text,
 
-		// enum('0','1') is the legacy boolean; a column type the driver does
-		// not report, or any other enum, is read as the plain kind.
-		"enum": func(c gorm.ColumnType) string {
-			ct, ok := c.ColumnType()
-			if !ok {
-				return typeName[String]()
-			}
-
-			values := strings.Split(ct, ",")
-			if len(values) == 2 && strings.Contains(values[0], "0") && strings.Contains(values[1], "1") {
-				return typeName[LegacyBoolEnum]()
-			}
-
-			return typeName[Enum]()
-		},
+		enumColumn: enum,
 
 		"binary":     bytes,
 		"varbinary":  bytes,
@@ -122,4 +78,58 @@ func ColumnTypes() map[string]func(gorm.ColumnType) string {
 		"mediumblob": bytes,
 		"longblob":   bytes,
 	}
+}
+
+// nullable picks null for a nullable column and plain for any other, one whose
+// nullability the driver does not report included.
+func nullable(plain, null string) func(gorm.ColumnType) string {
+	return func(col gorm.ColumnType) string {
+		if isNull, ok := col.Nullable(); ok && isNull {
+			return null
+		}
+
+		return plain
+	}
+}
+
+// zeroDefault is nullable, except that a NOT NULL column whose default is the
+// MySQL 5 zero value zeroValue, which stands for "no value yet", gets zero.
+func zeroDefault(plain, null, zero, zeroValue string) func(gorm.ColumnType) string {
+	return func(col gorm.ColumnType) string {
+		if isNull, ok := col.Nullable(); ok && isNull {
+			return null
+		}
+
+		if def, ok := col.DefaultValue(); ok && def == zeroValue {
+			return zero
+		}
+
+		return plain
+	}
+}
+
+// tinyint is MySQL's canonical boolean when it is tinyint(1); a wider tinyint
+// is an integer.
+func tinyint(col gorm.ColumnType) string {
+	if full, ok := col.ColumnType(); ok && strings.Contains(full, "(1)") {
+		return nullable(typeName[Bool](), typeName[NullBool]())(col)
+	}
+
+	return nullable(typeName[Int](), typeName[NullInt]())(col)
+}
+
+// enum is the legacy boolean for enum('0','1'), a column type the driver does
+// not report is read as a String, and any other enum is an Enum.
+func enum(col gorm.ColumnType) string {
+	full, ok := col.ColumnType()
+	if !ok {
+		return typeName[String]()
+	}
+
+	values := strings.Split(full, ",")
+	if len(values) == 2 && strings.Contains(values[0], "0") && strings.Contains(values[1], "1") {
+		return typeName[LegacyBoolEnum]()
+	}
+
+	return typeName[Enum]()
 }

@@ -36,24 +36,24 @@ func Tx(tb testing.TB, dsnEnv string) *gorm.DB {
 		tb.Skipf("%s is not set: set it to the DSN of the schema to run this test on", dsnEnv)
 	}
 
-	db := openServer(tb, withClientFoundRows(dsn))
+	conn := openServer(tb, withClientFoundRows(dsn))
 
-	sqlDB, err := db.DB()
+	pool, err := conn.DB()
 	if err != nil {
 		tb.Fatalf("dbtest: %v", err)
 	}
 
-	sqlDB.SetMaxOpenConns(1)
+	pool.SetMaxOpenConns(1)
 
-	tx := db.Begin()
-	if tx.Error != nil {
-		tb.Fatalf("dbtest: begin: %v", redact(tx.Error, dsn))
+	transaction := conn.Begin()
+	if transaction.Error != nil {
+		tb.Fatalf("dbtest: begin: %v", redact(transaction.Error, dsn))
 	}
 
 	// Registered after openServer's close, so it runs first.
-	tb.Cleanup(func() { _ = tx.Rollback().Error })
+	tb.Cleanup(func() { _ = transaction.Rollback().Error })
 
-	return tx
+	return transaction
 }
 
 // withClientFoundRows adds clientFoundRows=true to a DSN that does not mention

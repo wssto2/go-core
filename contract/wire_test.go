@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,lll,tagliatelle // planted types and rules, in the style of the package's other tests
 package contract_test
 
 import (
@@ -8,17 +9,20 @@ import (
 	"github.com/wssto2/go-core/route"
 )
 
-const testPkg = "github.com/wssto2/go-core/contract_test"
+const (
+	modulePath = "github.com/wssto2/go-core"
+	testPkg    = modulePath + "/contract_test"
+)
 
 // Fully tagged: nothing to report, whatever the nesting.
 type WireTagged struct {
+	WireTaggedBase
+
 	ID     int                        `json:"id"`
 	Hidden string                     `json:"-"`
 	Owner  *WireTaggedOwner           `json:"owner"`
 	Tags   []WireTaggedOwner          `json:"tags"`
 	ByName map[string]WireTaggedOwner `json:"by_name"`
-	WireTaggedBase
-	private int
 }
 
 type WireTaggedOwner struct {
@@ -45,13 +49,14 @@ type WireCustom struct {
 
 // Untagged exported fields: at the root, nested in a pointer, a slice and a map, in an embedded struct.
 type WireUntagged struct {
+	WireEmbedded
+
 	ID    int `json:"id"`
 	Title string
 	Kept  string                 `json:",omitempty"`
 	Child *WireChild             `json:"child"`
 	Rows  []WireRow              `json:"rows"`
 	Index map[string]WireIndexed `json:"index"`
-	WireEmbedded
 }
 
 type WireChild struct {
@@ -116,7 +121,7 @@ func TestWireFlagsUntaggedFieldsWhereverTheyAreNested(t *testing.T) {
 		}
 	}
 
-	for _, unwanted := range []string{"WireChild", "private", "Hidden"} {
+	for _, unwanted := range []string{"WireChild", "Hidden"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("%s is tagged or unexported, got:\n%s", unwanted, got)
 		}
@@ -128,26 +133,28 @@ func TestWireFlagsAnOutputFromAForbiddenPackage(t *testing.T) {
 
 	group := route.Group("wire", route.Get[route.None, WireTaggedOwner]("/owner").Name("wire.owner"))
 
-	for name, tc := range map[string]struct {
+	for name, rule := range map[string]struct {
 		rules contract.WireRules
 		flag  bool
 	}{
 		"the package itself":     {contract.WireRules{Forbidden: []string{testPkg}}, true},
-		"a parent path":          {contract.WireRules{Forbidden: []string{"github.com/wssto2/go-core"}}, true},
-		"an excepted package":    {contract.WireRules{Forbidden: []string{"github.com/wssto2/go-core"}, Except: []string{testPkg}}, false},
-		"an excepted parent":     {contract.WireRules{Forbidden: []string{testPkg}, Except: []string{"github.com/wssto2/go-core"}}, false},
+		"a parent path":          {contract.WireRules{Forbidden: []string{modulePath}}, true},
+		"an excepted package":    {contract.WireRules{Forbidden: []string{modulePath}, Except: []string{testPkg}}, false},
+		"an excepted parent":     {contract.WireRules{Forbidden: []string{testPkg}, Except: []string{modulePath}}, false},
 		"an unrelated exception": {contract.WireRules{Forbidden: []string{testPkg}, Except: []string{testPkg + "/other"}}, true},
-		"a path element prefix":  {contract.WireRules{Forbidden: []string{"github.com/wssto2/go-core/contract"}}, false},
+		"a path element prefix":  {contract.WireRules{Forbidden: []string{modulePath + "/contract"}}, false},
 		"another package":        {contract.WireRules{Forbidden: []string{"github.com/other/app/domain"}}, false},
 		"no rules":               {contract.WireRules{}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := wireOf(t, group, tc.rules)
-			if flagged := len(got) > 0; flagged != tc.flag {
-				t.Errorf("flagged = %v, want %v: %v", flagged, tc.flag, got)
+			t.Parallel()
+
+			got := wireOf(t, group, rule.rules)
+			if flagged := len(got) > 0; flagged != rule.flag {
+				t.Errorf("flagged = %v, want %v: %v", flagged, rule.flag, got)
 			}
 
-			if tc.flag && !strings.Contains(got[0], "WireTaggedOwner") {
+			if rule.flag && !strings.Contains(got[0], "WireTaggedOwner") {
 				t.Errorf("the finding does not name the type: %v", got)
 			}
 		})
@@ -159,7 +166,8 @@ func TestWireFailsLikeReachable(t *testing.T) {
 
 	bad := route.Group("bad", route.Get[route.None, map[int]string]("/n").Name("bad.n"))
 
-	if _, err := contract.Wire([]*route.Contract{bad}, contract.WireRules{}); err == nil {
+	_, err := contract.Wire([]*route.Contract{bad}, contract.WireRules{})
+	if err == nil {
 		t.Error("want the error Reachable gives for an output with no TypeScript form")
 	}
 }

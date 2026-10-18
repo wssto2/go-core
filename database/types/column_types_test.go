@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,paralleltest,varnamelen,lll // table tests in the style of the package's others
 package types_test
 
 import (
@@ -14,6 +15,24 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	tInt, tNullInt           = "types.Int", "types.NullInt"
+	tFloat, tNullFloat       = "types.Float", "types.NullFloat"
+	tBool, tNullBool         = "types.Bool", "types.NullBool"
+	tString, tNullString     = "types.String", "types.NullString"
+	tDate, tNullDate         = "types.Date", "types.NullDate"
+	tDateTime, tNullDateTime = "types.DateTime", "types.NullDateTime"
+	tZeroDate, tZeroDateTime = "types.ZeroDate", "types.ZeroDateTime"
+	tEnum, tLegacy           = "types.Enum", "types.LegacyBoolEnum"
+	tBytes                   = "[]byte"
+
+	dbTinyint, dbDate, dbEnum = "tinyint", "date", "enum"
+	tinyint1                  = "tinyint(1)"
+
+	zeroDate     = "0000-00-00"
+	zeroDateTime = "0000-00-00 00:00:00"
+)
+
 // driverColumn is named so that the embedded interface does not collide with
 // the ColumnType method below.
 type driverColumn = gorm.ColumnType
@@ -24,8 +43,8 @@ type driverColumn = gorm.ColumnType
 type column struct {
 	driverColumn
 
-	sql        string // "tinyint(1)", "enum('0','1')"; "" = unknown
-	nullable   *bool
+	sql        string // "tinyint(1)", "enum('0','1')"; "" = the driver does not say
+	nullable   *bool  // nil = the driver does not say
 	defaultVal *string
 }
 
@@ -47,8 +66,7 @@ func (c column) DefaultValue() (string, bool) {
 	return *c.defaultVal, true
 }
 
-func ptr[T any](v T) *T { return &v }
-
+// columnCase is one answer the map must give: the column of database type dbType and want.
 type columnCase struct {
 	name   string
 	dbType string
@@ -56,113 +74,121 @@ type columnCase struct {
 	want   string
 }
 
-func columnCases() []columnCase {
-	null, notNull := ptr(true), ptr(false)
-
+// plainOrNull are the cases of a type that is nullable-or-not and nothing else: NOT NULL,
+// nullable, and a driver that does not report nullability (taken as NOT NULL).
+func plainOrNull(dbType, plain, null string) []columnCase {
 	return []columnCase{
-		{"tinyint(1) is a bool", "tinyint", column{sql: "tinyint(1)", nullable: notNull}, "types.Bool"},
-		{"nullable tinyint(1)", "tinyint", column{sql: "tinyint(1)", nullable: null}, "types.NullBool"},
-		{"tinyint(1) with unknown nullability", "tinyint", column{sql: "tinyint(1)"}, "types.Bool"},
-		{"tinyint(4) is an int", "tinyint", column{sql: "tinyint(4)", nullable: notNull}, "types.Int"},
-		{"nullable tinyint(4)", "tinyint", column{sql: "tinyint(4)", nullable: null}, "types.NullInt"},
-		{"tinyint with unknown full type", "tinyint", column{nullable: notNull}, "types.Int"},
-		{"tinyint(1) unsigned is a bool", "tinyint", column{sql: "tinyint(1) unsigned", nullable: notNull}, "types.Bool"},
+		{dbType + " NOT NULL", dbType, column{nullable: new(false)}, plain},
+		{dbType + " nullable", dbType, column{nullable: new(true)}, null},
+		{dbType + " nullability unknown", dbType, column{}, plain},
+	}
+}
 
-		{"int", "int", column{nullable: notNull}, "types.Int"},
-		{"nullable int", "int", column{nullable: null}, "types.NullInt"},
-		{"smallint", "smallint", column{nullable: notNull}, "types.Int"},
-		{"nullable smallint", "smallint", column{nullable: null}, "types.NullInt"},
-		{"mediumint", "mediumint", column{nullable: notNull}, "types.Int"},
-		{"nullable mediumint", "mediumint", column{nullable: null}, "types.NullInt"},
-		{"bigint", "bigint", column{nullable: notNull}, "types.Int"},
-		{"nullable bigint", "bigint", column{nullable: null}, "types.NullInt"},
+func columnCases() []columnCase {
+	var cases []columnCase
 
-		{"float", "float", column{nullable: notNull}, "types.Float"},
-		{"nullable float", "float", column{nullable: null}, "types.NullFloat"},
-		{"double", "double", column{nullable: notNull}, "types.Float"},
-		{"nullable double", "double", column{nullable: null}, "types.NullFloat"},
-		{"decimal", "decimal", column{nullable: notNull}, "types.Float"},
-		{"nullable decimal", "decimal", column{nullable: null}, "types.NullFloat"},
-		{"numeric", "numeric", column{nullable: notNull}, "types.Float"},
-		{"nullable numeric", "numeric", column{nullable: null}, "types.NullFloat"},
-		{"real", "real", column{nullable: notNull}, "types.Float"},
-		{"nullable real", "real", column{nullable: null}, "types.NullFloat"},
+	for _, dbType := range []string{"smallint", "mediumint", "int", "bigint"} {
+		cases = append(cases, plainOrNull(dbType, tInt, tNullInt)...)
+	}
 
-		{"boolean ignores nullability", "boolean", column{nullable: null}, "types.Bool"},
+	for _, dbType := range []string{"float", "double", "decimal", "numeric", "real"} {
+		cases = append(cases, plainOrNull(dbType, tFloat, tNullFloat)...)
+	}
 
-		{"date", "date", column{nullable: notNull}, "types.Date"},
-		{"nullable date", "date", column{nullable: null}, "types.NullDate"},
-		{"nullable date ignores the zero default", "date", column{nullable: null, defaultVal: ptr("0000-00-00")}, "types.NullDate"},
-		{"NOT NULL date defaulting to 0000-00-00", "date", column{nullable: notNull, defaultVal: ptr("0000-00-00")}, "types.ZeroDate"},
-		{"date with another default", "date", column{nullable: notNull, defaultVal: ptr("2000-01-01")}, "types.Date"},
-		{"date with unknown nullability and zero default", "date", column{defaultVal: ptr("0000-00-00")}, "types.ZeroDate"},
+	for _, dbType := range []string{"char", "varchar", "tinytext", "text", "mediumtext", "longtext", "set"} {
+		cases = append(cases, plainOrNull(dbType, tString, tNullString)...)
+	}
 
-		{"datetime", "datetime", column{nullable: notNull}, "types.DateTime"},
-		{"nullable datetime", "datetime", column{nullable: null}, "types.NullDateTime"},
-		{"NOT NULL datetime defaulting to the zero datetime", "datetime", column{nullable: notNull, defaultVal: ptr("0000-00-00 00:00:00")}, "types.ZeroDateTime"},
-		{"datetime with a date-only zero default", "datetime", column{nullable: notNull, defaultVal: ptr("0000-00-00")}, "types.DateTime"},
-		{"timestamp", "timestamp", column{nullable: notNull}, "types.DateTime"},
-		{"nullable timestamp", "timestamp", column{nullable: null}, "types.NullDateTime"},
-		{"NOT NULL timestamp defaulting to the zero datetime", "timestamp", column{nullable: notNull, defaultVal: ptr("0000-00-00 00:00:00")}, "types.ZeroDateTime"},
-		{"timestamp defaulting to now", "timestamp", column{nullable: notNull, defaultVal: ptr("CURRENT_TIMESTAMP")}, "types.DateTime"},
+	for _, dbType := range []string{"binary", "varbinary", "tinyblob", "blob", "mediumblob", "longblob"} {
+		cases = append(cases,
+			columnCase{dbType + " NOT NULL", dbType, column{nullable: new(false)}, tBytes},
+			columnCase{dbType + " nullable", dbType, column{nullable: new(true)}, tBytes},
+		)
+	}
 
-		{"varchar", "varchar", column{nullable: notNull}, "types.String"},
-		{"nullable varchar", "varchar", column{nullable: null}, "types.NullString"},
-		{"char", "char", column{nullable: notNull}, "types.String"},
-		{"nullable char", "char", column{nullable: null}, "types.NullString"},
-		{"tinytext", "tinytext", column{nullable: notNull}, "types.String"},
-		{"nullable tinytext", "tinytext", column{nullable: null}, "types.NullString"},
-		{"text", "text", column{nullable: notNull}, "types.String"},
-		{"nullable text", "text", column{nullable: null}, "types.NullString"},
-		{"mediumtext", "mediumtext", column{nullable: notNull}, "types.String"},
-		{"nullable mediumtext", "mediumtext", column{nullable: null}, "types.NullString"},
-		{"longtext", "longtext", column{nullable: notNull}, "types.String"},
-		{"nullable longtext", "longtext", column{nullable: null}, "types.NullString"},
-		{"set", "set", column{nullable: notNull}, "types.String"},
-		{"nullable set", "set", column{nullable: null}, "types.NullString"},
+	cases = append(cases, columnCase{"boolean ignores nullability", "boolean", column{nullable: new(true)}, tBool})
 
-		{"enum('0','1') is a legacy bool", "enum", column{sql: "enum('0','1')"}, "types.LegacyBoolEnum"},
-		{"enum('1','0') is not (the order matters)", "enum", column{sql: "enum('1','0')"}, "types.Enum"},
-		{"two-value enum of words", "enum", column{sql: "enum('yes','no')"}, "types.Enum"},
-		{"enum of three values", "enum", column{sql: "enum('0','1','2')"}, "types.Enum"},
-		{"single-value enum", "enum", column{sql: "enum('a')"}, "types.Enum"},
-		{"enum with an unknown full type", "enum", column{}, "types.String"},
+	cases = append(cases, tinyintCases()...)
+	cases = append(cases, dateCases()...)
 
-		{"binary", "binary", column{}, "[]byte"},
-		{"varbinary", "varbinary", column{nullable: null}, "[]byte"},
-		{"tinyblob", "tinyblob", column{}, "[]byte"},
-		{"blob", "blob", column{nullable: notNull}, "[]byte"},
-		{"mediumblob", "mediumblob", column{}, "[]byte"},
-		{"longblob", "longblob", column{}, "[]byte"},
+	return append(cases, enumCases()...)
+}
+
+func tinyintCases() []columnCase {
+	return []columnCase{
+		{"tinyint(1) is a bool", dbTinyint, column{sql: tinyint1, nullable: new(false)}, tBool},
+		{"nullable tinyint(1)", dbTinyint, column{sql: tinyint1, nullable: new(true)}, tNullBool},
+		{"tinyint(1) of unknown nullability", dbTinyint, column{sql: tinyint1}, tBool},
+		{"tinyint(1) unsigned is a bool", dbTinyint, column{sql: "tinyint(1) unsigned", nullable: new(false)}, tBool},
+		{"tinyint(4) is an int", dbTinyint, column{sql: "tinyint(4)", nullable: new(false)}, tInt},
+		{"nullable tinyint(4)", dbTinyint, column{sql: "tinyint(4)", nullable: new(true)}, tNullInt},
+		{"tinyint of unknown width", dbTinyint, column{nullable: new(false)}, tInt},
+	}
+}
+
+func dateCases() []columnCase {
+	var cases []columnCase
+
+	for _, dbType := range []string{"datetime", "timestamp"} {
+		cases = append(cases,
+			columnCase{dbType + " NOT NULL", dbType, column{nullable: new(false)}, tDateTime},
+			columnCase{dbType + " nullable", dbType, column{nullable: new(true)}, tNullDateTime},
+			columnCase{dbType + " NOT NULL defaulting to the zero datetime", dbType, column{nullable: new(false), defaultVal: new(zeroDateTime)}, tZeroDateTime},
+			columnCase{dbType + " nullable ignores the zero default", dbType, column{nullable: new(true), defaultVal: new(zeroDateTime)}, tNullDateTime},
+			columnCase{dbType + " with the zero date only", dbType, column{nullable: new(false), defaultVal: new(zeroDate)}, tDateTime},
+			columnCase{dbType + " defaulting to now", dbType, column{nullable: new(false), defaultVal: new("CURRENT_TIMESTAMP")}, tDateTime},
+		)
+	}
+
+	return append(cases,
+		columnCase{"date NOT NULL", dbDate, column{nullable: new(false)}, tDate},
+		columnCase{"date nullable", dbDate, column{nullable: new(true)}, tNullDate},
+		columnCase{"date NOT NULL defaulting to the zero date", dbDate, column{nullable: new(false), defaultVal: new(zeroDate)}, tZeroDate},
+		columnCase{"date of unknown nullability defaulting to the zero date", dbDate, column{defaultVal: new(zeroDate)}, tZeroDate},
+		columnCase{"date nullable ignores the zero default", dbDate, column{nullable: new(true), defaultVal: new(zeroDate)}, tNullDate},
+		columnCase{"date with another default", dbDate, column{nullable: new(false), defaultVal: new("2000-01-01")}, tDate},
+		columnCase{"date with the zero datetime", dbDate, column{nullable: new(false), defaultVal: new(zeroDateTime)}, tDate},
+	)
+}
+
+func enumCases() []columnCase {
+	return []columnCase{
+		{"enum('0','1') is a legacy bool", dbEnum, column{sql: "enum('0','1')"}, tLegacy},
+		{"enum('1','0') is not: the order matters", dbEnum, column{sql: "enum('1','0')"}, tEnum},
+		{"two-value enum of words", dbEnum, column{sql: "enum('yes','no')"}, tEnum},
+		{"enum of three values", dbEnum, column{sql: "enum('0','1','2')"}, tEnum},
+		{"single-value enum", dbEnum, column{sql: "enum('a')"}, tEnum},
+		{"enum the driver does not describe", dbEnum, column{}, tString},
 	}
 }
 
 func TestColumnTypes(t *testing.T) {
-	m := types.ColumnTypes()
+	columnTypes := types.ColumnTypes()
 	covered := map[string]bool{}
 
 	for _, tc := range columnCases() {
 		covered[tc.dbType] = true
 
 		t.Run(tc.name, func(t *testing.T) {
-			fn, ok := m[tc.dbType]
+			mapper, ok := columnTypes[tc.dbType]
 			require.True(t, ok, "no mapping for %s", tc.dbType)
-			assert.Equal(t, tc.want, fn(tc.col))
+			assert.Equal(t, tc.want, mapper(tc.col))
 		})
 	}
 
-	for dbType := range m {
-		assert.True(t, covered[dbType], "the table has no case for %s", dbType)
+	for dbType := range columnTypes {
+		assert.True(t, covered[dbType], "no case for %s", dbType)
 	}
 }
 
 // Every type the map names exists in this package, so a renamed type cannot
 // leave the generator emitting code that does not compile.
 func TestColumnTypesNameRealTypes(t *testing.T) {
-	declared := map[string]bool{"[]byte": true}
+	declared := map[string]bool{tBytes: true}
 
-	pkgs, err := parser.ParseDir(token.NewFileSet(), ".", func(fi fs.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
+	//nolint:staticcheck // the package is parsed whole, build tags do not matter for its type names
+	pkgs, err := parser.ParseDir(token.NewFileSet(), ".", func(info fs.FileInfo) bool {
+		return !strings.HasSuffix(info.Name(), "_test.go")
 	}, 0)
 	require.NoError(t, err)
 
@@ -175,16 +201,18 @@ func TestColumnTypesNameRealTypes(t *testing.T) {
 				}
 
 				for _, spec := range gen.Specs {
-					declared["types."+spec.(*ast.TypeSpec).Name.Name] = true
+					if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+						declared["types."+typeSpec.Name.Name] = true
+					}
 				}
 			}
 		}
 	}
 
-	m := types.ColumnTypes()
+	columnTypes := types.ColumnTypes()
 
 	for _, tc := range columnCases() {
-		got := m[tc.dbType](tc.col)
+		got := columnTypes[tc.dbType](tc.col)
 		assert.True(t, declared[got], "%s maps to %q, which database/types does not declare", tc.name, got)
 	}
 }
