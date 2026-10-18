@@ -88,6 +88,9 @@ type App struct {
 	// deadLetterRetention is how long the event housekeeper keeps dead letters; zero is for ever.
 	deadLetterRetention time.Duration
 
+	// commands are the ones added with Command, besides migrate and help.
+	commands []appCommand
+
 	migrations []migrationSource
 	// autoMigrate, when set, applies migrations as they are collected.
 	autoMigrate context.Context //nolint:containedctx // test option: the context of the test

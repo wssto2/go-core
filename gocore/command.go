@@ -1,11 +1,15 @@
 package gocore
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
+	"unicode"
 )
 
 // RunCommand does what args ask, the way Run does with the command line:
@@ -17,6 +21,7 @@ import (
 //	                record migrations as applied without running them, for a database
 //	                whose tables already exist, then return
 //	help            list these commands, then return
+//	<name> [args]   a command the application added with Command, then return
 //
 // A command other than serving never starts HTTP or boots modules: it uses
 // the database connections and closes them. An unknown command returns an
@@ -25,6 +30,12 @@ import (
 // Applications do not call it: main is app.Run(). Tests do, with their own
 // args and a buffer.
 func (a *App) RunCommand(ctx context.Context, args []string, out io.Writer) error {
+	if len(args) > 0 {
+		if c, ok := a.appCommand(args[0]); ok {
+			return a.command(func() error { return a.runAppCommand(ctx, c, args[1:], out) })
+		}
+	}
+
 	command := strings.Join(args, " ")
 
 	if rest, ok := strings.CutPrefix(command+" ", "migrate mark-applied "); ok {
@@ -40,14 +51,13 @@ func (a *App) RunCommand(ctx context.Context, args []string, out io.Writer) erro
 		return a.command(func() error { return a.migrationStatus(ctx, out) })
 	case "help", "-h", "--help":
 		return a.command(func() error {
-			_, err := fmt.Fprint(out, usage())
+			_, err := fmt.Fprint(out, usage(a.sortedCommands()))
 
 			return err
 		})
 	default:
 		return a.command(func() error {
-			return fmt.Errorf("gocore: %w %q: the commands are migrate, migrate status, migrate mark-applied and help",
-				errUnknownCommand, command)
+			return fmt.Errorf("gocore: %w %q: the commands are %s", errUnknownCommand, command, a.commandNames())
 		})
 	}
 }
@@ -65,10 +75,10 @@ func (a *App) command(fn func() error) error {
 	return fn()
 }
 
-func usage() string {
+func usage(extra []appCommand) string {
 	name := binary()
 
-	return fmt.Sprintf(`Usage: %[1]s [command]
+	text := fmt.Sprintf(`Usage: %[1]s [command]
 
 Commands:
   (none)          check the application, then serve it
@@ -78,6 +88,130 @@ Commands:
                   record migrations as applied without running them, then exit
   help            show this list
 `, name)
+
+	if len(extra) == 0 {
+		return text
+	}
+
+	width := 0
+	for _, c := range extra {
+		width = max(width, len(c.name))
+	}
+
+	var b strings.Builder
+
+	b.WriteString(text + "\nApplication commands:\n")
+
+	for _, c := range extra {
+		fmt.Fprintf(&b, "  %-*s  %s\n", width, c.name, c.short)
+	}
+
+	return b.String()
+}
+
+// CommandFunc is a command the application added with App.Command. args are
+// what follows the command's name on the command line, unparsed; out is where
+// the command writes.
+type CommandFunc func(ctx context.Context, app *App, args []string, out io.Writer) error
+
+type appCommand struct {
+	name, short string
+	run         CommandFunc
+}
+
+// builtins are the command words go-core owns; an application cannot reuse them.
+var builtins = []string{"migrate", "help"}
+
+// Command adds a command to the application's command line, next to migrate
+// and help: "./myapp db:prune --dry-run" runs run with ["--dry-run"]. short is
+// the line "help" shows next to the name.
+//
+// A command runs the way migrate does: the App is built and every feature
+// installed, but nothing is checked, served or booted, no worker or OnStart
+// runs, and the databases New opened are closed afterwards. It reaches them
+// with app.Database, and may use anything a feature handed out of its
+// Install. An App problem (an Install that called Fail) still stops it, with
+// the problems listed. The error run returns is Run's error, so the process
+// exits non-zero.
+//
+// The arguments after the name are not parsed: the command parses its own,
+// usually with the standard flag package. A flag.ErrHelp from run (a FlagSet
+// parsed "-h") is a success, so "-h" prints the command's flags and exits 0.
+//
+//	app.Command("db:prune", "delete rows past their retention window",
+//	    func(ctx context.Context, app *gocore.App, args []string, out io.Writer) error {
+//	        fs := flag.NewFlagSet("db:prune", flag.ContinueOnError)
+//	        fs.SetOutput(out)
+//	        dryRun := fs.Bool("dry-run", false, "count the rows without deleting them")
+//	        if err := fs.Parse(args); err != nil {
+//	            return err
+//	        }
+//	        return prune(ctx, app.Database(), *dryRun, out)
+//	    })
+//
+// A name may contain ":" (iam:check-placement). Registering a name that is
+// empty, has whitespace or starts with "-", is a built-in command (migrate,
+// help) or is already registered, or a nil run, is an App problem, reported by
+// Check and Run like any other.
+func (a *App) Command(name, short string, run CommandFunc) {
+	switch {
+	case name == "":
+		a.fail("a command was registered with no name", "give app.Command a name such as \"db:prune\"")
+	case strings.ContainsFunc(name, unicode.IsSpace):
+		a.fail(fmt.Sprintf("command %q contains whitespace", name), "a command is one word, such as \"db:prune\"")
+	case strings.HasPrefix(name, "-"):
+		a.fail(fmt.Sprintf("command %q starts with \"-\"", name), "that is a flag; name the command without it")
+	case slices.Contains(builtins, name):
+		a.fail(fmt.Sprintf("command %q is a built-in command", name), "choose another name; migrate and help belong to go-core")
+	case run == nil:
+		a.fail(fmt.Sprintf("command %q has no function", name), "pass the function to run as the third argument of app.Command")
+	default:
+		if _, taken := a.appCommand(name); taken {
+			a.fail(fmt.Sprintf("command %q is registered twice", name), "register each command once, under its own name")
+
+			return
+		}
+
+		a.commands = append(a.commands, appCommand{name: name, short: short, run: run})
+	}
+}
+
+func (a *App) appCommand(name string) (appCommand, bool) {
+	i := slices.IndexFunc(a.commands, func(c appCommand) bool { return c.name == name })
+	if i < 0 {
+		return appCommand{}, false
+	}
+
+	return a.commands[i], true
+}
+
+// sortedCommands are the application's commands by name.
+func (a *App) sortedCommands() []appCommand {
+	return slices.SortedFunc(slices.Values(a.commands), func(x, y appCommand) int { return cmp.Compare(x.name, y.name) })
+}
+
+// commandNames lists every command for an error message: "a, b and c".
+func (a *App) commandNames() string {
+	names := []string{"migrate", "migrate status", "migrate mark-applied", "help"}
+	for _, c := range a.sortedCommands() {
+		names = append(names, c.name)
+	}
+
+	last := len(names) - 1
+
+	return strings.Join(names[:last], ", ") + " and " + names[last]
+}
+
+func (a *App) runAppCommand(ctx context.Context, c appCommand, args []string, out io.Writer) error {
+	if len(a.problems) > 0 {
+		return &StartupError{Problems: append([]Problem(nil), a.problems...)}
+	}
+
+	if err := c.run(ctx, a, args, out); !errors.Is(err, flag.ErrHelp) {
+		return err
+	}
+
+	return nil
 }
 
 func (a *App) migrationStatus(ctx context.Context, out io.Writer) error {
