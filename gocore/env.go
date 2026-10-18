@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode"
@@ -40,7 +41,7 @@ import (
 // $NAME expands only from variables the file itself set earlier (godotenv's
 // rule), not from the process environment.
 func LoadEnv(path string) error {
-	src, err := os.ReadFile(path)
+	src, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return fmt.Errorf("gocore: reading the env file: %w", err)
 	}
@@ -55,7 +56,8 @@ func LoadEnv(path string) error {
 			continue
 		}
 
-		if err := os.Setenv(key, value); err != nil {
+		err = os.Setenv(key, value)
+		if err != nil {
 			return fmt.Errorf("gocore: setting %s from the env file: %w", key, err)
 		}
 	}
@@ -124,13 +126,13 @@ func envKey(src []byte) (string, []byte, error) {
 		src = bytes.TrimLeftFunc(trimmed, isBlank)
 	}
 
-	for i, r := range string(src) {
+	for at, char := range string(src) {
 		switch {
-		case r == '=' || r == ':':
-			return strings.TrimRightFunc(string(src[:i]), unicode.IsSpace), bytes.TrimLeftFunc(src[i+1:], isBlank), nil
-		case isBlank(r), r == '_', r == '.', unicode.IsLetter(r), unicode.IsNumber(r):
+		case char == '=' || char == ':':
+			return strings.TrimRightFunc(string(src[:at]), unicode.IsSpace), bytes.TrimLeftFunc(src[at+1:], isBlank), nil
+		case isBlank(char), char == '_', char == '.', unicode.IsLetter(char), unicode.IsNumber(char):
 		default:
-			return "", nil, fmt.Errorf("%w: %q near %q", errEnvName, r, firstLine(src))
+			return "", nil, fmt.Errorf("%w: %q near %q", errEnvName, char, firstLine(src))
 		}
 	}
 
@@ -143,67 +145,71 @@ func envValue(src []byte, vars map[string]string) (string, []byte, error) {
 		return "", nil, nil
 	}
 
-	quote := src[0]
-	if quote != '"' && quote != '\'' {
-		end := bytes.IndexAny(src, "\r\n")
-		if end < 0 {
-			end = len(src)
-		}
-
-		line := []rune(string(src[:end]))
-		for i := len(line) - 1; i > 0; i-- {
-			if line[i] == '#' && isBlank(line[i-1]) {
-				line = line[:i]
-
-				break
-			}
-		}
-
-		return expand(strings.TrimFunc(string(line), isBlank), vars), src[end:], nil
+	if quote := src[0]; quote == '"' || quote == '\'' {
+		return quotedValue(src, quote, vars)
 	}
 
-	for i := 1; i < len(src); i++ {
-		if src[i] != quote || src[i-1] == '\\' {
+	end := bytes.IndexAny(src, "\r\n")
+	if end < 0 {
+		end = len(src)
+	}
+
+	line := []rune(string(src[:end]))
+	for at := len(line) - 1; at > 0; at-- {
+		if line[at] == '#' && isBlank(line[at-1]) {
+			line = line[:at]
+
+			break
+		}
+	}
+
+	return expand(strings.TrimFunc(string(line), isBlank), vars), src[end:], nil
+}
+
+// quotedValue reads up to the closing quote; only double quotes read escapes and variables.
+func quotedValue(src []byte, quote byte, vars map[string]string) (string, []byte, error) {
+	for end := 1; end < len(src); end++ {
+		if src[end] != quote || src[end-1] == '\\' {
 			continue
 		}
 
-		value := string(bytes.Trim(src[:i], string(quote)))
+		value := string(bytes.Trim(src[:end], string(quote)))
 		if quote == '"' {
 			value = expand(unescape(value), vars)
 		}
 
-		return value, src[i+1:], nil
+		return value, src[end+1:], nil
 	}
 
 	return "", nil, fmt.Errorf("%w: %s", errEnvQuote, firstLine(src))
 }
 
-func unescape(s string) string {
-	s = escapePair.ReplaceAllStringFunc(s, func(m string) string {
-		switch m {
+func unescape(text string) string {
+	text = escapePair.ReplaceAllStringFunc(text, func(pair string) string {
+		switch pair {
 		case `\n`:
 			return "\n"
 		case `\r`:
 			return "\r"
 		default:
-			return m
+			return pair
 		}
 	})
 
-	return unescapePair.ReplaceAllString(s, "$1")
+	return unescapePair.ReplaceAllString(text, "$1")
 }
 
-func expand(s string, vars map[string]string) string {
-	return variableInText.ReplaceAllStringFunc(s, func(m string) string {
-		parts := variableInText.FindStringSubmatch(m)
+func expand(text string, vars map[string]string) string {
+	return variableInText.ReplaceAllStringFunc(text, func(match string) string {
+		parts := variableInText.FindStringSubmatch(match)
 
 		switch {
 		case parts[1] == `\` || parts[3] == "(":
-			return m[1:]
+			return match[1:]
 		case parts[4] != "":
 			return vars[parts[4]]
 		default:
-			return m
+			return match
 		}
 	})
 }
@@ -211,7 +217,7 @@ func expand(s string, vars map[string]string) string {
 // isBlank is a space that does not end the line.
 func isBlank(r rune) bool {
 	switch r {
-	case '\t', '\v', '\f', '\r', ' ', 0x85, 0xA0:
+	case '\t', '\v', '\f', '\r', ' ', '\u0085', '\u00a0':
 		return true
 	}
 

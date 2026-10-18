@@ -318,20 +318,24 @@ func ExampleApp_Consumers() {
 	// Output: [audit.ticket-assigned notifications.ticket-assigned]
 }
 
-// prune is a command: it parses its own arguments with the standard flag package.
-func prune(_ context.Context, _ *gocore.App, args []string, out io.Writer) error {
+// dryRunPrune is a command: it parses its own arguments with the standard flag package.
+func dryRunPrune(_ context.Context, _ *gocore.App, args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("db:prune", flag.ContinueOnError)
 	flags.SetOutput(out)
 
 	dryRun := flags.Bool("dry-run", false, "count the rows without deleting them")
 
-	if err := flags.Parse(args); err != nil {
-		return err // flag.ErrHelp, from -h, ends the command with success
+	err := flags.Parse(args)
+	if err != nil {
+		return fmt.Errorf("prune: %w", err) // flag.ErrHelp, from -h, still ends the command with success
 	}
 
-	_, err := fmt.Fprintf(out, "dry run: %t\n", *dryRun)
+	_, err = fmt.Fprintf(out, "dry run: %t\n", *dryRun)
+	if err != nil {
+		return fmt.Errorf("prune: %w", err)
+	}
 
-	return err
+	return nil
 }
 
 // Command adds the application's own commands to its command line. They run
@@ -344,11 +348,12 @@ func ExampleApp_Command() {
 		app := gocore.New(bootstrap.DefaultConfig(),
 			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
-		app.Command("db:prune", "delete rows past their retention window", prune)
+		app.Command("db:prune", "delete rows past their retention window", dryRunPrune)
 
 		fmt.Println("$ myapp", strings.Join(args, " "))
 
-		if err := app.RunCommand(context.Background(), args, os.Stdout); err != nil {
+		err := app.RunCommand(context.Background(), args, os.Stdout)
+		if err != nil {
 			fmt.Println(err)
 		}
 

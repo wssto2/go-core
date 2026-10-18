@@ -31,7 +31,7 @@ import (
 // args and a buffer.
 func (a *App) RunCommand(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) > 0 {
-		if c, ok := a.appCommand(args[0]); ok {
+		if c := a.appCommand(args[0]); c != nil {
 			return a.command(func() error { return a.runAppCommand(ctx, c, args[1:], out) })
 		}
 	}
@@ -98,15 +98,15 @@ Commands:
 		width = max(width, len(c.name))
 	}
 
-	var b strings.Builder
+	var buf strings.Builder
 
-	b.WriteString(text + "\nApplication commands:\n")
+	buf.WriteString(text + "\nApplication commands:\n")
 
 	for _, c := range extra {
-		fmt.Fprintf(&b, "  %-*s  %s\n", width, c.name, c.short)
+		fmt.Fprintf(&buf, "  %-*s  %s\n", width, c.name, c.short)
 	}
 
-	return b.String()
+	return buf.String()
 }
 
 // CommandFunc is a command the application added with App.Command. args are
@@ -119,8 +119,8 @@ type appCommand struct {
 	run         CommandFunc
 }
 
-// builtins are the command words go-core owns; an application cannot reuse them.
-var builtins = []string{"migrate", "help"}
+// isBuiltin is whether name is a command word go-core owns; an application cannot reuse it.
+func isBuiltin(name string) bool { return name == "migrate" || name == "help" }
 
 // Command adds a command to the application's command line, next to migrate
 // and help: "./myapp db:prune --dry-run" runs run with ["--dry-run"]. short is
@@ -161,12 +161,14 @@ func (a *App) Command(name, short string, run CommandFunc) {
 		a.fail(fmt.Sprintf("command %q contains whitespace", name), "a command is one word, such as \"db:prune\"")
 	case strings.HasPrefix(name, "-"):
 		a.fail(fmt.Sprintf("command %q starts with \"-\"", name), "that is a flag; name the command without it")
-	case slices.Contains(builtins, name):
-		a.fail(fmt.Sprintf("command %q is a built-in command", name), "choose another name; migrate and help belong to go-core")
+	case isBuiltin(name):
+		a.fail(fmt.Sprintf("command %q is a built-in command", name),
+			"choose another name; migrate and help belong to go-core")
 	case run == nil:
-		a.fail(fmt.Sprintf("command %q has no function", name), "pass the function to run as the third argument of app.Command")
+		a.fail(fmt.Sprintf("command %q has no function", name),
+			"pass the function to run as the third argument of app.Command")
 	default:
-		if _, taken := a.appCommand(name); taken {
+		if a.appCommand(name) != nil {
 			a.fail(fmt.Sprintf("command %q is registered twice", name), "register each command once, under its own name")
 
 			return
@@ -176,13 +178,13 @@ func (a *App) Command(name, short string, run CommandFunc) {
 	}
 }
 
-func (a *App) appCommand(name string) (appCommand, bool) {
-	i := slices.IndexFunc(a.commands, func(c appCommand) bool { return c.name == name })
-	if i < 0 {
-		return appCommand{}, false
+func (a *App) appCommand(name string) *appCommand {
+	at := slices.IndexFunc(a.commands, func(c appCommand) bool { return c.name == name })
+	if at < 0 {
+		return nil
 	}
 
-	return a.commands[i], true
+	return &a.commands[at]
 }
 
 // sortedCommands are the application's commands by name.
@@ -190,10 +192,16 @@ func (a *App) sortedCommands() []appCommand {
 	return slices.SortedFunc(slices.Values(a.commands), func(x, y appCommand) int { return cmp.Compare(x.name, y.name) })
 }
 
+// commandWords is how many built-in commands there are, counting the two-word ones.
+const commandWords = 4
+
 // commandNames lists every command for an error message: "a, b and c".
 func (a *App) commandNames() string {
-	names := []string{"migrate", "migrate status", "migrate mark-applied", "help"}
-	for _, c := range a.sortedCommands() {
+	sorted := a.sortedCommands()
+	names := make([]string, 0, len(sorted)+commandWords)
+	names = append(names, "migrate", "migrate status", "migrate mark-applied", "help")
+
+	for _, c := range sorted {
 		names = append(names, c.name)
 	}
 
@@ -202,16 +210,17 @@ func (a *App) commandNames() string {
 	return strings.Join(names[:last], ", ") + " and " + names[last]
 }
 
-func (a *App) runAppCommand(ctx context.Context, c appCommand, args []string, out io.Writer) error {
+func (a *App) runAppCommand(ctx context.Context, c *appCommand, args []string, out io.Writer) error {
 	if len(a.problems) > 0 {
 		return &StartupError{Problems: append([]Problem(nil), a.problems...)}
 	}
 
-	if err := c.run(ctx, a, args, out); !errors.Is(err, flag.ErrHelp) {
-		return err
+	err := c.run(ctx, a, args, out)
+	if errors.Is(err, flag.ErrHelp) {
+		return nil
 	}
 
-	return nil
+	return err
 }
 
 func (a *App) migrationStatus(ctx context.Context, out io.Writer) error {
