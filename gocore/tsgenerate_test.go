@@ -233,6 +233,10 @@ func TestTypeScriptLeavesAGoCoreModulesGroupsAndCataloguesOut(t *testing.T) {
 		t.Fatalf("the module's group is installed: %v", app.Contracts())
 	}
 
+	if own := app.OwnContracts(); len(own) != 1 || own[0].Name() != "tickets" {
+		t.Fatalf("OwnContracts is the application's group only, got %v", own)
+	}
+
 	if got := len(app.Catalogues()); got != 1 {
 		t.Fatalf("one catalogue, however many features hand it over, got %d", got)
 	}

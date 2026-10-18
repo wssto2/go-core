@@ -61,3 +61,18 @@ func (a *App) noteShipped(handled route.Handled) {
 		a.shipped[c] = true
 	}
 }
+
+// OwnContracts lists the groups of Contracts the application's own features installed, leaving out the ones go-core's
+// modules did (Shipping): what ts:generate writes route tables for, and what an audit of the application's API
+// (contract.Wire) walks.
+func (a *App) OwnContracts() []*route.Contract {
+	var own []*route.Contract
+
+	for _, c := range a.Contracts() {
+		if !a.shipped[c] {
+			own = append(own, c)
+		}
+	}
+
+	return own
+}

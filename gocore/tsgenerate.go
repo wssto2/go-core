@@ -13,7 +13,6 @@ import (
 	"github.com/wssto2/go-core/authz/authzts"
 	"github.com/wssto2/go-core/contract"
 	"github.com/wssto2/go-core/go2ts"
-	"github.com/wssto2/go-core/route"
 )
 
 // tsCommand is the built-in command that writes the application's TypeScript.
@@ -194,13 +193,7 @@ func (a *App) generatePermissions(file string, out io.Writer) error {
 // generateRoutes writes the route tables of the application's own groups. The folder holds only generated route
 // tables, so it is removed first and a removed group leaves nothing behind.
 func (a *App) generateRoutes(dir string, out io.Writer) error {
-	var own []*route.Contract
-
-	for _, c := range a.Contracts() {
-		if !a.shipped[c] {
-			own = append(own, c)
-		}
-	}
+	own := a.OwnContracts()
 
 	err := os.RemoveAll(dir)
 	if err != nil {
