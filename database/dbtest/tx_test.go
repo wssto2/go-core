@@ -1,4 +1,4 @@
-//nolint:paralleltest,tparallel,thelper,noinlineerr,varnamelen // t.Setenv rules out t.Parallel
+//nolint:paralleltest,thelper,noinlineerr,varnamelen // t.Setenv rules out t.Parallel
 package dbtest_test
 
 import (
