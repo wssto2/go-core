@@ -1,6 +1,10 @@
 package route
 
-import "reflect"
+import (
+	"encoding"
+	"fmt"
+	"reflect"
+)
 
 // Enumeration is a named string type together with the values it may hold,
 // declared once with Enum and listed in a group with Contract.Types. A DTO
@@ -30,6 +34,29 @@ func Enum[T ~string](values ...T) Enumeration {
 	e := Enumeration{typ: reflect.TypeFor[T](), values: make([]string, len(values))}
 	for i, v := range values {
 		e.values[i] = string(v)
+	}
+
+	return e
+}
+
+// TextEnum declares the values of a named type that is written as a JSON string
+// through MarshalText although it is not a string (an int, like authz.Qualifier).
+// The values are the texts MarshalText gives, so the generated type is their union:
+//
+//	var Qualifiers = route.TextEnum(authz.QualifierOwn, authz.QualifierOwnLocation, authz.QualifierAll)
+//
+// The type must not have MarshalJSON, which encoding/json prefers. It panics when
+// a value does not marshal: a declaration is made once, at start.
+func TextEnum[T encoding.TextMarshaler](values ...T) Enumeration {
+	e := Enumeration{typ: reflect.TypeFor[T](), values: make([]string, len(values))}
+
+	for i, v := range values {
+		text, err := v.MarshalText()
+		if err != nil {
+			panic(fmt.Sprintf("route: TextEnum of %s: value %d does not marshal: %v", e.typ, i, err))
+		}
+
+		e.values[i] = string(text)
 	}
 
 	return e

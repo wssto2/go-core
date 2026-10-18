@@ -1,6 +1,7 @@
 package go2ts
 
 import (
+	"encoding"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -231,7 +232,7 @@ func mapGoTypeToTs(t reflect.Type, parentName string, children map[string]interf
 
 	var tsType string
 
-	switch t.Kind() {
+	switch wireKind(t) {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Float32, reflect.Float64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		tsType = "number"
@@ -289,12 +290,15 @@ func mapGoTypeToTs(t reflect.Type, parentName string, children map[string]interf
 		}
 	case reflect.Map:
 		// JSON object keys are strings; a number-keyed map is Record<number, V>.
+		// A key with MarshalText is written as that text, whatever its kind.
 		key := "string"
 
 		switch t.Key().Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			key = "number"
+			if !isMarshaled[encoding.TextMarshaler](t.Key()) {
+				key = "number"
+			}
 		}
 
 		tsType = fmt.Sprintf("Record<%s, %s>", key, mapGoTypeToTs(t.Elem(), parentName, children, ctx))

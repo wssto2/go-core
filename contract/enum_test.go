@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,4 +99,70 @@ func TestAnEnumCanHaveAnotherTypeScriptName(t *testing.T) {
 	schemas := generated(t, g, "schemas.ts")
 	require.Contains(t, schemas, `export const TicketPrioritySchema = z.enum(["low", "high"]);`)
 	require.Contains(t, schemas, "priority: TicketPrioritySchema,")
+}
+
+// Rank is an int that is a JSON string on the wire, the way authz.Qualifier is.
+type Rank int
+
+const (
+	RankLow Rank = iota + 1
+	RankHigh
+)
+
+func (r Rank) MarshalText() ([]byte, error) {
+	if r < RankLow || r > RankHigh {
+		return nil, errors.New("invalid rank")
+	}
+
+	return []byte([]string{"", "low", "high"}[r]), nil
+}
+
+// JSONRank has MarshalJSON too, which encoding/json prefers.
+type JSONRank int
+
+func (JSONRank) MarshalText() ([]byte, error) { return []byte("x"), nil }
+func (JSONRank) MarshalJSON() ([]byte, error) { return []byte("1"), nil }
+
+type RankInput struct {
+	Rank Rank `json:"rank" validation:"required"`
+}
+
+type RankOut struct {
+	Rank  Rank     `json:"rank"`
+	Other *Rank    `json:"other"`
+	Many  []Rank   `json:"many"`
+	Plain JSONRank `json:"plain"`
+}
+
+func TestATextEnumIsRenderedAsAUnionAndAZodEnum(t *testing.T) {
+	set := route.Post[RankInput, RankOut]("/rank").Name("tickets.rank")
+	g := route.Group("tickets", set).Types(route.TextEnum(RankLow, RankHigh))
+
+	entities := generated(t, g, "entities.ts")
+	require.Contains(t, entities, `export type Rank = "low" | "high";`)
+	require.Contains(t, entities, "rank: Rank;")
+	require.Contains(t, entities, "other: Rank | null;")
+	require.Contains(t, entities, "many: Rank[];")
+	require.Contains(t, entities, "plain: number;", "MarshalJSON wins over MarshalText")
+
+	schemas := generated(t, g, "schemas.ts")
+	require.Contains(t, schemas, `export const RankSchema = z.enum(["low", "high"]);`)
+	require.Contains(t, schemas, "rank: RankSchema,")
+}
+
+func TestATextMarshalerThatIsNotDeclaredIsAString(t *testing.T) {
+	set := route.Post[RankInput, RankOut]("/rank").Name("tickets.rank")
+	g := route.Group("tickets", set)
+
+	require.Contains(t, generated(t, g, "entities.ts"), "rank: string;")
+	require.Contains(t, generated(t, g, "schemas.ts"), "rank: z.string().min(1),")
+}
+
+func TestATextEnumNeedsATypeWrittenAsText(t *testing.T) {
+	show := route.Get[ShowInput, RankOut]("/rank/:id")
+
+	err := contract.Generate(t.TempDir(), route.Group("tickets", show).Types(route.TextEnum(JSONRank(1))))
+	require.ErrorContains(t, err, "written as text")
+
+	require.Panics(t, func() { route.TextEnum(Rank(0), Rank(9)) }, "a value that does not marshal is a declaration bug")
 }

@@ -86,7 +86,7 @@ func mapGoTypeToZodBaseScoped(t reflect.Type, parentName string, ctx *GenContext
 		isNullable = true
 	}
 
-	switch t.Kind() {
+	switch wireKind(t) {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return "z.number().int()", isNullable
@@ -157,7 +157,7 @@ func isStringBase(t reflect.Type) bool {
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
-	if t.Kind() == reflect.String {
+	if wireKind(t) == reflect.String {
 		return true
 	}
 	if t.Kind() == reflect.Struct {
@@ -174,7 +174,7 @@ func isStringBase(t reflect.Type) bool {
 // provided value under the "required means non-zero" numeric contract, so
 // pointer numerics must not receive the non-zero refine.
 func isNumericBase(t reflect.Type) bool {
-	switch t.Kind() {
+	switch wireKind(t) {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 		reflect.Float32, reflect.Float64:
@@ -399,7 +399,7 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 		if ft.Kind() == reflect.Ptr {
 			ft = ft.Elem()
 		}
-		if ft.Kind() == reflect.Struct && !knownCustomType(ft.Name()) && ft.Name() != "" && ft.Name() != typeName {
+		if wireKind(ft) == reflect.Struct && !knownCustomType(ft.Name()) && ft.Name() != "" && ft.Name() != typeName {
 			childName := ctx.resolveTypeName(ft, typeName)
 			children[childName] = reflect.New(ft).Interface()
 		}
