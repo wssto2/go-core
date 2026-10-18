@@ -240,6 +240,27 @@ app.Migrations(authzmigrations.Files, Shared)     // or on another one
 
 Commands never serve or boot modules; they use the database connections and close them. While any migration is pending, starting to serve stops with one start-up problem whose fix is `run "myapp migrate" before starting it`. `app.Migrate(ctx)` is public for tests and for applications with their own command line; `gocoretest.New` migrates as features are installed. `RunCommand(ctx, args, out)` takes the arguments, for tests.
 
+### Commands and the .env file
+
+The application's own commands (a prune, a repair, a one-off import) are added with `app.Command`, from `main` or from a feature's `Install`, so a command may use what the features installed (`gocore/example_test.go`, `go-core-example/cmd/tool`):
+
+```go
+app.Command("db:prune", "delete rows past their retention window",
+    func(ctx context.Context, app *gocore.App, args []string, out io.Writer) error {
+        flags := flag.NewFlagSet("db:prune", flag.ContinueOnError)
+        flags.SetOutput(out)
+        dryRun := flags.Bool("dry-run", false, "count the rows without deleting them")
+        if err := flags.Parse(args); err != nil {
+            return err // -h prints the flags and exits 0
+        }
+        return prune(ctx, app.Database(), *dryRun, out)
+    })
+```
+
+`./myapp db:prune --dry-run` runs it like `migrate`: the databases are open (`app.Database()`), nothing is checked, served or booted, no worker or `OnStart` runs, and the databases close afterwards. The arguments after the name arrive unparsed; the command parses its own with the standard `flag` package. The error it returns is `Run`'s error, so the process exits non-zero. A name may contain `:` (`iam:check-placement`); an empty one, one with whitespace or a leading `-`, `migrate` or `help`, one registered twice and a nil function are App problems, listed by `Check` and `Run`, and a failed `Install` stops a command as it stops serving. `help` lists the built-ins, then the application's commands with their text, sorted; an unknown command's error names them all.
+
+`gocore.LoadEnv(".env")` puts a file of `KEY=value` lines into the process environment, the way `godotenv.Load` does (a variable already set keeps its value; comments, `export`, quotes, `\n` in double quotes and `$NAME` from earlier lines are read). It is a call at the top of `main`, not an option, because the configuration `New` takes is read from the environment before `New` runs. A missing file is an error that is `fs.ErrNotExist`, so `if err := gocore.LoadEnv(".env"); err != nil && !errors.Is(err, fs.ErrNotExist)` makes the file optional and dropping the `errors.Is` makes it required.
+
 All sources of a connection run as one set in version order; two files with one version stop the run and name both. A module's files use its release date as version and never change once tagged.
 
 **Test on every database** (`database/dbtest`). `dbtest.Run(t, func(t *testing.T, db *gorm.DB) { ... })` runs on SQLite always, and on MySQL and MariaDB when `GOCORE_MYSQL_DSN` / `GOCORE_MARIADB_DSN` are set (`root:pw@tcp(127.0.0.1:3310)/`). A server run gets an empty schema it creates and drops itself, so it may run DDL and use several connections; the others skip with a message. `dbtest.RequirePortable(t, migrations.Files)` fails on what MariaDB 10.3 rejects (SKIP LOCKED, FOR UPDATE OF, FOR SHARE, JSON_TABLE, `->>`, RETURNING, window functions). `authztest.MariaDB` uses the same schemas; `AUTHZ_MARIADB_DSN` still works.

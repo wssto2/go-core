@@ -155,7 +155,7 @@ func (a *App) catalogued(permission string) bool {
 // failing check or boot returns an error with nothing left running.
 //
 // With a command it does that command instead, without serving or booting
-// anything: migrate, migrate status, help. See RunCommand.
+// anything: migrate, migrate status, help, or a command added with Command. See RunCommand.
 func (a *App) Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -32,6 +32,11 @@
 // middleware that runs before every route, WithCSP for Content-Security-Policy
 // sources, WithServiceWorker for /sw.js, and Telemetry for the metrics handle.
 //
+// The command line is Run's: serve, migrate, help, and the application's own
+// commands, added with Command (they run like migrate, each parsing its own
+// flags). LoadEnv, called first in main, reads a .env into the environment
+// before the configuration is.
+//
 // The application is built on the bootstrap package: old-style
 // bootstrap.Modules run in the same App (see App.Modules), so an application
 // can move to Install one feature at a time.

@@ -2,7 +2,9 @@ package gocore_test
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -314,4 +316,50 @@ func ExampleApp_Consumers() {
 
 	fmt.Println(app.Consumers())
 	// Output: [audit.ticket-assigned notifications.ticket-assigned]
+}
+
+// prune is a command: it parses its own arguments with the standard flag package.
+func prune(_ context.Context, _ *gocore.App, args []string, out io.Writer) error {
+	flags := flag.NewFlagSet("db:prune", flag.ContinueOnError)
+	flags.SetOutput(out)
+
+	dryRun := flags.Bool("dry-run", false, "count the rows without deleting them")
+
+	if err := flags.Parse(args); err != nil {
+		return err // flag.ErrHelp, from -h, ends the command with success
+	}
+
+	_, err := fmt.Fprintf(out, "dry run: %t\n", *dryRun)
+
+	return err
+}
+
+// Command adds the application's own commands to its command line. They run
+// like migrate (the databases open, nothing is served), take their arguments
+// unparsed, and print their flags for -h. Run reads the command line;
+// RunCommand takes the arguments, for tests.
+func ExampleApp_Command() {
+	for _, args := range [][]string{{"db:prune", "-dry-run"}, {"db:prune", "-h"}} {
+		reg, cleanup := database.NewTestRegistry("local")
+		app := gocore.New(bootstrap.DefaultConfig(),
+			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+
+		app.Command("db:prune", "delete rows past their retention window", prune)
+
+		fmt.Println("$ myapp", strings.Join(args, " "))
+
+		if err := app.RunCommand(context.Background(), args, os.Stdout); err != nil {
+			fmt.Println(err)
+		}
+
+		_ = cleanup()
+	}
+
+	// Output:
+	// $ myapp db:prune -dry-run
+	// dry run: true
+	// $ myapp db:prune -h
+	// Usage of db:prune:
+	//   -dry-run
+	//     	count the rows without deleting them
 }
