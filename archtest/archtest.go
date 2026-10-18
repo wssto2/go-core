@@ -24,6 +24,9 @@
 //   - RepositoryShape: the transaction and tenant-scope plumbing of go-core is
 //     reached from one file of the repository package only.
 //
+// LogicIDs is a guard of its own, not a rule of Run: it holds the code to a
+// registry of Logic IDs (every ID the mapping declares is named in a comment).
+//
 // A rule whose layer is not configured is not run. Banned adds the rules of the
 // application itself (a removed API, a package one layer must not import), and
 // an application's own guards walk the same parsed files with Sources and
