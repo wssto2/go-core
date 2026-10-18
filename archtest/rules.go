@@ -15,6 +15,7 @@ func (p *project) rules() []rule {
 	p.layerRules(set)
 	p.dataRules(set)
 	p.routeRules(set)
+	p.portabilityRules(set)
 
 	if len(p.cfg.Banned) > 0 && !slices.Contains(p.cfg.Skip, bannedRule) {
 		set.rules = append(set.rules, rule{name: bannedRule, check: p.banned})
@@ -92,6 +93,14 @@ func (p *project) dataRules(set *ruleSet) {
 	set.add(shape.Dir != "" && (shape.TxFile != "" || shape.ScopeFile != ""), RepositoryShape, "repository shape",
 		"a repository reaches the caller's transaction and tenant scope through the one file of the package "+
 			"that owns them", p.repositoryShape)
+}
+
+func (p *project) portabilityRules(set *ruleSet) {
+	set.add(len(p.cfg.SQL.Dirs) > 0, SQLPortability, "SQL that MariaDB 10.3.39 rejects",
+		"every market runs MariaDB 10.3.39, which rejects SKIP LOCKED, FOR UPDATE OF, FOR SHARE, JSON_TABLE, ->> and "+
+			"RETURNING while a local MySQL accepts them: use a single-table SELECT ... FOR UPDATE by primary key "+
+			"instead of SKIP LOCKED / FOR UPDATE OF, and FOR UPDATE or LOCK IN SHARE MODE instead of FOR SHARE",
+		p.sqlPortability)
 }
 
 func (p *project) routeRules(set *ruleSet) {

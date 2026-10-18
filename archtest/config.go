@@ -28,6 +28,7 @@ const (
 	RouteAccess           = "route-access"
 	ServiceRepositories   = "service-repositories"
 	RepositoryShape       = "repository-shape"
+	SQLPortability        = "sql-portability"
 )
 
 // bannedRule is the name of the Config.Banned checks in a Result; they have no
@@ -40,7 +41,7 @@ func ruleNames() []string {
 		NoPanic, NoContextBackground, NoSleep, NoDatabaseSQL, ErrorfWrap, HandlersNoPersistence, LayerImports,
 		DomainPurity, ApplicationPurity, NoTimeNowDomain, NoTimeNowApplication, CrossAggregate, DomainContextFirst,
 		ServiceContextFirst, BoundedStrings, RoutePaths, RouteIdentifiers, ValidationRules, RouteAccess,
-		ServiceRepositories, RepositoryShape, bannedRule,
+		ServiceRepositories, RepositoryShape, SQLPortability, bannedRule,
 	}
 }
 
@@ -104,6 +105,10 @@ type Config struct {
 	// Repository is the shape RepositoryShape holds the repository package to.
 	// A field left empty leaves its part of the rule off.
 	Repository Repository
+
+	// SQL switches on SQLPortability: the Go sources of these directories may
+	// not carry SQL that MariaDB 10.3 rejects.
+	SQL SQL
 }
 
 // Repository names the one file of the repository package that may use a

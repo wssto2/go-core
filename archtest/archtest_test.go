@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -242,4 +243,48 @@ func TestSourcesAndRatchetServeAnApplicationsOwnGuards(t *testing.T) {
 	require.Equal(t, map[string][]string{mainFile: {mainFile + ":3  func"}}, byFile)
 
 	archtest.Ratchet(t, "frozen", "hint", []string{mainFile}, byFile)
+}
+
+func TestSQLPortabilityRule(t *testing.T) {
+	t.Parallel()
+
+	const locks = "internal/infrastructure/db/repository/locks.go"
+
+	// Opt-in: a module that configures no directory is not checked.
+	cfg := testConfig(fixture(t, "sql-portability"))
+	results, err := archtest.Check(cfg)
+	require.NoError(t, err)
+
+	for _, result := range results {
+		require.NotEqual(t, archtest.SQLPortability, result.Rule)
+	}
+
+	cfg.SQL.Dirs = []string{"internal"}
+	got := problems(t, cfg, archtest.SQLPortability)
+
+	// Lines 6-15 are the violations, 16-19 are what MariaDB 10.3 accepts.
+	for line := 6; line <= 15; line++ {
+		require.Contains(t, got, locks+":"+strconv.Itoa(line)+"  ", "line %d", line)
+	}
+
+	for line := 16; line <= 19; line++ {
+		require.NotContains(t, got, locks+":"+strconv.Itoa(line)+"  ", "line %d", line)
+	}
+
+	require.NotContains(t, got, "locks_test.go", "test files are not production SQL")
+
+	cfg.SQL.Dirs = []string{"cmd"}
+	require.Empty(t, problems(t, cfg, archtest.SQLPortability), "only the configured directories are scanned")
+
+	cfg.SQL.Dirs = []string{"internal"}
+	cfg.Allowed = map[string][]string{archtest.SQLPortability: {locks}}
+	require.Empty(t, problems(t, cfg, archtest.SQLPortability))
+
+	require.Empty(t, problems(t, withSQL(testConfig(fixture(t))), archtest.SQLPortability), "a good module is clean")
+}
+
+func withSQL(cfg archtest.Config) archtest.Config {
+	cfg.SQL.Dirs = []string{"internal", "cmd"}
+
+	return cfg
 }
