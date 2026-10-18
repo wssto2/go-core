@@ -10,7 +10,8 @@ import (
 	"gorm.io/gorm"
 )
 
-var errOffline = errors.New("gocore: the application is offline (gocore.Offline): it opens no database and does not serve")
+var errOffline = errors.New(
+	"gocore: the application is offline (gocore.Offline): it opens no database and does not serve")
 
 // Offline makes an App that can be assembled and inspected but never run, for what needs the installed application and
 // nothing outside it: a generator that writes TypeScript from App.Contracts and App.Catalogues, a documentation
@@ -23,8 +24,8 @@ var errOffline = errors.New("gocore: the application is offline (gocore.Offline)
 //   - Serving and migrating are refused: Run and RunContext without a command, and migrate, migrate status and
 //     migrate mark-applied, return an error. Commands an application adds, and help, work; they get the handles above.
 //   - OnStart checks and background workers are collected and never run, and no listener is opened.
-//   - The logger writes warnings and errors to standard error, no log directory or file is created (the default
-//     logger would create one and write to standard output, where a generator writes its result); WithLogger replaces it.
+//   - The logger writes warnings and errors to standard error and creates no log directory or file (the default
+//     logger would, and would write to standard output, where a generator writes its result); WithLogger replaces it.
 //   - Telemetry stays: it is an in-process registry. Disks stay as declared: storage.Disk(...).Local(root) creates
 //     root when the spec is built, before the App sees it, so declare disks a generator does not need conditionally,
 //     or with Memory().
@@ -43,7 +44,9 @@ func (a *App) Catalogues() []*authz.Catalogue {
 
 // offlineLogger is the logger of an offline App: no files, nothing on standard output.
 func offlineLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	opts := &slog.HandlerOptions{AddSource: false, Level: slog.LevelWarn, ReplaceAttr: nil}
+
+	return slog.New(slog.NewTextHandler(os.Stderr, opts))
 }
 
 // offlineDatabase is the one handle an offline App hands out for every connection.
