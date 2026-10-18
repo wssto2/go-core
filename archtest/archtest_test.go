@@ -263,12 +263,12 @@ func TestSQLPortabilityRule(t *testing.T) {
 	cfg.SQL.Dirs = []string{internalDir}
 	got := problems(t, cfg, archtest.SQLPortability)
 
-	// Lines 6-15 are the violations, 16-19 are what MariaDB 10.3 accepts.
+	// Lines 6-15 are the violations, 16-20 are what MariaDB 10.3 accepts (20: "returning" in prose).
 	for line := 6; line <= 15; line++ {
 		require.Contains(t, got, locks+":"+strconv.Itoa(line)+"  ", "line %d", line)
 	}
 
-	for line := 16; line <= 19; line++ {
+	for line := 16; line <= 20; line++ {
 		require.NotContains(t, got, locks+":"+strconv.Itoa(line)+"  ", "line %d", line)
 	}
 

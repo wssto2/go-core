@@ -17,4 +17,5 @@ var (
 	k  = "SELECT id FROM t WHERE id = ? FOR UPDATE" // FOR SHARE in a comment is not SQL
 	l  = "SELECT id FROM t LOCK IN SHARE MODE"
 	m  = "SELECT id FROM t FOR UPDATE NOWAIT"
+	n  = "returning nil: the order has no lines" // prose, not SQL
 )

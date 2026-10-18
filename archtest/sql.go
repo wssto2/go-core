@@ -47,7 +47,7 @@ func SQLRules() []SQLRule {
 // construct: Table renders FOR UPDATE OF, Strength "SHARE" renders FOR SHARE,
 // and the constants LockingStrengthShare and LockingOptionsSkipLocked.
 func (p *project) sqlPortability() []finding {
-	table := SQLRules()
+	table := goLiteralRules()
 
 	var out []finding
 
@@ -77,6 +77,21 @@ func (p *project) sqlPortability() []finding {
 	}
 
 	return out
+}
+
+// goLiteralRules is SQLRules for Go string literals, where RETURNING counts only
+// in capitals: "returning" is common English in messages, while SQL in Go is
+// written in capitals.
+func goLiteralRules() []SQLRule {
+	table := SQLRules()
+
+	for i := range table {
+		if strings.HasPrefix(table[i].What, "RETURNING") {
+			table[i].Pattern = regexp.MustCompile(`\bRETURNING\b`)
+		}
+	}
+
+	return table
 }
 
 func literalViolations(lit *ast.BasicLit, table []SQLRule, report func(ast.Node, string)) {
