@@ -1,4 +1,4 @@
-package bootstrap
+package gocore
 
 import (
 	"net/http"
@@ -77,7 +77,7 @@ func TestWithSPA_UsesConventionDefaultsAndRendersState(t *testing.T) {
 	cfg.Frontend.ManifestPath = ""
 	cfg.Frontend.AssetsURLPrefix = ""
 
-	builder := New(cfg).DefaultInfrastructure().WithSPA(func(ctx *gin.Context) (any, error) {
+	builder := newBuilder(cfg).DefaultInfrastructure().WithSPA(func(ctx *gin.Context) (any, error) {
 		return gin.H{
 			"path": ctx.Request.URL.Path,
 		}, nil
@@ -122,9 +122,8 @@ func TestWithSPA_DefaultsAPIPrefixToSlashAPI(t *testing.T) {
 	cfg.App.Env = "production"
 	cfg.I18n.Dir = tempI18nDir(t)
 	cfg.Frontend.TemplatesPath = ""
-	cfg.Frontend.APIPrefix = ""
 
-	builder := New(cfg).DefaultInfrastructure().WithSPA(nil)
+	builder := newBuilder(cfg).DefaultInfrastructure().WithSPA(nil)
 
 	app, err := builder.Build()
 	require.NoError(t, err)
@@ -179,7 +178,7 @@ func TestWithSPAConfig_UsesExplicitConfig(t *testing.T) {
 	cfg.App.Env = "production"
 	cfg.I18n.Dir = tempI18nDir(t)
 
-	builder := New(cfg).DefaultInfrastructure().WithSPAConfig(frontend.SPAConfig{
+	builder := newBuilder(cfg).DefaultInfrastructure().WithSPAConfig(frontend.SPAConfig{
 		TemplatesPath: filepath.Join(templateDir, "*.html"),
 		TemplateName:  "shell.html",
 		APIPrefix:     "/backend",

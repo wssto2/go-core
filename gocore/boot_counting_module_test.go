@@ -1,4 +1,4 @@
-package bootstrap
+package gocore
 
 import (
 	"context"
@@ -27,7 +27,7 @@ func TestAppBuilder_ModuleRegisteredExactlyOnce(t *testing.T) {
 	m := &countingModule{name: "counting"}
 
 	cfg := DefaultConfig()
-	builder := New(cfg).DefaultInfrastructure()
+	builder := newBuilder(cfg).DefaultInfrastructure()
 
 	app, err := builder.WithComponents(m).Build()
 	if err != nil {

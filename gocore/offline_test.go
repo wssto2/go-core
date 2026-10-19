@@ -20,7 +20,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/route"
 	"gorm.io/gorm"
@@ -85,7 +84,7 @@ func offlineApp(opts ...Option) *App {
 	base := []Option{Offline(), WithLogger(quietLogger()),
 		WithAuthentication(func(c *gin.Context) { c.Next() }), WithAuthorizer(authztest.AllowAll())}
 
-	return New(bootstrap.DefaultConfig(), slices.Concat(base, opts)...)
+	return New(slices.Concat(base, opts)...)
 }
 
 func TestOfflineInstallsARepositoryFeatureCleanly(t *testing.T) {
@@ -146,14 +145,14 @@ func TestOfflineOpensNoDatabase(t *testing.T) {
 	}()
 
 	host, port, _ := net.SplitHostPort(listener.Addr().String())
-	cfg := bootstrap.DefaultConfig()
-	cfg.Database.Connections = []bootstrap.DatabaseConnectionConfig{{
+	cfg := DefaultConfig()
+	cfg.Database.Connections = []DatabaseConnectionConfig{{
 		Name: "local", Driver: "mysql", Host: host, Port: port, Database: "x", Username: "u", Password: "p",
 		SQLMode: "", Charset: "", MaxIdleConns: 0, MaxOpenConns: 0, ConnMaxLifetime: 0, Debug: false,
 	}}
 
 	// The control: without Offline the same config dials the listener, so a count of zero below means something.
-	control := New(cfg, WithLogger(quietLogger()))
+	control := New(WithConfig(cfg), WithLogger(quietLogger()))
 
 	t.Cleanup(control.closeDatabase)
 
@@ -163,7 +162,7 @@ func TestOfflineOpensNoDatabase(t *testing.T) {
 
 	dials.Store(0)
 
-	app := New(cfg, Offline(), WithLogger(quietLogger()))
+	app := New(WithConfig(cfg), Offline(), WithLogger(quietLogger()))
 	_ = app.Database()
 	_ = app.Database("shared")
 
@@ -254,10 +253,10 @@ func TestOfflineLeavesTheRegistryOfWithRegistryUnused(t *testing.T) {
 func TestOfflineCreatesNoLogDirectory(t *testing.T) {
 	t.Parallel()
 
-	cfg := bootstrap.DefaultConfig()
+	cfg := DefaultConfig()
 	cfg.Log.Dir = filepath.Join(t.TempDir(), "logs")
 
-	app := New(cfg, Offline())
+	app := New(WithConfig(cfg), Offline())
 
 	app.Logger().Info("quiet")
 
@@ -279,7 +278,7 @@ func TestOfflineReportsWhetherTheAppIsOffline(t *testing.T) {
 		t.Fatal("an App made with Offline must report it")
 	}
 
-	if New(bootstrap.DefaultConfig(), WithLogger(quietLogger())).Offline() {
+	if New(WithLogger(quietLogger())).Offline() {
 		t.Fatal("an ordinary App is not offline")
 	}
 }

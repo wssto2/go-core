@@ -233,8 +233,8 @@ func (a *App) commandNames() string {
 }
 
 func (a *App) runAppCommand(ctx context.Context, c *appCommand, args []string, out io.Writer) error {
-	if len(a.problems) > 0 {
-		return &StartupError{Problems: append([]Problem(nil), a.problems...)}
+	if len(a.found()) > 0 {
+		return &StartupError{Problems: a.found()}
 	}
 
 	err := c.run(ctx, a, args, out)

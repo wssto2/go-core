@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/gocore"
@@ -50,7 +49,7 @@ func ExampleApp() {
 	reg, cleanup := database.NewTestRegistry("local", "shared")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg),
 		gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithClock(fixedClock(time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC))),
@@ -71,7 +70,7 @@ func (reads) Count() int { return 3 }
 // Later breaks a real cycle between two features: one gets a promise that is
 // kept once both exist.
 func ExampleLater() {
-	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+	app := gocore.New(gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	promise := gocore.Later[Reads](app)
 
@@ -93,7 +92,7 @@ func ExampleApp_Check() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	gocore.Later[Reads](app) // never set
@@ -119,7 +118,7 @@ func ExampleWithAuthentication() {
 		{gocore.WithAuthentication(signedIn)},
 		{}, // no authentication configured
 	} {
-		app := gocore.New(bootstrap.DefaultConfig(),
+		app := gocore.New(
 			append(opts, gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))...)
 		Install(app)
 
@@ -147,7 +146,7 @@ func ExampleApp_RunCommand() {
 
 	for _, args := range [][]string{{}, {"migrate"}, {"migrate", "status"}, mark, {"help"}, {"serve"}} {
 		reg, cleanup := database.NewTestRegistry("local", "shared")
-		app := gocore.New(bootstrap.DefaultConfig(),
+		app := gocore.New(
 			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 		app.Migrations(things)         // the primary connection
@@ -189,7 +188,7 @@ func ExampleApp_Migrate() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	app.Migrations(things)
@@ -204,7 +203,7 @@ func ExampleApp_MigrationsByConnection() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	app.MigrationsByConnection(fstest.MapFS{"local/20260101000000_orders.sql": things["20261015000000_things.sql"]})
@@ -219,7 +218,7 @@ func ExampleWithAutoMigrate() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAutoMigrate(context.Background()))
 
@@ -232,7 +231,7 @@ func ExampleWithAutoMigrate() {
 // WithPrefix is where the API lives. Routes declare their own version, so a
 // route declared "/v1/ping" is served at "/api/v1/ping".
 func ExampleWithPrefix() {
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithPrefix("/api"),
 	)
@@ -247,7 +246,7 @@ func ExampleApp_Schema() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAutoMigrate(context.Background()))
 
@@ -270,7 +269,7 @@ func ExampleApp_Authenticate() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	app.Authenticate(func(c *gin.Context) { c.Next() })
@@ -286,7 +285,7 @@ func ExampleApp_Fail() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	app.Fail("tickets needs a mail sender", "pass mail.Install(app) to tickets.Install")
@@ -306,7 +305,7 @@ func ExampleApp_Consumers() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+	app := gocore.New(gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 	assigned := event.Define[ticketAssigned]("tickets.assigned")
 
 	app.Events(
@@ -345,7 +344,7 @@ func dryRunPrune(_ context.Context, _ *gocore.App, args []string, out io.Writer)
 func ExampleApp_Command() {
 	for _, args := range [][]string{{"db:prune", "-dry-run"}, {"db:prune", "-h"}} {
 		reg, cleanup := database.NewTestRegistry("local")
-		app := gocore.New(bootstrap.DefaultConfig(),
+		app := gocore.New(
 			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 		app.Command("db:prune", "delete rows past their retention window", dryRunPrune)

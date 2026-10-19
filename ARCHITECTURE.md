@@ -25,9 +25,9 @@ Layer 3 — imports Layers 0–2:
   internal/binders, middlewares, datatable, resource, observability, web, audit, health
 
 Layer 4 — imports Layers 0–3 (and authz):
-  bootstrap, frontend, go2ts, route, web/typed (the web helpers that need route)
+  frontend, go2ts, route, web/typed (the web helpers that need route)
 
-Layer 4+ — imports route and go2ts, never bootstrap or gocore:
+Layer 4+ — imports route and go2ts, never gocore:
   contract (TypeScript generation from route groups)
 
 Layer 5 — imports Layers 0–4:
@@ -66,22 +66,22 @@ validation only; go-core's section 1 is checked with it, section 1.1):
 ```
 
 Specific prohibitions:
-- `auth`     MUST NOT import `database`, `bootstrap`, or `event`
-- `event`    MUST NOT import `bootstrap` or `auth`. It imports `database` (the transaction `Publish` joins, the outbox worker) and never `gocore`; `gocore` imports `event` and `event/migrations` for `App.Events`
+- `auth`     MUST NOT import `database` or `event`
+- `event`    MUST NOT import `auth`. It imports `database` (the transaction `Publish` joins, the outbox worker) and never `gocore`; `gocore` imports `event` and `event/migrations` for `App.Events`
 - `incident/core` MUST NOT import `gocore`, `route`, `gin`, GORM or `database/sql`: it is the service and the ports, which `gormstore`
   implements and the facade wires. `incident` imports `notification` (the alerts); neither imports it. Who holds a permission is
   `authz.Engine.HoldersOf`, which `incident` reaches through the application's authorizer
 - `notification` imports `event`, `identity/account` (the people it notifies; `identity/http` for the stream's session re-check), `gocore`, `route`, `database` and `authz`; neither `event` nor `identity` imports it
-- `audit`    MUST NOT import `bootstrap` or `auth`
-- `database` MUST NOT import `event`, `auth`, or `bootstrap`
-- `health`   MUST NOT import `bootstrap`
+- `audit`    MUST NOT import `auth`
+- `database` MUST NOT import `event` or `auth`
+- `health`   MUST NOT import `gocore`
 - `httpclient/internal/resilience` MUST NOT import anything from go-core (pure algorithms)
-- `route`   MUST NOT import `bootstrap` or `gocore`: a route declaration is plain
+- `route`   MUST NOT import `gocore`: a route declaration is plain
   data, readable (by a generator, for instance) without an application. It
   imports `internal/binders`, `validation`, `web` and `authz` / `authzhttp` for the adapter.
-- `gocore`  is the only package that knows both `route` and `bootstrap`; features
-  import `gocore` in their `Install` function and nothing in `bootstrap`.
-  `bootstrap`, `route`, `database`, `authz` MUST NOT import `gocore` or `gocoretest`.
+- `gocore`  is the only package that knows every layer (it also holds the lifecycle, configuration and HTTP
+  server the App runs on); features import `gocore` in their `Install` function.
+  `route`, `database`, `authz` MUST NOT import `gocore` or `gocoretest`.
 - `gocoretest` MUST be imported by `_test.go` files only; non-test code never
   imports it.
 - A module's framework-free core (`identity/account`) MUST NOT import gin, GORM,
@@ -174,7 +174,7 @@ change between rc tags.
 |---|---|
 | `gocore` | The application: `gocore.New`, `Install`-style features, typed routes, `Run`, commands, checks. The only package a feature imports to wire itself. |
 | `gocoretest` | A `gocore.App` for tests: in-memory SQLite that migrates as features install, a fixed clock, routes called without a port. |
-| `bootstrap` | Lifecycle, configuration and the HTTP server the App runs on (`Config`, `AppBuilder`, `Component`). |
+| `env` | Settings read from the environment with explicit calls (`Required`, `String`, `Int`, `Bool`, `Duration`, `List`); a bad value is a start-up problem naming the variable. |
 | `route` | Typed route declarations (`Get`, `Post`, `Raw`, `Group`, `.Requires`, `.Public`), plain data. |
 | `contract` | TypeScript (types, Zod, route tables) generated from route groups; `go2ts` is its type reflection. |
 | `web`, `web/typed`, `web/upload`, `web/webtest` | Handler helpers, body and path limits, typed-handler helpers, multipart uploads, response-shape assertions. |

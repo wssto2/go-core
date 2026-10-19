@@ -1,5 +1,5 @@
 //nolint:testpackage // serves through the unexported serveStatic, the one place both static mounts go through
-package bootstrap
+package gocore
 
 import (
 	"net/http"

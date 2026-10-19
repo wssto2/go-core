@@ -14,7 +14,6 @@ import (
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/route"
 )
 
@@ -71,7 +70,7 @@ func twoChains(t *testing.T, authorizer authz.Authorizer) (*App, route.Security)
 		opts = append(opts, WithAuthorizer(authorizer))
 	}
 
-	app := New(bootstrap.DefaultConfig(), opts...)
+	app := New(opts...)
 
 	return app, route.Security{Authenticate: []gin.HandlerFunc{header(keyHeader, "key")}, Authorizer: nil}
 }

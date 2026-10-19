@@ -1,4 +1,4 @@
-package bootstrap
+package gocore
 
 import (
 	"context"
@@ -46,7 +46,7 @@ func TestBootModules_CancelsOthersOnFirstFailure(t *testing.T) {
 			}
 		},
 	}
-	app := NewApp(DefaultConfig(), nil, nil, nil, nil, []Component{failModule, blockModule})
+	app := newLifecycle(DefaultConfig(), nil, nil, nil, nil, []component{failModule, blockModule})
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	err := app.bootModules(ctx)

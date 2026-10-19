@@ -30,7 +30,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/gocore"
@@ -94,7 +93,8 @@ func New(t testing.TB, opts ...Option) *gocore.App {
 		appOpts = append(appOpts, gocore.WithAuthorizer(s.authorizer))
 	}
 
-	return gocore.New(bootstrap.DefaultConfig(), appOpts...)
+	// A test never reads the machine's environment.
+	return gocore.New(append([]gocore.Option{gocore.WithConfig(gocore.DefaultConfig())}, appOpts...)...)
 }
 
 // authenticate stands in for the application's real authentication: it

@@ -1,4 +1,4 @@
-package bootstrap
+package gocore
 
 import (
 	"context"
@@ -37,13 +37,13 @@ func (m *MockModule) Shutdown(ctx context.Context) error {
 func TestAppLifecycle(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.I18n.Dir = tempI18nDir(t)
-	builder := New(cfg).DefaultInfrastructure()
+	builder := newBuilder(cfg).DefaultInfrastructure()
 	app, _ := builder.Build()
 
 	m1 := new(MockModule)
 	m2 := new(MockModule)
 
-	app.modules = []Component{m1, m2}
+	app.modules = []component{m1, m2}
 
 	t.Run("Full Lifecycle", func(t *testing.T) {
 		ctx := context.Background()

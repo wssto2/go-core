@@ -15,7 +15,6 @@ import (
 
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"gorm.io/gorm"
 )
@@ -26,7 +25,7 @@ func testApp(t *testing.T, names ...string) *App {
 	reg, cleanup := database.NewTestRegistry(names...)
 	t.Cleanup(func() { _ = cleanup() })
 
-	return New(bootstrap.DefaultConfig(), WithRegistry(reg), WithLogger(slog.New(slog.DiscardHandler)))
+	return New(WithRegistry(reg), WithLogger(slog.New(slog.DiscardHandler)))
 }
 
 func TestDatabaseUnknownConnectionIsReportedWithRegisteredNames(t *testing.T) {
@@ -44,7 +43,7 @@ func TestDatabaseUnknownConnectionIsReportedWithRegisteredNames(t *testing.T) {
 }
 
 func TestDatabaseWithoutConfigurationIsAProblem(t *testing.T) {
-	app := New(bootstrap.DefaultConfig(), WithLogger(slog.New(slog.DiscardHandler)))
+	app := New(WithLogger(slog.New(slog.DiscardHandler)))
 	_ = app.Database()
 
 	if len(app.problems) != 1 || !strings.Contains(app.problems[0].Fix, "WithRegistry") {
@@ -66,7 +65,7 @@ func TestLaterMustGetPanicsWithTheNamedError(t *testing.T) {
 }
 
 func TestAuthorizeSetsTheAuthorizerOnceAndFailReportsAtCheck(t *testing.T) {
-	app := New(bootstrap.DefaultConfig(), WithLogger(slog.New(slog.DiscardHandler)))
+	app := New(WithLogger(slog.New(slog.DiscardHandler)))
 
 	app.Authorize(authztest.AllowAll())
 
@@ -92,7 +91,7 @@ func TestAuthorizeSetsTheAuthorizerOnceAndFailReportsAtCheck(t *testing.T) {
 
 func TestPrefixMountsEveryRouteUnderIt(t *testing.T) {
 	for prefix, want := range map[string]string{"": "/v1/ping", "/api": "/api/v1/ping", "api/": "/api/v1/ping", "/": "/v1/ping"} {
-		app := New(bootstrap.DefaultConfig(), WithLogger(slog.New(slog.DiscardHandler)),
+		app := New(WithLogger(slog.New(slog.DiscardHandler)),
 			WithAuthentication(func(c *gin.Context) { c.Next() }), WithPrefix(prefix))
 		ping := route.Get[route.None, string]("/v1/ping").Authenticated()
 		app.Routes(ping.To(func(context.Context, route.None) (string, error) { return "pong", nil }))
@@ -130,7 +129,7 @@ func TestSchemaUsesTheModelsOnSQLiteUnderAutoMigrate(t *testing.T) {
 	reg, cleanup := database.NewTestRegistry("local")
 	t.Cleanup(func() { _ = cleanup() })
 
-	app := New(bootstrap.DefaultConfig(), WithRegistry(reg), WithLogger(slog.New(slog.DiscardHandler)), WithAutoMigrate(t.Context()))
+	app := New(WithRegistry(reg), WithLogger(slog.New(slog.DiscardHandler)), WithAutoMigrate(t.Context()))
 	app.Schema(Schema{Files: mysqlOnly, Models: widgetModels})
 
 	if err := app.Migrate(t.Context()); err != nil { // migrating again must not create the tables twice
@@ -212,7 +211,7 @@ func TestFailIsListedWithTheOtherProblems(t *testing.T) {
 
 func TestAuthorizeReplacesWhatTheOptionsSet(t *testing.T) {
 	stand := authztest.DenyAll()
-	app := New(bootstrap.DefaultConfig(), WithLogger(slog.New(slog.DiscardHandler)), WithAuthorizer(stand))
+	app := New(WithLogger(slog.New(slog.DiscardHandler)), WithAuthorizer(stand))
 
 	engine := authztest.AllowAll()
 	app.Authorize(engine)

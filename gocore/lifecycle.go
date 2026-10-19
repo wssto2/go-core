@@ -1,7 +1,7 @@
 // Package bootstrap wires together the application lifecycle, configuration
 // and HTTP server startup. Applications reach it through gocore, which builds
 // the engine and runs the components it hands over.
-package bootstrap
+package gocore
 
 import (
 	"context"
@@ -19,9 +19,9 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// Component is a unit the App mounts on its engine, starts and stops. gocore
+// component is a unit the App mounts on its engine, starts and stops. gocore
 // supplies the one that installs routes and runs workers.
-type Component interface {
+type component interface {
 	Name() string
 	// Register runs before Boot, with the engine every middleware is already on.
 	Register(engine *gin.Engine) error
@@ -29,23 +29,23 @@ type Component interface {
 	Shutdown(ctx context.Context) error
 }
 
-// App is the main application instance that manages the lifecycle of its components.
-type App struct {
+// lifecycle is the main application instance that manages the lifecycle of its components.
+type lifecycle struct {
 	cfg        Config
 	log        *slog.Logger
 	health     *health.HealthRegistry
 	engine     *gin.Engine
-	httpServer HTTPServer
-	modules    []Component
+	httpServer httpServer
+	modules    []component
 	booted     []bool             // booted[i]: modules[i].Boot returned nil; read after bootModules
 	cancelBoot context.CancelFunc // ends the context Boot received; called at shutdown
 }
 
-// NewApp constructs an App instance.
-func NewApp(
-	cfg Config, log *slog.Logger, hr *health.HealthRegistry, engine *gin.Engine, httpSrv HTTPServer, modules []Component,
-) *App {
-	return &App{
+// newLifecycle constructs an App instance.
+func newLifecycle(
+	cfg Config, log *slog.Logger, hr *health.HealthRegistry, engine *gin.Engine, httpSrv httpServer, modules []component,
+) *lifecycle {
+	return &lifecycle{
 		cfg:        cfg,
 		log:        log,
 		health:     hr,
@@ -56,7 +56,7 @@ func NewApp(
 }
 
 // Run starts the application and its modules, then waits for a termination signal.
-func (a *App) Run() error {
+func (a *lifecycle) Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -66,7 +66,7 @@ func (a *App) Run() error {
 // RunContext is Run that stops when ctx is done instead of on a signal. When
 // start-up fails (a module's Boot, the HTTP listener), everything that already
 // started is stopped again, in reverse order, before the error is returned.
-func (a *App) RunContext(ctx context.Context) error {
+func (a *lifecycle) RunContext(ctx context.Context) error {
 	log := a.log
 
 	// 1. Register Phase
@@ -123,7 +123,7 @@ func (a *App) RunContext(ctx context.Context) error {
 // registerModules calls Register on every component in declaration order.
 // Register mounts routes on the shared engine, so keeping it sequential avoids
 // racy startup behavior.
-func (a *App) registerModules() error {
+func (a *lifecycle) registerModules() error {
 	for _, m := range a.modules {
 		err := m.Register(a.engine)
 		if err != nil {
@@ -137,7 +137,7 @@ func (a *App) registerModules() error {
 // lives until shutdown, so a module may start workers on it. If any Boot
 // returns an error, that context is canceled (siblings still booting see it)
 // and bootModules returns the first error.
-func (a *App) bootModules(ctx context.Context) error {
+func (a *lifecycle) bootModules(ctx context.Context) error {
 	// Not derived from the run context's cancellation: a signal must stop the
 	// HTTP server first, and only then end what Boot started.
 	bootCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
@@ -161,13 +161,13 @@ func (a *App) bootModules(ctx context.Context) error {
 }
 
 // Shutdown gracefully shuts down the HTTP server and all modules.
-func (a *App) Shutdown(log *slog.Logger) {
+func (a *lifecycle) Shutdown(log *slog.Logger) {
 	a.shutdown(log, nil)
 }
 
 // shutdown stops the HTTP server, then the modules in reverse order. With a
 // non-nil only, just the modules marked true are stopped (those that booted).
-func (a *App) shutdown(log *slog.Logger, only []bool) {
+func (a *lifecycle) shutdown(log *slog.Logger, only []bool) {
 	log.Info("shutting_down")
 
 	// ShutdownTimeout is a time.Duration (not seconds): multiplying it by

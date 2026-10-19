@@ -10,7 +10,6 @@ import (
 	"syscall"
 
 	"github.com/gin-gonic/gin"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/middlewares"
 	"github.com/wssto2/go-core/route"
 	"github.com/wssto2/go-core/web"
@@ -34,7 +33,7 @@ func (a *App) Check() error {
 
 // checked is Check plus the extra problems.
 func (a *App) checked(extra []Problem) error {
-	problems := append([]Problem(nil), a.problems...)
+	problems := a.found()
 	problems = append(problems, extra...)
 
 	for _, l := range a.laters {
@@ -228,17 +227,42 @@ func (a *App) closeDatabase() {
 	}
 }
 
-func (a *App) build() (*bootstrap.App, error) {
-	builder := bootstrap.New(a.cfg).WithLogger(a.log).WithTelemetry(a.tel)
+func (a *App) build() (*lifecycle, error) {
+	builder := newBuilder(a.cfg).WithLogger(a.log).WithTelemetry(a.tel)
+	builder.prefix = a.Prefix()
+
 	if a.registry != nil {
 		builder.WithRegistry(a.registry)
 	}
 
 	builder.DefaultInfrastructure().Use(a.middleware...)
 
-	for _, configure := range a.customize {
-		configure(builder)
+	if a.spa != nil {
+		if a.spa.config != nil {
+			builder.WithSPAConfig(*a.spa.config)
+		} else {
+			builder.WithSPA(a.spa.state)
+		}
 	}
+
+	if a.idempotencyTTL > 0 {
+		builder.WithIdempotency(a.idempotencyTTL)
+	}
+
+	if a.perIPLimit != nil {
+		builder.WithIPRateLimit(a.perIPLimit, a.Prefix()+"/")
+	}
+
+	if a.perUserLimit != nil {
+		builder.WithRateLimit(a.perUserLimit)
+	}
+
+	if a.globalLimit != nil {
+		builder.WithGlobalRateLimit(a.globalLimit)
+	}
+
+	builder.trustedOrigins = append(builder.trustedOrigins, a.trustedOrigins...)
+	builder.csp = append(builder.csp, a.csp...)
 
 	booted, err := builder.WithComponents(&featuresModule{app: a, mgr: nil, cancel: nil}).WithHttp().Build()
 	if err != nil {

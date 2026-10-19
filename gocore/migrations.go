@@ -235,8 +235,8 @@ func (a *App) migrator() (*migrate.Migrator, error) {
 	}
 
 	if a.registry == nil {
-		if len(a.problems) > 0 {
-			return nil, &StartupError{Problems: append([]Problem(nil), a.problems...)}
+		if len(a.found()) > 0 {
+			return nil, &StartupError{Problems: a.found()}
 		}
 
 		return nil, errors.New("gocore: migrations were collected but no database is configured: " +

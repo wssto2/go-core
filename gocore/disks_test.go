@@ -8,13 +8,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/storage"
 )
 
 func newDisksApp() *gocore.App {
-	return gocore.New(bootstrap.DefaultConfig(), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+	return gocore.New(gocore.WithLogger(slog.New(slog.DiscardHandler)))
 }
 
 func TestDisksDeclareNamedDisksThatFeaturesTake(t *testing.T) {

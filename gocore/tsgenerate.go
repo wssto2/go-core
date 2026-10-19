@@ -99,8 +99,8 @@ func asksForOffline(args []string) bool {
 func tsParts() []string { return []string{"entities", "schemas", "permissions", "routes"} }
 
 func (a *App) generateTypeScript(args []string, out io.Writer) error {
-	if len(a.problems) > 0 {
-		return &StartupError{Problems: append([]Problem(nil), a.problems...)}
+	if len(a.found()) > 0 {
+		return &StartupError{Problems: a.found()}
 	}
 
 	parts := tsParts()

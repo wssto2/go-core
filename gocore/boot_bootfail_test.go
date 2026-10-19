@@ -1,4 +1,4 @@
-package bootstrap
+package gocore
 
 import (
 	"context"
@@ -38,13 +38,13 @@ func TestRunContext_BootFailureStopsBootedModulesInReverse(t *testing.T) {
 		mu      sync.Mutex
 	)
 
-	mod := func(name string, err error) Component {
+	mod := func(name string, err error) component {
 		return recordingModule{name: name, bootErr: err, stopped: &stopped, mu: &mu}
 	}
 
 	log := slog.New(slog.DiscardHandler)
 
-	app := NewApp(DefaultConfig(), log, nil, nil, nil, []Component{mod("a", nil), mod("b", nil), mod("c", errBoot)})
+	app := newLifecycle(DefaultConfig(), log, nil, nil, nil, []component{mod("a", nil), mod("b", nil), mod("c", errBoot)})
 	if err := app.RunContext(context.Background()); err == nil {
 		t.Fatal("want the boot error")
 	}
@@ -83,7 +83,7 @@ func TestBootContextOutlivesBootAndEndsAtShutdown(t *testing.T) {
 
 	log := slog.New(slog.DiscardHandler)
 
-	app := NewApp(DefaultConfig(), log, nil, nil, nil, []Component{m})
+	app := newLifecycle(DefaultConfig(), log, nil, nil, nil, []component{m})
 	if err := app.bootModules(context.Background()); err != nil {
 		t.Fatal(err)
 	}

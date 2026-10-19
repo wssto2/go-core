@@ -17,7 +17,6 @@ import (
 
 	"github.com/wssto2/go-core/access"
 	"github.com/wssto2/go-core/authz"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/go2ts"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/route"
@@ -55,7 +54,7 @@ type tsLabel struct {
 func tsBare(opts ...gocore.Option) *gocore.App {
 	quiet := gocore.WithLogger(newAccessApp().Logger())
 
-	return gocore.New(bootstrap.DefaultConfig(), append([]gocore.Option{quiet}, opts...)...)
+	return gocore.New(append([]gocore.Option{quiet}, opts...)...)
 }
 
 // tsNoLists asks for ts:generate with no lists of types, writing under dir.
@@ -110,7 +109,7 @@ func tsApp(dir string, args []string, opts ...gocore.Option) *gocore.App {
 		}),
 	)
 
-	return gocore.New(bootstrap.DefaultConfig(), append(base, opts...)...)
+	return gocore.New(append(base, opts...)...)
 }
 
 // tsTree lists every file under dir, relative and slash-separated, with its content.

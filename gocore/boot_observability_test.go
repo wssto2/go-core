@@ -1,4 +1,4 @@
-package bootstrap
+package gocore
 
 import (
 	"net/http/httptest"
@@ -8,7 +8,7 @@ import (
 func TestDefaultInfrastructureRegistersMetricsEndpoint(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.I18n.Dir = t.TempDir()
-	b := New(cfg).DefaultInfrastructure()
+	b := newBuilder(cfg).DefaultInfrastructure()
 
 	req := httptest.NewRequest("GET", "/metrics", nil)
 	rr := httptest.NewRecorder()
