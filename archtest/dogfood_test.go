@@ -22,7 +22,7 @@ const (
 // layer and the layers below, never a layer above.
 func layers() [][]string {
 	return [][]string{
-		{"apperr", "i18n", "navigation", "mail", "pagination"},
+		{"apperr", "i18n", "navigation", "mail", "pagination", "env"},
 		{"validation", "logger", "httpclient/internal/resilience", "archtest"},
 		{pkgDatabase, "database/types", pkgAuth, pkgEvent, "storage", "tenancy", "worker"},
 		{"internal/binders", "middlewares", "datatable", "resource", "observability", "web", "audit", "health"},
