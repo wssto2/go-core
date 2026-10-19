@@ -2,14 +2,12 @@ package main
 
 import (
 	"context"
-	"errors"
 	"strconv"
 	"strings"
 
 	"go-core-example/internal/domain/product"
 
 	"github.com/gin-gonic/gin"
-	coreauth "github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/bootstrap"
 	corei18n "github.com/wssto2/go-core/i18n"
 )
@@ -30,7 +28,6 @@ type pageBootstrapState struct {
 	Locale      string                       `json:"locale"`
 	Path        string                       `json:"path"`
 	APIBase     string                       `json:"apiBase"`
-	Viewer      *viewerBootstrapState        `json:"viewer,omitempty"`
 	ViewerError string                       `json:"viewerError,omitempty"`
 	Catalog     catalogBootstrapState        `json:"catalog"`
 	Product     *productDetailBootstrapState `json:"product,omitempty"`
@@ -43,12 +40,6 @@ type pageBootstrapState struct {
 type pageShellData struct {
 	Head      pageHeadData       `json:"head"`
 	Bootstrap pageBootstrapState `json:"bootstrap"`
-}
-
-type viewerBootstrapState struct {
-	ID       int      `json:"id"`
-	Username string   `json:"username"`
-	Policies []string `json:"policies"`
 }
 
 type catalogBootstrapState struct {
@@ -85,12 +76,6 @@ type productDetailBootstrapState struct {
 	Error        string  `json:"error,omitempty"`
 }
 
-type viewerBootstrapIdentity interface {
-	coreauth.Identifiable
-	GetEmail() string
-	GetPolicies() []string
-}
-
 type pageTranslator interface {
 	T(key, lang string) string
 	TWith(key, lang string, params map[string]any) string
@@ -103,9 +88,8 @@ type catalogProductGetFunc func(ctx context.Context, id int) (product.Product, e
 // Keeping Gin out of this layer makes the composition logic easier to test and
 // easier to reuse if the transport changes later.
 type pageShellRequest struct {
-	Path                string
-	Locale              string
-	AuthorizationHeader string
+	Path   string
+	Locale string
 }
 
 // pageShellComposer owns "which head + bootstrap data should this page get?".
@@ -125,8 +109,6 @@ type catalogPageShellComposer struct {
 	apiBase             string
 	defaultLocale       string
 	translator          pageTranslator
-	tokenCfg            coreauth.TokenConfig
-	viewerResolver      coreauth.IdentityResolver
 	listCatalogProducts catalogProductListFunc
 	getCatalogProduct   catalogProductGetFunc
 }
@@ -134,8 +116,6 @@ type catalogPageShellComposer struct {
 func newCatalogPageShellComposer(
 	cfg bootstrap.Config,
 	translator pageTranslator,
-	tokenCfg coreauth.TokenConfig,
-	viewerResolver coreauth.IdentityResolver,
 	listCatalogProducts catalogProductListFunc,
 	getCatalogProduct catalogProductGetFunc,
 ) catalogPageShellComposer {
@@ -150,8 +130,6 @@ func newCatalogPageShellComposer(
 		apiBase:             "/api/v1",
 		defaultLocale:       defaultLocale,
 		translator:          translator,
-		tokenCfg:            tokenCfg,
-		viewerResolver:      viewerResolver,
 		listCatalogProducts: listCatalogProducts,
 		getCatalogProduct:   getCatalogProduct,
 	}
@@ -167,13 +145,6 @@ func (c catalogPageShellComposer) ComposePageShell(ctx context.Context, req page
 			Path:    req.Path,
 			APIBase: c.apiBase,
 		},
-	}
-
-	viewer, err := c.resolveViewer(ctx, req.AuthorizationHeader)
-	if err != nil {
-		shell.Bootstrap.ViewerError = classifyViewerError(err)
-	} else if viewer != nil {
-		shell.Bootstrap.Viewer = viewer
 	}
 
 	shell.Bootstrap.Catalog = c.composeCatalog(ctx, locale, req.Path)
@@ -332,47 +303,9 @@ func (b spaShellDataBuilder) Build(ctx *gin.Context) any {
 
 func newPageShellRequest(ctx *gin.Context) pageShellRequest {
 	return pageShellRequest{
-		Path:                ctx.Request.URL.Path,
-		Locale:              requestedLocale(ctx),
-		AuthorizationHeader: ctx.GetHeader("Authorization"),
+		Path:   ctx.Request.URL.Path,
+		Locale: requestedLocale(ctx),
 	}
-}
-
-func (c catalogPageShellComposer) resolveViewer(ctx context.Context, authHeader string) (*viewerBootstrapState, error) {
-	if c.viewerResolver == nil {
-		return nil, nil
-	}
-
-	token := extractBearerToken(authHeader)
-	if token == "" {
-		return nil, nil
-	}
-
-	claims, err := coreauth.ParseToken(token, c.tokenCfg)
-	if err != nil {
-		return nil, err
-	}
-
-	subject := claims.Subject
-	if subject == "" && claims.UserID != 0 {
-		subject = strconv.Itoa(claims.UserID)
-	}
-	if subject == "" {
-		return nil, coreauth.ErrInvalidClaims
-	}
-
-	identity, err := c.viewerResolver(ctx, subject)
-	if err != nil {
-		return nil, err
-	}
-
-	viewer := &viewerBootstrapState{ID: identity.GetID()}
-	if detailed, ok := identity.(viewerBootstrapIdentity); ok {
-		viewer.Username = detailed.GetEmail()
-		viewer.Policies = append([]string(nil), detailed.GetPolicies()...)
-	}
-
-	return viewer, nil
 }
 
 func (c catalogPageShellComposer) translate(locale, key string) string {
@@ -438,24 +371,6 @@ func parseProductDetailPath(path string) (int, bool) {
 	}
 
 	return id, true
-}
-
-func extractBearerToken(header string) string {
-	if header == "" || !strings.HasPrefix(header, "Bearer ") {
-		return ""
-	}
-	return strings.TrimSpace(header[len("Bearer "):])
-}
-
-func classifyViewerError(err error) string {
-	switch {
-	case errors.Is(err, coreauth.ErrExpiredToken):
-		return "viewer token has expired"
-	case errors.Is(err, coreauth.ErrInvalidToken), errors.Is(err, coreauth.ErrInvalidClaims):
-		return "viewer token is invalid"
-	default:
-		return "failed to resolve viewer"
-	}
 }
 
 var _ pageTranslator = (*corei18n.Translator)(nil)

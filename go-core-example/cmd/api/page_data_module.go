@@ -1,58 +1,44 @@
 package main
 
 import (
-	"context"
-	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/wssto2/go-core/bootstrap"
+	"github.com/wssto2/go-core/gocore"
+	"github.com/wssto2/go-core/route"
 )
 
-// pageDataModule exposes route-scoped page shell data for client-side router
+// pageData exposes route-scoped page shell data for client-side router
 // navigations so Vue can hydrate new pages without a full document reload.
-type pageDataModule struct {
+type pageData struct {
 	composer pageShellComposer
 }
 
-func newPageDataModule(composer pageShellComposer) *pageDataModule {
-	return &pageDataModule{composer: composer}
+// pageDataRoute is a raw route: it answers the page shell as plain JSON, outside the API's envelope and prefix, to
+// anyone, like the SPA shell itself.
+var pageDataRoute = route.Raw(http.MethodGet, "/__page-data").Name("pagedata.show").Public()
+
+// installPageData mounts GET /__page-data at the site root.
+func installPageData(app *gocore.App, composer pageShellComposer) {
+	h := pageData{composer: composer}
+
+	app.Root(pageDataRoute.To(h.show))
 }
 
-func (m *pageDataModule) Name() string {
-	return "page-data"
-}
+func (h pageData) show(ctx *gin.Context) {
+	path := normalizePageDataPath(ctx.Query("path"))
 
-func (m *pageDataModule) Register(c *bootstrap.Container) error {
-	eng, err := bootstrap.Resolve[*gin.Engine](c)
+	shell, err := h.composer.ComposePageShell(ctx.Request.Context(), pageShellRequest{
+		Path:   path,
+		Locale: requestedLocale(ctx),
+	})
 	if err != nil {
-		return fmt.Errorf("page-data: resolve engine: %w", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compose page shell"})
+		return
 	}
 
-	eng.GET("/__page-data", func(ctx *gin.Context) {
-		path := normalizePageDataPath(ctx.Query("path"))
-		shell, err := m.composer.ComposePageShell(ctx.Request.Context(), pageShellRequest{
-			Path:                path,
-			Locale:              requestedLocale(ctx),
-			AuthorizationHeader: ctx.GetHeader("Authorization"),
-		})
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compose page shell"})
-			return
-		}
-		ctx.JSON(http.StatusOK, shell)
-	})
-
-	return nil
-}
-
-func (m *pageDataModule) Boot(context.Context) error {
-	return nil
-}
-
-func (m *pageDataModule) Shutdown(context.Context) error {
-	return nil
+	ctx.JSON(http.StatusOK, shell)
 }
 
 func normalizePageDataPath(path string) string {

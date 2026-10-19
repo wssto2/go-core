@@ -14,8 +14,6 @@ import (
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/types"
 	"github.com/wssto2/go-core/datatable"
-	"github.com/wssto2/go-core/event"
-	"github.com/wssto2/go-core/resilience"
 	"github.com/wssto2/go-core/resource"
 	storage "github.com/wssto2/go-core/storage"
 	"gorm.io/gorm"
@@ -46,7 +44,6 @@ type service struct {
 	auditRepo  audit.Repository
 	storage    storage.Driver
 	log        *slog.Logger
-	cb         *resilience.CircuitBreaker
 }
 
 // NewService constructs the product service.
@@ -58,7 +55,6 @@ func NewService(repo Repository, transactor database.Transactor, auditRepo audit
 		auditRepo:  auditRepo,
 		storage:    store,
 		log:        log,
-		cb:         resilience.NewCircuitBreaker(5, 10*time.Second),
 	}
 }
 
@@ -82,13 +78,7 @@ func (s *service) List(ctx context.Context) ([]Product, error) {
 }
 
 func (s *service) GetByID(ctx context.Context, id int) (Product, error) {
-	var product *Product
-	// Retry transient DB failures up to 3 times with exponential back-off.
-	err := resilience.Retry(ctx, 3, 25*time.Millisecond, func(ctx context.Context) error {
-		var ferr error
-		product, ferr = s.repo.FindByID(ctx, id)
-		return ferr
-	})
+	product, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return Product{}, apperr.NotFound("product not found")
@@ -112,13 +102,8 @@ func (s *service) Create(ctx context.Context, opts CreateProductOptions, actor a
 	}
 
 	// Business rule: SKU must be unique across all non-deleted products.
-	// The circuit breaker trips open after 5 consecutive DB failures.
-	var exists bool
-	if err := s.cb.Execute(ctx, func(ctx context.Context) error {
-		var cerr error
-		exists, cerr = s.repo.ExistsBySKU(ctx, opts.SKU, 0)
-		return cerr
-	}); err != nil {
+	exists, err := s.repo.ExistsBySKU(ctx, opts.SKU, 0)
+	if err != nil {
 		return nil, apperr.Internal(err)
 	}
 	if exists {
@@ -154,13 +139,9 @@ func (s *service) Create(ctx context.Context, opts CreateProductOptions, actor a
 			return err
 		}
 
-		// Insert the event into the outbox atomically with the product row so it
-		// is never lost even if the process crashes right after this transaction.
-		tx, ok := database.TxFromContext(txCtx)
-		if !ok {
-			return apperr.Internal(fmt.Errorf("outbox: no transaction in context"))
-		}
-		return event.InsertOutboxEvent(txCtx, tx, ProductCreatedEvent{
+		// Queue the event in the same transaction as the product row, so it is
+		// never lost even if the process crashes right after the commit.
+		return Created.Publish(txCtx, ProductCreatedEvent{
 			ProductID: product.ID,
 			SKU:       product.SKU,
 		})
@@ -258,8 +239,8 @@ func (s *service) Delete(ctx context.Context, id int, actor auth.Identifiable) e
 }
 
 // UploadImage stores the original image, marks the product as pending, and
-// inserts a ProductImageUploadedEvent into the outbox — all in one transaction.
-// The OutboxWorker dispatches to imageWorker, which generates thumbnail and
+// queues an ImageUploaded event — all in one transaction.
+// The event queue delivers it to the image consumer, which generates thumbnail and
 // resized variants. Returns immediately; status: pending → processing → done/failed.
 func (s *service) UploadImage(ctx context.Context, id int, r io.Reader, size int64, mime string, actor auth.Identifiable) (*Product, error) {
 	product, err := s.repo.FindByID(ctx, id)
@@ -284,11 +265,7 @@ func (s *service) UploadImage(ctx context.Context, id int, r io.Reader, size int
 		if err := s.repo.UpdateImage(txCtx, id, originalKey, "", ImageStatusPending); err != nil {
 			return apperr.Internal(err)
 		}
-		tx, ok := database.TxFromContext(txCtx)
-		if !ok {
-			return apperr.Internal(fmt.Errorf("no transaction in context"))
-		}
-		return event.InsertOutboxEvent(txCtx, tx, ProductImageUploadedEvent{
+		return ImageUploaded.Publish(txCtx, ProductImageUploadedEvent{
 			ProductID:   id,
 			OriginalKey: originalKey,
 		})

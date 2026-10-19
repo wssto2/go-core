@@ -1,8 +1,21 @@
 package product
 
+import "net/url"
+
+// ProductPath names the product a request is about. A malformed id answers 400.
+type ProductPath struct {
+	ID int `path:"id"`
+}
+
+// ListRequest is the list's query: paging, search and order, and every other
+// parameter is a filter (datatable.ParamsFromValues reads it).
+type ListRequest struct {
+	Filters url.Values `json:"-" query:"*"`
+}
+
 // CreateProductRequest is the validated input for creating a product.
-// Tags drive both binders (JSON parsing + stateless validation) and
-// the validation package (stateful rules like "exists").
+// Its JSON tags are the body of POST /v1/products; the service validates the
+// input with the rules of CreateProductOptions.
 type CreateProductRequest struct {
 	Name        string  `form:"name"         json:"name"`
 	SKU         string  `form:"sku"          json:"sku"`
@@ -29,6 +42,7 @@ func (r CreateProductRequest) ToInput() CreateProductOptions {
 // UpdateProductRequest allows partial updates.
 // Fields absent from the JSON body are left at their zero value and skipped.
 type UpdateProductRequest struct {
+	ProductPath
 	Name        string  `form:"name"         json:"name"`
 	SKU         string  `form:"sku"          json:"sku"`
 	Description string  `form:"description"  json:"description"`

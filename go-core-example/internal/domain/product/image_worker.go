@@ -12,8 +12,8 @@ import (
 	"log/slog"
 
 	"github.com/disintegration/imaging"
-	storage "github.com/wssto2/go-core/storage"
 	"github.com/wssto2/go-core/event"
+	storage "github.com/wssto2/go-core/storage"
 )
 
 const (
@@ -21,39 +21,27 @@ const (
 	mediumSize    = 800 // 800px on the longest side, aspect-ratio preserved
 )
 
-// imageWorker subscribes to ProductImageUploadedEvent and generates image
-// variants (thumbnail + medium) in a background goroutine.
+// imageWorker consumes ImageUploaded events and generates image variants
+// (thumbnail + medium) in the background.
 // It reads the original from storage, processes it with the imaging library,
 // writes the variants back, and updates the product row with the new URLs.
 type imageWorker struct {
-	repo    Repository
-	store   storage.Driver
-	log     *slog.Logger
+	repo  Repository
+	store storage.Driver
+	log   *slog.Logger
 }
 
-func newImageWorker(repo Repository, store storage.Driver, log *slog.Logger) (*imageWorker, error) {
-	return &imageWorker{repo: repo, store: store, log: log}, nil
+func newImageWorker(repo Repository, store storage.Driver, log *slog.Logger) *imageWorker {
+	return &imageWorker{repo: repo, store: store, log: log}
 }
 
-func (w *imageWorker) Name() string { return "product-image-processor" }
-
-// Subscribe registers the event handler on the bus. Call this during module
-// registration — before the bus starts dispatching events.
-func (w *imageWorker) Subscribe(bus event.Bus) error {
-	return bus.Subscribe(ProductImageUploadedEvent{}, w.handle)
+// consumer is the worker as an event consumer: "product-image-processor" is the
+// durable name its attempts are kept under.
+func (w *imageWorker) consumer() event.Consumer {
+	return ImageUploaded.To("product-image-processor", w.handle)
 }
 
-func (w *imageWorker) Run(ctx context.Context) error {
-	<-ctx.Done()
-	return nil
-}
-
-func (w *imageWorker) handle(ctx context.Context, e any) error {
-	ev, ok := e.(ProductImageUploadedEvent)
-	if !ok {
-		return fmt.Errorf("imageWorker: unexpected event type %T", e)
-	}
-
+func (w *imageWorker) handle(ctx context.Context, ev ProductImageUploadedEvent) error {
 	w.log.InfoContext(ctx, "image processing started", "product_id", ev.ProductID, "key", ev.OriginalKey)
 
 	if err := w.repo.UpdateImage(ctx, ev.ProductID, ev.OriginalKey, "", ImageStatusProcessing); err != nil {

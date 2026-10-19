@@ -1,7 +1,6 @@
 package access_test
 
 import (
-	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -15,38 +14,37 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wssto2/go-core/auth"
+	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
-	"github.com/wssto2/go-core/authz/authzhttp"
 	"github.com/wssto2/go-core/authz/gormstore"
+	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
-	"github.com/wssto2/go-core/middlewares"
+	"github.com/wssto2/go-core/gocore"
+	idaccount "github.com/wssto2/go-core/identity/account"
 	"gorm.io/gorm"
 )
 
 // Users of the demo: 1 is a webmaster at the organization, 2 (anna) a
 // salesperson at North Motors, 3 (mark) a manager at the North Central
 // location, 4 nobody.
-type user struct{ id int }
-
-func (u user) GetID() int { return u.id }
-
 type app struct {
-	router *gin.Engine
-	db     *gorm.DB
+	handler http.Handler
+	db      *gorm.DB
 }
 
 func newApp(t *testing.T) *app {
 	t.Helper()
-	db, cleanup, err := database.PrepareTestDB()
-	require.NoError(t, err)
+
+	reg, cleanup := database.NewTestRegistry("local")
 	t.Cleanup(func() { _ = cleanup() })
+
+	db := reg.MustGet("local")
 	require.NoError(t, access.Migrate(db))
 	require.NoError(t, gormstore.Migrate(db))
 
-	// the same catalogue, hierarchy, roles, places and store the module uses
-	cat, err := access.NewCatalogue()
-	require.NoError(t, err)
+	// the same permissions, hierarchy, roles, places and store the example installs
+	cat := authz.NewCatalogue()
+	require.NoError(t, access.DefinePermissions(cat))
 	h, err := access.NewHierarchy()
 	require.NoError(t, err)
 	store := gormstore.New(db)
@@ -66,61 +64,73 @@ func newApp(t *testing.T) *app {
 		{ID: 6, DealerID: 2, LocationID: 20, Kind: "new", Title: "south pool"},
 		{ID: 7, DealerID: 2, LocationID: 20, OwnerID: &mark, Kind: "used", Title: "south, owned by mark"},
 	}).Error)
-	ctx := context.Background()
+
 	sys := authz.Subject{Kind: authz.KindUser, ID: 1}
 	for _, b := range []authz.Binding{
 		{Subject: sys, Role: authz.RoleRef{Key: access.RoleWebmaster}, Scope: h.Root()},
 		{Subject: authz.Subject{Kind: authz.KindUser, ID: 2}, Role: authz.RoleRef{Key: access.RoleSalesperson}, Scope: authz.Scope{Level: "dealer", ID: 1}},
 		{Subject: authz.Subject{Kind: authz.KindUser, ID: 3}, Role: authz.RoleRef{Key: access.RoleManager}, Scope: authz.Scope{Level: "location", ID: 10}},
 	} {
-		_, err := store.Bind(ctx, sys, b)
+		_, err := store.Bind(t.Context(), sys, b)
 		require.NoError(t, err)
 	}
 
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.Use(middlewares.ErrorHandler(slog.New(slog.DiscardHandler), nil, false))
-	api := r.Group("/api/v1")
-	api.Use(func(c *gin.Context) { // stands in for auth.Authenticated
-		if id, err := strconv.Atoi(c.GetHeader("X-User")); err == nil {
-			auth.SetUser(c, user{id})
+	// X-User stands in for the application's authentication: identity's session, in the example.
+	signedIn := func(c *gin.Context) {
+		id, err := strconv.Atoi(c.GetHeader("X-User"))
+		if err != nil {
+			_ = c.Error(apperr.Unauthorized("user not authenticated"))
+			c.Abort()
+
+			return
 		}
-	})
-	api.Use(authzhttp.Principals(func(ctx context.Context, i auth.Identifiable) (authz.Principal, bool) {
-		var staff access.Staff
-		_ = db.WithContext(ctx).Take(&staff, i.GetID()).Error
-		return authz.User(i.GetID(), staff.LocationID), true
-	}))
-	api.Use(authzhttp.PinTenant(engine))
-	access.RegisterRoutes(api, access.NewService(db, engine), engine)
-	return &app{router: r, db: db}
+
+		principal, _ := access.PrincipalOf(db)(c.Request.Context(), accountOf(id))
+		c.Request = c.Request.WithContext(authz.WithPrincipal(c.Request.Context(), principal))
+		c.Next()
+	}
+
+	a := gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithAuthentication(signedIn), gocore.WithAuthorizer(engine))
+	a.Permissions(cat)
+	access.Install(a, engine)
+
+	handler, err := a.Handler()
+	require.NoError(t, err)
+
+	return &app{handler: handler, db: db}
 }
 
 func (a *app) call(t *testing.T, method, path, user, body string) (int, []byte) {
 	t.Helper()
-	req := httptest.NewRequestWithContext(t.Context(), method, path, nil)
-	if body != "" {
-		req = httptest.NewRequestWithContext(t.Context(), method, path, strings.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-	}
+
+	req := httptest.NewRequestWithContext(t.Context(), method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
 	if user != "" {
 		req.Header.Set("X-User", user)
 	}
+
 	rec := httptest.NewRecorder()
-	a.router.ServeHTTP(rec, req)
+	a.handler.ServeHTTP(rec, req)
+
 	return rec.Code, rec.Body.Bytes()
 }
 
 func ids(t *testing.T, body []byte) []int {
 	t.Helper()
+
 	var resp struct {
 		Data []access.Lead `json:"data"`
 	}
+
 	require.NoError(t, json.Unmarshal(body, &resp))
+
 	out := []int{}
 	for _, l := range resp.Data {
 		out = append(out, l.ID)
 	}
+
 	return out
 }
 
@@ -138,27 +148,31 @@ func TestLeadListIsFilteredByWhatTheCallerMaySee(t *testing.T) {
 		{"manager sees every lead of the location he is bound to", "3", []int{1, 2, 3}},
 		{"a user with no binding is turned away", "4", nil},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			code, body := a.call(t, http.MethodGet, "/api/v1/leads", tt.user, "")
+			code, body := a.call(t, http.MethodGet, "/v1/leads", tt.user, "")
 			if tt.want == nil {
 				assert.Equal(t, http.StatusForbidden, code)
 				return
 			}
+
 			require.Equal(t, http.StatusOK, code)
 			assert.Equal(t, tt.want, ids(t, body))
 		})
 	}
-	code, _ := a.call(t, http.MethodGet, "/api/v1/leads", "", "")
+
+	code, _ := a.call(t, http.MethodGet, "/v1/leads", "", "")
 	assert.Equal(t, http.StatusUnauthorized, code)
 }
 
 func TestSingleLeadChecksUseTheSameRules(t *testing.T) {
 	a := newApp(t)
 	get := func(user string, id int) int {
-		code, _ := a.call(t, http.MethodGet, "/api/v1/leads/"+strconv.Itoa(id), user, "")
+		code, _ := a.call(t, http.MethodGet, "/v1/leads/"+strconv.Itoa(id), user, "")
 		return code
 	}
+
 	assert.Equal(t, 200, get("2", 1), "anna's own lead")
 	assert.Equal(t, 200, get("2", 3), "the unassigned pool")
 	assert.Equal(t, 403, get("2", 2), "someone else's lead")
@@ -168,11 +182,11 @@ func TestSingleLeadChecksUseTheSameRules(t *testing.T) {
 	assert.Equal(t, 200, get("1", 7), "the webmaster crosses dealers")
 	assert.Equal(t, 404, get("1", 99))
 
-	code, _ := a.call(t, http.MethodPut, "/api/v1/leads/1", "2", `{"title":"renamed"}`)
+	code, _ := a.call(t, http.MethodPut, "/v1/leads/1", "2", `{"title":"renamed"}`)
 	assert.Equal(t, 200, code, "anna edits her own lead")
-	code, _ = a.call(t, http.MethodPut, "/api/v1/leads/2", "2", `{"title":"hijacked"}`)
+	code, _ = a.call(t, http.MethodPut, "/v1/leads/2", "2", `{"title":"hijacked"}`)
 	assert.Equal(t, 403, code, "and not someone else's")
-	code, _ = a.call(t, http.MethodPut, "/api/v1/leads/2", "3", `{"title":"managed"}`)
+	code, _ = a.call(t, http.MethodPut, "/v1/leads/2", "3", `{"title":"managed"}`)
 	assert.Equal(t, 200, code)
 
 	var titles []string
@@ -180,17 +194,5 @@ func TestSingleLeadChecksUseTheSameRules(t *testing.T) {
 	assert.Equal(t, []string{"renamed", "managed"}, titles)
 }
 
-func TestMeAccessTellsTheFrontendWhatTheCallerHolds(t *testing.T) {
-	a := newApp(t)
-	code, body := a.call(t, http.MethodGet, "/api/v1/me/access", "2", "")
-	require.Equal(t, http.StatusOK, code)
-	var resp struct {
-		Data authz.MyAccess `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(body, &resp))
-	view := resp.Data.Permissions[access.LeadView]
-	assert.Equal(t, authz.QualifierOwn, view.Qualifier)
-	assert.Equal(t, authz.Scope{Level: "dealer", ID: 1}, view.Scope)
-	assert.NotContains(t, resp.Data.Permissions, access.UserManage)
-	assert.False(t, resp.Data.Root)
-}
+// accountOf is the signed-in account, as identity hands it to the principal function.
+func accountOf(id int) idaccount.Account { return idaccount.Account{ID: id} }

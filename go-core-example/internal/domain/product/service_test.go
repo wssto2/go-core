@@ -6,8 +6,6 @@ import (
 	"log/slog"
 	"testing"
 
-	"go-core-example/internal/domain/auth"
-
 	"github.com/wssto2/go-core/audit"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/event"
@@ -15,6 +13,11 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+// testActor is the person who acts, as the service's auth.Identifiable.
+type testActor int
+
+func (a testActor) GetID() int { return int(a) }
 
 func TestService_Create_WritesAuditAndOutboxEvent(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -38,7 +41,7 @@ func TestService_Create_WritesAuditAndOutboxEvent(t *testing.T) {
 
 	memStore, _ := storememory.New()
 	svc := NewService(repo, transactor, auditRepo, memStore, slog.Default())
-	actor := auth.User{ID: 1, Username: "tester", Policies: []string{"products:create"}}
+	actor := testActor(1)
 
 	opts := CreateProductOptions{Name: "Widget", SKU: "WGT-001", Price: 9.99}
 	created, err := svc.Create(context.Background(), opts, actor)
@@ -81,7 +84,7 @@ func TestService_Create_RollsBackOnAuditFailure(t *testing.T) {
 
 	memStore2, _ := storememory.New()
 	svc := NewService(repo, transactor, auditRepo, memStore2, slog.Default())
-	actor := auth.User{ID: 1, Username: "tester", Policies: []string{"products:create"}}
+	actor := testActor(1)
 
 	opts := CreateProductOptions{Name: "Widget", SKU: "WGT-ROLL", Price: 1.23}
 	if _, err := svc.Create(context.Background(), opts, actor); err == nil {
@@ -111,7 +114,7 @@ func TestService_Update_ChangesFields(t *testing.T) {
 	auditRepo := audit.NewRepositoryWithHook(transactor, func(ctx context.Context, log audit.AuditLog) error { return nil })
 	memStore, _ := storememory.New()
 	svc := NewService(repo, transactor, auditRepo, memStore, slog.Default())
-	actor := auth.User{ID: 1, Username: "tester", Policies: []string{"products:create", "products:update"}}
+	actor := testActor(1)
 
 	created, err := svc.Create(context.Background(), CreateProductOptions{Name: "Old Name", SKU: "UPD-1", Price: 5.00}, actor)
 	if err != nil {
@@ -148,7 +151,7 @@ func TestService_Delete_SoftDeletes(t *testing.T) {
 	auditRepo := audit.NewRepositoryWithHook(transactor, func(ctx context.Context, log audit.AuditLog) error { return nil })
 	memStore, _ := storememory.New()
 	svc := NewService(repo, transactor, auditRepo, memStore, slog.Default())
-	actor := auth.User{ID: 1, Username: "tester", Policies: []string{"products:create", "products:delete"}}
+	actor := testActor(1)
 
 	created, err := svc.Create(context.Background(), CreateProductOptions{Name: "Del Me", SKU: "DEL-SVC-1", Price: 1.00}, actor)
 	if err != nil {

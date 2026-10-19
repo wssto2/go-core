@@ -6,32 +6,19 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	dbtypes "github.com/wssto2/go-core/database/types"
 	"go-core-example/internal/domain/product"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
-	coreauth "github.com/wssto2/go-core/auth"
 	corei18n "github.com/wssto2/go-core/i18n"
 )
-
-type testViewer struct {
-	id       int
-	email    string
-	policies []string
-}
-
-func (v testViewer) GetID() int            { return v.id }
-func (v testViewer) GetEmail() string      { return v.email }
-func (v testViewer) GetPolicies() []string { return v.policies }
 
 func TestCatalogPageShellComposer_ComposePageShell_UsesTranslatedHeadFromLocale(t *testing.T) {
 	t.Helper()
 
-	composer := newCatalogPageShellComposer(loadConfig(), newTestTranslator(t), coreauth.TokenConfig{}, nil, nil, nil)
+	composer := newCatalogPageShellComposer(loadConfig(), newTestTranslator(t), nil, nil)
 
 	shell, err := composer.ComposePageShell(context.Background(), pageShellRequest{
 		Path:   "/products",
@@ -47,7 +34,7 @@ func TestCatalogPageShellComposer_ComposePageShell_UsesTranslatedHeadFromLocale(
 func TestCatalogPageShellComposer_ComposePageShell_BootstrapsCatalogProducts(t *testing.T) {
 	t.Helper()
 
-	composer := newCatalogPageShellComposer(loadConfig(), newTestTranslator(t), coreauth.TokenConfig{}, nil, func(ctx context.Context) ([]product.Product, error) {
+	composer := newCatalogPageShellComposer(loadConfig(), newTestTranslator(t), func(ctx context.Context) ([]product.Product, error) {
 		return []product.Product{
 			{
 				ID:          1,
@@ -76,8 +63,6 @@ func TestCatalogPageShellComposer_ComposePageShell_ComposesProductDetails(t *tes
 	composer := newCatalogPageShellComposer(
 		loadConfig(),
 		newTestTranslator(t),
-		coreauth.TokenConfig{},
-		nil,
 		func(ctx context.Context) ([]product.Product, error) {
 			return []product.Product{
 				{
@@ -128,68 +113,11 @@ func TestCatalogPageShellComposer_ComposePageShell_ComposesProductDetails(t *tes
 	require.Equal(t, 2, shell.Bootstrap.Catalog.Total)
 }
 
-func TestCatalogPageShellComposer_ComposePageShell_ResolvesViewerFromBearerToken(t *testing.T) {
-	t.Helper()
-	gin.SetMode(gin.TestMode)
-
-	tokenCfg := coreauth.TokenConfig{
-		SecretKey:     "change-me-to-32-bytes-minimum!!!",
-		Issuer:        "go-core-example",
-		TokenDuration: time.Hour,
-	}
-	token, err := coreauth.IssueToken(coreauth.Claims{
-		UserID: 7,
-		Email:  "admin",
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject: "7",
-		},
-	}, tokenCfg)
-	require.NoError(t, err)
-
-	composer := newCatalogPageShellComposer(loadConfig(), newTestTranslator(t), tokenCfg, func(ctx context.Context, id string) (coreauth.Identifiable, error) {
-		require.Equal(t, "7", id)
-		return testViewer{
-			id:       7,
-			email:    "admin",
-			policies: []string{"products:create"},
-		}, nil
-	}, nil, nil)
-
-	shell, err := composer.ComposePageShell(context.Background(), pageShellRequest{
-		Path:                "/",
-		AuthorizationHeader: "Bearer " + token,
-	})
-	require.NoError(t, err)
-	require.NotNil(t, shell.Bootstrap.Viewer)
-	require.Equal(t, "admin", shell.Bootstrap.Viewer.Username)
-}
-
-func TestCatalogPageShellComposer_ComposePageShell_SurfacesViewerTokenErrors(t *testing.T) {
-	t.Helper()
-	gin.SetMode(gin.TestMode)
-
-	tokenCfg := coreauth.TokenConfig{
-		SecretKey:     "change-me-to-32-bytes-minimum!!!",
-		Issuer:        "go-core-example",
-		TokenDuration: time.Hour,
-	}
-	composer := newCatalogPageShellComposer(loadConfig(), newTestTranslator(t), tokenCfg, func(ctx context.Context, id string) (coreauth.Identifiable, error) {
-		return testViewer{id: 1}, nil
-	}, nil, nil)
-
-	shell, err := composer.ComposePageShell(context.Background(), pageShellRequest{
-		Path:                "/",
-		AuthorizationHeader: "Bearer invalid-token",
-	})
-	require.NoError(t, err)
-	require.Equal(t, "viewer token is invalid", shell.Bootstrap.ViewerError)
-}
-
 func TestSPAShellDataBuilder_Build_UsesPageShellComposer(t *testing.T) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 
-	composer := newCatalogPageShellComposer(loadConfig(), newTestTranslator(t), coreauth.TokenConfig{}, nil, nil, nil)
+	composer := newCatalogPageShellComposer(loadConfig(), newTestTranslator(t), nil, nil)
 	builder := newSPAShellDataBuilder(composer)
 
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())

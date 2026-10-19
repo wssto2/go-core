@@ -12,8 +12,6 @@ import (
 const (
 	LeadView   = "sales.lead:view"
 	LeadUpdate = "sales.lead:update"
-	UserManage = "iam.user:manage"
-	RoleManage = "iam.role:manage"
 )
 
 // Levels of the example's hierarchy.
@@ -33,24 +31,23 @@ const (
 	RoleWebmaster   = "webmaster"
 )
 
-// NewCatalogue declares the permissions. Ownable ones carry a "whose" qualifier
-// (Own, OwnLocation, All) in a role; unassigned leads count as everyone's.
-func NewCatalogue() (*authz.Catalogue, error) {
-	c := authz.NewCatalogue()
+// DefinePermissions declares the example's permissions in the application's catalogue, before access.Install
+// builds the engine from it. Ownable ones carry a "whose" qualifier (Own, OwnLocation, All) in a role; unassigned
+// leads count as everyone's.
+func DefinePermissions(c *authz.Catalogue) error {
 	for _, def := range []struct {
 		id   string
 		opts []authz.DefineOption
 	}{
 		{LeadView, []authz.DefineOption{authz.Label("perm.sales.lead.view"), authz.Ownable("sales.lead"), authz.UnownedIsOwn(), authz.Attributes(AttrVehicleKind)}},
 		{LeadUpdate, []authz.DefineOption{authz.Label("perm.sales.lead.update"), authz.Ownable("sales.lead"), authz.Attributes(AttrVehicleKind), authz.Requires(LeadView)}},
-		{UserManage, []authz.DefineOption{authz.Label("perm.iam.user.manage"), authz.Sensitive()}},
-		{RoleManage, []authz.DefineOption{authz.Label("perm.iam.role.manage"), authz.Sensitive(), authz.System()}},
 	} {
 		if err := c.Define(def.id, def.opts...); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return c, c.Validate()
+
+	return nil
 }
 
 // NewHierarchy declares organization > dealer > location; the dealer is the
@@ -75,7 +72,7 @@ func Roles() []authz.Role {
 		},
 		{
 			Key: RoleManager, Name: "Manager",
-			Grants: append(authz.Grants(authz.QualifierAll, LeadView, LeadUpdate), authz.Grants(authz.QualifierAll, UserManage)...),
+			Grants: authz.Grants(authz.QualifierAll, LeadView, LeadUpdate),
 		},
 		authz.ComputedRole(RoleWebmaster, "Webmaster", authz.All()),
 	}

@@ -40,11 +40,6 @@ services:
       DB_MAX_IDLE_CONNS: "5"
       DB_MAX_OPEN_CONNS: "25"
 
-      # Must be at least 32 characters
-      JWT_SECRET: "super-secret-key-change-in-prod!!"
-      JWT_ISSUER: go-core-example
-      JWT_DURATION_HOURS: "24"
-
       # Uploaded files are stored here (mounted as a volume)
       STORAGE_BASE_DIR: /app/uploads
 

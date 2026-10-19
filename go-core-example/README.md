@@ -22,8 +22,9 @@ the Go backend to demonstrate an SSR-first, modular frontend convention:
 go-core-example/
 ├── cmd/
 │   └── api/
-│       ├── main.go      # Entrypoint — wires bootstrap, OTel, go2ts, SPA
-│       └── config.go    # Config loading via bootstrap.EnvStr/EnvInt
+│       ├── main.go            # Entrypoint — gocore.New, then one Install per feature, OTel, go2ts
+│       ├── app_state.go       # Page shell composer (SEO head + window.APP_STATE)
+│       └── page_data_module.go # GET /__page-data for client-side navigations
 ├── frontend/
 │   ├── src/
 │   │   ├── main.ts      # Vue entrypoint + app-state plugin + router install
@@ -49,24 +50,23 @@ go-core-example/
 │   └── hr.json          # Croatian metadata translations for the same routes
 ├── internal/
 │   └── domain/
-│       ├── auth/
-│       │   ├── entity.go    # User model + policy helpers
-│       │   ├── resolver.go  # Note: IdentityResolver is now Module.IdentityResolver (DB-backed)
-│       │   ├── roles.go     # AccountType / AccountRole entity patterns (reference)
-│       │   └── module.go    # Auth module — login endpoint + DB resolver + user migration
+│       ├── access/
+│       │   ├── catalogue.go   # Permissions, hierarchy and predefined roles of the authz demo
+│       │   ├── places.go      # Dealers/locations as authz scopes (resolver + names)
+│       │   ├── routes.go      # Typed lead routes (.Requires) and their contract
+│       │   ├── service.go     # Leads filtered by what the caller may see
+│       │   └── install.go     # Install(app, engine): routes, demo data on start-up
 │       └── product/
 │           ├── entity.go              # GORM model + ImageStatus constants
 │           ├── options.go             # CreateProductOptions, UpdateProductOptions (validated)
-│           ├── requests.go            # HTTP request/response structs
-│           ├── events.go              # Domain events with JSON tags
+│           ├── requests.go            # Typed route inputs
+│           ├── events.go              # event.Define declarations (queued in the outbox)
 │           ├── repository.go          # Repository interface + GORM implementation
-│           ├── service.go             # Business logic (resilience, audit, transactions, outbox)
+│           ├── service.go             # Business logic (audit, transactions, events)
 │           ├── service_instrumented.go # Observability wrapper (metrics + tracing per method)
-│           ├── handler.go             # Gin handlers (datatable, upload, auth guards, 10MB limit)
-│           ├── image_worker.go        # Background image processing (thumbnail + medium)
-│           ├── webhook.go             # OutboxWorker PublishFunc (webhook + crash-recovery routing)
-│           ├── worker.go              # Package stub (productWorker removed — use outbox instead)
-│           └── module.go              # Product module — routes + worker lifecycle
+│           ├── routes.go              # Typed routes: permissions, handlers, the upload route
+│           ├── image_worker.go        # Event consumer: thumbnail + medium variants
+│           └── install.go             # Install(app, storageDir): service, routes, consumer
 ├── Makefile
 └── go.mod
 ```
@@ -77,38 +77,29 @@ go-core-example/
 
 | Feature | Where |
 |---|---|
-| `bootstrap` — `DefaultInfrastructure`, graceful shutdown, `WithSPA` | `cmd/api/main.go` |
-| `bootstrap.EnvStr` / `EnvInt` — env-based config | `cmd/api/config.go` |
-| `bootstrap.Module` — Register / Boot / Shutdown lifecycle | `internal/domain/*/module.go` |
-| `bootstrap.MustResolve[T]` — IoC container | `internal/domain/product/module.go` |
-| `database.Registry` — named connection pools | `cmd/api/main.go` (via `DefaultInfrastructure`) |
+| `gocore.New`, `gocore.WithPrefix`, `gocore.WithBuilder` (SPA, rate limit, idempotency) | `cmd/api/main.go` |
+| `Install(app)` per feature, `main` reads top to bottom | `cmd/api/main.go` |
+| `bootstrap.EnvStr` / `EnvInt` — env-based config | `cmd/api/main.go` (`loadConfig`) |
+| `identity.Install` — sign-in, sessions, the app's authentication | `cmd/api/main.go` |
+| `access.Install` — roles, bindings, the app's authorizer | `cmd/api/main.go` |
+| `route.Get` / `Post` / `Raw` — routes declared as values, `.Requires` | `internal/domain/product/routes.go` |
+| `route.Page`, `route.WithMeta` — list and show envelopes | `internal/domain/product/routes.go` |
+| `authz` — catalogue, hierarchy, roles, `authzgorm.Filter` | `internal/domain/access/` |
+| `database.Registry` — named connection pools | `cmd/api/main.go` (`app.Database()`) |
 | `database.Transactor` — unit-of-work wrapping service calls | `internal/domain/product/service.go` |
 | `database.TxFromContext` — transaction propagation | `internal/domain/product/repository.go` |
 | `database/types` — NullString, NullInt, Float, Bool | `internal/domain/product/entity.go` |
 | `apperr` — typed errors with HTTP codes and log levels | `internal/domain/product/service.go` |
 | `audit.Repository` — structured audit log writes | `internal/domain/product/service.go` |
 | `audit.Diff` — struct field diff for change tracking | `internal/domain/product/service.go` — `Update` |
-| `auth.IssueToken` + `auth.Claims` | `internal/domain/auth/module.go` — `login` |
-| `auth.Authenticated` — JWT middleware | wired via `bootstrap.WithJWTAuth` |
-| `auth.Authorize` / `auth.GeneratePolicy` — RBAC | `internal/domain/product/handler.go` |
-| `auth.MustGetUser[T]` — typed user from gin context | `internal/domain/product/handler.go` |
-| `auth.IdentityResolver` | `internal/domain/auth/resolver.go` |
-| `middlewares.BindRequest[T]` — parse + validate | `internal/domain/product/handler.go` |
-| `middlewares.MustGetRequest[T]` — typed request | `internal/domain/product/handler.go` |
-| `middlewares.RateLimit` — per-user, per-endpoint | `internal/domain/product/module.go` |
-| `ratelimit.NewInMemoryLimiter` | `internal/domain/product/module.go` |
-| `resilience.Retry` — transient DB failure retry | `internal/domain/product/service.go` — `GetByID` |
-| `resilience.CircuitBreaker` — SKU uniqueness guard | `internal/domain/product/service.go` — `Create` |
-| `datatable` — pagination, search, filter, order | `internal/domain/product/handler.go` — `list` |
-| `datatable.ParamsFromGin` — parse query params | `internal/domain/product/handler.go` |
-| `resource` — single-record fetcher with meta | `internal/domain/product/handler.go` — `show` |
-| `web.JSON` / `web.Handle` / `web.NoContent` | `internal/domain/product/handler.go` |
-| `web/upload.UploadFile` — multipart file upload | `internal/domain/product/handler.go` — `uploadImage` |
+| `event.Define` + `app.Events` — transactional outbox, consumers | `internal/domain/product/events.go`, `install.go` |
+| `ratelimit.NewInMemoryLimiter` | `cmd/api/main.go` |
+| `datatable` — pagination, search, filter, order | `internal/domain/product/routes.go` — `list` |
+| `datatable.ParamsFromValues` — parse query params | `internal/domain/product/routes.go` |
+| `resource` — single-record fetcher with meta | `internal/domain/product/routes.go` — `show` |
+| `web/upload.ValidateFile` — multipart file upload | `internal/domain/product/routes.go` — `uploadImage` |
 | `go2ts.GenerateTypes` — TypeScript type generation | `cmd/api/main.go` (at startup) |
-| `event.Bus` — publish/subscribe | `internal/domain/product/service.go` + `worker.go` |
-| `worker.Manager` — background worker lifecycle | `internal/domain/product/module.go` |
-| `tenancy.FromAuthenticatedUser` — tenant middleware | `internal/domain/product/module.go` |
-| `observability.ServiceObserver` — metrics wrapper | `internal/domain/product/module.go` |
+| `observability.ServiceObserver` — metrics wrapper | `internal/domain/product/install.go` |
 | `observability/tracing` — OpenTelemetry init | `cmd/api/main.go` |
 
 ---
@@ -240,14 +231,12 @@ The responsibility split is:
   - converts the Gin request into a small request DTO
   - delegates all real decisions to the composer
 
-This keeps dependencies visible and avoids passing the container into the SPA
-state builder. The composer receives the JWT config plus
-`authMod.IdentityResolver`, translates `<title>`, `<meta name="description">`,
+This keeps dependencies visible: the composer takes the catalogue queries as
+plain functions. It translates `<title>`, `<meta name="description">`,
 and `<meta name="keywords">` from the example's i18n files, bootstraps a
 product catalog by calling `productMod.ListCatalog(...)`, and composes a single
-product view by calling `productMod.GetCatalogProduct(...)`. It also optionally
-resolves a `viewer` record from the database when the page request includes
-`Authorization: Bearer <token>`.
+product view by calling `GetCatalogProduct(...)`. The signed-in person is not in
+the shell: the client reads it from `GET /api/v1/auth/me`.
 
 The example resolves locale from `?lang=<code>` first, then from the
 `Accept-Language` header, and finally falls back to `cfg.I18n.DefaultLocale`.
@@ -262,13 +251,16 @@ If your app has multiple server-rendered pages, keep the same split:
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| POST | `/api/v1/auth/login` | No | Returns a signed JWT |
-| GET | `/api/v1/products` | JWT | Paginated datatable |
-| GET | `/api/v1/products/:id` | JWT | Single record with meta |
-| POST | `/api/v1/products` | JWT + `products:create` | Creates a product |
-| PUT | `/api/v1/products/:id` | JWT + `products:update` | Updates a product |
-| DELETE | `/api/v1/products/:id` | JWT + `products:delete` | Soft-deletes a product |
-| POST | `/api/v1/products/:id/image` | JWT + `products:update` | Uploads a product image |
+| POST | `/api/v1/auth/login` | No | identity sign-in; sets the session cookies |
+| GET | `/api/v1/auth/me` | Session | The session payload, with the person's access |
+| GET | `/api/v1/products` | Session | Paginated datatable |
+| GET | `/api/v1/products/:id` | Session | Single record with meta |
+| POST | `/api/v1/products` | `catalog.product:create` | Creates a product |
+| PUT | `/api/v1/products/:id` | `catalog.product:update` | Updates a product |
+| DELETE | `/api/v1/products/:id` | `catalog.product:delete` | Soft-deletes a product |
+| POST | `/api/v1/products/:id/image` | `catalog.product:update` | Uploads a product image |
+| GET | `/api/v1/leads`, `/api/v1/leads/:id` | `sales.lead:view` | Leads the caller may see |
+| PUT | `/api/v1/leads/:id` | `sales.lead:update` | Renames a lead the caller may update |
 | GET | `/metrics` | No | Prometheus metrics |
 | GET | `/health` | No | Liveness probe |
 | GET | `/ready` | No | Readiness probe |
@@ -276,41 +268,41 @@ If your app has multiple server-rendered pages, keep the same split:
 ### Example requests
 
 ```bash
-# Login — returns { "data": { "token": "<jwt>" } }
-curl -X POST http://localhost:8080/api/v1/auth/login \
+# Run the migrations once (identity and access own their tables), then serve:
+#   go run ./cmd/api migrate && go run ./cmd/api
+# Login as the demo webmaster (password "demo"); the session cookie is kept in the jar
+curl -c jar.txt -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"secret"}'
-
-TOKEN="<paste token here>"
+  -d '{"login":"admin","password":"demo"}'
 
 # List products (paginated, searchable)
 curl "http://localhost:8080/api/v1/products?page=1&per_page=10&search=widget" \
-  -H "Authorization: Bearer $TOKEN"
+  -b jar.txt
 
 # Create a product
 curl -X POST http://localhost:8080/api/v1/products \
-  -H "Authorization: Bearer $TOKEN" \
+  -b jar.txt \
   -H "Content-Type: application/json" \
   -d '{"name":"Widget Pro","sku":"WGT-001","price":29.99,"stock":100}'
 
 # Get single product with meta
 curl "http://localhost:8080/api/v1/products/1" \
-  -H "Authorization: Bearer $TOKEN"
+  -b jar.txt
 
 # Update
 curl -X PUT http://localhost:8080/api/v1/products/1 \
-  -H "Authorization: Bearer $TOKEN" \
+  -b jar.txt \
   -H "Content-Type: application/json" \
   -d '{"price":24.99}'
 
 # Upload product image (multipart)
 curl -X POST http://localhost:8080/api/v1/products/1/image \
-  -H "Authorization: Bearer $TOKEN" \
+  -b jar.txt \
   -F "image=@/path/to/photo.jpg"
 
 # Soft delete
 curl -X DELETE http://localhost:8080/api/v1/products/1 \
-  -H "Authorization: Bearer $TOKEN"
+  -b jar.txt
 
 # Health / readiness
 curl http://localhost:8080/health

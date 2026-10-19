@@ -2,23 +2,36 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"log"
 	"os"
 	"time"
 
 	"go-core-example/internal/domain/access"
-	domainauth "go-core-example/internal/domain/auth"
 	"go-core-example/internal/domain/product"
 
-	coreauth "github.com/wssto2/go-core/auth"
+	"github.com/gin-gonic/gin"
+	coreaccess "github.com/wssto2/go-core/access"
+	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/go2ts"
+	"github.com/wssto2/go-core/gocore"
 	corei18n "github.com/wssto2/go-core/i18n"
+	"github.com/wssto2/go-core/identity"
 	"github.com/wssto2/go-core/observability/tracing"
 	"github.com/wssto2/go-core/ratelimit"
 )
 
+// main reads top to bottom: a feature used before the line that creates it does not compile.
+//
+// Run the migrations once before serving (go run ./cmd/api migrate): identity and access own their tables.
 func main() {
+	// A .env is optional; the real environment wins over it. Load it before the configuration is read.
+	if err := gocore.LoadEnv(".env"); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		log.Fatal(err)
+	}
+
 	cfg := loadConfig()
 	ctx := context.Background()
 
@@ -48,29 +61,12 @@ func main() {
 	// Generate TypeScript types for all domain models into /tmp/go-core-example/types.
 	// This runs at startup so the types directory always reflects the latest models.
 	if err := go2ts.GenerateTypes(
-		[]interface{}{product.Product{}, domainauth.User{}},
+		[]interface{}{product.Product{}, access.Lead{}},
 		"/tmp/go-core-example/types",
 	); err != nil {
 		log.Printf("go2ts: type generation failed: %v (non-fatal)", err)
 	}
 
-	// Build the TokenConfig so we can pass it to both WithJWTAuth and the auth
-	// module (which needs it to issue tokens on login).
-	tokenCfg := coreauth.TokenConfig{
-		SecretKey:     cfg.JWT.Secret,
-		Issuer:        cfg.JWT.Issuer,
-		TokenDuration: cfg.JWT.Duration,
-	}
-
-	// Create the auth module first so we can pass its DB-backed resolver to
-	// WithJWTAuth. The resolver's DB is set during Register() — before the
-	// server starts accepting requests — so it is always available at request time.
-	authMod := domainauth.NewModule(tokenCfg)
-	productMod := product.NewModule(
-		cfg.Storage.Dir,
-		bootstrap.EnvStr("NOTIFICATION_WEBHOOK_URL", ""),
-		bootstrap.EnvStr("NOTIFICATION_WEBHOOK_TOKEN", ""),
-	)
 	translator, err := corei18n.New(corei18n.Config{
 		FallbackLang: cfg.I18n.DefaultLocale,
 		I18nDir:      cfg.I18n.Dir,
@@ -79,37 +75,75 @@ func main() {
 		log.Fatal(err)
 	}
 
-	pageShellComposer := newCatalogPageShellComposer(
-		cfg,
-		translator,
-		tokenCfg,
-		authMod.IdentityResolver,
-		productMod.ListCatalog,
-		productMod.GetCatalogProduct,
-	)
-	spaShellDataBuilder := newSPAShellDataBuilder(pageShellComposer)
-	pageDataModule := newPageDataModule(pageShellComposer)
+	// The SPA shell is built from the catalogue service, which exists once product is installed: the builder
+	// the App runs with reads it through this variable.
+	var shell spaShellDataBuilder
 
-	app, err := bootstrap.New(cfg).
-		DefaultInfrastructure().
-		WithSPA(spaShellDataBuilder.Build).
-		// Per-user/IP limiter: 300 req/min per identity.
-		WithRateLimit(ratelimit.NewInMemoryLimiter(300, time.Minute)).
-		WithJWTAuth(authMod.IdentityResolver).
-		WithModules(
-			authMod,
-			access.NewModule(), // authz demo: roles, bindings, filtered lead list
-			productMod,
-			pageDataModule,
-		).
-		WithHttp().
-		Build()
+	app := gocore.New(cfg,
+		gocore.WithPrefix("/api"),
+		gocore.WithBuilder(func(b *bootstrap.AppBuilder) {
+			b.WithSPA(func(c *gin.Context) any { return shell.Build(c) }).
+				// Per-user/IP limiter: 300 req/min per identity.
+				WithRateLimit(ratelimit.NewInMemoryLimiter(300, time.Minute)).
+				// Deduplicates a retried POST that carries an Idempotency-Key header, for 24 hours.
+				WithIdempotency(24 * time.Hour)
+		}),
+	)
+
+	// Every permission of the application goes into one catalogue before access.Install builds the engine from it.
+	catalogue := authz.NewCatalogue()
+	product.DefinePermissions(catalogue)
+
+	if err := access.DefinePermissions(catalogue); err != nil {
+		log.Fatal(err)
+	}
+
+	hierarchy, err := access.NewHierarchy()
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	roles := append(access.Roles(), authz.Role{
+		Key: "merchandiser", Name: "Merchandiser",
+		Grants: authz.Grants(authz.QualifierAll, product.PermCreate, product.PermUpdate, product.PermDelete),
+	})
+
+	// Sign-in, sessions, profile; also the application's authentication. WithPrincipal adds the account's own location.
+	users := identity.Install(app, identity.WithoutMail(), identity.WithPrincipal(access.PrincipalOf(app.Database())))
+	// Roles and bindings; also the application's authorizer.
+	acc := coreaccess.Install(app, catalogue, users, coreaccess.WithRoles(roles...),
+		coreaccess.WithScopes(hierarchy, access.NewPlaces(app.Database())))
+
+	catalog := product.Install(app, cfg.Storage.Dir)
+	access.Install(app, acc.Engine)
+
+	composer := newCatalogPageShellComposer(cfg, translator, catalogList(catalog), catalogGet(catalog))
+	shell = newSPAShellDataBuilder(composer)
+	installPageData(app, composer)
+
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// catalogList and catalogGet are the read-only catalogue queries the page composer takes, as plain functions.
+func catalogList(svc product.Service) catalogProductListFunc {
+	return func(ctx context.Context) ([]product.Product, error) {
+		if svc == nil {
+			return nil, errors.New("product: service not initialised")
+		}
+
+		return svc.List(ctx)
+	}
+}
+
+func catalogGet(svc product.Service) catalogProductGetFunc {
+	return func(ctx context.Context, id int) (product.Product, error) {
+		if svc == nil {
+			return product.Product{}, errors.New("product: service not initialised")
+		}
+
+		return svc.GetByID(ctx, id)
 	}
 }
 
@@ -159,10 +193,6 @@ func loadConfig() bootstrap.Config {
 		// 	ConnMaxLifetime: envInt("SHARED_DB_CONN_MAX_LIFETIME_MIN", 5),
 		// },
 	}
-
-	cfg.JWT.Secret = bootstrap.EnvStr("JWT_SECRET", "change-me-to-32-bytes-minimum!!!")
-	cfg.JWT.Issuer = bootstrap.EnvStr("JWT_ISSUER", "go-core-example")
-	cfg.JWT.Duration = time.Duration(bootstrap.EnvInt("JWT_DURATION_HOURS", 24)) * time.Hour
 
 	cfg.I18n.Dir = bootstrap.EnvStr("I18N_DIR", "i18n")
 	cfg.I18n.DefaultLocale = bootstrap.EnvStr("I18N_FALLBACK_LANG", "en")
