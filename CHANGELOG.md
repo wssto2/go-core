@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.21.0 (unreleased)
+## v1.21.0 (2026-10-19)
 
 Clean-up and safe defaults. The container, the old auth and event layers and other dead API are removed, and the defaults of a new app are the safe ones. **Breaking**: an application upgrading from v1.20.0 follows "Removed" and "Changed".
 
