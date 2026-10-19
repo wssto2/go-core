@@ -1,21 +1,19 @@
 package incident
 
 import (
-	"os"
 	"strings"
 	"time"
 
-	"github.com/wssto2/go-core/env"
+	"github.com/wssto2/go-core/gocore"
 )
 
 // AlertsFromEnv reads the alerts' settings from the environment: INCIDENT_NOTIFICATIONS_ENABLED (off),
 // INCIDENT_IMMEDIATE_SEVERITIES (a comma-separated list, "critical,high"), INCIDENT_IMMEDIATE_COOLDOWN_MINUTES
 // (DefaultCooldown, 5) and INCIDENT_DIGEST_INTERVAL_MINUTES (DefaultDigestEvery, 30). Holders is not a
-// setting of the environment. An unknown severity is
-// reported by Install.
-func AlertsFromEnv() Alerts {
-	// The reader's problems are dropped: a malformed value keeps its default, as before (R2-b makes them start-up ones).
-	vars := env.New(os.LookupEnv)
+// setting of the environment. A malformed number or flag stops start-up, naming the variable, like any
+// app.Env() read; an unknown severity is reported by Install.
+func AlertsFromEnv(app *gocore.App) Alerts {
+	vars := app.Env()
 	severities := []Severity{}
 
 	for s := range strings.SplitSeq(vars.String("INCIDENT_IMMEDIATE_SEVERITIES", "critical,high"), ",") {
