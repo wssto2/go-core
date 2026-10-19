@@ -64,26 +64,27 @@ func Run(t *testing.T, factory Factory) {
 	t.Helper()
 
 	for name, test := range map[string]func(*testing.T, core.Store){
-		"an incident round-trips":                       incidentRoundTrips,
-		"an update writes every column":                 updateWritesEverything,
-		"the open fingerprint is unique":                openFingerprintUnique,
-		"a closed incident frees its fingerprint":       closedFreesFingerprint,
-		"the public code is unique":                     publicCodeUnique,
-		"the latest incident of a fingerprint is found": latestIsFound,
-		"visibility follows reporter, author, watcher":  visibilityRules,
-		"a staff-only incident is for the staff":        staffOnlyIncident,
-		"reports honour the viewer":                     reportsVisibility,
-		"comments honour the viewer":                    commentsVisibility,
-		"counting adds to the incident":                 countingAdds,
-		"a sighting updates the samples":                sightingSamples,
-		"the list pages, filters, searches and orders":  listFeatures,
-		"the list honours the visibility":               listVisibility,
-		"watching twice is one watcher":                 watchOnce,
-		"pruning keeps the newest of each incident":     pruneKeepsNewest,
-		"an alert cooldown is stamped and read":         cooldownStamp,
-		"a digest item is queued once":                  digestQueuedOnce,
-		"a digest is claimed once":                      digestClaimedOnce,
-		"claimed digest items are pruned":               digestPruned,
+		"an incident round-trips":                                  incidentRoundTrips,
+		"an update writes every column":                            updateWritesEverything,
+		"the open fingerprint is unique":                           openFingerprintUnique,
+		"a closed incident frees its fingerprint":                  closedFreesFingerprint,
+		"the public code is unique":                                publicCodeUnique,
+		"the latest incident of a fingerprint is found":            latestIsFound,
+		"visibility follows reporter, author, watcher":             visibilityRules,
+		"a staff-only incident is for the staff":                   staffOnlyIncident,
+		"reports honour the viewer":                                reportsVisibility,
+		"comments honour the viewer":                               commentsVisibility,
+		"occurrences are paged newest first and honour the viewer": occurrencesPaged,
+		"counting adds to the incident":                            countingAdds,
+		"a sighting updates the samples":                           sightingSamples,
+		"the list pages, filters, searches and orders":             listFeatures,
+		"the list honours the visibility":                          listVisibility,
+		"watching twice is one watcher":                            watchOnce,
+		"pruning keeps the newest of each incident":                pruneKeepsNewest,
+		"an alert cooldown is stamped and read":                    cooldownStamp,
+		"a digest item is queued once":                             digestQueuedOnce,
+		"a digest is claimed once":                                 digestClaimedOnce,
+		"claimed digest items are pruned":                          digestPruned,
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Helper()
@@ -731,4 +732,59 @@ func digestPruned(t *testing.T, store core.Store) {
 	equal(t, "the one claimed before the cutoff", pruned, 1)
 
 	same(t, "a waiting item is never pruned", claimed(t, store, base().Add(pageOfTwo*time.Hour), wide), []int{pageOfTwo})
+}
+
+func occurrencesPaged(t *testing.T, store core.Store) {
+	t.Helper()
+
+	const total, pageSize = 5, 2
+
+	mine := create(t, store, "INC-A", func(incident *core.Incident) { incident.Visibility = core.VisibilityShared })
+	other := create(t, store, "INC-B", nil)
+	userID := authorID
+
+	sighting := func(incidentID int, message string, at time.Time) {
+		//nolint:exhaustruct,exhaustruct_v5 // zero by design
+		occurrence := core.Occurrence{
+			IncidentID: incidentID, Fingerprint: mine.Fingerprint, Environment: testEnv, AffectedRoute: "/r", RequestMethod: "GET",
+			UserID: &userID, IPAddress: "10.0.0.1", RequestID: "req-1", ErrorClass: "*e", ErrorCode: "c", Message: message,
+			Stacktrace: "a.go:1", ContextJSON: `{"k":"v"}`, RequestJSON: `{"path":"/r"}`, OccurredAt: at, CreatedAt: at,
+		}
+		check(t, store.CreateOccurrence(t.Context(), &occurrence))
+	}
+
+	for i := range total {
+		sighting(mine.ID, "m"+strconv.Itoa(i), base().Add(time.Duration(i)*time.Minute))
+	}
+
+	sighting(other.ID, "not mine", base().Add(time.Hour))
+
+	first, err := store.Occurrences(t.Context(), mine.ID, pagination.Page{Number: 1, Size: pageSize}, staff())
+	check(t, err)
+	equal(t, "the total is this incident's only", first.Total, int64(total))
+	equal(t, "a page holds its size", len(first.Items), pageSize)
+	equal(t, "newest first", first.Items[0].Message, "m4")
+	equal(t, "then the one before", first.Items[1].Message, "m3")
+	equal(t, "an id is set", first.Items[0].ID > first.Items[1].ID, true)
+	equal(t, "the place", first.Items[0].AffectedRoute, "/r")
+	equal(t, "the address", first.Items[0].IPAddress, "10.0.0.1")
+	equal(t, "the request id", first.Items[0].RequestID, "req-1")
+	same(t, "the person", first.Items[0].UserID, &userID)
+	equal(t, "the stack", first.Items[0].Stacktrace, "a.go:1")
+	equal(t, "the context", sameJSON([]byte(first.Items[0].ContextJSON), `{"k":"v"}`), true)
+	equal(t, "the request", sameJSON([]byte(first.Items[0].RequestJSON), `{"path":"/r"}`), true)
+	sameTime(t, "the time", first.Items[0].OccurredAt, base().Add(time.Duration(total-1)*time.Minute))
+
+	last, err := store.Occurrences(t.Context(), mine.ID, pagination.Page{Number: 3, Size: pageSize}, staff())
+	check(t, err)
+	equal(t, "the last page holds the rest", len(last.Items), 1)
+	equal(t, "the oldest is last", last.Items[0].Message, "m0")
+
+	// An incident the viewer may not see, and one that is not there, are the same answer.
+	_, err = store.Occurrences(t.Context(), other.ID, pagination.Page{}, stranger())
+	refused(t, "a stranger to a staff-only incident", err, core.ErrNotFound)
+	_, err = store.Occurrences(t.Context(), mine.ID, pagination.Page{}, stranger())
+	refused(t, "a stranger to a shared incident", err, core.ErrNotFound)
+	_, err = store.Occurrences(t.Context(), mine.ID+other.ID+1000, pagination.Page{}, staff())
+	refused(t, "an unknown incident", err, core.ErrNotFound)
 }

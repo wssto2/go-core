@@ -68,6 +68,12 @@ type ListQuery struct {
 	Query url.Values `json:"-" query:"*"`
 }
 
+// OccurrencesQuery is the incident and the page of its occurrences (page, per_page).
+type OccurrencesQuery struct {
+	ByID
+	Query url.Values `json:"-" query:"*"`
+}
+
 // CommentRequest is the incident and the new comment.
 type CommentRequest struct {
 	ByID
@@ -96,6 +102,8 @@ type Declared struct {
 	Comments route.Route[ByID, []CommentResponse]
 	// Report files a person's bug report (201): a report of an open problem joins its incident.
 	Report route.Route[core.ReportInput, Created]
+	// Occurrences is a page of the sightings of an incident, newest first, for the staff only.
+	Occurrences route.Route[OccurrencesQuery, route.Page[OccurrenceResponse]]
 	// Comment adds a comment (201).
 	Comment route.Route[CommentRequest, CommentResponse]
 	// Update changes an incident.
@@ -115,6 +123,8 @@ func Declare() *Declared {
 		Show: route.Get[ByID, Shown](record).Name("incident.show").Requires(ViewIncidents),
 		Comments: route.Get[ByID, []CommentResponse](record + "/comments").
 			Name("incident.comments").Requires(ViewIncidents),
+		Occurrences: route.Get[OccurrencesQuery, route.Page[OccurrenceResponse]](record + "/occurrences").
+			Name("incident.occurrences").Requires(ManageIncidents),
 		Report: route.Post[core.ReportInput, Created](base + "/reports").
 			Name("incident.report").Requires(CreateIncidents).PersonOnly().Status(http.StatusCreated),
 		Comment: route.Post[CommentRequest, CommentResponse](record + "/comments").
@@ -126,8 +136,8 @@ func Declare() *Declared {
 	}
 
 	declared.group = route.Group(
-		"incident", declared.List, declared.Show, declared.Comments, declared.Report, declared.Comment, declared.Update,
-		declared.ClientError,
+		"incident", declared.List, declared.Show, declared.Comments, declared.Occurrences, declared.Report, declared.Comment,
+		declared.Update, declared.ClientError,
 	).
 		MalformedPath(http.StatusBadRequest)
 
@@ -140,7 +150,7 @@ func (d *Declared) Contract() *route.Contract { return d.group }
 // To binds a handler to every route; hand the result to app.Routes.
 func (d *Declared) To(h *Handlers) []route.Handled {
 	return []route.Handled{
-		d.List.To(h.list), d.Show.To(h.show), d.Comments.To(h.comments), d.Report.To(h.report), d.Comment.To(h.comment),
+		d.List.To(h.list), d.Show.To(h.show), d.Comments.To(h.comments), d.Occurrences.To(h.occurrences), d.Report.To(h.report), d.Comment.To(h.comment),
 		d.Update.To(h.update), d.ClientError.To(h.clientError),
 	}
 }
@@ -257,6 +267,25 @@ func (h *Handlers) comments(ctx context.Context, input ByID) ([]CommentResponse,
 	}
 
 	return out, nil
+}
+
+func (h *Handlers) occurrences(ctx context.Context, input OccurrencesQuery) (route.Page[OccurrenceResponse], error) {
+	err := web.PositiveID("incidentID", input.IncidentID)
+	if err != nil {
+		return route.Page[OccurrenceResponse]{}, err //nolint:wrapcheck // web's own answer
+	}
+
+	who, err := h.viewer(ctx)
+	if err != nil {
+		return route.Page[OccurrenceResponse]{}, err
+	}
+
+	result, err := h.service.Occurrences(ctx, input.IncidentID, web.PageFromValues(input.Query), who)
+	if err != nil {
+		return route.Page[OccurrenceResponse]{}, err //nolint:wrapcheck // the service's own error
+	}
+
+	return occurrencePageOf(result), nil
 }
 
 func (h *Handlers) report(ctx context.Context, input core.ReportInput) (Created, error) {

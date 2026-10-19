@@ -168,6 +168,8 @@ type Comment struct {
 
 // Occurrence is one sighting of an incident: a captured error with the request it happened in.
 type Occurrence struct {
+	// ID is set by the store; the Service names User from the people directory when it lists occurrences.
+	ID                int
 	IncidentID        int
 	Fingerprint       string
 	Environment       string
@@ -187,6 +189,7 @@ type Occurrence struct {
 	RequestJSON       string
 	OccurredAt        time.Time
 	CreatedAt         time.Time
+	User              *Person
 }
 
 // Detail is an incident with what hangs on it: the reports and comments the viewer may see, and whether they watch it.
