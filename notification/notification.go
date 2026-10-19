@@ -218,9 +218,11 @@ func Install(app *gocore.App, users People, opts ...Option) *Notices {
 	}
 
 	if cfg.catalogue != nil {
-		if err := definePermissions(cfg.catalogue); err != nil {
+		err := definePermissions(cfg.catalogue)
+		if err != nil {
 			app.Fail("notification cannot define the dead-letter permissions: "+err.Error(),
-				"install it before the module that builds the engine, or define events.deadletter:view and :retry in the catalogue first")
+				"install it before the module that builds the engine, "+
+					"or define events.deadletter:view and :retry in the catalogue first")
 		}
 
 		app.Permissions(cfg.catalogue)

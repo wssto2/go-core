@@ -67,7 +67,7 @@ func TestGetHTTPStatus_WrappedAppError_Unwraps(t *testing.T) {
 func TestGetHTTPStatus_PlainError_Returns500(t *testing.T) {
 	t.Parallel()
 
-	status := apperr.GetHTTPStatus(errors.New("plain error"))
+	status := apperr.GetHTTPStatus(errors.New("plain error")) //nolint:err113
 	require.Equal(t, 500, status)
 }
 

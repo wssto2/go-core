@@ -24,7 +24,7 @@ const (
 
 // definePermissions adds ViewDeadLetters and RetryDeadLetters to the catalogue when it lacks them (access.Install
 // defines the same two ids, so either module may come first). Install calls it for the catalogue it is given.
-func definePermissions(c *authz.Catalogue) error {
+func definePermissions(catalogue *authz.Catalogue) error {
 	for _, def := range []struct {
 		id   string
 		opts []authz.DefineOption
@@ -32,11 +32,12 @@ func definePermissions(c *authz.Catalogue) error {
 		{ViewDeadLetters, nil},
 		{RetryDeadLetters, []authz.DefineOption{authz.Sensitive(), authz.Requires(ViewDeadLetters)}},
 	} {
-		if _, ok := c.Lookup(def.id); ok {
+		if _, ok := catalogue.Lookup(def.id); ok {
 			continue
 		}
 
-		if err := c.Define(def.id, def.opts...); err != nil {
+		err := catalogue.Define(def.id, def.opts...)
+		if err != nil {
 			return err
 		}
 	}

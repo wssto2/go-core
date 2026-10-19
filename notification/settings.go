@@ -212,7 +212,8 @@ func (s *Settings) set(
 	}
 
 	if current.Enforced() {
-		return CategorySettings{}, apperr.Wrap(nil, string(ReasonEnforced), apperr.CodeInvalidArgument).WithReason(ReasonEnforced)
+		return CategorySettings{}, apperr.Wrap(nil, string(ReasonEnforced), apperr.CodeInvalidArgument).
+			WithReason(ReasonEnforced)
 	}
 
 	if enabled == k.defaultOn(channel) {

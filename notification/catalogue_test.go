@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/access"
 	"github.com/wssto2/go-core/authz"
-	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/gocoretest"
 	"github.com/wssto2/go-core/identity/identitytest"
 	"github.com/wssto2/go-core/notification"
@@ -16,20 +15,24 @@ import (
 type team struct{}
 
 func (team) SubjectNames(context.Context, []authz.Subject) (map[authz.Subject]string, error) {
-	return nil, nil
+	return map[authz.Subject]string{}, nil
 }
 
-// The module defines its own dead-letter permissions on the application's catalogue, so the application does not call
-// anything for them and the order of notification.Install and access.Install does not matter.
+// The module defines its own dead-letter permissions on the application's catalogue, so the application calls nothing
+// for them and the order of notification.Install and access.Install does not matter.
 func TestInstallDefinesItsPermissionsInEitherOrderWithAccess(t *testing.T) {
+	t.Parallel()
+
 	for name, notificationFirst := range map[string]bool{"notification first": true, "access first": false} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
 			app := gocoretest.New(t)
 			cat := authz.NewCatalogue()
-			people := &directory{Users: identitytest.Users(t, accounts()...)}
+			people := identitytest.Users(t, accounts()...)
 
 			installNotification := func() { notification.Install(app, people, notification.WithCatalogue(cat)) }
-			installAccess := func() *access.Access { return access.Install(app, cat, team{}) }
+			installAccess := func() { _ = access.Install(app, cat, team{}) }
 
 			if notificationFirst {
 				installNotification()
@@ -44,9 +47,8 @@ func TestInstallDefinesItsPermissionsInEitherOrderWithAccess(t *testing.T) {
 				require.True(t, ok, id)
 			}
 
-			var startup *gocore.StartupError
-			if err := app.Check(); err != nil {
-				require.ErrorAs(t, err, &startup)
+			err := app.Check()
+			if err != nil {
 				require.NotContains(t, err.Error(), "no permission catalogue defines")
 			}
 		})

@@ -406,12 +406,13 @@ func ExampleDeclare() {
 
 // WithCatalogue makes Install define the dead-letter permissions on the application's catalogue, next to its own.
 func ExampleWithCatalogue() {
-	t := &exampleT{}
+	t := &exampleT{TB: nil, cleanups: nil}
 	defer t.done()
 
 	app := gocoretest.New(t)
 	catalogue := authz.NewCatalogue()
-	notification.Install(app, identitytest.Users(t, identitytest.Account(1, "ana", "x")), notification.WithCatalogue(catalogue))
+	users := identitytest.Users(t, identitytest.Account(1, "ana", "x"))
+	notification.Install(app, users, notification.WithCatalogue(catalogue))
 
 	_, view := catalogue.Lookup(notification.ViewDeadLetters)
 	_, retry := catalogue.Lookup(notification.RetryDeadLetters)

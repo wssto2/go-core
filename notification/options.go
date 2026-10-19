@@ -95,7 +95,7 @@ func (k Kind) apply(c *config) { c.kinds = append(c.kinds, k) }
 // (ViewDeadLetters, RetryDeadLetters) there when the catalogue lacks them and hands the catalogue to app.Permissions,
 // so nothing else is called for them. Access.Install defines the same two, so it may be installed before or after.
 // Without it the application defines them itself, or the routes are a start-up problem.
-func WithCatalogue(catalogue *authz.Catalogue) Option {
+func WithCatalogue(catalogue *authz.Catalogue) Option { //nolint:ireturn // an Option is the interface
 	return optionFunc(func(c *config) { c.catalogue = catalogue })
 }
 

@@ -108,12 +108,16 @@ func TestResource_WithCount_EmptyTableNameSetsError(t *testing.T) {
 func TestResponseIsPaginationResource(t *testing.T) {
 	t.Parallel()
 
-	var got pagination.Resource[string] = Response[string]{Data: "row", Meta: map[string]any{"k": 1}}
+	got := Response[string]{Data: "row", Meta: map[string]any{"k": 1}}
 
 	if got.Data != "row" || got.Meta["k"] != 1 {
 		t.Fatalf("got %+v", got)
 	}
+
+	acceptsResource(got)
 }
+
+func acceptsResource(pagination.Resource[string]) {}
 
 type testAuthor struct{ ID int }
 

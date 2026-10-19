@@ -146,6 +146,7 @@ func WrapPreserve(err error, message string) *AppError {
 			Stack:    stack,
 		}
 	}
+
 	return newWithSkip(err, message, CodeInternal)
 }
 
@@ -323,8 +324,7 @@ func When(err error, cases ...Case) error {
 		}
 	}
 
-	var ae *AppError
-	if errors.As(err, &ae) {
+	if _, ok := errors.AsType[*AppError](err); ok {
 		return err
 	}
 
