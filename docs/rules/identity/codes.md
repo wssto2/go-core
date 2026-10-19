@@ -17,7 +17,7 @@ address); `password_reset` is reserved. The numbers are defaults of `account.Cod
 
 1. A code is **6 digits**, drawn uniformly from `crypto/rand`.
 2. The plain code is **never stored**. The stored `code_hash` is the hex HMAC-SHA256 of `accountID|purpose|code`,
-   keyed by the application's secret (`identity.WithCodeSecret`, at least 32 characters, required whenever mail is
+   keyed by the application's secret (`identity.Mail.CodeSecret`, at least 32 characters, required whenever mail is
    on). Binding account and purpose into the hash means a code for one purpose, or for one account, never satisfies
    another.
 3. A code carries a **target**, what it confirms (the new address for `email_change`).

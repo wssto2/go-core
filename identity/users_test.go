@@ -31,9 +31,9 @@ func TestInstallNeedsAMailSenderOrWithoutMail(t *testing.T) {
 		want string
 	}{
 		"nothing":                {nil, "identity needs a mail.Sender"},
-		"both":                   {[]identity.Option{identity.WithMail(mail.NewSink()), identity.WithoutMail()}, "both WithMail and WithoutMail"},
-		"a sender, no secret":    {[]identity.Option{identity.WithMail(mail.NewSink())}, "identity.WithCodeSecret"},
-		"a sender, short secret": {[]identity.Option{identity.WithMail(mail.NewSink()), identity.WithCodeSecret("short")}, "identity.WithCodeSecret"},
+		"both":                   {[]identity.Option{identity.WithMail(identity.Mail{Sender: mail.NewSink()}), identity.WithoutMail()}, "both WithMail and WithoutMail"},
+		"a sender, no secret":    {[]identity.Option{identity.WithMail(identity.Mail{Sender: mail.NewSink()})}, "Mail.CodeSecret"},
+		"a sender, short secret": {[]identity.Option{identity.WithMail(identity.Mail{Sender: mail.NewSink(), CodeSecret: "short"})}, "Mail.CodeSecret"},
 	} {
 		app := newApp(t)
 		identity.Install(app, tc.opts...)
@@ -49,7 +49,7 @@ func TestInstallNeedsAMailSenderOrWithoutMail(t *testing.T) {
 	require.NoError(t, app.Check())
 
 	app = newApp(t)
-	identity.Install(app, identity.WithMail(mail.NewSink()), identity.WithCodeSecret(secret))
+	identity.Install(app, identity.WithMail(identity.Mail{Sender: mail.NewSink(), CodeSecret: secret}))
 	require.NoError(t, app.Check())
 }
 
@@ -78,7 +78,7 @@ func TestEmailChangeThroughTheInstalledModule(t *testing.T) {
 	app := newApp(t)
 	sink := mail.NewSink()
 
-	users := identity.Install(app, identity.WithMail(sink), identity.WithCodeSecret(secret))
+	users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sink, CodeSecret: secret}))
 
 	ana := identitytest.Account(1, "ana", "secret")
 	ana.Name, ana.Email = "Ana Anić", "ana@old.example"
@@ -124,7 +124,7 @@ func TestAPasswordChangeIsMailedToTheAccount(t *testing.T) {
 	app := newApp(t)
 	sink := mail.NewSink()
 
-	identity.Install(app, identity.WithMail(sink), identity.WithCodeSecret(secret))
+	identity.Install(app, identity.WithMail(identity.Mail{Sender: sink, CodeSecret: secret}))
 
 	ana := identitytest.Account(1, "ana", "secret")
 	ana.Name, ana.Email = "Ana Anić", "ana@example.test"
@@ -147,7 +147,7 @@ func TestAPasswordChangeIsMailedToTheAccount(t *testing.T) {
 func TestAFailingNoticeMailDoesNotUndoThePasswordChange(t *testing.T) {
 	app := newApp(t)
 
-	identity.Install(app, identity.WithMail(mail.SenderFunc(func(context.Context, mail.Message) error { return assert.AnError })), identity.WithCodeSecret(secret))
+	identity.Install(app, identity.WithMail(identity.Mail{Sender: mail.SenderFunc(func(context.Context, mail.Message) error { return assert.AnError }), CodeSecret: secret}))
 
 	ana := identitytest.Account(1, "ana", "secret")
 	ana.Email = "ana@example.test"
@@ -167,7 +167,7 @@ func TestAFailingNoticeMailDoesNotUndoThePasswordChange(t *testing.T) {
 }
 
 // The application's own text wins for the mails it writes; identity's English fills the rest.
-func TestWithMailContentOverridesOnlyWhatItWrites(t *testing.T) {
+func TestMailContentOverridesOnlyWhatItWrites(t *testing.T) {
 	app := newApp(t)
 	sink := mail.NewSink()
 
@@ -181,7 +181,7 @@ func TestWithMailContentOverridesOnlyWhatItWrites(t *testing.T) {
 		return mail.Content{Subject: "Vaša šifra (" + locale + ")", Text: "Šifra: " + d.Code}, nil
 	})
 
-	identity.Install(app, identity.WithMail(sink), identity.WithCodeSecret(secret), identity.WithMailContent(mine))
+	identity.Install(app, identity.WithMail(identity.Mail{Sender: sink, CodeSecret: secret, Content: mine}))
 
 	ana := identitytest.Account(1, "ana", "secret")
 	ana.Email, ana.Locale = "ana@old.example", "hr"
@@ -259,7 +259,7 @@ func refusal() error {
 func TestUsersMailIsWhereIdentitysMailGoes(t *testing.T) {
 	sink := mail.NewSink()
 	app := newApp(t)
-	users := identity.Install(app, identity.WithMail(sink), identity.WithCodeSecret(secret))
+	users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sink, CodeSecret: secret}))
 
 	m, ok := users.Mail()
 	require.True(t, ok)
@@ -310,11 +310,11 @@ func TestWithAuditRecordKeepsTheHistoryUnderTheHostsRecord(t *testing.T) {
 }
 
 // R7: change-locale takes only the locales the application offers, with a 422 and its own reason.
-func TestWithLocalesRefusesAnotherLanguage(t *testing.T) {
+func TestConfigLocalesRefusesAnotherLanguage(t *testing.T) {
 	t.Parallel()
 
 	app := newApp(t)
-	identity.Install(app, identity.WithoutMail(), identity.WithLocales("hr", "ba", "si", "rs"))
+	identity.Install(app, identity.WithoutMail(), identity.WithConfig(identity.Config{Locales: []string{"hr", "ba", "si", "rs"}}))
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 
 	web := newClient(t, app)
@@ -331,11 +331,11 @@ func TestWithLocalesRefusesAnotherLanguage(t *testing.T) {
 	assert.Equal(t, nethttp.StatusNoContent, setLocale("ba").Code)
 }
 
-func TestWithLocalesAlsoHoldsForTheAdmin(t *testing.T) {
+func TestConfigLocalesAlsoHoldsForTheAdmin(t *testing.T) {
 	t.Parallel()
 
 	app := newApp(t)
-	users := identity.Install(app, identity.WithoutMail(), identity.WithLocales("hr"))
+	users := identity.Install(app, identity.WithoutMail(), identity.WithConfig(identity.Config{Locales: []string{"hr"}}))
 
 	_, err := users.Admin().Create(t.Context(), account.CreateAccount{ //nolint:exhaustruct,exhaustruct_v5 // no phone
 		Login: "root", Name: "Root", Email: "root@example.test", Locale: "en", Password: "a long password",
@@ -371,21 +371,15 @@ func TestWithoutUserAdminLeavesThePathsToTheHost(t *testing.T) {
 	assert.Equal(t, nethttp.StatusUnauthorized, get("/v1/iam/profile"), "the person's own profile stays")
 }
 
-// WithFieldLimits narrows what the routes take, whatever the order of WithConfig.
+// Config.Limits narrows what the routes take.
 const nameField = "name"
 
-func TestWithFieldLimitsHoldsOverInstall(t *testing.T) {
+func TestConfigLimitsHoldOverInstall(t *testing.T) {
 	t.Parallel()
 
 	app := newApp(t)
 	identity.Install(app, identity.WithoutMail(),
-		identity.WithFieldLimits(account.Limits{Login: 6, Name: 10, Email: 40, Phone: 8}),
-		identity.WithConfig(account.Config{
-			TokenTTL: 0, Lock: account.Lock{After: 0, For: 0}, AttemptsPerMinute: 0,
-			Codes:      account.CodeRules{TTL: 0, Attempts: 0, Cooldown: 0, PerHour: 0},
-			ReauthLock: account.Lock{After: 0, For: 0}, Locales: nil,
-			Limits: account.Limits{Login: 0, Name: 0, Email: 0, Phone: 0},
-		})) // after the limits: they must survive it
+		identity.WithConfig(identity.Config{Limits: account.Limits{Login: 6, Name: 10, Email: 40, Phone: 8}}))
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 
 	web := newClient(t, app)
@@ -405,12 +399,12 @@ func TestWithFieldLimitsHoldsOverInstall(t *testing.T) {
 	assert.Contains(t, long.Body.String(), "identity.signin.failed", "a login over the limit is a wrong sign-in")
 }
 
-func TestWithFieldLimitsLargerThanGoCoresStopsInstall(t *testing.T) {
+func TestConfigLimitsLargerThanGoCoresStopsInstall(t *testing.T) {
 	t.Parallel()
 
 	app := newApp(t)
 	tooWide := account.Limits{Login: 0, Name: account.NameMax + 1, Email: 0, Phone: 0}
-	identity.Install(app, identity.WithoutMail(), identity.WithFieldLimits(tooWide))
+	identity.Install(app, identity.WithoutMail(), identity.WithConfig(identity.Config{Limits: tooWide}))
 
 	_, err := app.Handler()
 	assert.ErrorContains(t, err, "Limits")

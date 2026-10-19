@@ -152,10 +152,10 @@ func TestTheOptionsShapeThePayload(t *testing.T) {
 	identity.Install(app,
 		identity.WithoutMail(),
 		identity.WithAccess(engine),
-		identity.WithNavigation(
+		identity.WithNavigation(identity.Menu(
 			navigation.Node{I18n: "nav.tickets", Route: "tickets", Permissions: []string{"tickets.ticket:view"}},
 			navigation.Node{I18n: "nav.roles", Route: "roles", Permissions: []string{"access.role:view"}},
-		),
+		)),
 		identity.WithUserProjector(func(_ context.Context, a account.Account) (any, error) {
 			return map[string]any{"id": a.ID, "name": a.Name}, nil
 		}),
@@ -191,7 +191,7 @@ func TestImpersonationIsOffUnlessAllowed(t *testing.T) {
 
 		opts := []identity.Option{identity.WithoutMail()}
 		if allow {
-			opts = append(opts, identity.AllowImpersonation("identity.account:impersonate"))
+			opts = append(opts, identity.WithImpersonation(identity.HoldersOf("identity.account:impersonate")))
 		}
 
 		identity.Install(app, opts...)
@@ -475,7 +475,7 @@ func TestRefusalsHaveOneShapeAndLoginAsSaysInactive(t *testing.T) {
 	t.Parallel()
 
 	app := newApp(t)
-	identity.Install(app, identity.WithoutMail(), identity.AllowImpersonation("iam.user:impersonate"))
+	identity.Install(app, identity.WithoutMail(), identity.WithImpersonation(identity.HoldersOf("iam.user:impersonate")))
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 
 	gone := identitytest.Account(8, "bob", "secret")

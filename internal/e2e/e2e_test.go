@@ -107,8 +107,8 @@ func (b *browser) me() map[string]json.RawMessage {
 // Identity and access installed as an application's main does:
 //
 //	app := gocore.New(cfg, gocore.WithPrefix("/api"))
-//	users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecret(secret),
-//		identity.AllowImpersonation("iam.user:impersonate"), identity.WithDeactivationHook(hook))
+//	users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sender, CodeSecret: secret}),
+//		identity.WithImpersonation(identity.HoldersOf("iam.user:impersonate")), identity.WithDeactivationHook(hook))
 //	access.Install(app, permissions, users)
 //
 // An administrator signs in and sees their permissions in /auth/me; somebody
@@ -136,8 +136,8 @@ func TestIdentityAndAccessWorkTogether(t *testing.T) {
 		owned := map[string]bool{"dora": true} // the application's rule: dora still owns open records
 
 		users := identity.Install(app,
-			identity.WithMail(sink), identity.WithCodeSecret("an-installation-secret-of-32-chars!"),
-			identity.AllowImpersonation("iam.user:impersonate"),
+			identity.WithMail(identity.Mail{Sender: sink, CodeSecret: "an-installation-secret-of-32-chars!"}),
+			identity.WithImpersonation(identity.HoldersOf("iam.user:impersonate")),
 			identity.WithDeactivationHook(identity.DeactivationHookFunc(func(_ context.Context, a account.Account, _ int) error {
 				if owned[a.Login] {
 					return apperr.BadRequest("owns open records").WithReason("crm.owns_records")
@@ -306,7 +306,7 @@ func TestAPersonsActivity(t *testing.T) {
 		permissions.MustDefine("iam.user:impersonate", authz.Sensitive())
 
 		users := identity.Install(app, identity.WithoutMail(),
-			identity.AllowImpersonation("iam.user:impersonate"),
+			identity.WithImpersonation(identity.HoldersOf("iam.user:impersonate")),
 			identity.WithActivityAreas(identity.Area("people").Types("account"), identity.Area("crm").Types("customers").Prefix("contracts.")),
 		)
 		acc := access.Install(app, permissions, users, access.WithRoles(authz.ComputedRole("webmaster", "Webmaster", authz.All())))

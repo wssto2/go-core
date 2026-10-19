@@ -16,7 +16,7 @@
 //	func main() {
 //	    app := gocore.New(config.FromEnv())
 //
-//	    users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecret(secret))
+//	    users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sender, CodeSecret: secret}))
 //	    tickets.Install(app, users)
 //
 //	    app.Run()

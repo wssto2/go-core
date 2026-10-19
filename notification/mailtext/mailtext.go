@@ -1,6 +1,6 @@
 // Package mailtext is the text of the e-mail a notification is sent as, in English, Croatian, Bosnian and
 // Slovenian: the defaults of notification, the same kind of files identity/mailtext holds for identity's mails. An
-// application that writes its own copy, with its own look, gives identity.WithMailContent a mail.Renderer that knows
+// application that writes its own copy, with its own look, gives identity.Mail.Content a mail.Renderer that knows
 // Email; notification asks that renderer first and falls back to these.
 //
 //	notification.email   EmailData   a notification, by e-mail

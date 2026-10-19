@@ -190,7 +190,7 @@ category, held in quiet hours, retried and bundled in a burst.
 2. **Content.** The subject is the title (on one line), the body is the notification's body, a button **Open** to `AppURL` plus the
    in-app link (none without a link), and a footer that says why the person gets the mail and where to change it, in the person's
    language (`en`, `hr`, `bs`, `sl`; their language, else the language of the locale, else English). It is rendered with the same
-   templates mechanism as identity's mails; the application's renderer given to `identity.WithMailContent` may write
+   templates mechanism as identity's mails; the application's renderer given to `identity.Mail.Content` may write
    `notification.email` itself.
 3. **Retries.** A failed send is retried 30 seconds later, then after twice as long each time up to one hour, for as long as the
    delivery's TTL of 24 hours lasts; when the next attempt would fall after it, the delivery is `failed` (`expired: ...`). A

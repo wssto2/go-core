@@ -69,7 +69,7 @@ func TestEndToEndAFeaturePublishesAndThePersonIsNotifiedAndMailedOutsideQuietHou
 	app.Permissions(catalogue)
 
 	sink := mail.NewSink()
-	users := identity.Install(app, identity.WithMail(sink), identity.WithCodeSecret("an-installation-secret-of-32-chars!"))
+	users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sink, CodeSecret: "an-installation-secret-of-32-chars!"}))
 	notices := notification.Install(app, users, TicketAssigned, notification.AppURL("https://tickets.example.test"), notification.TimeZone(loc))
 
 	app.Events(assigned.To("notifications.ticket-assigned", func(ctx context.Context, e assignedEvent) error {

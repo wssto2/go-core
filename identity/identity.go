@@ -6,7 +6,7 @@
 //
 //	app := gocore.New(cfg)
 //
-//	users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecret(secret)) // routes, tables, authentication
+//	users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sender, CodeSecret: secret})) // routes, tables, authentication
 //	access.Install(app, permissions.All, users)    // roles and bindings, and the engine /auth/me reads
 //	tickets.Install(app, users)
 //
@@ -25,8 +25,10 @@
 // changes only after a code mailed to the new address, so say where mail goes:
 //
 //	users := identity.Install(app,
-//		identity.WithMail(mail.SMTP(smtp)),          // or mail.NewSink() while developing
-//		identity.WithCodeSecret(os.Getenv("CODE_SECRET")), // 32 characters or more
+//		identity.WithMail(identity.Mail{
+//			Sender:     mail.SMTP(smtp), // or mail.NewSink() while developing
+//			CodeSecret: os.Getenv("CODE_SECRET"), // 32 characters or more
+//		}),
 //	)
 //
 // or run without e-mail with identity.WithoutMail(): the address then cannot
@@ -41,8 +43,8 @@
 //
 //	users := identity.Install(app,
 //		identity.On(Shared),                          // tables on another connection
-//		identity.WithNavigation(menu...),             // and the menu, cut to what they may reach
-//		identity.AllowImpersonation("iam.user:impersonate"),
+//		identity.WithNavigation(identity.Menu(menu...)), // and the menu, cut to what they may reach
+//		identity.WithImpersonation(identity.HoldersOf("iam.user:impersonate")),
 //	)
 //
 // Its routes live under /v1/auth; the application's own prefix goes in front
@@ -143,7 +145,7 @@ type (
 	Impersonation = account.Impersonation
 	// Notices hears the facts identity publishes; WithNotices sets it.
 	Notices = account.Notices
-	// Limits are the widths of the fields the store keeps; WithFieldLimits sets them.
+	// Limits are the widths of the fields the store keeps; WithConfig sets them (Config.Limits).
 	Limits = account.Limits
 	// Config tunes the rules: session length, the lock, the attempts per minute.
 	Config = account.Config
@@ -189,39 +191,36 @@ type Access interface {
 }
 
 type settings struct {
-	conn                    []database.Connection
-	accounts                account.Store
-	hasher                  account.PasswordHasher
-	refresh                 auth.Hasher
-	cfg                     account.Config
-	impersonation           account.Impersonation
-	impersonationPermission string
-	notices                 account.Notices
-	access                  Access
-	project                 UserProjector
-	principal               PrincipalOf
-	requestUser             RequestUser
-	robots                  *serviceaccount.Config
-	embed                   bool
-	embedSecret             string
-	navigation              NavigationProvider
-	cookies                 Cookies
-	mail                    mail.Sender
-	noMail                  bool
-	renderer                mail.Renderer
-	codeSecret              string
-	policy                  account.PasswordPolicy
-	hooks                   []account.DeactivationHook
-	areas                   []account.ActivityArea
-	auditRecord             string
-	locales                 []string
-	limits                  *account.Limits
-	auditActions            map[account.ChangeAction]string
-	changeLog               account.ChangeLog
-	extension               account.UserExtension
-	reach                   identityhttp.UserReach
-	idleAfter               time.Duration
-	preferences             *preferences.Config
+	conn          []database.Connection
+	accounts      account.Store
+	hasher        account.PasswordHasher
+	refresh       auth.Hasher
+	cfg           account.Config
+	impersonation account.Impersonation
+	notices       account.Notices
+	access        Access
+	project       UserProjector
+	principal     PrincipalOf
+	requestUser   RequestUser
+	robots        *serviceaccount.Config
+	embed         bool
+	embedSecret   string
+	navigation    NavigationProvider
+	cookies       Cookies
+	mail          mail.Sender
+	noMail        bool
+	renderer      mail.Renderer
+	codeSecret    string
+	policy        account.PasswordPolicy
+	hooks         []account.DeactivationHook
+	areas         []account.ActivityArea
+	auditRecord   string
+	auditActions  map[account.ChangeAction]string
+	changeLog     account.ChangeLog
+	extension     account.UserExtension
+	reach         identityhttp.UserReach
+	idleAfter     time.Duration
+	preferences   *preferences.Config
 
 	noUserAdmin bool
 }
@@ -249,21 +248,13 @@ func WithHasher(h account.PasswordHasher) Option { return func(s *settings) { s.
 // application already stored with another hasher, such as auth.NewHMACHasher.
 func WithRefreshHasher(h auth.Hasher) Option { return func(s *settings) { s.refresh = h } }
 
-// WithConfig sets the session length, the lock and the attempts per minute.
+// WithConfig sets the session length, the lock, the attempts per minute, the languages an account may have
+// (Locales: change-locale, and creating or editing an account, refuse any other with 422
+// identity.locale.unsupported; without them any BCP-47 tag is accepted, as the store is given them) and the widths
+// the host's store keeps (Limits: for a table with narrower columns than go-core's 100, 150, 255 and 30 characters,
+// which stay the ceiling, a larger limit stops Install; a longer name, e-mail address or phone is refused with 422
+// and the field's max error, a longer login cannot exist so signing in with one fails like any wrong sign-in).
 func WithConfig(cfg account.Config) Option { return func(s *settings) { s.cfg = cfg } }
-
-// WithLocales limits the languages an account may have to the ones the application offers,
-// for example "hr", "ba", "si", "rs": change-locale (and creating or editing an account)
-// refuses any other with 422 identity.locale.unsupported. Without it any BCP-47 tag is accepted.
-// The tags are those the store is given; a store over a table with other codes maps them.
-func WithLocales(locales ...string) Option { return func(s *settings) { s.locales = locales } }
-
-// WithFieldLimits says how long a login, a name, an e-mail address and a phone the store keeps,
-// for a table with narrower columns than go-core's (100, 150, 255 and 30 characters, which stay the
-// ceiling: a larger limit stops Install). Zero is go-core's width. A longer name, e-mail address or
-// phone is refused with 422 and the field's max error, like the input's own tag; a longer login
-// cannot exist, so signing in with one fails like any wrong sign-in.
-func WithFieldLimits(l account.Limits) Option { return func(s *settings) { s.limits = &l } }
 
 // WithAccess overrides where /auth/me reads how the person holds each
 // permission. By default it asks the application's authorizer (the engine
@@ -271,19 +262,16 @@ func WithFieldLimits(l account.Limits) Option { return func(s *settings) { s.lim
 // holds no permissions.
 func WithAccess(a Access) Option { return func(s *settings) { s.access = a } }
 
-// AllowImpersonation lets people who hold the permission sign in as somebody
-// else. The check goes through the application's authorizer when the request
-// comes, so the permission must be in the catalogue access.Install gets.
-// Without this or WithImpersonation, nobody may.
-func AllowImpersonation(permission string) Option {
-	return func(s *settings) { s.impersonationPermission = permission }
-}
-
-// WithImpersonation decides who may sign in as whom with your own rules, such
-// as limiting a person to targets who can do no more than they can.
+// WithImpersonation decides who may sign in as whom: HoldersOf(permission) lets whoever holds a permission sign in
+// as anybody, or write your own rule, such as limiting a person to targets who can do no more than they can.
+// Without it nobody may.
 func WithImpersonation(i account.Impersonation) Option {
 	return func(s *settings) { s.impersonation = i }
 }
+
+// HoldersOf is the Impersonation of a permission: whoever holds it may sign in as anybody. The check goes through
+// the application's authorizer when the request comes, so the permission must be in the catalogue access.Install gets.
+func HoldersOf(permission string) account.Impersonation { return &permitted{permission: permission} }
 
 // WithNotices hears the facts identity publishes (signing in as somebody,
 // sessions ended), to write an audit trail or send a notification.
@@ -343,42 +331,43 @@ func WithEmbed(secret string) Option {
 }
 
 // WithNavigation sets the menu /auth/me carries, cut down to the permissions the
-// person holds. The tree is yours; identity only filters it.
-func WithNavigation(menu ...navigation.Node) Option {
-	return func(s *settings) {
-		s.navigation = func(context.Context, account.Account) ([]navigation.Node, error) { return menu, nil }
-	}
+// person holds. The tree is yours; identity only filters it. Menu makes a provider
+// of a fixed tree; a function makes one that depends on the person.
+func WithNavigation(p NavigationProvider) Option {
+	return func(s *settings) { s.navigation = p }
 }
 
-// WithNavigationProvider is WithNavigation for a menu that depends on the person.
-func WithNavigationProvider(p NavigationProvider) Option {
-	return func(s *settings) { s.navigation = p }
+// Menu is the NavigationProvider of a menu that is the same for everybody.
+func Menu(menu ...navigation.Node) NavigationProvider {
+	return func(context.Context, account.Account) ([]navigation.Node, error) { return menu, nil }
 }
 
 // WithCookies renames and places the token cookies.
 func WithCookies(c Cookies) Option { return func(s *settings) { s.cookies = c } }
 
-// WithMail sends identity's mail through the sender: the code that confirms a new
-// e-mail address, and the notices of a changed password and a changed address.
-// mail.SMTP(...) is the real one; mail.NewSink() records messages for tests and a
-// first run. It needs WithCodeSecret.
-func WithMail(sender mail.Sender) Option { return func(s *settings) { s.mail = sender } }
+// Mail is where identity's mail goes and what it says.
+type Mail struct {
+	// Sender sends the mail: mail.SMTP(...) is the real one; mail.NewSink() records messages for tests and a first run.
+	Sender mail.Sender
+	// CodeSecret keys the HMAC of the stored one-time codes: at least 32 characters, kept server-side, for example
+	// from an environment variable. A leaked table of codes cannot be searched offline without it.
+	CodeSecret string
+	// Content writes the text of identity's mails yourself, in your languages (optional). It need only know the mails
+	// it changes (names in identity/mailtext, returning mail.ErrNoTemplate for the others): identity falls back to
+	// its English defaults for the rest.
+	Content mail.Renderer
+}
+
+// WithMail sends identity's mail: the code that confirms a new e-mail address, and the notices of a changed
+// password and a changed address.
+func WithMail(m Mail) Option {
+	return func(s *settings) { s.mail, s.codeSecret, s.renderer = m.Sender, m.CodeSecret, m.Content }
+}
 
 // WithoutMail runs identity without e-mail: a person's address cannot be changed
 // by code (the routes answer identity.email.disabled), no notices are mailed, and
 // the rest works. It is the explicit way to say that, since mail is not optional by accident.
 func WithoutMail() Option { return func(s *settings) { s.noMail = true } }
-
-// WithMailContent writes the text of identity's mails yourself, in your languages.
-// The renderer need only know the mails it changes (names in identity/mailtext,
-// returning mail.ErrNoTemplate for the others): identity falls back to its English
-// defaults for the rest.
-func WithMailContent(r mail.Renderer) Option { return func(s *settings) { s.renderer = r } }
-
-// WithCodeSecret keys the HMAC of the stored one-time codes: at least 32
-// characters, kept server-side, for example from an environment variable. A leaked
-// table of codes cannot be searched offline without it.
-func WithCodeSecret(secret string) Option { return func(s *settings) { s.codeSecret = secret } }
 
 // WithPasswordPolicy replaces the rules for new passwords (the default is at least 8
 // characters, at most 72 bytes) for an application that keeps older ones.
@@ -567,8 +556,8 @@ func Install(app *gocore.App, opts ...Option) *Users {
 		return &account.Users{}
 	}
 
-	if s.impersonationPermission != "" && s.impersonation == nil {
-		s.impersonation = permitted{app: app, permission: s.impersonationPermission}
+	if p, ok := s.impersonation.(*permitted); ok {
+		p.app = app
 	}
 
 	var (
@@ -583,14 +572,6 @@ func Install(app *gocore.App, opts ...Option) *Users {
 	if s.mail != nil {
 		m := mailer{sender: s.mail, render: s.mailRenderer(), accounts: s.accounts, clock: app.Clock(), log: app.Logger()}
 		sender, notice = m, notices{Notices: notice, m: m}
-	}
-
-	if s.locales != nil {
-		s.cfg.Locales = s.locales
-	}
-
-	if s.limits != nil { // after WithConfig, whatever the order of the options
-		s.cfg.Limits = *s.limits
 	}
 
 	svc, err := account.New(account.Deps{
@@ -645,7 +626,7 @@ func Install(app *gocore.App, opts ...Option) *Users {
 	if sender != nil {
 		codes, err = account.NewCodes(account.CodesDeps{Store: stores.Codes, Sender: sender, Clock: app.Clock(), Secret: s.codeSecret}, s.cfg.Codes)
 		if err != nil {
-			app.Fail("identity could not be installed: "+err.Error(), "check identity.WithCodeSecret and the options given to identity.Install")
+			app.Fail("identity could not be installed: "+err.Error(), "check identity.Mail.CodeSecret and the options given to identity.Install")
 
 			return svc.Users
 		}
@@ -775,12 +756,12 @@ func (s settings) mailConfigured(app *gocore.App) bool {
 		return false
 	case s.mail == nil && !s.noMail:
 		app.Fail("identity needs a mail.Sender: a person's e-mail address changes only after a code mailed to the new address",
-			"pass identity.WithMail(mail.SMTP(...)) (mail.NewSink() while developing), or identity.WithoutMail() to run without e-mail")
+			"pass identity.WithMail(identity.Mail{Sender: mail.SMTP(...), CodeSecret: secret}) (mail.NewSink() while developing), or identity.WithoutMail() to run without e-mail")
 
 		return false
 	case s.mail != nil && len(s.codeSecret) < account.MinCodeSecret:
 		app.Fail("identity needs a secret for its e-mail codes, of at least 32 characters",
-			"pass identity.WithCodeSecret(secret), for example from an environment variable")
+			"set Mail.CodeSecret in identity.WithMail, for example from an environment variable")
 
 		return false
 	}
@@ -816,14 +797,13 @@ func (s settings) accessOf(app *gocore.App) identityhttp.AccessProvider {
 	}
 }
 
-// permitted is the Impersonation of a permission: whoever holds it may sign in
-// as anybody. Narrower rules are WithImpersonation's.
+// permitted is HoldersOf's Impersonation; Install gives it the application.
 type permitted struct {
 	app        *gocore.App
 	permission string
 }
 
-func (p permitted) Permitted(ctx context.Context, _ account.Account) error {
+func (p *permitted) Permitted(ctx context.Context, _ account.Account) error {
 	authorizer := p.app.Authorizer()
 	if authorizer == nil {
 		return apperr.Forbidden(string(account.ReasonImpersonationDisabled)).WithReason(account.ReasonImpersonationDisabled)
@@ -832,4 +812,4 @@ func (p permitted) Permitted(ctx context.Context, _ account.Account) error {
 	return authorizer.Require(ctx, p.permission)
 }
 
-func (permitted) Covers(context.Context, account.Account, account.Account) error { return nil }
+func (*permitted) Covers(context.Context, account.Account, account.Account) error { return nil }

@@ -60,8 +60,8 @@ func TestNoticesHearSessionsEndedAndAccountChangedOverHTTP(t *testing.T) {
 	f := &facts{}
 	sink := mail.NewSink()
 
-	identity.Install(app, identity.WithMail(sink), identity.WithCodeSecret(secret), identity.WithNotices(f),
-		identity.AllowImpersonation("iam.user:impersonate"))
+	identity.Install(app, identity.WithMail(identity.Mail{Sender: sink, CodeSecret: secret}), identity.WithNotices(f),
+		identity.WithImpersonation(identity.HoldersOf("iam.user:impersonate")))
 
 	ana := identitytest.Account(1, "ana", "secret")
 	ana.Email = "ana@old.example"

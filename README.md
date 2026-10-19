@@ -64,7 +64,7 @@ func main() {
 
     app := gocore.New(cfg, gocore.WithPrefix("/api"))
 
-    users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecret(secret))
+    users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sender, CodeSecret: secret}))
     access.Install(app, permissions.All, users)
     tickets.Install(app)
 
@@ -200,8 +200,8 @@ An unauthenticated request to a non-public route gets the usual 401 envelope. A 
 func main() {
     app := gocore.New(config, gocore.WithPrefix("/api"))
 
-    users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecret(secret),
-        identity.AllowImpersonation("iam.user:impersonate")) // sign-in, users, profile, authentication
+    users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sender, CodeSecret: secret}),
+        identity.WithImpersonation(identity.HoldersOf("iam.user:impersonate"))) // sign-in, users, profile, authentication
     access.Install(app, permissions.All, users)               // roles and bindings; builds the engine
     tickets.Install(app, users)
 
@@ -209,7 +209,7 @@ func main() {
 }
 ```
 
-identity needs no engine: `/auth/me` and `AllowImpersonation` read the application's authorizer (the engine `access.Install` builds) when a request comes, and `*identity.Users` is the `access.SubjectDirectory`. `internal/e2e` installs exactly this and signs in on SQLite, MySQL and MariaDB.
+identity needs no engine: `/auth/me` and `HoldersOf` read the application's authorizer (the engine `access.Install` builds) when a request comes, and `*identity.Users` is the `access.SubjectDirectory`. `internal/e2e` installs exactly this and signs in on SQLite, MySQL and MariaDB.
 
 `Install` only collects (`Routes`, `Background`, `Permissions`, `Events`); nothing runs until `Run`, so the order of those never matters.
 
@@ -437,10 +437,10 @@ user, ok := auth.UserOf[MyUser](ctx) // ctx is the request context
 `identity` is the sign-in module: accounts, password sign-in, sessions, the lock after wrong passwords, signing in as somebody else, and the `/auth/me` payload the client starts from. One line puts it into an application (`identity/example_test.go`); it also makes it the application's authentication, so every route that is not `.Public()` is behind it and the signed-in person is the authz principal:
 
 ```go
-users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecret(secret)) // routes, tables, authentication
+users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sender, CodeSecret: secret})) // routes, tables, authentication
 ```
 
-Mail is the one thing identity cannot default (see "Users and profile" below): pass `WithMail(sender)` and `WithCodeSecret(secret)`, or `identity.WithoutMail()`; without either, start-up stops and says which. It uses the GORM store, bcrypt and its own migrations unless told otherwise. Options are named for what they change: `identity.On(Shared)` (tables on another connection), `WithAccounts(store)` (your own accounts table: identity then creates no `accounts` table, phone column or unique e-mail, only its sign-in, token, code and re-authentication tables), `WithoutUserAdmin()` (no `/v1/iam/users` routes and no `Searcher` needed, for an application with its own users module; `users.Admin()` is nil; the profile, own sign-ins and sessions, login-as and its return stay), `WithAuditRecord("users", map[identity.ChangeAction]string{identity.ChangeCreated: "create", identity.ChangeUpdated: "update", identity.ChangeDeactivated: "delete"})` (the history of accounts is read and written as audit rows of that record type and those verbs, with no row rewritten; where several change actions share one verb a row is read back as the first of created, updated, deactivated, activated, password, email, profile, so the access/details tabs are only as exact as the verbs are distinct), `WithLocales("hr", "ba")` (change-locale and the admin accept only these; another well-formed tag is `422 identity.locale.unsupported`), `WithHasher(h)`, `WithRefreshHasher(h)`, `WithConfig(identity.Config{Lock: identity.Lock{After: 3}})`, `WithAccess(a)` (override where the payload's `authz.MyAccess` comes from; by default the application's authorizer, once `access.Install` is part of it), `WithNavigation(menu...)` (and the menu, cut to the permissions held), `WithUserProjector(fn)`, `AllowImpersonation("iam.user:impersonate")` (checked through the application's authorizer), `WithNotices(n)`, `WithCookies(...)`, `WithPreferences(identity.Preferences{})` (a JSON object per person, see below). `users` is what other features take: `users.Get(ctx, id)`, `users.ChangeLocale(...)`, `users.Sessions(ctx, id)`, `users.RevokeSessions(...)`.
+Mail is the one thing identity cannot default (see "Users and profile" below): pass `WithMail(identity.Mail{Sender: sender, CodeSecret: secret})`, or `identity.WithoutMail()`; without either, start-up stops and says which. It uses the GORM store, bcrypt and its own migrations unless told otherwise. Options are named for what they change: `identity.On(Shared)` (tables on another connection), `WithAccounts(store)` (your own accounts table: identity then creates no `accounts` table, phone column or unique e-mail, only its sign-in, token, code and re-authentication tables), `WithoutUserAdmin()` (no `/v1/iam/users` routes and no `Searcher` needed, for an application with its own users module; `users.Admin()` is nil; the profile, own sign-ins and sessions, login-as and its return stay), `WithAuditRecord("users", map[identity.ChangeAction]string{identity.ChangeCreated: "create", identity.ChangeUpdated: "update", identity.ChangeDeactivated: "delete"})` (the history of accounts is read and written as audit rows of that record type and those verbs, with no row rewritten; where several change actions share one verb a row is read back as the first of created, updated, deactivated, activated, password, email, profile, so the access/details tabs are only as exact as the verbs are distinct), `WithConfig(identity.Config{Locales: []string{"hr", "ba"}})` (change-locale and the admin accept only these; another well-formed tag is `422 identity.locale.unsupported`; `Config.Limits` narrows the field widths of a store with narrower columns), `WithHasher(h)`, `WithRefreshHasher(h)`, `WithAccess(a)` (override where the payload's `authz.MyAccess` comes from; by default the application's authorizer, once `access.Install` is part of it), `WithNavigation(identity.Menu(menu...))` (and the menu, cut to the permissions held), `WithUserProjector(fn)`, `WithImpersonation(identity.HoldersOf("iam.user:impersonate"))` (a rule of your own is an `identity.Impersonation`; checked through the application's authorizer), `WithNotices(n)`, `WithCookies(...)`, `WithPreferences(identity.Preferences{})` (a JSON object per person, see below). `users` is what other features take: `users.Get(ctx, id)`, `users.ChangeLocale(...)`, `users.Sessions(ctx, id)`, `users.RevokeSessions(...)`.
 
 The routes are declared under `/v1/auth` (an app with `gocore.WithPrefix("/api")` serves `/api/v1/auth/login`): `POST login` and `refresh` (public), `POST logout`, `GET me`, `POST change-locale`, `POST login-as` and `POST login-as/return` (back to one's own account with no password; any other session is refused with `identity.impersonation.not_active`). `identity.Routes` is their declared contract. Tokens travel in HttpOnly cookies (`access_token`, and `refresh_token` for the refresh route only) and an access token is also accepted as `Authorization: Bearer`. Login, refresh and `me` answer the session payload, which vue-core reads with `parseSessionPayload`:
 
@@ -464,8 +464,7 @@ The same `Install` serves user administration under `/v1/iam/users` and every si
 ```go
 // sender is a mail.Sender: mail.SMTP(...) in production, mail.NewSink() in a test or a first run.
 users := identity.Install(app,
-    identity.WithMail(sender),
-    identity.WithCodeSecret(os.Getenv("CODE_SECRET")), // 32 characters or more; keys the stored one-time codes
+    identity.WithMail(identity.Mail{Sender: sender, CodeSecret: os.Getenv("CODE_SECRET")}), // 32 characters or more; keys the stored one-time codes
     identity.WithDeactivationHook(handOver),           // the application takes part in a deactivation, or refuses it
 )
 
@@ -479,7 +478,7 @@ Administrators create, update, deactivate and activate people, give them a new p
 
 A person changes their name and phone, their password (the current one is asked again; five wrong ones lock for fifteen minutes; every other session ends) and their e-mail address: a six-digit code is mailed to the *new* address and the change happens when it is typed in. One account per address (`identity.email.taken`). The code, its limits (60 seconds between sends, five an hour, five attempts, fifteen minutes) and the lock are in `docs/rules/identity/` (IAM-OTP-001 to 004, IAM-REAUTH-001, IAM-PROFILE-001 to 004, IAM-USER-005 to 007).
 
-The text of identity's mails is English (`identity/mailtext`); give `identity.WithMailContent(renderer)` your own in the person's language, for the mails you want to change. `deactivation hooks` run in the transaction of the deactivation before anything is written, and what they write with the context they get commits or rolls back with it:
+The text of identity's mails is English (`identity/mailtext`); give `identity.Mail{Content: renderer}` your own in the person's language, for the mails you want to change. `deactivation hooks` run in the transaction of the deactivation before anything is written, and what they write with the context they get commits or rolls back with it:
 
 ```go
 handOver := identity.DeactivationHookFunc(func(ctx context.Context, a account.Account, actor int) error {

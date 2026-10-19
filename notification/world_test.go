@@ -154,7 +154,7 @@ func newSenderWorld(t *testing.T, db *gorm.DB, sender mail.Sender, opts ...notif
 	return buildWorld(t, db, nil, mail.NewSink(), account.Mail{Sender: sender, Renderer: identitymail.Defaults}, withAppURL(opts)...)
 }
 
-// newRendererWorld is newMailWorld with the application's renderer, as identity.WithMailContent gives it, in front of identity's.
+// newRendererWorld is newMailWorld with the application's renderer, as identity.Mail.Content gives it, in front of identity's.
 func newRendererWorld(t *testing.T, db *gorm.DB, renderer mail.Renderer, opts ...notification.Option) *world {
 	t.Helper()
 

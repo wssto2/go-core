@@ -473,7 +473,7 @@ func TestWorkersRacingOnTheSameDeliveriesSendEachOnce(t *testing.T) {
 	}, dbtest.MySQL, dbtest.MariaDB)
 }
 
-// The application's own renderer, given to identity as WithMailContent, writes the notification mail too when it knows it.
+// The application's own renderer, given to identity as Mail.Content, writes the notification mail too when it knows it.
 func TestTheApplicationsRendererWritesTheMailWhenItKnowsIt(t *testing.T) {
 	var seen mailtext.EmailData
 

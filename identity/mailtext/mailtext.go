@@ -1,7 +1,7 @@
 // Package mailtext is the text of the mails identity sends, in English: the
 // defaults for the development sink and a first run. An application writes its
 // own copy, in its own languages and with its own look, as a mail.Renderer it
-// gives identity.WithMailContent; that renderer need only know the mails it
+// gives identity.Mail.Content; that renderer need only know the mails it
 // changes, identity falls back to these for the rest.
 //
 // Each mail has a name and the data its templates read:
