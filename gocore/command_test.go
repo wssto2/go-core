@@ -3,7 +3,7 @@ package gocore_test
 import (
 	"context"
 	"errors"
-		"fmt"
+	"fmt"
 	"strings"
 	"testing"
 

@@ -513,7 +513,9 @@ func (a *App) RoutesWith(security route.Security, routes ...route.Handled) {
 }
 
 // Background collects workers that run for the life of the application: they
-// start at boot and are drained at shutdown.
+// start at boot and are drained at shutdown. Their context is marked all-tenants
+// (tenancy.WithAllTenants), since a worker acts for nobody; a worker acting for one
+// tenant narrows it with tenancy.WithTenantID.
 func (a *App) Background(workers ...worker.Worker) {
 	a.workers = append(a.workers, workers...)
 }

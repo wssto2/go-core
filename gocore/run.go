@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/middlewares"
 	"github.com/wssto2/go-core/route"
+	"github.com/wssto2/go-core/tenancy"
 	"github.com/wssto2/go-core/web"
 	"github.com/wssto2/go-core/worker"
 )
@@ -307,7 +308,8 @@ func (m *featuresModule) Boot(boot context.Context) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithCancel(boot)
+	// Workers act for no tenant (see tenancy.WithAllTenants); a request's context is never marked.
+	ctx, cancel := context.WithCancel(tenancy.WithAllTenants(boot))
 	m.cancel = cancel
 	m.mgr.Start(ctx)
 

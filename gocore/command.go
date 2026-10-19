@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+
+	"github.com/wssto2/go-core/tenancy"
 )
 
 // RunCommand does what args ask, the way Run does with the command line:
@@ -243,6 +245,9 @@ func isBuiltin(name string) bool { return name == "migrate" || name == "help" ||
 // and help: "./myapp db:prune --dry-run" runs run with ["--dry-run"]. short is
 // the line "help" shows next to the name.
 //
+// ctx is cancelled by Ctrl-C and is marked all-tenants (tenancy.WithAllTenants): a command acts for nobody, so a
+// tenant-scoped query sees every tenant; acting for one narrows it with tenancy.WithTenantID.
+//
 // A command runs the way migrate does: the App is built and every feature
 // installed, but nothing is checked, served or booted, no worker or OnStart
 // runs, and the databases New opened are closed afterwards. It reaches them
@@ -336,7 +341,8 @@ func (a *App) runAppCommand(ctx context.Context, c *appCommand, args []string, o
 		return &StartupError{Problems: a.found()}
 	}
 
-	err := c.run(ctx, newCmd(a, c, args, out))
+	// A command acts for nobody: every tenant's rows are in reach, and acting for one narrows with tenancy.WithTenantID.
+	err := c.run(tenancy.WithAllTenants(ctx), newCmd(a, c, args, out))
 	if errors.Is(err, flag.ErrHelp) {
 		return nil
 	}
