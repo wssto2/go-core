@@ -1,8 +1,15 @@
-package go2ts
+//nolint:exhaustruct,exhaustruct_v5 // fixtures set only the fields under test
+package go2ts_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/wssto2/go-core/go2ts"
 )
 
 type unknownRuleInput struct {
@@ -20,57 +27,62 @@ type declaredRuleInput struct {
 	Code string `json:"code" validation:"unique_for_test|max:5"`
 }
 
+type inYearMonthInput struct {
+	Kind  string `json:"kind"  validation:"in:foo,bar"`
+	Only  string `json:"only"  validation:"required|in:one"`
+	Digit string `json:"digit" validation:"in:1,2"`
+	Num   int    `json:"num"   validation:"in:1,2"`
+	Year  string `json:"year"  validation:"year"`
+	Born  string `json:"born"  validation:"required|year"`
+	Month string `json:"month" validation:"required|month"`
+}
+
 func TestGenerateSchemas_UnknownRuleFailsNamingStructFieldAndRule(t *testing.T) {
-	err := GenerateSchemas([]any{unknownRuleInput{}}, t.TempDir())
-	if err == nil {
-		t.Fatal("an unknown validation rule generated a schema that silently lacks it")
-	}
+	t.Parallel()
+
+	err := go2ts.GenerateSchemas([]any{unknownRuleInput{}}, t.TempDir())
+	require.Error(t, err, "an unknown validation rule generated a schema that silently lacks it")
 
 	for _, want := range []string{"unknownRuleInput", "Name", `"exists"`} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q lacks %s", err, want)
-		}
+		assert.Contains(t, err.Error(), want)
 	}
 }
 
 func TestGenerateSchemas_ServerOnlyRulesAreNotAnError(t *testing.T) {
-	if err := GenerateSchemas([]any{serverOnlyInput{}}, t.TempDir()); err != nil {
-		t.Fatalf("the validator's cross-field and password rules have no Zod form and are declared server-only: %v", err)
-	}
+	t.Parallel()
+
+	require.NoError(t, go2ts.GenerateSchemas([]any{serverOnlyInput{}}, t.TempDir()),
+		"the validator's cross-field and password rules have no Zod form and are declared server-only")
 }
 
 func TestServerOnly_DeclaresAnApplicationsOwnRule(t *testing.T) {
-	if err := GenerateSchemas([]any{declaredRuleInput{}}, t.TempDir()); err == nil {
-		t.Fatal("the rule is not declared yet")
-	}
+	t.Parallel()
 
-	ServerOnly("unique_for_test")
+	require.Error(t, go2ts.GenerateSchemas([]any{declaredRuleInput{}}, t.TempDir()), "the rule is not declared yet")
 
-	if err := GenerateSchemas([]any{declaredRuleInput{}}, t.TempDir()); err != nil {
-		t.Fatalf("a declared rule is server-only: %v", err)
-	}
+	go2ts.ServerOnly("unique_for_test")
+
+	require.NoError(t, go2ts.GenerateSchemas([]any{declaredRuleInput{}}, t.TempDir()), "a declared rule is server-only")
 }
 
-func TestFieldToZodExpr_InStringIsAnEnum(t *testing.T) {
-	for tag, want := range map[string]string{
-		"in:foo,bar":      `z.enum(["foo", "bar"])`,
-		"required|in:one": `z.enum(["one"])`,
-		"in:1,2":          `z.enum(["1", "2"])`,
-	} {
-		if expr, _ := fieldToZodExpr(stringType, tag); expr != want {
-			t.Errorf("%s: got %q, want %q", tag, expr, want)
-		}
-	}
-}
+func TestGenerateSchemas_InIsAnEnumForStringsAndYearAndMonthAreRegexes(t *testing.T) {
+	t.Parallel()
 
-func TestFieldToZodExpr_YearAndMonth(t *testing.T) {
-	for tag, want := range map[string]string{
-		"year":           `z.string().regex(/^\d{4}$/).or(z.literal(''))`,
-		"required|year":  `z.string().min(1).regex(/^\d{4}$/)`,
-		"required|month": `z.string().min(1).regex(/^(0?[1-9]|1[0-2])$/)`,
+	dir := t.TempDir()
+	require.NoError(t, go2ts.GenerateSchemas([]any{inYearMonthInput{}}, dir))
+
+	got, err := os.ReadFile(filepath.Join(dir, "inYearMonthInput.ts")) //nolint:gosec // a file of the test's temp dir
+	require.NoError(t, err)
+
+	for _, want := range []string{
+		`kind: z.enum(["foo", "bar"]),`,
+		`only: z.enum(["one"]),`,
+		`digit: z.enum(["1", "2"]),`,
+		`num: z.union([z.literal(1), z.literal(2)]),`,
+		`year: z.string().regex(/^\d{4}$/).or(z.literal('')),`,
+		`born: z.string().min(1).regex(/^\d{4}$/),`,
+		`month: z.string().min(1).regex(/^(0?[1-9]|1[0-2])$/),`,
 	} {
-		if expr, _ := fieldToZodExpr(stringType, tag); expr != want {
-			t.Errorf("%s: got %q, want %q", tag, expr, want)
-		}
+		assert.True(t, strings.Contains(string(got), want), "missing %s in\n%s", want, got)
 	}
 }

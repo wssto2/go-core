@@ -271,12 +271,12 @@ func (a *App) driftOf(part, target string) ([]string, error) {
 
 func driftTypes(dir string, list []any, generate func([]any, string) error) ([]string, error) {
 	if len(list) == 0 {
-		return nil, nil // "no types listed": the folder is left as it is
+		return []string{}, nil // "no types listed": the folder is left as it is
 	}
 
 	names, err := go2ts.Drift(dir, func(scratch string) error { return generate(list, scratch) })
 
-	return pathsIn(dir, names), err //nolint:wrapcheck // go2ts names the folder and the file
+	return pathsIn(dir, names), err
 }
 
 func (a *App) driftPermissions(file string) ([]string, error) {
@@ -284,7 +284,7 @@ func (a *App) driftPermissions(file string) ([]string, error) {
 
 	switch len(catalogues) {
 	case 0:
-		return nil, nil
+		return []string{}, nil
 	case 1:
 		scratch, err := os.MkdirTemp("", "gocore-ts-")
 		if err != nil {
@@ -300,7 +300,11 @@ func (a *App) driftPermissions(file string) ([]string, error) {
 			return nil, err //nolint:wrapcheck // authzts names the file
 		}
 
-		return treeDrift(scratch, filepath.Dir(file), filepath.Base(file))
+		if sameFile(want, file) {
+			return []string{}, nil
+		}
+
+		return []string{file}, nil
 	default:
 		return nil, fmt.Errorf("%d permission catalogues were installed: %w", len(catalogues), errManyCatalogues)
 	}
@@ -319,67 +323,78 @@ func (a *App) driftRoutes(dir string) ([]string, error) {
 		return nil, err //nolint:wrapcheck // contract lists every problem with its fix
 	}
 
-	return treeDrift(scratch, dir, "")
+	return treeDrift(scratch, dir)
 }
 
-// treeDrift lists the files of the generated folder want that are missing or different in have, and (when only is
-// empty) the files of have that want does not hold: the paths are under have.
-func treeDrift(want, have, only string) ([]string, error) {
-	var drifted []string
+// sameFile reports whether the two files hold the same bytes; a file that cannot be read is not the same.
+func sameFile(want, have string) bool {
+	generated, err := os.ReadFile(want) //nolint:gosec // our own scratch directory
+	if err != nil {
+		return false
+	}
 
-	err := filepath.WalkDir(want, func(path string, entry os.DirEntry, err error) error {
-		if err != nil || entry.IsDir() {
+	current, err := os.ReadFile(have) //nolint:gosec // the file the application named
+	if err != nil {
+		return false
+	}
+
+	return bytes.Equal(current, generated)
+}
+
+// filesUnder lists the files below dir, relative; a dir that does not exist holds none.
+func filesUnder(dir string) ([]string, error) {
+	var files []string
+
+	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil
+		case err != nil:
 			return err
-		}
-
-		rel, _ := filepath.Rel(want, path)
-
-		generated, err := os.ReadFile(path) //nolint:gosec // our own scratch directory
-		if err != nil {
-			return err //nolint:wrapcheck // the walk names the path
-		}
-
-		current, err := os.ReadFile(filepath.Join(have, rel)) //nolint:gosec // the folder the application named
-		if err != nil || !bytes.Equal(current, generated) {
-			drifted = append(drifted, filepath.Join(have, rel))
+		case !entry.IsDir():
+			rel, _ := filepath.Rel(dir, path)
+			files = append(files, rel)
 		}
 
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("compare %s: %w", have, err)
+		return nil, fmt.Errorf("list %s: %w", dir, err)
 	}
 
-	if only == "" {
-		err = filepath.WalkDir(have, func(path string, entry os.DirEntry, err error) error {
-			if errors.Is(err, fs.ErrNotExist) || err != nil || entry.IsDir() {
-				return nilIfMissing(err)
-			}
+	return files, nil
+}
 
-			rel, _ := filepath.Rel(have, path)
+// treeDrift lists the files under have that differ from the generated folder want, or want holds and have lacks,
+// or have holds and want does not.
+func treeDrift(want, have string) ([]string, error) {
+	generated, err := filesUnder(want)
+	if err != nil {
+		return nil, err
+	}
 
-			if _, statErr := os.Stat(filepath.Join(want, rel)); statErr != nil {
-				drifted = append(drifted, path)
-			}
+	current, err := filesUnder(have)
+	if err != nil {
+		return nil, err
+	}
 
-			return nil
-		})
-		if err != nil {
-			return nil, fmt.Errorf("compare %s: %w", have, err)
+	var drifted []string
+
+	for _, rel := range generated {
+		if !sameFile(filepath.Join(want, rel), filepath.Join(have, rel)) {
+			drifted = append(drifted, filepath.Join(have, rel))
+		}
+	}
+
+	for _, rel := range current {
+		if !slices.Contains(generated, rel) {
+			drifted = append(drifted, filepath.Join(have, rel))
 		}
 	}
 
 	slices.Sort(drifted)
 
 	return drifted, nil
-}
-
-func nilIfMissing(err error) error {
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-
-	return err
 }
 
 func pathsIn(dir string, names []string) []string {

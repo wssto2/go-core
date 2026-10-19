@@ -34,7 +34,8 @@ func (p *project) conventionRules(set *ruleSet) {
 
 	set.add(inner, NoPanic, "no panic in application/domain",
 		"return an error so the caller decides", p.noPanic)
-	set.add(layers.Application != "", NoContextBackground, "no context.Background() or context.TODO() in the application layer",
+	set.add(layers.Application != "", NoContextBackground,
+		"no context.Background() or context.TODO() in the application layer",
 		"accept ctx from the caller so cancellation, deadlines and tenancy/auth values propagate",
 		p.noContextBackground)
 	set.add(inner, NoSleep, "no time.Sleep in application/domain",

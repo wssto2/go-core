@@ -100,7 +100,9 @@ func assignedField(src Source, expr ast.Expr, write FieldWrites) []finding {
 		return nil
 	}
 
-	return []finding{{key: src.Rel, text: src.At(expr) + "  assigns " + write.Type + "." + sel.Sel.Name}}
+	text := src.At(expr) + "  assigns " + write.Type + "." + sel.Sel.Name
+
+	return []finding{{key: src.Rel, text: text}}
 }
 
 // isLiteralOf reports whether lit is a literal of write.Type: bare in the type's own package, or
@@ -136,7 +138,8 @@ func literalWrites(src Source, lit *ast.CompositeLit, write FieldWrites) []findi
 		}
 
 		if key, isKey := pair.Key.(*ast.Ident); isKey && (write.Field == "" || key.Name == write.Field) {
-			out = append(out, finding{key: src.Rel, text: src.At(pair) + "  sets " + key.Name + " in a " + write.Type + " literal"})
+			text := src.At(pair) + "  sets " + key.Name + " in a " + write.Type + " literal"
+			out = append(out, finding{key: src.Rel, text: text})
 		}
 	}
 
@@ -159,13 +162,14 @@ func (p *project) requiresCalls() []string {
 
 			first := firstCall(src, callPkg, callName)
 			if first != nil && firstCall(src, alsoPkg, alsoName) == nil {
-				found = append(found, finding{key: src.Rel, text: src.At(first) + "  calls " + lastSegment(callPkg) + "." + callName +
-					" without " + lastSegment(alsoPkg) + "." + alsoName})
+				found = append(found, finding{key: src.Rel, text: src.At(first) + "  calls " +
+					lastSegment(callPkg) + "." + callName + " without " + lastSegment(alsoPkg) + "." + alsoName})
 			}
 		}
 
 		if len(found) > 0 {
-			heading := "REQUIRES CALL (" + lastSegment(callPkg) + "." + callName + " needs " + lastSegment(alsoPkg) + "." + alsoName + ")"
+			heading := "REQUIRES CALL (" + lastSegment(callPkg) + "." + callName + " needs " +
+				lastSegment(alsoPkg) + "." + alsoName + ")"
 			out = append(out, report(heading, found, req.Why))
 		}
 	}
@@ -174,7 +178,7 @@ func (p *project) requiresCalls() []string {
 }
 
 // splitMember splits "import/path.Member" at the last dot.
-func splitMember(call string) (pkg, member string) {
+func splitMember(call string) (string, string) {
 	dot := strings.LastIndex(call, ".")
 	if dot < 0 || strings.Contains(call[dot:], "/") {
 		return "", call

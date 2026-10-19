@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5 // fixtures set only the fields under test
 package archtest_test
 
 import (
@@ -10,6 +11,7 @@ import (
 const (
 	vehicleFile = "internal/domain/vehicle/vehicle.go"
 	vehicleDir  = "internal/domain/vehicle"
+	cmdDir      = "cmd"
 	frameAuth   = "example.com/framework/auth"
 	frameTenant = "example.com/framework/tenancy"
 )
@@ -70,7 +72,9 @@ func TestRequiresCall(t *testing.T) {
 	t.Parallel()
 
 	cfg := testConfig(fixture(t, "guards"))
-	cfg.RequiresCall = []archtest.RequiresCall{{Call: frameAuth + ".Authenticated", Also: frameTenant + ".FromAuthenticatedUser", Why: "tenancy fails closed"}}
+	cfg.RequiresCall = []archtest.RequiresCall{{
+		Call: frameAuth + ".Authenticated", Also: frameTenant + ".FromAuthenticatedUser", Why: "tenancy fails closed",
+	}}
 
 	got := problems(t, cfg, "requires-call")
 	require.Contains(t, got, "REQUIRES CALL (auth.Authenticated needs tenancy.FromAuthenticatedUser)")
@@ -92,7 +96,7 @@ func TestContextRootsAndWrappers(t *testing.T) {
 
 	cfg := testConfig(fixture(t, "guards"))
 	cfg.ContextRoots = []archtest.ContextRoots{{
-		Dirs: []string{"cmd"}, Why: "use SystemContext",
+		Dirs: []string{cmdDir}, Why: "use SystemContext",
 		Wrappers: []string{frameTenant + ".WithAllTenants", frameTenant + ".WithTenantID", ".InfoContext"},
 	}}
 

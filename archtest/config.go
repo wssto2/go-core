@@ -265,7 +265,8 @@ func (b Banned) validate() error {
 	case forms > 1:
 		return fmt.Errorf("%w: Banned %q may set only one of Symbol, Method and Literal", errConfig, b.Import)
 	case forms == 1 && (b.Import == "" || strings.Contains(b.Import, "...")):
-		return fmt.Errorf("%w: Banned Symbol, Method and Literal need an Import that names one package (Method needs an Import)", errConfig)
+		return fmt.Errorf("%w: Banned Symbol, Method and Literal need an Import that names one package "+
+			"(Method needs an Import)", errConfig)
 	}
 
 	return nil

@@ -205,18 +205,9 @@ func (p *project) validate(root string) error {
 		}
 	}
 
-	for _, ban := range p.cfg.Banned {
-		if err := ban.validate(); err != nil {
-			return err
-		}
-	}
-
-	for _, req := range p.cfg.RequiresCall {
-		for _, call := range []string{req.Call, req.Also} {
-			if pkg, _ := splitMember(call); pkg == "" {
-				return fmt.Errorf("%w: RequiresCall.Call and Also are \"import/path.Member\", not %q", errConfig, call)
-			}
-		}
+	err := p.validateGuards()
+	if err != nil {
+		return err
 	}
 
 	known := ruleNames()
@@ -230,6 +221,26 @@ func (p *project) validate(root string) error {
 	for name := range p.cfg.Allowed {
 		if !slices.Contains(known, name) {
 			return fmt.Errorf("%w: Allowed names the unknown rule %q", errConfig, name)
+		}
+	}
+
+	return nil
+}
+
+// validateGuards refuses a Banned, RequiresCall or ContextRoots that is malformed.
+func (p *project) validateGuards() error {
+	for _, ban := range p.cfg.Banned {
+		err := ban.validate()
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, req := range p.cfg.RequiresCall {
+		for _, call := range []string{req.Call, req.Also} {
+			if pkg, _ := splitMember(call); pkg == "" {
+				return fmt.Errorf("%w: RequiresCall.Call and Also are \"import/path.Member\", not %q", errConfig, call)
+			}
 		}
 	}
 

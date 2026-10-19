@@ -2,9 +2,11 @@ package go2ts
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -70,19 +72,23 @@ func isCrossFieldRule(name string) bool {
 }
 
 // zodRules are the validation rules the generator writes as Zod.
-var zodRules = map[string]bool{
-	"required": true, "min": true, "max": true, "len": true, "between": true, "email": true, "url": true,
-	"uuid": true, "date": true, "date_time": true, "in": true, "year": true, "month": true,
+func zodRules() []string {
+	return []string{
+		"between", "date", "date_time", "email", "in", "len", "max", "min", "month", "required", "url", "uuid", "year",
+	}
 }
 
 var (
-	serverOnlyMu    sync.RWMutex
-	serverOnlyRules = map[string]bool{
-		// The validator's rules with no standalone Zod form: they compare with a sibling field or are the
-		// server's own password policy. A cross-field one is noted in the generated file for a manual refine.
+	serverOnlyMu sync.RWMutex //nolint:gochecknoglobals // guards the rules declared before generation
+	// The validator's rules with no standalone Zod form: they compare with a sibling field or are the server's
+	// own password policy. A cross-field one is noted in the generated file for a manual refine.
+	serverOnlyRules = map[string]bool{ //nolint:gochecknoglobals // the registry ServerOnly adds to
 		"required_if": true, "same": true, "confirmed": true, "different": true, "password": true,
 	}
 )
+
+// errNoZodForm is the cause of a validation rule that generation cannot write.
+var errNoZodForm = errors.New("validation rule has no Zod form")
 
 // ServerOnly declares validation rules that only the server can check (a rule the application registers
 // with validation.NewWithRules, such as one that queries the database). Any other rule the generator does not
@@ -103,7 +109,7 @@ func unknownRule(tag string) (string, bool) {
 	defer serverOnlyMu.RUnlock()
 
 	for _, r := range parseValidationTag(tag) {
-		if !zodRules[r.name] && !serverOnlyRules[r.name] {
+		if !slices.Contains(zodRules(), r.name) && !serverOnlyRules[r.name] {
 			return r.name, true
 		}
 	}
@@ -369,11 +375,13 @@ func fieldToZodExprScoped(
 			}
 		case "year":
 			expr += `.regex(/^\d{4}$/)`
+
 			if !isRequired && !isNullable {
 				needsOrEmpty = true
 			}
 		case "month":
 			expr += ".regex(/^(0?[1-9]|1[0-2])$/)"
+
 			if !isRequired && !isNullable {
 				needsOrEmpty = true
 			}
@@ -414,18 +422,6 @@ func fieldToZodExprScoped(
 	return expr, hasCrossField
 }
 
-// writtenRules lists the rules the generator writes as Zod, for an error message.
-func writtenRules() string {
-	names := make([]string, 0, len(zodRules))
-	for name := range zodRules {
-		names = append(names, name)
-	}
-
-	sort.Strings(names)
-
-	return strings.Join(names, ", ")
-}
-
 // structToZod generates a Zod schema string and the inferred TS type for s.
 // Returns the type name, the file content, nested child structs to process,
 // and any error.
@@ -463,8 +459,8 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 
 		validationTag := field.Tag.Get("validation")
 		if rule, unknown := unknownRule(validationTag); unknown {
-			return "", "", nil, fmt.Errorf("%s.%s: validation rule %q has no Zod form: go2ts writes %s; "+
-				"declare a rule only the server can check with go2ts.ServerOnly", rt.Name(), field.Name, rule, writtenRules())
+			return "", "", nil, fmt.Errorf("%s.%s: %w %q: go2ts writes %s; declare a rule only the server can check "+
+				"with go2ts.ServerOnly", rt.Name(), field.Name, errNoZodForm, rule, strings.Join(zodRules(), ", "))
 		}
 
 		zodExpr, hasCrossField := fieldToZodExprScoped(field.Type, validationTag, typeName, ctx, children)

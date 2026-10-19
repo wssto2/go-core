@@ -85,15 +85,15 @@ func bannedHere(src Source, ban Banned) bool {
 	return placed(src, ban.In, ban.Except, ban.Tests)
 }
 
-// placed says whether a rule limited to in (empty: everywhere) and except covers the file.
-func placed(src Source, in, except []string, tests bool) bool {
+// placed says whether a rule limited to within (empty: everywhere) and except covers the file.
+func placed(src Source, within, except []string, tests bool) bool {
 	if src.IsTest && !tests {
 		return false
 	}
 
 	inPlaceOf := func(place string) bool { return inPlace(place, src.Rel) }
 
-	return (len(in) == 0 || slices.ContainsFunc(in, inPlaceOf)) && !slices.ContainsFunc(except, inPlaceOf)
+	return (len(within) == 0 || slices.ContainsFunc(within, inPlaceOf)) && !slices.ContainsFunc(except, inPlaceOf)
 }
 
 func (p *project) bannedImports(src Source, ban Banned) []finding {

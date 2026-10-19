@@ -78,6 +78,7 @@ func TestBannedEverythingOutsideTheStandardLibraryUnless(t *testing.T) {
 }
 
 const (
+	modulesMethod    = "Modules"
 	frameworkImport  = "example.com/framework"
 	permissionImport = "example.com/app/internal/permission"
 )
@@ -87,7 +88,7 @@ func TestBannedMethod(t *testing.T) {
 
 	cfg := testConfig(fixture(t, "bannedforms"))
 	ban := banned(frameworkImport, "", "the container is gone")
-	ban.Method = "Modules"
+	ban.Method = modulesMethod
 	cfg.Banned = []archtest.Banned{ban}
 
 	got := problems(t, cfg, "banned")
@@ -120,13 +121,15 @@ func TestBannedNeedsAnImportAndOneForm(t *testing.T) {
 	t.Parallel()
 
 	cfg := testConfig(fixture(t))
-	cfg.Banned = []archtest.Banned{{Method: "Modules", Why: "x"}}
+	noImport := banned("", "", "x")
+	noImport.Method = modulesMethod
+	cfg.Banned = []archtest.Banned{noImport}
 
 	_, err := archtest.Check(cfg)
 	require.ErrorContains(t, err, "Method needs an Import")
 
 	both := banned(frameworkImport, "Thing", "x")
-	both.Method = "Modules"
+	both.Method = modulesMethod
 	cfg.Banned = []archtest.Banned{both}
 
 	_, err = archtest.Check(cfg)
