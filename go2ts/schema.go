@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -62,10 +63,52 @@ func valRuleArgs(rules []valRule, name string) (string, bool) {
 // and cannot be expressed as a standalone Zod field validator.
 func isCrossFieldRule(name string) bool {
 	switch name {
-	case "required_if", "required_unless", "same", "confirmed", "different", "password":
+	case "required_if", "same", "confirmed", "different":
 		return true
 	}
 	return false
+}
+
+// zodRules are the validation rules the generator writes as Zod.
+var zodRules = map[string]bool{
+	"required": true, "min": true, "max": true, "len": true, "between": true, "email": true, "url": true,
+	"uuid": true, "date": true, "date_time": true, "in": true, "year": true, "month": true,
+}
+
+var (
+	serverOnlyMu    sync.RWMutex
+	serverOnlyRules = map[string]bool{
+		// The validator's rules with no standalone Zod form: they compare with a sibling field or are the
+		// server's own password policy. A cross-field one is noted in the generated file for a manual refine.
+		"required_if": true, "same": true, "confirmed": true, "different": true, "password": true,
+	}
+)
+
+// ServerOnly declares validation rules that only the server can check (a rule the application registers
+// with validation.NewWithRules, such as one that queries the database). Any other rule the generator does not
+// know fails generation, naming the struct, the field and the rule, so a rule is never dropped from the schema
+// unnoticed. Call it before generating.
+func ServerOnly(rules ...string) {
+	serverOnlyMu.Lock()
+	defer serverOnlyMu.Unlock()
+
+	for _, rule := range rules {
+		serverOnlyRules[rule] = true
+	}
+}
+
+// unknownRule is the first rule of the tag that is neither written as Zod nor declared server-only.
+func unknownRule(tag string) (string, bool) {
+	serverOnlyMu.RLock()
+	defer serverOnlyMu.RUnlock()
+
+	for _, r := range parseValidationTag(tag) {
+		if !zodRules[r.name] && !serverOnlyRules[r.name] {
+			return r.name, true
+		}
+	}
+
+	return "", false
 }
 
 // knownCustomType returns true for the well-known nullable/custom struct types
@@ -186,6 +229,18 @@ func isNumericBase(t reflect.Type) bool {
 	}
 }
 
+// buildEnum generates z.enum([...]) from a comma-separated list of values: "a,b" gives z.enum(["a", "b"]).
+func buildEnum(args string) string {
+	values := strings.Split(args, ",")
+	parts := make([]string, 0, len(values))
+
+	for _, v := range values {
+		parts = append(parts, fmt.Sprintf("%q", strings.TrimSpace(v)))
+	}
+
+	return fmt.Sprintf("z.enum([%s])", strings.Join(parts, ", "))
+}
+
 // buildLiteralUnion generates a Zod literal or union of literals from a
 // comma-separated list of values (e.g. "1,2" → "z.union([z.literal(1), z.literal(2)])").
 func buildLiteralUnion(args string) string {
@@ -245,8 +300,12 @@ func fieldToZodExprScoped(
 		}
 	}
 
-	// `in` rule replaces the base type entirely with a literal union.
+	// `in` rule replaces the base type entirely: a string field is an enum, a number a union of literals.
 	if inArgs, ok := valRuleArgs(rules, "in"); ok {
+		if isStringBase(ft) {
+			return buildEnum(inArgs), hasCrossField
+		}
+
 		return buildLiteralUnion(inArgs), hasCrossField
 	}
 
@@ -308,6 +367,16 @@ func fieldToZodExprScoped(
 			if !isRequired && !isNullable {
 				needsOrEmpty = true
 			}
+		case "year":
+			expr += `.regex(/^\d{4}$/)`
+			if !isRequired && !isNullable {
+				needsOrEmpty = true
+			}
+		case "month":
+			expr += ".regex(/^(0?[1-9]|1[0-2])$/)"
+			if !isRequired && !isNullable {
+				needsOrEmpty = true
+			}
 		case "date":
 			if !strings.Contains(expr, ".date()") && !strings.Contains(expr, ".datetime(") {
 				expr += ".date()"
@@ -343,6 +412,18 @@ func fieldToZodExprScoped(
 	}
 
 	return expr, hasCrossField
+}
+
+// writtenRules lists the rules the generator writes as Zod, for an error message.
+func writtenRules() string {
+	names := make([]string, 0, len(zodRules))
+	for name := range zodRules {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return strings.Join(names, ", ")
 }
 
 // structToZod generates a Zod schema string and the inferred TS type for s.
@@ -381,6 +462,11 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 		jsonName := wireName(field)
 
 		validationTag := field.Tag.Get("validation")
+		if rule, unknown := unknownRule(validationTag); unknown {
+			return "", "", nil, fmt.Errorf("%s.%s: validation rule %q has no Zod form: go2ts writes %s; "+
+				"declare a rule only the server can check with go2ts.ServerOnly", rt.Name(), field.Name, rule, writtenRules())
+		}
+
 		zodExpr, hasCrossField := fieldToZodExprScoped(field.Type, validationTag, typeName, ctx, children)
 
 		// A field Go leaves out of the JSON when it is empty may be left out of the
