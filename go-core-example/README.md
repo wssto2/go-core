@@ -227,7 +227,7 @@ The responsibility split is:
   - composes product detail state for `/products/:id`
   - calls backend services/resolvers as needed
 - `spaShellDataBuilder.Build(...)`
-  - adapts `WithSPA(...)`'s `func(*gin.Context) any`
+  - adapts `WithSPA(...)`'s `func(*gin.Context) (any, error)`
   - converts the Gin request into a small request DTO
   - delegates all real decisions to the composer
 

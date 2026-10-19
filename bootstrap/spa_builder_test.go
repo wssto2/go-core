@@ -77,10 +77,10 @@ func TestWithSPA_UsesConventionDefaultsAndRendersState(t *testing.T) {
 	cfg.Frontend.ManifestPath = ""
 	cfg.Frontend.AssetsURLPrefix = ""
 
-	builder := New(cfg).DefaultInfrastructure().WithSPA(func(ctx *gin.Context) any {
+	builder := New(cfg).DefaultInfrastructure().WithSPA(func(ctx *gin.Context) (any, error) {
 		return gin.H{
 			"path": ctx.Request.URL.Path,
-		}
+		}, nil
 	})
 	builder.spaConfig.Vite.DevServerURL = "http://127.0.0.1:65534"
 
@@ -183,8 +183,8 @@ func TestWithSPAConfig_UsesExplicitConfig(t *testing.T) {
 		TemplatesPath: filepath.Join(templateDir, "*.html"),
 		TemplateName:  "shell.html",
 		APIPrefix:     "/backend",
-		StateBuilder: func(ctx *gin.Context) any {
-			return gin.H{"ok": true}
+		StateBuilder: func(ctx *gin.Context) (any, error) {
+			return gin.H{"ok": true}, nil
 		},
 		Vite: frontend.ViteConfig{
 			DevServerURL:    "http://127.0.0.1:65534",

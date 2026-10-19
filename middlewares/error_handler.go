@@ -40,6 +40,11 @@ func ErrorHandler(log *slog.Logger, translator *i18n.Translator, debug bool) gin
 			log.ErrorContext(ctx, appErr.Message, "error", appErr.Err, "file", appErr.File, "line", appErr.Line)
 		}
 
+		// A handler that already answered (the SPA shell's 503 page) keeps its answer; the error is only reported.
+		if ctx.Writer.Written() {
+			return
+		}
+
 		// If it's a validation error, include fields
 		var valErr *validation.ValidationError
 		if errors.As(err, &valErr) {

@@ -82,7 +82,7 @@ func main() {
 	app := gocore.New(cfg,
 		gocore.WithPrefix("/api"),
 		gocore.WithBuilder(func(b *bootstrap.AppBuilder) {
-			b.WithSPA(func(c *gin.Context) any { return shell.Build(c) }).
+			b.WithSPA(func(c *gin.Context) (any, error) { return shell.Build(c), nil }).
 				// Per-user/IP limiter: 300 req/min per identity.
 				WithRateLimit(ratelimit.NewInMemoryLimiter(300, time.Minute)).
 				// Deduplicates a retried POST that carries an Idempotency-Key header, for 24 hours.

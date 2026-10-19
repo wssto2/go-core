@@ -1,7 +1,10 @@
 package frontend
 
 import (
+	"bytes"
+	"errors"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wssto2/go-core/middlewares"
 )
 
 func TestRegisterSPA_NilLogger_NoPanic(t *testing.T) {
@@ -152,10 +156,10 @@ func TestRegisterSPA_RendersManifestAssetsAndAppState(t *testing.T) {
 			ManifestPath:    manifestPath,
 			AssetsURLPrefix: "/frontend/dist",
 		},
-		StateBuilder: func(ctx *gin.Context) any {
+		StateBuilder: func(ctx *gin.Context) (any, error) {
 			return gin.H{
 				"path": ctx.Request.URL.Path,
-			}
+			}, nil
 		},
 	}, nil)
 
@@ -195,4 +199,45 @@ func TestResolveAssets_DevModeUsesViteClientProbe(t *testing.T) {
 	assert.Equal(t, server.URL+"/@vite/client", assets.ViteClientURL)
 	assert.Equal(t, server.URL+"/src/main.ts", assets.JSPath)
 	assert.Empty(t, assets.CSSPaths)
+}
+
+func TestRegisterSPA_StateBuilderErrorAnswers503PlainPageAndIsReported(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "index.html"), []byte(`<html>{{ .AppState }}</html>`), 0o600))
+
+	var logged bytes.Buffer
+
+	log := slog.New(slog.NewJSONHandler(&logged, nil))
+
+	var reported error
+
+	engine := gin.New()
+	engine.Use(func(ctx *gin.Context) {
+		ctx.Next()
+
+		if last := ctx.Errors.Last(); last != nil {
+			reported = last.Err
+		}
+	})
+	engine.Use(middlewares.ErrorHandler(log, nil, false))
+
+	RegisterSPA(engine, SPAConfig{
+		TemplatesPath: filepath.Join(dir, "*.html"),
+		TemplateName:  "index.html",
+		DevMode:       true,
+		StateBuilder:  func(*gin.Context) (any, error) { return nil, errors.New("the session store is down") },
+	}, log)
+
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/dashboard", nil))
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
+	assert.NotContains(t, w.Body.String(), "session store", "the cause stays out of the page")
+	assert.NotContains(t, w.Body.String(), `{"`, "the page is not followed by a JSON error body")
+	require.Error(t, reported, "the error is reported like a handler error")
+	assert.Contains(t, reported.Error(), "the session store is down")
+	assert.Contains(t, logged.String(), "the session store is down")
 }

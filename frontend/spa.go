@@ -3,19 +3,28 @@ package frontend
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log/slog"
+	"net/http"
 	"strings"
 	htmpl "text/template"
 
 	"github.com/gin-gonic/gin"
+	"github.com/wssto2/go-core/apperr"
 )
 
 // StateBuilder builds request-scoped state that is injected into the SPA shell.
-type StateBuilder func(ctx *gin.Context) any
+// An error answers 503 with a plain page (the cause stays out of it) and is
+// reported like a handler error: logged, and an incident when incidents are installed.
+type StateBuilder func(ctx *gin.Context) (any, error)
 
 // AppStateBuilder is kept as an alias for the SPA state builder type.
 type AppStateBuilder = StateBuilder
+
+// unavailablePage is the 503 answer when the SPA state cannot be built.
+const unavailablePage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Unavailable</title></head>` +
+	`<body><h1>Temporarily unavailable</h1><p>Please try again in a moment.</p></body></html>`
 
 // SPAConfig configures the SPA catch-all handler and template loading.
 type SPAConfig struct {
@@ -142,7 +151,16 @@ func RegisterSPA(engine *gin.Engine, cfg SPAConfig, log *slog.Logger) {
 
 		var appState any
 		if cfg.StateBuilder != nil {
-			appState = cfg.StateBuilder(ctx)
+			state, err := cfg.StateBuilder(ctx)
+			if err != nil {
+				_ = ctx.Error(apperr.Internal(fmt.Errorf("frontend: building the SPA state: %w", err)))
+				ctx.Data(http.StatusServiceUnavailable, "text/html; charset=utf-8", []byte(unavailablePage))
+				ctx.Abort()
+
+				return
+			}
+
+			appState = state
 		}
 
 		nonce, _ := ctx.Get("nonce")
