@@ -131,6 +131,8 @@ Modules — features go-core ships, each a facade that imports gocore (section 4
   modules that write an audit trail)
   identity/preferences (a person's preferences object, imports apperr and validation; its gormstore
   imports database, its migrations are the account_preferences goose file; the route is identity/http's)
+  lock (named leases; imports database and gocore; its gormstore imports database, its migrations are the
+  locks goose file)
   identity/serviceaccount (service accounts and API keys; imports apperr, audit, authz and event;
   its gormstore imports database, its http route and access/accesshttp, and keynotice imports
   notification and gocore, which identity cannot, since notification imports identity/http)

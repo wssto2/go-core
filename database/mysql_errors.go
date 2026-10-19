@@ -51,3 +51,21 @@ func IsDuplicateKeyNamed(err error, key string) bool {
 
 	return ok && mysqlErr.Number == mysqlErrDuplicateEntry && strings.Contains(mysqlErr.Message, key)
 }
+
+// CreateUnlessDuplicate inserts value and reports whether it did: a row a unique key refuses is not an error but
+// "not created". It is a plain INSERT, deliberately not GORM's OnConflict{DoNothing}: on MySQL that is
+// INSERT … ON DUPLICATE KEY UPDATE pk = pk, and under CLIENT_FOUND_ROWS (which the go-core DSN sets) a duplicate
+// reports one affected row, exactly as an insert does, so its count cannot tell the two apart. Outside a
+// transaction only: on PostgreSQL a refused insert would abort the transaction it ran in.
+func CreateUnlessDuplicate(db *gorm.DB, value any) (bool, error) {
+	err := db.Create(value).Error
+	if err == nil {
+		return true, nil
+	}
+
+	if IsDuplicateKey(err) {
+		return false, nil
+	}
+
+	return false, err
+}
