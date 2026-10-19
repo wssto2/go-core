@@ -106,7 +106,7 @@ func routeRoot(call *ast.CallExpr, alias string) (string, ast.Expr, bool) {
 
 	sel, isSel := fun.(*ast.SelectorExpr)
 	if isSel && isIdent(sel.X, alias) && sel.Sel.Name == "Raw" && len(call.Args) == 2 {
-		method, _ := stringLit(call.Args[0])
+		method, _ := StringLit(call.Args[0])
 
 		return method, call.Args[1], true
 	}
@@ -200,7 +200,7 @@ func evalPath(expr ast.Expr, consts map[string]ast.Expr, depth int) (string, boo
 
 	switch typed := expr.(type) {
 	case *ast.BasicLit:
-		return stringLit(typed)
+		return StringLit(typed)
 	case *ast.ParenExpr:
 		return evalPath(typed.X, consts, depth+1)
 	case *ast.Ident:
@@ -376,7 +376,7 @@ func (p *project) isRouteGroup(src Source, sel *ast.SelectorExpr, routeAlias str
 
 	handlers := p.cfg.Layers.Handlers
 
-	return handlers != "" && inTree(src.Rel, handlers) && !isIdent(sel.X, "slog")
+	return handlers != "" && InTree(src.Rel, handlers) && !isIdent(sel.X, "slog")
 }
 
 func badWords(src Source, node ast.Node, what, value string, parts []string) []finding {
@@ -393,7 +393,7 @@ func badWords(src Source, node ast.Node, what, value string, parts []string) []f
 }
 
 func groupIdentifiers(src Source, call *ast.CallExpr) []finding {
-	value, isLit := stringLit(call.Args[0])
+	value, isLit := StringLit(call.Args[0])
 	if !isLit {
 		return nil
 	}
@@ -405,7 +405,7 @@ func permissionIdentifiers(src Source, call *ast.CallExpr) []finding {
 	var out []finding
 
 	for _, arg := range call.Args {
-		value, isLit := stringLit(arg)
+		value, isLit := StringLit(arg)
 		if !isLit {
 			continue
 		}

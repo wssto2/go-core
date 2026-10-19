@@ -121,7 +121,7 @@ func inPlace(place, rel string) bool {
 	case strings.HasSuffix(place, ".go"):
 		return rel == place
 	case strings.HasSuffix(place, "/..."):
-		return inTree(rel, strings.TrimSuffix(place, "/..."))
+		return InTree(rel, strings.TrimSuffix(place, "/..."))
 	default:
 		return path.Dir(rel) == place
 	}

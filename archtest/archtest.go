@@ -196,7 +196,7 @@ func orDefault(value, fallback string) string {
 // directory with no Go file, an unknown rule name.
 func (p *project) validate(root string) error {
 	for name, dir := range p.cfg.Layers.named() {
-		if dir != "" && !slices.ContainsFunc(p.files, func(src Source) bool { return inTree(src.Rel, dir) }) {
+		if dir != "" && !slices.ContainsFunc(p.files, func(src Source) bool { return InTree(src.Rel, dir) }) {
 			return fmt.Errorf("%w: Layers.%s %q holds no Go file under %s (a guard that sees nothing passes forever)",
 				errConfig, name, dir, root)
 		}

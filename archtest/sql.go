@@ -137,7 +137,7 @@ func lockingViolations(lit *ast.CompositeLit, clauseAlias string, report func(as
 			continue
 		}
 
-		value, _ := stringLit(pair.Value)
+		value, _ := StringLit(pair.Value)
 
 		switch {
 		case isIdent(pair.Key, "Table"):

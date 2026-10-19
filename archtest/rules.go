@@ -172,7 +172,7 @@ func (p *project) errorfWrap() []finding {
 		}
 
 		ast.Inspect(src.File, func(node ast.Node) bool {
-			if call, isErrorf := selectorCall(node, alias, "Errorf"); isErrorf && passesErrUnwrapped(call) {
+			if call, isErrorf := SelectorCall(node, alias, "Errorf"); isErrorf && passesErrUnwrapped(call) {
 				out = append(out, finding{key: src.Rel, text: src.At(call) + "  fmt.Errorf(...) passes err without %w"})
 			}
 

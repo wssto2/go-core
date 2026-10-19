@@ -69,7 +69,7 @@ func (p *project) domainJSONTags() []finding {
 	var out []finding
 
 	for _, src := range p.productionIn(layers.Domain) {
-		if inTree(src.Rel, kernel) {
+		if InTree(src.Rel, kernel) {
 			continue
 		}
 
