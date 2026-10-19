@@ -338,7 +338,7 @@ func (m *featuresModule) Shutdown(ctx context.Context) error {
 	}
 }
 
-// Handler returns the installed routes as an http.Handler without opening a
+// Handler returns the installed routes, and /health and /ready as Run serves them, as an http.Handler without opening a
 // port or booting modules, for tests. It checks the application first, like
 // Run, and builds the engine the way Run does (the configured trusted proxies,
 // release-mode error bodies outside development), but leaves out the rest of
@@ -363,6 +363,8 @@ func (a *App) Handler() (http.Handler, error) {
 
 	engine.Use(middlewares.ErrorHandler(a.log, nil, a.cfg.App.Development()), web.BodyLimit(a.cfg.HTTP.BodyLimit()))
 	engine.Use(a.middleware...)
+
+	mountHealth(engine, a.registry)
 
 	for _, r := range a.routes {
 		err := r.mount(engine, a.prefix, a.security())
