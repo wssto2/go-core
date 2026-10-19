@@ -177,7 +177,7 @@ func TestShutdown_ModulesGetTheConfiguredTimeout(t *testing.T) {
 
 	var ctxErr error
 	var remaining time.Duration
-	app.modules = []Module{&ctxModule{fn: func(ctx context.Context) {
+	app.modules = []Component{&ctxModule{fn: func(ctx context.Context) {
 		ctxErr = ctx.Err()
 		if dl, ok := ctx.Deadline(); ok {
 			remaining = time.Until(dl)
@@ -198,9 +198,9 @@ type ctxModule struct {
 	fn func(ctx context.Context)
 }
 
-func (m *ctxModule) Name() string               { return "ctx" }
-func (m *ctxModule) Register(*Container) error  { return nil }
-func (m *ctxModule) Boot(context.Context) error { return nil }
+func (m *ctxModule) Name() string                 { return "ctx" }
+func (m *ctxModule) Register(_ *gin.Engine) error { return nil }
+func (m *ctxModule) Boot(context.Context) error   { return nil }
 func (m *ctxModule) Shutdown(ctx context.Context) error {
 	m.fn(ctx)
 	return nil

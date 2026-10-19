@@ -1,13 +1,14 @@
 // Package database provides GORM-based database access, connection registry,
 // repository helpers and transaction management (migrations: database/migrate).
 //
-// Services register named connections at startup through the Registry:
+// The Registry holds the named connections an application opened at startup:
 //
-//	database.Register("primary", gormDB)
+//	reg := database.NewRegistry(log, database.RegistryConfig{})
+//	err := reg.Register(database.ConnectionConfig{Name: "primary", Driver: "mysql" /* ... */})
 //
-// Repositories retrieve the primary connection from the registry:
+// A feature's Install reads the primary connection from the application:
 //
-//	db := bootstrap.MustResolve[*database.Registry](c).Primary()
+//	db := app.Database()
 //
 // Transactions are managed through the Transactor interface so that callers
 // do not depend on GORM directly:

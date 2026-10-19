@@ -307,7 +307,7 @@ func WithPrincipal(p PrincipalOf) Option { return func(s *settings) { s.principa
 func WithTenant(of identityhttp.TenantOf) Option { return func(s *settings) { s.tenant = of } }
 
 // WithRequestUser makes the application's own user of whoever made the request: what it returns becomes the request's
-// user (auth.GetIdentifiable, auth.UserOf[T]) on every route, identity's and the application's, where without it the
+// user (auth.UserFromContext, auth.UserOf[T]) on every route, identity's and the application's, where without it the
 // account itself is. It is given the signed-in person (who.Account, with its Session and Actor) or, for a request made
 // with an API key (WithServiceAccounts), the service account (who.ServiceAccount, and the zero account): exactly one
 // is set, and the function returns the user type of both, such as one that says IsServiceAccount. It runs on every

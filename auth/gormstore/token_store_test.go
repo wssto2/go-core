@@ -35,11 +35,11 @@ func TestRotateRefreshToken_SuccessAndInvalidOld(t *testing.T) {
 	require.NoError(t, db.Create(initial).Error)
 
 	// Rotate
-	newRefresh, tok, err := auth.RotateRefreshToken(context.Background(), store, "refresh-old", 24*time.Hour)
+	ctx := context.Background()
+	newRefresh := "refresh-new-1"
+	tok, err := store.FindAndRotateRefreshToken(ctx, "refresh-old", newRefresh, time.Now().Add(24*time.Hour))
 	require.NoError(t, err)
-	require.NotEmpty(t, newRefresh)
 	require.Equal(t, initial.ID, tok.ID)
-	require.NotEqual(t, "refresh-old", newRefresh)
 
 	// Verify DB updated: should store a hashed value, not the raw token
 	var got auth.Token
@@ -49,12 +49,11 @@ func TestRotateRefreshToken_SuccessAndInvalidOld(t *testing.T) {
 	require.True(t, strings.HasPrefix(got.RefreshToken, "$2"), "refresh token in DB should be hashed")
 
 	// Using the old refresh token should now fail
-	_, _, err = auth.RotateRefreshToken(context.Background(), store, "refresh-old", 24*time.Hour)
-	require.ErrorIs(t, err, auth.ErrUnauthorized)
+	_, err = store.FindAndRotateRefreshToken(ctx, "refresh-old", "refresh-new-2", time.Now().Add(24*time.Hour))
+	require.Error(t, err)
 
 	// Using the new refresh token should succeed
-	nextRefresh, nextTok, err := auth.RotateRefreshToken(context.Background(), store, newRefresh, 24*time.Hour)
+	nextTok, err := store.FindAndRotateRefreshToken(ctx, newRefresh, "refresh-new-3", time.Now().Add(24*time.Hour))
 	require.NoError(t, err)
 	require.Equal(t, initial.ID, nextTok.ID)
-	require.NotEqual(t, newRefresh, nextRefresh)
 }

@@ -167,7 +167,7 @@ func PrefixOf(secret string) string {
 	return secret[:shown]
 }
 
-// Caller is the identity of a request made with an API key: it is what auth.GetIdentifiable and
+// Caller is the identity of a request made with an API key: it is what auth.UserFromContext and
 // auth.UserOf[serviceaccount.Caller] return on such a request. It is not a person: GetID is 0, so an
 // account's ID never passes for a user's, and the rate limit counts it under its own key.
 type Caller struct {

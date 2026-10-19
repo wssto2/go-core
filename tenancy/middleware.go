@@ -25,7 +25,7 @@ import (
 //	api.Use(tenancy.FromAuthenticatedUser())
 func FromAuthenticatedUser() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		user, ok := auth.GetIdentifiable(ctx)
+		user, ok := auth.UserFromContext(ctx.Request.Context())
 		if !ok {
 			ctx.Next()
 			return

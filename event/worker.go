@@ -275,7 +275,7 @@ func (w *consumerWorker) handle(ctx context.Context, ev claimedEvent) (err error
 		return fmt.Errorf("%w: envelope: %w", ErrMalformed, err)
 	}
 
-	// Rows written by InsertOutboxEvent carry version "1".
+	// The version is the one the event was declared with: 1 unless Define was given another.
 	if env.Version != strconv.Itoa(c.version) {
 		return fmt.Errorf("%w: written as version %q but consumer %q handles version %d: "+
 			"keep a consumer for each version still queued, or retry it once the payload is readable", ErrMalformed, env.Version, c.name, c.version)

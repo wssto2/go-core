@@ -3,12 +3,26 @@ package event
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/wssto2/go-core/database"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
+
+func openTestDB(t *testing.T) *gorm.DB {
+	// use unique in-memory database per test to avoid cross-test interference
+	dsn := fmt.Sprintf("file:idempotency_test_%d?mode=memory&cache=shared", time.Now().UnixNano())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+
+	return db
+}
 
 func TestIdempotency_ReserveWithinTransaction(t *testing.T) {
 	db := openTestDB(t)
@@ -25,7 +39,7 @@ func TestIdempotency_ReserveWithinTransaction(t *testing.T) {
 		if !ok {
 			return errors.New("no tx")
 		}
-		reserved, err := ReserveKey(ctx, tx, key)
+		reserved, err := reserveKey(ctx, tx, key)
 		if err != nil {
 			return err
 		}
@@ -38,7 +52,7 @@ func TestIdempotency_ReserveWithinTransaction(t *testing.T) {
 	}
 
 	// attempt to reserve again using db (non-tx) should return not reserved
-	reserved, err := ReserveKey(context.Background(), db, key)
+	reserved, err := reserveKey(context.Background(), db, key)
 	if err != nil {
 		t.Fatalf("reserve second: %v", err)
 	}
@@ -61,7 +75,7 @@ func TestIdempotency_ReserveRollback(t *testing.T) {
 		if !ok {
 			return errors.New("no tx")
 		}
-		reserved, err := ReserveKey(ctx, tx, key)
+		reserved, err := reserveKey(ctx, tx, key)
 		if err != nil {
 			return err
 		}
@@ -76,7 +90,7 @@ func TestIdempotency_ReserveRollback(t *testing.T) {
 	}
 
 	// After rollback, reservation should not be present
-	reserved, err := ReserveKey(context.Background(), db, key)
+	reserved, err := reserveKey(context.Background(), db, key)
 	if err != nil {
 		t.Fatalf("reserve after rollback: %v", err)
 	}
@@ -91,7 +105,7 @@ func TestIdempotency_ReserveEmptyKey(t *testing.T) {
 		t.Fatalf("ensure schema: %v", err)
 	}
 
-	reserved, err := ReserveKey(context.Background(), db, "")
+	reserved, err := reserveKey(context.Background(), db, "")
 	if err != nil {
 		t.Fatalf("reserve empty: %v", err)
 	}
@@ -131,25 +145,6 @@ func TestDBProcessedStore_ImplementsProcessedStore(t *testing.T) {
 		t.Fatalf("ensure schema: %v", err)
 	}
 	var _ ProcessedStore = NewDBProcessedStore(db)
-}
-
-func TestDBProcessedStore_IdempotentHandler(t *testing.T) {
-	db := openTestDB(t)
-	if err := EnsureIdempotencySchema(db); err != nil {
-		t.Fatalf("ensure schema: %v", err)
-	}
-	store := NewDBProcessedStore(db)
-	calls := 0
-	handler := func(ctx context.Context, event any) error {
-		calls++
-		return nil
-	}
-	wrapped := IdempotentHandler(store, handler)
-	ctx := context.WithValue(context.Background(), eventRequestIDKey, "db-evt-1")
-
-	assert.NoError(t, wrapped(ctx, struct{}{}))
-	assert.NoError(t, wrapped(ctx, struct{}{}))
-	assert.Equal(t, 1, calls, "handler should be called exactly once")
 }
 
 func TestDBProcessedStore_WithinTransaction(t *testing.T) {

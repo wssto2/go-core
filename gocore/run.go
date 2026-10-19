@@ -37,7 +37,7 @@ func (a *App) checked(extra []Problem) error {
 	problems = append(problems, extra...)
 
 	for _, l := range a.laters {
-		if !l.isSet() && !l.keptByContainer() {
+		if !l.isSet() {
 			problems = append(problems, Problem{
 				What: "gocore.Later[" + l.typeName() + "] was never set",
 				Fix:  "call Set on it once every feature that needs it is installed",
@@ -239,10 +239,7 @@ func (a *App) build() (*bootstrap.App, error) {
 		configure(builder)
 	}
 
-	modules := append([]bootstrap.Module(nil), a.modules...)
-	modules = append(modules, &featuresModule{app: a})
-
-	booted, err := builder.WithModules(modules...).WithHttp().Build()
+	booted, err := builder.WithComponents(&featuresModule{app: a}).WithHttp().Build()
 	if err != nil {
 		return nil, fmt.Errorf("gocore: %w", err)
 	}
@@ -251,8 +248,8 @@ func (a *App) build() (*bootstrap.App, error) {
 }
 
 // featuresModule mounts the collected routes and runs the background workers.
-// It is registered last, so it is shut down first: workers drain before the
-// modules they may use.
+// It is the last component, so it is shut down first: workers drain before
+// anything they may use.
 type featuresModule struct {
 	app    *App
 	mgr    *worker.Manager
@@ -261,21 +258,7 @@ type featuresModule struct {
 
 func (m *featuresModule) Name() string { return "gocore" }
 
-func (m *featuresModule) Register(c *bootstrap.Container) error {
-	engine, err := bootstrap.Resolve[*gin.Engine](c)
-	if err != nil {
-		return fmt.Errorf("gocore: routes need the HTTP engine: %w", err)
-	}
-
-	for _, l := range m.app.laters {
-		if l.keptByContainer() {
-			err := l.fill(c)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
+func (m *featuresModule) Register(engine *gin.Engine) error {
 	for _, r := range m.app.routes {
 		err := r.mount(engine, m.app.prefix, m.app.security())
 		if err != nil {

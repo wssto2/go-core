@@ -1,16 +1,6 @@
-// Package bootstrap wires together the application lifecycle, dependency
-// injection container, configuration loading, and HTTP server startup.
-//
-// Typical usage — create a Builder, register modules, and run:
-//
-//	app := bootstrap.NewBuilder(cfg).
-//	    WithModule(mymodule.New()).
-//	    WithJWTAuth(jwtCfg, resolver).
-//	    Build()
-//	app.Run()
-//
-// The DI container is accessible via bootstrap.Bind / bootstrap.Resolve during
-// module registration so that packages can share services without explicit wiring.
+// Package bootstrap wires together the application lifecycle, configuration
+// and HTTP server startup. Applications reach it through gocore, which builds
+// the engine and runs the components it hands over.
 package bootstrap
 
 import (
@@ -29,32 +19,38 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// App is the main application instance that manages the lifecycle of modules.
+// Component is a unit the App mounts on its engine, starts and stops. gocore
+// supplies the one that installs routes and runs workers.
+type Component interface {
+	Name() string
+	// Register runs before Boot, with the engine every middleware is already on.
+	Register(engine *gin.Engine) error
+	Boot(ctx context.Context) error
+	Shutdown(ctx context.Context) error
+}
+
+// App is the main application instance that manages the lifecycle of its components.
 type App struct {
 	cfg        Config
-	container  *Container
+	log        *slog.Logger
+	health     *health.HealthRegistry
 	engine     *gin.Engine
 	httpServer HTTPServer
-	modules    []Module
+	modules    []Component
 	booted     []bool             // booted[i]: modules[i].Boot returned nil; read after bootModules
 	cancelBoot context.CancelFunc // ends the context Boot received; called at shutdown
 }
 
 // NewApp constructs an App instance.
-func NewApp(cfg Config, container *Container, engine *gin.Engine, httpSrv HTTPServer, modules []Module) *App {
+func NewApp(cfg Config, log *slog.Logger, hr *health.HealthRegistry, engine *gin.Engine, httpSrv HTTPServer, modules []Component) *App {
 	return &App{
 		cfg:        cfg,
-		container:  container,
+		log:        log,
+		health:     hr,
 		engine:     engine,
 		httpServer: httpSrv,
 		modules:    modules,
 	}
-}
-
-// Container exposes the container for post-Build bindings in tests.
-// Production code should not call this after Build.
-func (a *App) Container() *Container {
-	return a.container
 }
 
 // Run starts the application and its modules, then waits for a termination signal.
@@ -69,7 +65,7 @@ func (a *App) Run() error {
 // start-up fails (a module's Boot, the HTTP listener), everything that already
 // started is stopped again, in reverse order, before the error is returned.
 func (a *App) RunContext(ctx context.Context) error {
-	log := MustResolve[*slog.Logger](a.container)
+	log := a.log
 
 	// 1. Register Phase
 	if err := a.registerModules(); err != nil {
@@ -122,12 +118,12 @@ func (a *App) RunContext(ctx context.Context) error {
 	return nil
 }
 
-// registerModules calls Register on every module in declaration order.
-// Register often mutates shared state such as the DI container or HTTP router,
-// so keeping it sequential avoids racy startup behavior.
+// registerModules calls Register on every component in declaration order.
+// Register mounts routes on the shared engine, so keeping it sequential avoids
+// racy startup behavior.
 func (a *App) registerModules() error {
 	for _, m := range a.modules {
-		if err := m.Register(a.container); err != nil {
+		if err := m.Register(a.engine); err != nil {
 			return fmt.Errorf("module %q register failed: %w", m.Name(), err)
 		}
 	}
@@ -178,11 +174,8 @@ func (a *App) shutdown(log *slog.Logger, only []bool) {
 	defer cancel()
 
 	// Mark service as draining so readiness probes fail fast (zero-downtime friendly)
-	if a.container != nil {
-
-		if hr, err := Resolve[*health.HealthRegistry](a.container); err == nil {
-			hr.SetDraining(true)
-		}
+	if a.health != nil {
+		a.health.SetDraining(true)
 	}
 
 	// First, shut down the HTTP server: stop accepting new requests, drain the

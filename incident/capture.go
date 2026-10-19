@@ -82,7 +82,7 @@ func callerOf(ctx *gin.Context) (caller, bool) {
 		return caller{key: principal.String(), kind: principal.Kind, id: principal.ID}, true
 	}
 
-	if who, ok := auth.GetIdentifiable(ctx); ok && who.GetID() > 0 {
+	if who, ok := auth.UserFromContext(ctx.Request.Context()); ok && who.GetID() > 0 {
 		person := authz.Subject{Kind: authz.KindUser, ID: who.GetID()}
 
 		return caller{key: person.String(), kind: person.Kind, id: person.ID}, true

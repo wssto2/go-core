@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"testing"
 	"time"
 
@@ -15,8 +16,8 @@ type cancelTestModule struct {
 	bootFn func(ctx context.Context) error
 }
 
-func (m *cancelTestModule) Name() string                { return m.name }
-func (m *cancelTestModule) Register(_ *Container) error { return nil }
+func (m *cancelTestModule) Name() string                 { return m.name }
+func (m *cancelTestModule) Register(_ *gin.Engine) error { return nil }
 func (m *cancelTestModule) Boot(ctx context.Context) error {
 	if m.bootFn != nil {
 		return m.bootFn(ctx)
@@ -45,7 +46,7 @@ func TestBootModules_CancelsOthersOnFirstFailure(t *testing.T) {
 			}
 		},
 	}
-	app := NewApp(DefaultConfig(), NewContainer(), nil, nil, []Module{failModule, blockModule})
+	app := NewApp(DefaultConfig(), nil, nil, nil, nil, []Component{failModule, blockModule})
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	err := app.bootModules(ctx)

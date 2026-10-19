@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wssto2/go-core/auth"
@@ -22,8 +23,7 @@ func TestAPIKey_CreateFindRevoke(t *testing.T) {
 
 	store := gormstore.NewGormAPIKeyStore(conn)
 
-	raw, err := auth.GenerateAPIKey()
-	require.NoError(t, err)
+	raw := uuid.NewString()
 
 	apiKey := &auth.APIKey{UserID: 1, Name: "test-key"} //nolint:exhaustruct
 	require.NoError(t, store.CreateKey(context.Background(), apiKey, raw))

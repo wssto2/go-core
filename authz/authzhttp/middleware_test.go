@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/auth"
@@ -216,8 +217,7 @@ func TestServiceAccountsAuthenticateByAPIKey(t *testing.T) {
 	t.Cleanup(func() { _ = cleanup() })
 	keys := authgorm.NewGormAPIKeyStore(db)
 	mint := func(owner int, mutate func(*auth.APIKey)) string {
-		raw, err := auth.GenerateAPIKey()
-		require.NoError(t, err)
+		raw := uuid.NewString()
 		k := &auth.APIKey{UserID: owner, Name: "integration"}
 		if mutate != nil {
 			mutate(k)

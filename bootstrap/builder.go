@@ -9,10 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/wssto2/go-core/audit"
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/database"
-	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/frontend"
 	"github.com/wssto2/go-core/health"
 	"github.com/wssto2/go-core/i18n"
@@ -21,16 +19,16 @@ import (
 	"github.com/wssto2/go-core/observability"
 	"github.com/wssto2/go-core/observability/metrics"
 	"github.com/wssto2/go-core/ratelimit"
-	"github.com/wssto2/go-core/worker"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 // AppBuilder constructs an App using a fluent chain of calls.
 type AppBuilder struct {
 	cfg                 Config
-	container           *Container
 	engine              *gin.Engine
-	modules             []Module
+	modules             []Component
+	translator          *i18n.Translator       // built from cfg.I18n, nil when it names no directory
+	health              *health.HealthRegistry // built by DefaultInfrastructure
 	server              HTTPServer
 	errors              []error // accumulate wiring errors, report all at once in build
 	perUserLimiter      ratelimit.Limiter
@@ -51,9 +49,8 @@ type AppBuilder struct {
 func New(cfg Config) *AppBuilder {
 	engine := gin.New()
 	builder := &AppBuilder{
-		cfg:       cfg,
-		container: NewContainer(),
-		engine:    engine,
+		cfg:    cfg,
+		engine: engine,
 	}
 	proxies := cfg.HTTP.TrustedProxies
 	if len(proxies) == 0 {
@@ -66,27 +63,22 @@ func New(cfg Config) *AppBuilder {
 	return builder
 }
 
-// DefaultInfrastructure wires every core service into the container
-// and registers infrastructure HTTP routes. Call this first, before
-// WithModules, so modules can resolve these services.
+// DefaultInfrastructure builds the core services (logger, database registry,
+// i18n, telemetry, health) and registers the infrastructure HTTP routes. Call
+// this first, before WithComponents.
 func (b *AppBuilder) DefaultInfrastructure() *AppBuilder {
 	b.setupLogger()
 	b.setupDatabase()
-	b.setupBus()
 	b.setupI18n()
 	b.setupObservability()
 	b.setupHealth()
 	b.setupHTTPMiddlewares()
-
-	// Bind the engine so modules can register routes
-	Bind(b.container, b.engine)
 
 	return b
 }
 
 func (b *AppBuilder) setupLogger() {
 	if b.log != nil {
-		OverwriteBind(b.container, b.log)
 		return
 	}
 
@@ -103,7 +95,7 @@ func (b *AppBuilder) setupLogger() {
 		b.errors = append(b.errors, fmt.Errorf("logger: %w", err))
 		return
 	}
-	OverwriteBind(b.container, log)
+	b.log = log
 }
 
 func (b *AppBuilder) setupDatabase() {
@@ -114,18 +106,10 @@ func (b *AppBuilder) setupDatabase() {
 			return // database is optional
 		}
 
-		log := MustResolve[*slog.Logger](b.container)
-		reg = database.NewRegistryFromConfigs(log, registryConfig(b.cfg.Database), connectionConfigs(b.cfg.Database))
+		reg = database.NewRegistryFromConfigs(b.log, registryConfig(b.cfg.Database), connectionConfigs(b.cfg.Database))
 	}
 
-	OverwriteBind(b.container, reg)
-
-	// Audit repo — only when a primary DB exists
-	if reg.PrimaryName() != "" {
-		tx := database.NewTransactor(reg.Primary())
-		auditRepo := audit.NewRepository(tx)
-		Bind(b.container, auditRepo)
-	}
+	b.registry = reg
 }
 
 func registryConfig(cfg DatabaseConfig) database.RegistryConfig {
@@ -198,11 +182,6 @@ func (b *AppBuilder) WithTelemetry(tel *observability.Telemetry) *AppBuilder {
 	return b
 }
 
-func (b *AppBuilder) setupBus() {
-	bus := event.NewInMemoryBus()
-	Bind[event.Bus](b.container, bus)
-}
-
 func (b *AppBuilder) setupI18n() {
 	if b.cfg.I18n.Dir == "" {
 		return // i18n is optional
@@ -215,16 +194,15 @@ func (b *AppBuilder) setupI18n() {
 		b.errors = append(b.errors, fmt.Errorf("i18n: %w", err))
 		return
 	}
-	OverwriteBind(b.container, t)
+	b.translator = t
 }
 
 func (b *AppBuilder) setupObservability() {
 	tel := b.telemetry
 	if tel == nil {
-		tel = observability.New(MustResolve[*slog.Logger](b.container), b.cfg.App.Name)
+		tel = observability.New(b.log, b.cfg.App.Name)
+		b.telemetry = tel
 	}
-
-	OverwriteBind(b.container, tel)
 
 	// Expose /metrics using the app's own registry — not the global default
 	b.engine.GET("/metrics", gin.WrapH(
@@ -234,18 +212,11 @@ func (b *AppBuilder) setupObservability() {
 
 func (b *AppBuilder) setupHealth() {
 	hr := health.NewHealthRegistry()
-	OverwriteBind(b.container, hr)
+	b.health = hr
 
-	// Add DB health checker if a registry is bound
-	if reg, err := Resolve[*database.Registry](b.container); err == nil {
-		if reg.PrimaryName() != "" {
-			hr.Add(health.NewDBHealthChecker(reg.Primary()))
-		}
-	}
-
-	// Add EventBus health checker if bus is bound
-	if bus, err := Resolve[event.Bus](b.container); err == nil {
-		hr.Add(health.NewEventBusChecker(bus))
+	// Add DB health checker if a registry exists
+	if reg := b.registry; reg != nil && reg.PrimaryName() != "" {
+		hr.Add(health.NewDBHealthChecker(reg.Primary()))
 	}
 
 	b.engine.GET("/health", health.LivenessHandler())
@@ -253,12 +224,9 @@ func (b *AppBuilder) setupHealth() {
 }
 
 func (b *AppBuilder) setupHTTPMiddlewares() {
-	log := MustResolve[*slog.Logger](b.container)
-	tel := MustResolve[*observability.Telemetry](b.container)
-	translator, err := Resolve[*i18n.Translator](b.container)
-	if err != nil {
-		translator = nil
-	}
+	log := b.log
+	tel := b.telemetry
+	translator := b.translator
 
 	b.engine.Use(
 		otelgin.Middleware(b.cfg.App.Name),
@@ -291,7 +259,6 @@ func (b *AppBuilder) setupHTTPMiddlewares() {
 //	    DefaultInfrastructure().
 //	    WithIPRateLimit(ratelimit.NewInMemoryLimiter(3000, time.Minute)).
 //	    WithRateLimit(ratelimit.NewInMemoryLimiter(300, time.Minute)).
-//	    WithJWTAuth(resolver).
 //	    ...
 func (b *AppBuilder) WithRateLimit(l ratelimit.Limiter) *AppBuilder {
 	b.perUserLimiter = l
@@ -346,13 +313,13 @@ func (b *AppBuilder) WithGlobalRateLimit(l ratelimit.Limiter) *AppBuilder {
 // it without re-running the handler. Requests without the header are
 // unaffected, so this is safe to apply globally — clients opt in per request.
 //
-// Chain it before WithModules so the middleware is in place when modules
-// register their routes.
+// Chain it before WithComponents so the middleware is in place when
+// components register their routes.
 //
 //	bootstrap.New(cfg).
 //	    DefaultInfrastructure().
 //	    WithIdempotency(24 * time.Hour).
-//	    WithModules(...)
+//	    WithComponents(...)
 func (b *AppBuilder) WithIdempotency(ttl time.Duration) *AppBuilder {
 	b.idempotencyStore = middlewares.NewInMemoryIdempotencyStore(ttl)
 
@@ -369,8 +336,10 @@ func (b *AppBuilder) Use(middleware ...gin.HandlerFunc) *AppBuilder {
 	return b
 }
 
-func (b *AppBuilder) WithModules(modules ...Module) *AppBuilder {
-	b.modules = append(b.modules, modules...)
+// WithComponents adds the components the App registers, boots and shuts down,
+// in this order and its reverse.
+func (b *AppBuilder) WithComponents(components ...Component) *AppBuilder {
+	b.modules = append(b.modules, components...)
 	return b
 }
 
@@ -476,78 +445,6 @@ func (b *AppBuilder) WithTrustedProxies(proxies ...string) *AppBuilder {
 	return b
 }
 
-// WithOutboxWorker adds a background worker that continuously polls the outbox
-// table and forwards events via publish. Use this in standalone worker binaries
-// that don't need HTTP.
-//
-//	bootstrap.New(cfg).
-//	    DefaultInfrastructure().
-//	    WithOutboxWorker(product.NewWebhookPublisher(url, token)).
-//	    Build()
-func (b *AppBuilder) WithOutboxWorker(publish event.PublishFunc, opts ...event.WorkerOption) *AppBuilder {
-	b.modules = append(b.modules, newOutboxModule(publish, opts))
-	return b
-}
-
-func (b *AppBuilder) WithJWTAuth(resolver auth.IdentityResolver) *AppBuilder {
-	if b.cfg.JWT.Secret == "" {
-		b.errors = append(b.errors, fmt.Errorf("jwt: JWT_SECRET must not be empty"))
-		return b
-	}
-	if len(b.cfg.JWT.Secret) < 32 {
-		b.errors = append(b.errors, fmt.Errorf("jwt: JWT_SECRET must be at least 32 characters for HS256 security"))
-		return b
-	}
-	if resolver == nil {
-		b.errors = append(b.errors, fmt.Errorf("jwt: identity resolver must not be nil"))
-		return b
-	}
-	tokenCfg := auth.TokenConfig{
-		SecretKey:     b.cfg.JWT.Secret,
-		Issuer:        b.cfg.JWT.Issuer,
-		TokenDuration: b.cfg.JWT.Duration,
-	}
-
-	authProvider := auth.NewJWTProvider(tokenCfg, resolver)
-	Bind[auth.Provider](b.container, authProvider)
-
-	return b
-}
-
-func (b *AppBuilder) WithDBTokenAuth(store auth.TokenStore, resolver auth.IdentityResolver) *AppBuilder {
-	if store == nil {
-		b.errors = append(b.errors, fmt.Errorf("db token auth: token store must not be nil"))
-		return b
-	}
-	if resolver == nil {
-		b.errors = append(b.errors, fmt.Errorf("db token auth: identity resolver must not be nil"))
-		return b
-	}
-	pool := worker.New(worker.WithWorkers(2), worker.WithQueueSize(256))
-	authProvider := auth.NewDBTokenProvider(store, resolver, pool)
-	Bind[auth.Provider](b.container, authProvider)
-
-	return b
-}
-
-// WithAuthProvider binds a custom auth.Provider, replacing any provider previously
-// registered by WithJWTAuth or WithDBTokenAuth. Use this when you need a provider
-// that the built-in helpers do not cover — for example, combining multiple strategies
-// with auth.NewMultiProvider:
-//
-//	dbProvider  := auth.NewDBTokenProvider(store, resolver, pool)
-//	jwtProvider := auth.NewJWTProvider(cfg, resolver)
-//	.WithAuthProvider(auth.NewMultiProvider(jwtProvider, dbProvider))
-func (b *AppBuilder) WithAuthProvider(provider auth.Provider) *AppBuilder {
-	if provider == nil {
-		b.errors = append(b.errors, fmt.Errorf("auth provider must not be nil"))
-		return b
-	}
-	Bind[auth.Provider](b.container, provider)
-
-	return b
-}
-
 func (b *AppBuilder) WithHttp() *AppBuilder {
 	port := b.cfg.HTTP.Port
 	if port == 0 {
@@ -645,9 +542,8 @@ func (b *AppBuilder) Build() (*App, error) {
 	}
 
 	if b.spaConfig != nil {
-		log := MustResolve[*slog.Logger](b.container)
-		frontend.RegisterSPAWithTemplates(b.engine, *b.spaConfig, log)
+		frontend.RegisterSPAWithTemplates(b.engine, *b.spaConfig, b.log)
 	}
 
-	return NewApp(b.cfg, b.container, b.engine, b.server, b.modules), nil
+	return NewApp(b.cfg, b.log, b.health, b.engine, b.server, b.modules), nil
 }

@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"github.com/gin-gonic/gin"
 	"log/slog"
 	"testing"
 
@@ -18,7 +19,7 @@ func (m *MockModule) Name() string {
 	return args.String(0)
 }
 
-func (m *MockModule) Register(c *Container) error {
+func (m *MockModule) Register(c *gin.Engine) error {
 	return m.Called(c).Error(0)
 }
 
@@ -42,7 +43,7 @@ func TestAppLifecycle(t *testing.T) {
 	m1 := new(MockModule)
 	m2 := new(MockModule)
 
-	app.modules = []Module{m1, m2}
+	app.modules = []Component{m1, m2}
 
 	t.Run("Full Lifecycle", func(t *testing.T) {
 		ctx := context.Background()
@@ -51,8 +52,8 @@ func TestAppLifecycle(t *testing.T) {
 		m2.On("Name").Return("m2")
 
 		// Register
-		m1.On("Register", app.container).Return(nil)
-		m2.On("Register", app.container).Return(nil)
+		m1.On("Register", app.engine).Return(nil)
+		m2.On("Register", app.engine).Return(nil)
 
 		// Boot
 		m1.On("Boot", mock.Anything).Return(nil)

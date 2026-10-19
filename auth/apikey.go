@@ -27,12 +27,6 @@ type APIKeyStore interface {
 	RevokeKey(ctx context.Context, id int) error
 }
 
-// GenerateAPIKey returns a new cryptographically secure API key string.
-// It reuses the refresh token generator to keep length/encoding consistent.
-func GenerateAPIKey() (string, error) {
-	return GenerateRefreshToken()
-}
-
 // ValidateAPIKey verifies the provided raw key using the store: the key must
 // exist, not be revoked and not have expired. On failure ErrUnauthorized is
 // returned to align with other auth helpers.

@@ -3,35 +3,35 @@ package bootstrap
 import "time"
 
 type AppConfig struct {
-	Name string `env:"APP_NAME"`
+	Name string
 
 	// Env is the application environment.
 	// Common values are "production" and "development".
-	Env string `env:"APP_ENV"`
+	Env string
 }
 
 type HTTPConfig struct {
 	// Port number on which the HTTP server will listen for incoming requests.
-	Port int `env:"APP_PORT"`
+	Port int
 
 	// HTTP server timeouts, specified in seconds. These values control how long
 	// the server will wait for various operations before timing out.
-	ReadTimeout time.Duration `env:"HTTP_READ_TIMEOUT"`
+	ReadTimeout time.Duration
 
 	// Maximum duration before timing out writes of the response. This is
 	// important to prevent the server from hanging indefinitely if the client is
 	// slow to read the response.
-	WriteTimeout time.Duration `env:"HTTP_WRITE_TIMEOUT"`
+	WriteTimeout time.Duration
 
 	// Maximum amount of time to wait for the next request when keep-alives are
 	// enabled. This helps to free up resources for idle connections and can
 	// improve the overall performance of the server.
-	IdleTimeout time.Duration `env:"HTTP_IDLE_TIMEOUT"`
+	IdleTimeout time.Duration
 
 	// Maximum amount of time to wait for the server to shut down gracefully. This
 	// allows the server to finish processing ongoing requests before terminating,
 	// which can help prevent data loss and ensure a smooth shutdown.
-	ShutdownTimeout time.Duration `env:"HTTP_SHUTDOWN_TIMEOUT"`
+	ShutdownTimeout time.Duration
 
 	// How long Shutdown lets in-flight requests finish on their own before it
 	// cancels every request context. Long-lived requests (Server-Sent Events,
@@ -39,13 +39,13 @@ type HTTPConfig struct {
 	// would hold Shutdown for the whole ShutdownTimeout. Normal requests that
 	// finish within the grace period are drained untouched; one still running
 	// after it sees its context cancelled. Capped at ShutdownTimeout.
-	ShutdownGracePeriod time.Duration `env:"HTTP_SHUTDOWN_GRACE_PERIOD"`
+	ShutdownGracePeriod time.Duration
 
 	// Amount of time allowed to read request headers. This is important to prevent
 	// slow clients from consuming server resources by sending headers very slowly.
 	// Setting this timeout can help protect your server from certain types of
 	// attacks and improve overall performance.
-	ReadHeaderTimeout time.Duration `env:"HTTP_READ_HEADER_TIMEOUT"`
+	ReadHeaderTimeout time.Duration
 
 	// TrustedProxies controls which reverse proxies are allowed to supply
 	// X-Forwarded-For / X-Forwarded-Proto headers. Safe default is nil, which
@@ -128,122 +128,122 @@ type DatabaseConfig struct {
 	Connections []DatabaseConnectionConfig
 
 	// LogLevel controls GORM query logging. "silent", "error", "warn", "info"
-	LogLevel string `env:"DATABASE_LOG_LEVEL"`
+	LogLevel string
 
 	// SlowQueryThreshold is the duration above which a query is considered slow.
-	SlowQueryThreshold time.Duration `env:"DATABASE_SLOW_QUERY_THRESHOLD"`
+	SlowQueryThreshold time.Duration
 
 	// LogParameters controls whether actual query parameter values are shown in
 	// logged SQL. Defaults to false (values hidden with ? placeholders). Set to
 	// true only in non-production environments via DATABASE_LOG_PARAMETERS=true.
-	LogParameters bool `env:"DATABASE_LOG_PARAMETERS"`
+	LogParameters bool
 }
 
 type LogConfig struct {
 	// Dir is the base directory where log files will be stored.
-	Dir string `env:"LOG_DIR"`
+	Dir string
 
 	// Level is the log level for application logging. This can be set to values
 	// like "debug", "info", "warn", "error".
-	Level string `env:"LOG_LEVEL"`
+	Level string
 
 	// MaxSize is the maximum size in MB of the log file before it gets rotated.
-	MaxSize int `env:"LOG_MAX_SIZE"`
+	MaxSize int
 
 	// MaxBackups is the maximum number of old log files to retain.
-	MaxBackups int `env:"LOG_MAX_BACKUPS"`
+	MaxBackups int
 
 	// MaxAgeDays is the maximum number of days to retain old log files.
-	MaxAgeDays int `env:"LOG_MAX_AGE_DAYS"`
+	MaxAgeDays int
 }
 
 type JWTConfig struct {
 	// Secret is the secret key used for signing JWT tokens. This should be a
 	// strong, random string to ensure the security of your tokens. It is important
 	// to keep this value secret and not expose it in your code or version control.
-	Secret string `env:"JWT_SECRET"`
+	Secret string
 
 	// Issuer is the issuer claim for JWT tokens. This can be used to identify the
 	// issuer of the token and can be helpful for validating tokens and ensuring
 	// they are coming from a trusted source.
-	Issuer string `env:"JWT_ISSUER"`
+	Issuer string
 
 	// Duration is the duration for which a JWT token is valid, specified in seconds.
 	// This determines how long a token can be used before it expires and needs to
 	// be refreshed.
-	Duration time.Duration `env:"JWT_DURATION"`
+	Duration time.Duration
 }
 
 type FrontendConfig struct {
 	// TemplatesPath is the file system path to the directory containing HTML
 	// templates. This is used by the application to render dynamic HTML pages.
 	// e.g. "templates/*.html"
-	TemplatesPath string `env:"TEMPLATES_PATH"`
+	TemplatesPath string
 
 	// TemplateName is the HTML template to render for all non-API routes.
 	// Defaults to "index.html".
-	TemplateName string `env:"TEMPLATE_NAME"`
+	TemplateName string
 
 	// StaticPath is the file system path to the directory containing static files
 	// such as CSS, JavaScript, and images. This is used by the application to serve
 	// static assets to clients. e.g. "static/"
-	StaticPath string `env:"STATIC_PATH"`
+	StaticPath string
 
 	// StaticURL is the URL path prefix for serving static files. This is used to
 	// define the URL structure for accessing static assets. For example, if you
 	// set this to "/static", clients would access static files at URLs
 	// like "/static/css/style.css".
-	StaticURL string `env:"STATIC_URL"`
+	StaticURL string
 
 	// APIPrefix is the URL prefix that must NOT be caught by NoRoute.
 	// Defaults to "/api".
-	APIPrefix string `env:"API_PREFIX"`
+	APIPrefix string
 
 	// EntryScript is the path to the frontend entry point file (e.g. "src/main.js").
-	EntryScript string `env:"ENTRY_SCRIPT"`
+	EntryScript string
 
 	// ManifestPath is the path to the Vite manifest file generated during the
 	// build process (e.g. "./frontend/dist/.vite/manifest.json"). This file
 	// contains mappings of original asset names to their hashed versions, which
 	// is essential for cache busting in production.
-	ManifestPath string `env:"MANIFEST_PATH"`
+	ManifestPath string
 
 	// AssetsURLPrefix is the URL prefix for serving frontend assets. This should
 	// match the public path used in your Vite configuration (e.g. "/frontend/dist").
 	// This is used to correctly resolve asset URLs in the rendered HTML templates.
-	AssetsURLPrefix string `env:"ASSETS_URL_PREFIX"`
+	AssetsURLPrefix string
 }
 
 type CORSConfig struct {
 	// AllowedOrigins is a slice of allowed origins for Cross-Origin Resource
 	// Sharing (CORS). This defines which domains are allowed to make cross-origin
 	// requests to your application.
-	AllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS"`
+	AllowedOrigins []string
 
 	// AllowedMethods is a slice of allowed HTTP methods for CORS requests.
 	// This defines which HTTP methods (e.g., GET, POST, PUT, DELETE) are allowed
 	// in cross-origin requests.
-	AllowedMethods []string `env:"CORS_ALLOWED_METHODS"`
+	AllowedMethods []string
 
 	// AllowedHeaders is a slice of allowed HTTP headers for CORS requests.
 	// This defines which headers can be included in cross-origin requests.
-	AllowedHeaders []string `env:"CORS_ALLOWED_HEADERS"`
+	AllowedHeaders []string
 }
 
 type I18nConfig struct {
 	// Dir is the directory where internationalization (i18n) files are stored.
 	// e.g. "i18n/"
-	Dir string `env:"I18N_DIR"`
+	Dir string
 
 	// DefaultLocale is the default locale to use when no specific locale is
 	// provided by the user.
-	DefaultLocale string `env:"I18N_DEFAULT_LOCALE"`
+	DefaultLocale string
 }
 
 type StorageConfig struct {
 	// Dir is the directory where uploaded files or other persistent data will be
 	// stored. e.g. "storage/"
-	Dir string `env:"STORAGE_DIR"`
+	Dir string
 }
 
 // Config holds the configuration settings for the application.

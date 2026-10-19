@@ -35,11 +35,7 @@ func TestReadinessDraining(t *testing.T) {
 	builder := New(cfg).DefaultInfrastructure()
 	app, _ := builder.Build()
 
-	hr, err := Resolve[*health.HealthRegistry](app.container)
-	if err != nil {
-		t.Fatalf("resolve health registry: %v", err)
-	}
-
+	hr := app.health
 	hr.SetDraining(true)
 
 	req := httptest.NewRequest("GET", "/ready", nil)
@@ -63,11 +59,7 @@ func TestAppShutdownSetsDrainingBeforeHTTPShutdown(t *testing.T) {
 	builder := New(cfg).DefaultInfrastructure()
 	app, _ := builder.Build()
 
-	hr, err := Resolve[*health.HealthRegistry](app.container)
-	if err != nil {
-		t.Fatalf("resolve health registry: %v", err)
-	}
-
+	hr := app.health
 	f := &fakeServerWithRegistry{hr: hr}
 	app.httpServer = f
 

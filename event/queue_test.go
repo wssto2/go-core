@@ -426,17 +426,16 @@ type LegacyAssigned struct {
 	LeadID int `json:"lead_id"`
 }
 
-// Rows an application wrote with InsertOutboxEvent before it moved to Define
+// Rows an application wrote with the removed InsertOutboxEvent before it moved to Define
 // are named by the Go type ("event_test.LegacyAssigned") and carry version 1:
 // declaring the event under that name keeps them readable.
 func TestRowsFromInsertOutboxEventAreConsumedUnderTheirOldName(t *testing.T) {
 	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
 		require.NoError(t, event.Migrate(db))
-		require.NoError(t, database.NewTransactor(db).WithinTransaction(context.Background(), func(ctx context.Context) error {
-			tx, _ := database.TxFromContext(ctx)
-
-			return event.InsertOutboxEvent(ctx, tx, LegacyAssigned{LeadID: 9})
-		}))
+		require.NoError(t, db.Create(&event.OutboxEvent{
+			EventType: "event_test.LegacyAssigned",
+			Envelope:  []byte(`{"_v":"1","payload":{"lead_id":9}}`),
+		}).Error)
 
 		var got []int
 

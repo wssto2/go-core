@@ -32,7 +32,7 @@ func RequestLogger(log *slog.Logger) gin.HandlerFunc {
 			"user_agent", ctx.Request.UserAgent(),
 		}
 
-		if actor, ok := auth.GetIdentifiable(ctx); ok {
+		if actor, ok := auth.UserFromContext(ctx.Request.Context()); ok {
 			attrs = append(attrs, "actor_id", actor.GetID())
 		}
 

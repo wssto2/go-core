@@ -34,26 +34,6 @@ func Authenticated(provider Provider) gin.HandlerFunc {
 	}
 }
 
-// AuthorizedWith uses a custom authorizer.
-func AuthorizedWith(policy Policy, authorizer Authorizer) gin.HandlerFunc {
-	return func(ctx *gin.Context) {
-		user, ok := GetIdentifiable(ctx)
-		if !ok {
-			_ = ctx.Error(apperr.Unauthorized("user not authenticated"))
-			ctx.Abort()
-			return
-		}
-
-		if !authorizer(user, policy) {
-			_ = ctx.Error(apperr.Forbidden("access denied"))
-			ctx.Abort()
-			return
-		}
-
-		ctx.Next()
-	}
-}
-
 func extractBearerToken(ctx *gin.Context) string {
 	header := ctx.GetHeader("Authorization")
 	if header != "" && strings.HasPrefix(header, "Bearer ") {

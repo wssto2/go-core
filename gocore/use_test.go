@@ -2,13 +2,10 @@
 package gocore
 
 import (
-	"context"
-	"net/http"
 	"slices"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/wssto2/go-core/bootstrap"
 )
 
 // stamp appends tag to the X-Order response header.
@@ -19,26 +16,11 @@ func stamp(tag string) gin.HandlerFunc {
 	}
 }
 
-// routeModule is an old-style module that mounts a route on the engine.
-type routeModule struct{}
-
-func (routeModule) Name() string { return "routes" }
-
-func (routeModule) Register(c *bootstrap.Container) error {
-	bootstrap.MustResolve[*gin.Engine](c).GET("/module", func(ctx *gin.Context) { ctx.String(http.StatusOK, "module") })
-
-	return nil
-}
-
-func (routeModule) Boot(context.Context) error     { return nil }
-func (routeModule) Shutdown(context.Context) error { return nil }
-
 func TestUseRunsBeforeEveryRouteInTheOrderGivenWheneverItIsCalled(t *testing.T) {
 	app, port := runnable(t)
 	app.authenticate = []gin.HandlerFunc{stamp("auth")}
 
-	// Modules come first in the container, and Use is called last: neither changes what runs before a route.
-	app.Modules(routeModule{})
+	// Use is called around Routes: neither order changes what runs before a route.
 	app.Use(stamp("one"))
 	app.Routes(upRoute.To(pong))
 	app.Use(stamp("two"), stamp("three"))
@@ -46,8 +28,7 @@ func TestUseRunsBeforeEveryRouteInTheOrderGivenWheneverItIsCalled(t *testing.T) 
 	base := serving(t, app, port)
 
 	for path, want := range map[string][]string{
-		"/up":     {"one", "two", "three", "auth"},
-		"/module": {"one", "two", "three"},
+		"/up": {"one", "two", "three", "auth"},
 	} {
 		if got := fetch(t, base+path).header.Values("X-Order"); !slices.Equal(got, want) {
 			t.Errorf("%s: ran %v, want %v", path, got, want)

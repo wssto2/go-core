@@ -41,7 +41,7 @@ type Authenticated struct {
 }
 
 // RequestUser makes the application's own user of the signed-in account, or of the service account behind an API
-// key: what it returns is the request's auth.Identifiable (auth.GetIdentifiable, auth.UserFromContext) and what the
+// key: what it returns is the request's auth.Identifiable (auth.UserFromContext) and what the
 // rate limit counts. It runs on every request, so nothing a cache holds decides the user. The authz principal is not
 // its to change: it stays the account's, or authz.ServiceAccount for a key.
 type RequestUser func(ctx context.Context, who Authenticated) (auth.Identifiable, error)

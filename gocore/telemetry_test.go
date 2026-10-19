@@ -2,47 +2,24 @@
 package gocore
 
 import (
-	"context"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/wssto2/go-core/bootstrap"
-	"github.com/wssto2/go-core/observability"
 )
-
-// telemetryModule remembers the handle the container holds.
-type telemetryModule struct{ got *observability.Telemetry }
-
-func (m *telemetryModule) Name() string { return "telemetry" }
-
-func (m *telemetryModule) Register(c *bootstrap.Container) error {
-	m.got = bootstrap.MustResolve[*observability.Telemetry](c)
-
-	return nil
-}
-
-func (m *telemetryModule) Boot(context.Context) error     { return nil }
-func (m *telemetryModule) Shutdown(context.Context) error { return nil }
 
 func TestTelemetryIsTheHandleTheBuilderRecordsHTTPMetricsTo(t *testing.T) {
 	app, port := runnable(t)
 	tel := app.Telemetry()
-	seen := &telemetryModule{got: nil}
 
 	app.authenticate = []gin.HandlerFunc{passthrough}
 	app.Routes(upRoute.To(pong))
-	app.Modules(seen)
 
 	base := serving(t, app, port)
 
 	if status := fetch(t, base+"/up").status; status != http.StatusOK {
 		t.Fatalf("/up: %d", status)
-	}
-
-	if seen.got != tel {
-		t.Fatal("the container holds another handle than app.Telemetry()")
 	}
 
 	families, err := tel.Registry.Gather()

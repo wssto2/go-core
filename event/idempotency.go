@@ -1,12 +1,11 @@
-// Package event provides event bus, outbox, and deduplication primitives.
+// Package event is the transactional outbox: Define declares an event, Publish
+// writes it inside the caller's transaction, and a Queue delivers it to each
+// consumer at least once, with retries, dead letters and housekeeping.
 //
 // # Idempotency (event/DB level)
 //
-// DBProcessedStore and the package-level ReserveKey/ConfirmKey/GetResponse
-// functions provide persistent, transaction-safe deduplication keyed by an
-// arbitrary string. DBProcessedStore implements ProcessedStore, the same
-// interface as InMemoryProcessedStore, so callers can swap implementations
-// without changing business logic.
+// DBProcessedStore provides persistent, transaction-safe deduplication keyed by
+// an arbitrary string. It implements ProcessedStore.
 //
 // This is a distinct concern from the HTTP-level idempotency middleware in
 // the middlewares package. That middleware buffers full HTTP responses
@@ -39,11 +38,11 @@ func EnsureIdempotencySchema(db *gorm.DB) error {
 	return db.AutoMigrate(&IdempotencyRecord{})
 }
 
-// ReserveKey attempts to reserve an idempotency key using the provided transaction/db.
+// reserveKey attempts to reserve an idempotency key using the provided transaction/db.
 // Returns (true, nil) when reservation succeeded (new key inserted).
 // Returns (false, nil) when the key already exists.
 // Returns (false, err) when an unexpected error occurred.
-func ReserveKey(ctx context.Context, tx *gorm.DB, key string) (bool, error) {
+func reserveKey(ctx context.Context, tx *gorm.DB, key string) (bool, error) {
 	if tx == nil {
 		return false, gorm.ErrInvalidDB
 	}
@@ -61,8 +60,8 @@ func ReserveKey(ctx context.Context, tx *gorm.DB, key string) (bool, error) {
 	return true, nil
 }
 
-// ConfirmKey marks the key as processed and optionally stores a response payload.
-func ConfirmKey(ctx context.Context, tx *gorm.DB, key string, resp []byte) error {
+// confirmKey marks the key as processed and optionally stores a response payload.
+func confirmKey(ctx context.Context, tx *gorm.DB, key string, resp []byte) error {
 	if tx == nil {
 		return gorm.ErrInvalidDB
 	}
@@ -105,12 +104,12 @@ func NewDBProcessedStore(db *gorm.DB) *DBProcessedStore {
 // Reserve attempts to reserve the given id. Returns true if the reservation
 // succeeded (id was not previously reserved or processed).
 func (s *DBProcessedStore) Reserve(ctx context.Context, id string) (bool, error) {
-	return ReserveKey(ctx, s.db, id)
+	return reserveKey(ctx, s.db, id)
 }
 
 // Confirm marks the id as successfully processed.
 func (s *DBProcessedStore) Confirm(ctx context.Context, id string) error {
-	return ConfirmKey(ctx, s.db, id, nil)
+	return confirmKey(ctx, s.db, id, nil)
 }
 
 // Release removes the reservation so the id can be retried later.

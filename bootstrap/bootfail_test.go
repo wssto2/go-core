@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	"github.com/gin-gonic/gin"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -17,9 +18,9 @@ type recordingModule struct {
 	mu      *sync.Mutex
 }
 
-func (m recordingModule) Name() string                { return m.name }
-func (m recordingModule) Register(_ *Container) error { return nil }
-func (m recordingModule) Boot(context.Context) error  { return m.bootErr }
+func (m recordingModule) Name() string                 { return m.name }
+func (m recordingModule) Register(_ *gin.Engine) error { return nil }
+func (m recordingModule) Boot(context.Context) error   { return m.bootErr }
 func (m recordingModule) Shutdown(context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -34,14 +35,13 @@ func TestRunContext_BootFailureStopsBootedModulesInReverse(t *testing.T) {
 		mu      sync.Mutex
 	)
 
-	mod := func(name string, err error) Module {
+	mod := func(name string, err error) Component {
 		return recordingModule{name: name, bootErr: err, stopped: &stopped, mu: &mu}
 	}
 
-	c := NewContainer()
-	Bind(c, slog.New(slog.DiscardHandler))
+	log := slog.New(slog.DiscardHandler)
 
-	app := NewApp(DefaultConfig(), c, nil, nil, []Module{mod("a", nil), mod("b", nil), mod("c", errors.New("boom"))})
+	app := NewApp(DefaultConfig(), log, nil, nil, nil, []Component{mod("a", nil), mod("b", nil), mod("c", errors.New("boom"))})
 	if err := app.RunContext(context.Background()); err == nil {
 		t.Fatal("want the boot error")
 	}
@@ -56,8 +56,8 @@ type workerModule struct {
 	stopped chan struct{}
 }
 
-func (m *workerModule) Name() string              { return "worker" }
-func (m *workerModule) Register(*Container) error { return nil }
+func (m *workerModule) Name() string                 { return "worker" }
+func (m *workerModule) Register(_ *gin.Engine) error { return nil }
 func (m *workerModule) Shutdown(context.Context) error {
 	<-m.stopped
 	return nil
@@ -78,10 +78,9 @@ func (m *workerModule) Boot(ctx context.Context) error {
 func TestBootContextOutlivesBootAndEndsAtShutdown(t *testing.T) {
 	m := &workerModule{stopped: make(chan struct{})}
 
-	c := NewContainer()
-	Bind(c, slog.New(slog.DiscardHandler))
+	log := slog.New(slog.DiscardHandler)
 
-	app := NewApp(DefaultConfig(), c, nil, nil, []Module{m})
+	app := NewApp(DefaultConfig(), log, nil, nil, nil, []Component{m})
 	if err := app.bootModules(context.Background()); err != nil {
 		t.Fatal(err)
 	}

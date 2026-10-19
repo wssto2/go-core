@@ -8,7 +8,6 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -18,7 +17,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/route"
 )
 
@@ -197,17 +195,6 @@ func (w *loopWorker) Run(ctx context.Context) error {
 	return nil
 }
 
-type hookModule struct {
-	name    string
-	bootErr error
-	onStop  func()
-}
-
-func (m *hookModule) Name() string                        { return m.name }
-func (m *hookModule) Register(*bootstrap.Container) error { return nil }
-func (m *hookModule) Boot(context.Context) error          { return m.bootErr }
-func (m *hookModule) Shutdown(_ context.Context) error    { m.onStop(); return nil }
-
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 
@@ -221,23 +208,13 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	}
 }
 
-func TestRunShutdownOrder_HTTPThenWorkersThenModulesThenDatabase(t *testing.T) {
+func TestRunShutdownOrder_HTTPThenWorkersThenDatabase(t *testing.T) {
 	app, port := runnable(t)
 	ev := &events{}
 	url := fmt.Sprintf("http://127.0.0.1:%d/up", port)
 
 	app.authenticate = []gin.HandlerFunc{passthrough}
 	app.Routes(upRoute.To(pong))
-	app.Modules(&hookModule{name: "old", onStop: func() {
-		// the database must still be open when old modules shut down
-		if err := app.Database().Exec("select 1").Error; err != nil {
-			ev.add("module: database already closed")
-			return
-		}
-
-		ev.add("module stopped")
-	}})
-
 	w := &loopWorker{name: "w", started: make(chan struct{}), onStop: func() {
 		resp, err := get(url)
 		if err == nil {
@@ -246,6 +223,12 @@ func TestRunShutdownOrder_HTTPThenWorkersThenModulesThenDatabase(t *testing.T) {
 
 		if err != nil {
 			ev.add("worker stopped, http already down")
+			return
+		}
+
+		// the database must still be open while workers drain
+		if err := app.Database().Exec("select 1").Error; err != nil {
+			ev.add("worker: database already closed")
 			return
 		}
 
@@ -282,7 +265,7 @@ func TestRunShutdownOrder_HTTPThenWorkersThenModulesThenDatabase(t *testing.T) {
 	}
 
 	got := strings.Join(ev.all(), " | ")
-	want := "worker stopped, http already down | module stopped"
+	want := "worker stopped, http already down"
 
 	if got != want {
 		t.Fatalf("shutdown order:\n got %s\nwant %s", got, want)
@@ -291,41 +274,6 @@ func TestRunShutdownOrder_HTTPThenWorkersThenModulesThenDatabase(t *testing.T) {
 	if app.registry.Has("local") {
 		t.Fatal("database should be closed after Run")
 	}
-}
-
-func TestRunBootFailureStopsWhatStartedAndLeavesNothingRunning(t *testing.T) {
-	app, port := runnable(t)
-	ev := &events{}
-
-	before := runtime.NumGoroutine()
-
-	w := &loopWorker{name: "w", started: make(chan struct{}), onStop: func() { ev.add("worker stopped") }}
-	app.Background(w)
-	app.Modules(
-		&hookModule{name: "good", onStop: func() { ev.add("good stopped") }},
-		&hookModule{name: "bad", bootErr: errors.New("boom"), onStop: func() { ev.add("bad stopped") }},
-	)
-
-	err := app.RunContext(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "boom") {
-		t.Fatalf("want the boot error, got %v", err)
-	}
-
-	got := strings.Join(ev.all(), " | ")
-	// the failing module never booted, so it is not shut down; reverse order otherwise
-	if got != "worker stopped | good stopped" && got != "good stopped" {
-		t.Fatalf("unexpected shutdown record %q", got)
-	}
-
-	// no listener
-	l, lerr := (&net.ListenConfig{}).Listen(t.Context(), "tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if lerr != nil {
-		t.Fatalf("port still bound: %v", lerr)
-	}
-	_ = l.Close()
-
-	// no goroutines left behind
-	waitFor(t, "goroutines to finish", func() bool { return runtime.NumGoroutine() <= before })
 }
 
 func TestRunRefusesToStartOnCheckFailureAndClosesDatabase(t *testing.T) {

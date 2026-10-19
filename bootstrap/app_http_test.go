@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"log/slog"
 	"net"
 	"strings"
@@ -34,8 +35,8 @@ type testModule struct {
 	onBoot     func()
 }
 
-func (m *testModule) Name() string                { return m.name }
-func (m *testModule) Register(c *Container) error { return nil }
+func (m *testModule) Name() string                 { return m.name }
+func (m *testModule) Register(_ *gin.Engine) error { return nil }
 func (m *testModule) Boot(ctx context.Context) error {
 	if m.onBoot != nil {
 		m.onBoot()
@@ -112,7 +113,7 @@ func TestShutdownCallsHTTPServerBeforeModules(t *testing.T) {
 	var order []string
 	m1 := &testModule{name: "m1", onShutdown: func() { order = append(order, "m1") }}
 	m2 := &testModule{name: "m2", onShutdown: func() { order = append(order, "m2") }}
-	app.modules = []Module{m1, m2}
+	app.modules = []Component{m1, m2}
 
 	app.Shutdown(slog.Default())
 

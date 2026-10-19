@@ -81,7 +81,6 @@ type App struct {
 	routes     []mounted
 	workers    []worker.Worker
 	catalogues []*authz.Catalogue
-	modules    []bootstrap.Module
 	consumers  []event.Consumer
 	// eventsUsed is set once a feature called Events, with or without consumers.
 	eventsUsed bool
@@ -468,13 +467,6 @@ func (a *App) Background(workers ...worker.Worker) {
 // permission a route Requires is defined in one of them.
 func (a *App) Permissions(catalogue *authz.Catalogue) {
 	a.catalogues = append(a.catalogues, catalogue)
-}
-
-// Modules hosts old-style bootstrap.Modules in the same application, so it can
-// move to Install one feature at a time. They register, boot and shut down as
-// they always did.
-func (a *App) Modules(modules ...bootstrap.Module) {
-	a.modules = append(a.modules, modules...)
 }
 
 // mounted is a collected route with the security it asked for, if any.

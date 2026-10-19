@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"github.com/gin-gonic/gin"
 	"testing"
 )
 
@@ -12,7 +13,7 @@ type countingModule struct {
 }
 
 func (m *countingModule) Name() string { return m.name }
-func (m *countingModule) Register(_ *Container) error {
+func (m *countingModule) Register(_ *gin.Engine) error {
 	m.registerCount++
 	return nil
 }
@@ -27,7 +28,7 @@ func TestAppBuilder_ModuleRegisteredExactlyOnce(t *testing.T) {
 
 	cfg := DefaultConfig()
 	builder := New(cfg).DefaultInfrastructure()
-	app, err := builder.WithModules(m).Build()
+	app, err := builder.WithComponents(m).Build()
 	if err != nil {
 		t.Fatalf("Build() failed: %v", err)
 	}

@@ -12,6 +12,11 @@ import (
 	"github.com/wssto2/go-core/ratelimit"
 )
 
+// stubUser implements Identifiable for tests.
+type stubUser struct{ id int }
+
+func (s stubUser) GetID() int { return s.id }
+
 // tokenProvider maps a bearer token to a user.
 type tokenProvider map[string]Identifiable
 
