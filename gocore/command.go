@@ -141,8 +141,8 @@ type Cmd struct {
 	// Out is where the command writes.
 	Out io.Writer
 
-	short string
-	args  []string
+	short, long string
+	args        []string
 	// positionals is how many arguments Parse accepts after the flags.
 	positionals int
 }
@@ -150,7 +150,7 @@ type Cmd struct {
 func newCmd(app *App, c *appCommand, args []string, out io.Writer) *Cmd {
 	cmd := new(Cmd)
 	cmd.FlagSet = flag.NewFlagSet(c.name, flag.ContinueOnError)
-	cmd.App, cmd.Out, cmd.short, cmd.args = app, out, c.short, args
+	cmd.App, cmd.Out, cmd.short, cmd.long, cmd.args = app, out, c.short, c.long, args
 	cmd.SetOutput(out)
 	cmd.Usage = cmd.usage
 
@@ -216,6 +216,10 @@ func (c *Cmd) usage() {
 		text += "\n" + c.short + "\n"
 	}
 
+	if c.long != "" {
+		text += "\n" + c.long + "\n"
+	}
+
 	_, _ = fmt.Fprint(c.Output(), text+"\nFlags:\n")
 
 	c.PrintDefaults()
@@ -244,16 +248,23 @@ func (l listFlag) Set(v string) error {
 }
 
 type appCommand struct {
-	name, short string
-	run         CommandFunc
+	name, short, long string
+	run               CommandFunc
 }
+
+// CommandOption adjusts App.Command.
+type CommandOption func(*appCommand)
+
+// Long gives a command a longer description, printed by "-h" after the usage line and before the flags. The command
+// list that "help" prints stays on the short line.
+func Long(text string) CommandOption { return func(c *appCommand) { c.long = strings.TrimSpace(text) } }
 
 // isBuiltin is whether name is a command word go-core owns; an application cannot reuse it.
 func isBuiltin(name string) bool { return name == "migrate" || name == "help" || name == tsCommand }
 
 // Command adds a command to the application's command line, next to migrate
 // and help: "./myapp db:prune --dry-run" runs run with ["--dry-run"]. short is
-// the line "help" shows next to the name.
+// the line "help" shows next to the name; gocore.Long adds a longer text for "-h".
 //
 // ctx is cancelled by Ctrl-C and is marked all-tenants (tenancy.WithAllTenants): a command acts for nobody, so a
 // tenant-scoped query sees every tenant; acting for one narrows it with tenancy.WithTenantID.
@@ -283,7 +294,7 @@ func isBuiltin(name string) bool { return name == "migrate" || name == "help" ||
 // empty, has whitespace or starts with "-", is a built-in command (migrate,
 // help) or is already registered, or a nil run, is an App problem, reported by
 // Check and Run like any other.
-func (a *App) Command(name, short string, run CommandFunc) {
+func (a *App) Command(name, short string, run CommandFunc, opts ...CommandOption) {
 	switch {
 	case name == "":
 		a.fail("a command was registered with no name", "give app.Command a name such as \"db:prune\"")
@@ -304,7 +315,12 @@ func (a *App) Command(name, short string, run CommandFunc) {
 			return
 		}
 
-		a.commands = append(a.commands, appCommand{name: name, short: short, run: run})
+		c := appCommand{name: name, short: short, run: run}
+		for _, o := range opts {
+			o(&c)
+		}
+
+		a.commands = append(a.commands, c)
 	}
 }
 

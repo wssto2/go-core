@@ -189,3 +189,21 @@ func TestTheSPAShellLeavesOnlyThePrefixOfWithPrefixAlone(t *testing.T) {
 		t.Errorf("/api is not the prefix here, so the shell answers it: %d", other.Code)
 	}
 }
+
+func TestWithNameIsTheDefaultAndAppNameWins(t *testing.T) {
+	t.Setenv("APP_NAME", "")
+
+	if got := New(WithLogger(quietLogger())).Config().App.Name; got != "" {
+		t.Fatalf("no default name, got %q", got)
+	}
+
+	if got := New(WithName("shop"), WithLogger(quietLogger())).Config().App.Name; got != "shop" {
+		t.Fatalf("WithName with APP_NAME empty: %q", got)
+	}
+
+	t.Setenv("APP_NAME", "from-env")
+
+	if got := New(WithName("shop"), WithLogger(quietLogger())).Config().App.Name; got != "from-env" {
+		t.Fatalf("APP_NAME must win: %q", got)
+	}
+}

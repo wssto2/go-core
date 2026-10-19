@@ -1,6 +1,7 @@
 package gocore
 
 import (
+	"cmp"
 	"regexp"
 	"strings"
 	"time"
@@ -130,7 +131,7 @@ func (a *App) readConfig() Config {
 		return time.Duration(vars.Int(name, int(def/time.Second))) * time.Second
 	}
 
-	cfg.App.Name = vars.String("APP_NAME", cfg.App.Name)
+	cfg.App.Name = vars.String("APP_NAME", cmp.Or(a.name, cfg.App.Name))
 	cfg.App.Env = vars.String("APP_ENV", cfg.App.Env)
 	cfg.HTTP.Port = vars.Int("APP_PORT", cfg.HTTP.Port)
 	cfg.HTTP.ReadTimeout = sec("READ_TIMEOUT_SEC", cfg.HTTP.ReadTimeout)

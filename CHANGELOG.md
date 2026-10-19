@@ -26,6 +26,8 @@ One package to start an app. `gocore` is the whole entry point: `bootstrap` is g
 
 ### Added
 
+- `gocore.WithName(name)`: the application's name when `APP_NAME` is unset or empty (`APP_NAME` still wins).
+- `gocore.Long(text)`, a fourth argument of `app.Command`: a longer description that `-h` prints after the usage line and before the flags; `help` still lists the short line.
 - Package `env`: `env.New(lookup)` and `app.Env()` with `Required`, `String`, `Int`, `Bool`, `Duration` and `List`; problems name the variable and are listed with the other start-up problems by `Run` and `Check`.
 - `gocore` options `WithSPA`, `WithSPAConfig`, `WithRateLimit(perUser, perIP)`, `WithGlobalRateLimit`, `WithIdempotency(ttl)`, `WithTrustedOrigins(...)`, `WithPrefix`, `WithDatabase(name, DefaultMaxOpenConns(n))`; `gocore.Cmd`, `gocore.Args(n)`.
 - A disk declared with `Public("/media")` (a path) is served read-only by the app, on `Run` and `Handler`: `GET` and `HEAD`, the file with its content type, 404 for a missing one, no directory listing, no `..`. An absolute public URL is someone else's and nothing is mounted. `storage.Files.PublicPath()` and `storage.DiskSpec.Name()`.

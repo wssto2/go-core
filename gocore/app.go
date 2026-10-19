@@ -71,7 +71,8 @@ func (e *StartupError) Error() string {
 // concurrent Install calls.
 type App struct {
 	cfg          Config
-	cfgSet       bool // WithConfig was given, so the environment is not read into cfg
+	name         string // WithName: the application's name when APP_NAME is unset or empty
+	cfgSet       bool   // WithConfig was given, so the environment is not read into cfg
 	env          *env.Reader
 	databases    []declaredDatabase
 	log          *slog.Logger
@@ -199,6 +200,12 @@ func WithServiceWorker(file string) Option {
 			ctx.File(file)
 		}))
 	}
+}
+
+// WithName sets the application's name (log file, telemetry service name, SPA state) for when APP_NAME is unset or
+// empty; APP_NAME still wins. WithConfig takes the name from its Config.
+func WithName(name string) Option {
+	return func(app *App) { app.name = name }
 }
 
 // WithClock replaces the system clock.

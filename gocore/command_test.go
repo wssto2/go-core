@@ -350,3 +350,25 @@ func TestAppProblemStopsAnAppCommand(t *testing.T) {
 		t.Error("the database was left open")
 	}
 }
+
+func TestLongHelpIsPrintedOnHAndNotInTheCommandList(t *testing.T) {
+	t.Parallel()
+
+	app, _ := commandApp(t)
+	app.Command(pruneName, "delete old rows", prune, gocore.Long("Rows older than the retention window go."))
+
+	out, err := runArgs(app, pruneName, "-h")
+	if err != nil {
+		t.Fatalf("-h is not a failure: %v", err)
+	}
+
+	short, long, flags := strings.Index(out, "delete old rows"), strings.Index(out, "Rows older than"), strings.Index(out, "Flags:")
+	if short < 0 || long < short || flags < long {
+		t.Errorf("want short, long, then flags: %q", out)
+	}
+
+	list, _ := runArgs(app, helpCmd)
+	if strings.Contains(list, "Rows older than") {
+		t.Errorf("help list must stay on short: %q", list)
+	}
+}
