@@ -203,7 +203,7 @@ category, held in quiet hours, retried and bundled in a burst.
    which then stands. (No `SKIP LOCKED`, `FOR SHARE` or `FOR UPDATE OF`: MariaDB 10.3.)
 5. The worker runs as background work of `Install` every second (it goes again at once while batches are full), only when e-mail
    is available. `Notices.DeliverDue` does what one tick does, for tests and commands. The workers' own run errors and restarts are
-   counted by the worker manager as `notification.delivery`. **Metrics** (rule 10) count the deliveries themselves.
+   counted by the worker manager as `notification.delivery`. **Metrics** (rule 12) count the deliveries themselves.
 6. **Channels.** Every delivery carries its `channel` (`email` or `push`) and each worker claims **only its own channel's** rows: the
    e-mail worker never touches a push row and the push worker never an e-mail row, whatever else is in the table.
 7. **Pushes.** With `notification.WithPush`, `Send` writes one push delivery (`channel` `push`, `device_id`) per **active device** of each
@@ -230,7 +230,7 @@ category, held in quiet hours, retried and bundled in a burst.
     after 15 seconds, follows no redirect and **never connects to a loopback, private or link-local address**, since the endpoint is
     chosen by whoever subscribes.
 
-10. **Metrics.** On the application's telemetry (`/metrics`), as counters labelled `category` (a declared category, the module's
+12. **Metrics.** On the application's telemetry (`/metrics`), as counters labelled `category` (a declared category, the module's
     `system.test`, or `unknown` for a delivery whose notification was deleted) and `channel` (`in_app`, `email`, `push`); never a
     person, address or error text. `go_core_notification_created_total`: notifications made (`in_app`) and the deliveries planned
     with them (`email`, `push`), counted once however often an event is redelivered. `_held_total`: deliveries made to wait for
