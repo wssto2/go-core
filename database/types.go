@@ -55,6 +55,9 @@ type ConnectionConfig struct {
 	Debug bool
 }
 
+// defaultConnMaxLifetime is how long a pooled connection may be reused when none is set.
+const defaultConnMaxLifetime = 5 * time.Minute
+
 // withDefaults returns a copy of the config with pool defaults applied.
 func (c ConnectionConfig) withDefaults() ConnectionConfig {
 	if c.MaxIdleConns == 0 {
@@ -64,7 +67,7 @@ func (c ConnectionConfig) withDefaults() ConnectionConfig {
 		c.MaxOpenConns = 75
 	}
 	if c.ConnMaxLifetime == 0 {
-		c.ConnMaxLifetime = 5 * time.Minute
+		c.ConnMaxLifetime = defaultConnMaxLifetime
 	}
 	return c
 }

@@ -1,4 +1,4 @@
-//nolint:testpackage,paralleltest // uses the package's runnable and serving helpers; a real server that sets gin's global mode
+//nolint:testpackage,paralleltest,gochecknoglobals,goconst,lll,varnamelen // uses the package's runnable and serving helpers
 package gocore
 
 import (
@@ -89,7 +89,8 @@ func TestHandlerLeavesGinsGlobalModeAlone(t *testing.T) {
 	app, _ := runnable(t)
 	app.Routes(ipRoute.To(showIP))
 
-	if _, err := app.Handler(); err != nil {
+	_, err := app.Handler()
+	if err != nil {
 		t.Fatal(err)
 	}
 

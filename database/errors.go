@@ -1,6 +1,12 @@
 package database
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrUnsupportedDriver is wrapped by the error for a connection whose driver is neither mysql nor sqlite.
+var ErrUnsupportedDriver = errors.New("unsupported driver")
 
 // ErrConnectionNotFound is returned when a named connection has not been registered.
 type ErrConnectionNotFound struct {
@@ -64,7 +70,9 @@ func validateConfig(cfg ConnectionConfig) error {
 			return ErrInvalidConfig{Name: cfg.Name, Reason: "database is required"}
 		}
 	default:
-		return ErrInvalidConfig{Name: cfg.Name, Reason: fmt.Sprintf("unsupported driver %q (supported: %s, %s)", driver, DriverMySQL, DriverSQLite)}
+		reason := fmt.Sprintf("%s %q (supported: %s, %s)", ErrUnsupportedDriver, driver, DriverMySQL, DriverSQLite)
+
+		return ErrInvalidConfig{Name: cfg.Name, Reason: reason}
 	}
 	return nil
 }

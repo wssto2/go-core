@@ -1,3 +1,4 @@
+//nolint:err113,exhaustruct,exhaustruct_v5,noctx,noinlineerr,paralleltest,varnamelen // tests in the style of the file
 package frontend
 
 import (

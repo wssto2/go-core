@@ -1,3 +1,4 @@
+//nolint:err113,exhaustruct,exhaustruct_v5,lll,paralleltest,testpackage // an internal test with a fake database/sql driver
 package database
 
 import (

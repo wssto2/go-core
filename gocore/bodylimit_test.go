@@ -1,4 +1,4 @@
-//nolint:testpackage,paralleltest // uses the package's runnable helper
+//nolint:testpackage,paralleltest,gochecknoglobals,goconst,lll,nlreturn,noctx,varnamelen // uses the package's runnable helper
 package gocore
 
 import (
@@ -32,7 +32,8 @@ func limited(t *testing.T, limit int64) http.Handler {
 		noteRoute.To(func(_ context.Context, _ noteInput) (string, error) { return "ok", nil }),
 		bigRoute.To(func(_ context.Context, _ noteInput) (string, error) { return "ok", nil }),
 		rawRoute.To(func(ctx *gin.Context) {
-			if _, err := io.ReadAll(ctx.Request.Body); err != nil {
+			_, err := io.ReadAll(ctx.Request.Body)
+			if err != nil {
 				_ = ctx.Error(err)
 				return
 			}

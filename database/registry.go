@@ -236,7 +236,7 @@ func (r *Registry) openConnection(cfg ConnectionConfig) (*gorm.DB, error) {
 	case DriverMySQL:
 		return r.openMySQL(cfg)
 	default:
-		return nil, fmt.Errorf("unsupported driver %q (supported: %s, %s)", driver, DriverMySQL, DriverSQLite)
+		return nil, fmt.Errorf("%w %q (supported: %s, %s)", ErrUnsupportedDriver, driver, DriverMySQL, DriverSQLite)
 	}
 }
 

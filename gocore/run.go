@@ -330,7 +330,8 @@ func (a *App) Handler() (http.Handler, error) {
 		proxies = nil
 	}
 
-	if err := engine.SetTrustedProxies(proxies); err != nil {
+	err := engine.SetTrustedProxies(proxies)
+	if err != nil {
 		return nil, fmt.Errorf("gocore: trusted proxies: %w", err)
 	}
 

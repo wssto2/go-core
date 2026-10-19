@@ -1,3 +1,4 @@
+//nolint:lll,paralleltest // tests in the style of the file
 package binders
 
 import (

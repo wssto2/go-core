@@ -118,8 +118,7 @@ func bindInput[In any](c *gin.Context, input *In, hasBody bool) error { //nolint
 
 	err := binders.BindStrings(input, "path", params)
 	if err != nil {
-		var ve *validation.ValidationError
-		if errors.As(err, &ve) {
+		if ve, ok := errors.AsType[*validation.ValidationError](err); ok {
 			return apperr.BadRequest("invalid " + strings.Join(slices.Sorted(maps.Keys(ve.Failures)), ", "))
 		}
 

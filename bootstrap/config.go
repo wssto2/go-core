@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -22,6 +23,9 @@ const (
 	EnvDevelopment = "development"
 )
 
+// ErrUnknownEnv is what Validate reports for an Env that is none of the three values.
+var ErrUnknownEnv = errors.New("unknown environment")
+
 // Development reports whether the application runs in development: Env is
 // "development" or empty. Everything else, including an unknown value that
 // Validate reports, gets the production behaviour, so a typo never loosens
@@ -37,7 +41,8 @@ func (a AppConfig) Validate() error {
 		return nil
 	}
 
-	return fmt.Errorf("APP_ENV %q is not one of %s, %s, %s", a.Env, EnvProduction, EnvStaging, EnvDevelopment)
+	return fmt.Errorf("%w: APP_ENV %q is not one of %s, %s, %s",
+		ErrUnknownEnv, a.Env, EnvProduction, EnvStaging, EnvDevelopment)
 }
 
 type HTTPConfig struct {

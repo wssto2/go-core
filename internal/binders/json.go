@@ -103,8 +103,7 @@ func parseJSON(r *http.Request) (map[string]any, bool, error) {
 	// The body limit is the application's (web.BodyLimit); a body over it fails the read.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
 			return nil, false, apperr.PayloadTooLarge("request body too large")
 		}
 

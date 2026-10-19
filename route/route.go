@@ -154,7 +154,8 @@ func (r Route[In, Out]) PersonOnly() Route[In, Out] {
 }
 
 // MaxBody sets the largest JSON body, in bytes, this route accepts, instead of the application's limit
-// (HTTPConfig.MaxBodyBytes). Raise it for the one route that takes a big payload. Multipart uploads have their own limit.
+// (HTTPConfig.MaxBodyBytes). Raise it for the one route that takes a big payload.
+// Multipart uploads have their own limit.
 func (r Route[In, Out]) MaxBody(bytes int64) Route[In, Out] {
 	r.d.spec.MaxBody = checkMaxBody(bytes)
 
@@ -174,17 +175,6 @@ func checkMaxBody(bytes int64) int64 {
 func (r Route[In, Out]) Spec() Spec { return r.d.spec }
 
 func (r Route[In, Out]) declaration() *declaration { return r.d }
-
-// require adds a permission every caller must hold: the first is Permission, the rest AllOf.
-func (s *Spec) require(permission string) {
-	if s.Permission == "" {
-		s.Permission = permission
-
-		return
-	}
-
-	s.AllOf = append(slices.Clone(s.AllOf), permission)
-}
 
 // Needs lists every permission the route names, whatever the rule.
 func (s Spec) Needs() []string {
@@ -212,4 +202,15 @@ func (s Spec) permissionProblem() string {
 	}
 
 	return ""
+}
+
+// require adds a permission every caller must hold: the first is Permission, the rest AllOf.
+func (s *Spec) require(permission string) {
+	if s.Permission == "" {
+		s.Permission = permission
+
+		return
+	}
+
+	s.AllOf = append(slices.Clone(s.AllOf), permission)
 }

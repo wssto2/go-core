@@ -239,7 +239,7 @@ func (b *AppBuilder) setupHTTPMiddlewares() {
 		middlewares.PanicRecovery(log),
 		middlewares.ErrorHandler(log, translator, b.cfg.App.Development()),
 		web.BodyLimit(b.cfg.HTTP.BodyLimit()),
-		middlewares.Security(b.cfg.App.Development(), middlewares.SecurityConfig{TrustProxy: len(b.cfg.HTTP.TrustedProxies) > 0}),
+		middlewares.Security(b.cfg.App.Development(), securityConfig(b.cfg)),
 		middlewares.Cors(middlewares.CorsConfig{
 			AllowOrigins: b.cfg.CORS.AllowedOrigins,
 			AllowMethods: b.cfg.CORS.AllowedMethods,
@@ -247,6 +247,11 @@ func (b *AppBuilder) setupHTTPMiddlewares() {
 		}),
 	)
 
+}
+
+// securityConfig lets Security trust X-Forwarded-Proto for HSTS when proxies are trusted.
+func securityConfig(cfg Config) middlewares.SecurityConfig {
+	return middlewares.SecurityConfig{ContentSecurityPolicy: "", TrustProxy: len(cfg.HTTP.TrustedProxies) > 0}
 }
 
 // WithRateLimit limits each authenticated user: every user gets its own

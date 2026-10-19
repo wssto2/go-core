@@ -18,6 +18,7 @@ func (f *fakePool) SetMaxOpenConns(n int)              { f.open = n }
 func (f *fakePool) SetConnMaxLifetime(d time.Duration) { f.lt = d }
 
 func TestApplyPoolSettings_AppliesValues(t *testing.T) {
+	//nolint:exhaustruct,exhaustruct_v5 // pool fields only
 	cfg := ConnectionConfig{MaxIdleConns: 3, MaxOpenConns: 7, ConnMaxLifetime: 2 * time.Minute}
 	p := &fakePool{}
 	ApplyPoolSettings(p, cfg)

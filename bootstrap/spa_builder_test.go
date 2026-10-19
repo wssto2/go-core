@@ -183,7 +183,7 @@ func TestWithSPAConfig_UsesExplicitConfig(t *testing.T) {
 		TemplatesPath: filepath.Join(templateDir, "*.html"),
 		TemplateName:  "shell.html",
 		APIPrefix:     "/backend",
-		StateBuilder: func(ctx *gin.Context) (any, error) {
+		StateBuilder: func(_ *gin.Context) (any, error) {
 			return gin.H{"ok": true}, nil
 		},
 		Vite: frontend.ViteConfig{
