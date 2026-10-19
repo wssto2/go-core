@@ -1,8 +1,10 @@
 package archtest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // The rule names, for Config.Allowed and Config.Skip.
@@ -155,6 +157,16 @@ type Banned struct {
 	// Symbol, when set, bans only that member of the package (database.NewTransactor),
 	// found by the name the file imports the package under.
 	Symbol string
+	// Method, when set, bans a method of that name called on a value (app.Modules()),
+	// found in the files that import Import; a member of an imported package of the
+	// same name is not a method. Import is then the package the value's type comes
+	// from, which scopes the ban to the files that use it.
+	Method string
+	// Literal, when set, bans a composite literal with at least one element of that
+	// type of the package (permission.Permission{Verb: "read"}), found by the name the
+	// file imports the package under. The empty literal is allowed.
+	// Symbol, Method and Literal exclude each other.
+	Literal string
 	// Why is the sentence a failure ends with: what to do instead.
 	Why string
 
@@ -213,4 +225,24 @@ func firstExisting(root string, candidates ...string) string {
 	}
 
 	return ""
+}
+
+// validate refuses a ban that is ambiguous or cannot find what it bans.
+func (b Banned) validate() error {
+	forms := 0
+
+	for _, set := range []bool{b.Symbol != "", b.Method != "", b.Literal != ""} {
+		if set {
+			forms++
+		}
+	}
+
+	switch {
+	case forms > 1:
+		return fmt.Errorf("%w: Banned %q may set only one of Symbol, Method and Literal", errConfig, b.Import)
+	case forms == 1 && (b.Import == "" || strings.Contains(b.Import, "...")):
+		return fmt.Errorf("%w: Banned Symbol, Method and Literal need an Import that names one package (Method needs an Import)", errConfig)
+	}
+
+	return nil
 }

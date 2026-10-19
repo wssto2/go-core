@@ -202,6 +202,12 @@ func (p *project) validate(root string) error {
 		}
 	}
 
+	for _, ban := range p.cfg.Banned {
+		if err := ban.validate(); err != nil {
+			return err
+		}
+	}
+
 	known := ruleNames()
 
 	for _, name := range p.cfg.Skip {
