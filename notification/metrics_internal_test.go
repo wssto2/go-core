@@ -12,16 +12,17 @@ import (
 func TestNoTelemetryMeansNilMetricsThatRecordNothing(t *testing.T) {
 	t.Parallel()
 
-	for _, tel := range []*observability.Telemetry{nil, {}} {
-		m := newMetrics(tel)
-		require.Nil(t, m)
+	for _, tel := range []*observability.Telemetry{nil, new(observability.Telemetry)} {
+		nothing := newMetrics(tel)
+		require.Nil(t, nothing)
 
 		require.NotPanics(t, func() {
-			m.create("c", inAppChannel)
-			m.hold("c", pushChannel)
-			m.cancel("c", pushChannel, 2)
-			m.cancelAll(map[string]int64{"c": 1}, pushChannel)
-			m.finished(deliveryRow{Status: statusFailed, Channel: emailChannel, failReason: reasonGone}, "c")
+			nothing.create("c", inAppChannel)
+			nothing.hold("c", pushChannel)
+			nothing.cancel("c", pushChannel, 2)
+			nothing.cancelPushes(map[string]int64{"c": 1})
+			//nolint:exhaustruct,exhaustruct_v5 // zero by design
+			nothing.finished(deliveryRow{Status: statusFailed, Channel: emailChannel, failReason: reasonGone, category: "c"})
 		})
 	}
 }

@@ -42,24 +42,26 @@ func newMetrics(tel *observability.Telemetry) *metrics {
 	}
 
 	counter := func(name, help string, extra ...string) *prometheus.CounterVec {
-		c := prometheus.NewCounterVec(prometheus.CounterOpts{
+		vec := prometheus.NewCounterVec(prometheus.CounterOpts{ //nolint:exhaustruct,exhaustruct_v5 // zero by design
 			Namespace: "go_core", Subsystem: "notification", Name: name, Help: help,
 		}, append([]string{"category", "channel"}, extra...))
 
-		var already prometheus.AlreadyRegisteredError
-		if err := reg.Register(c); errors.As(err, &already) {
-			return already.ExistingCollector.(*prometheus.CounterVec) //nolint:forcetypeassert // registered by this function
+		err := reg.Register(vec)
+		if already, ok := errors.AsType[prometheus.AlreadyRegisteredError](err); ok {
+			return already.ExistingCollector.(*prometheus.CounterVec) //nolint:forcetypeassert // registered here
 		}
 
-		return c
+		return vec
 	}
 
 	return &metrics{
-		created:   counter("created_total", "Notifications made (channel in_app) and deliveries planned beside them (email, push)."),
-		sent:      counter("sent_total", "Deliveries the mail relay or the push service accepted."),
-		failed:    counter("failed_total", "Deliveries given up on, by reason: gone, rejected, permanent, expired.", "reason"),
-		cancelled: counter("cancelled_total", "Deliveries ended without being sent: read first, notification deleted, device removed or disabled."),
-		held:      counter("held_total", "Deliveries made to wait for the end of the person's quiet hours."),
+		created: counter("created_total", "Notifications made (in_app) and the deliveries planned with them (email, push)."),
+		sent:    counter("sent_total", "Deliveries the mail relay or the push service accepted."),
+		failed: counter("failed_total",
+			"Deliveries given up on, by reason: gone, rejected, permanent, expired.", "reason"),
+		cancelled: counter("cancelled_total",
+			"Deliveries ended unsent: read first, notification deleted, device removed or disabled."),
+		held: counter("held_total", "Deliveries made to wait for the end of the person's quiet hours."),
 	}
 }
 
@@ -84,18 +86,18 @@ func (m *metrics) cancel(category, channel string, n int64) {
 }
 
 // finished counts the end of a delivery by its status.
-func (m *metrics) finished(d deliveryRow, category string) {
+func (m *metrics) finished(done deliveryRow) {
 	if m == nil {
 		return
 	}
 
-	switch d.Status {
+	switch done.Status {
 	case statusSent:
-		m.sent.WithLabelValues(category, d.Channel).Inc()
+		m.sent.WithLabelValues(done.category, done.Channel).Inc()
 	case statusFailed:
-		m.failed.WithLabelValues(category, d.Channel, d.failReason).Inc()
+		m.failed.WithLabelValues(done.category, done.Channel, done.failReason).Inc()
 	case statusCancelled:
-		m.cancelled.WithLabelValues(category, d.Channel).Inc()
+		m.cancelled.WithLabelValues(done.category, done.Channel).Inc()
 	}
 }
 
@@ -115,9 +117,9 @@ func (n *Notices) noteCreated(created []row, made []deliveryRow) {
 	}
 }
 
-// cancelAll counts deliveries of a channel ended in bulk, by category.
-func (m *metrics) cancelAll(byCategory map[string]int64, channel string) {
+// cancelPushes counts the push deliveries of a device ended in bulk, by category.
+func (m *metrics) cancelPushes(byCategory map[string]int64) {
 	for category, n := range byCategory {
-		m.cancel(category, channel, n)
+		m.cancel(category, pushChannel, n)
 	}
 }

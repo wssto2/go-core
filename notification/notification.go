@@ -218,14 +218,14 @@ func Install(app *gocore.App, users People, opts ...Option) *Notices {
 	}
 
 	db := app.Database()
-	m := newMetrics(app.Telemetry())
-	st := &store{db: db, metrics: m}
+	meters := newMetrics(app.Telemetry())
+	notes := &store{db: db, metrics: meters}
 
 	app.Schema(gocore.Schema{Files: migrations.Files, Models: Migrate})
 
 	n := &Notices{
 		people: users, kinds: append(slices.Clone(cfg.kinds), systemTest), location: cfg.location, appURL: cfg.appURL,
-		db: db, store: st, metrics: m, clock: app.Clock(), log: app.Logger(), heartbeat: heartbeatInterval,
+		db: db, store: notes, metrics: meters, clock: app.Clock(), log: app.Logger(), heartbeat: heartbeatInterval,
 	}
 	n.mail = mailOf(users)
 
@@ -234,7 +234,7 @@ func Install(app *gocore.App, users People, opts ...Option) *Notices {
 			"pass notification.AppURL(\"https://your-app.example.com\") to notification.Install")
 	}
 
-	n.Inbox = &Inbox{store: st, clock: app.Clock(), hub: NewHub()}
+	n.Inbox = &Inbox{store: notes, clock: app.Clock(), hub: NewHub()}
 	n.push, n.bundleText, n.testText = cfg.push, cfg.bundleText, cfg.testText
 
 	if n.bundleText == nil {
@@ -242,10 +242,10 @@ func Install(app *gocore.App, users People, opts ...Option) *Notices {
 	}
 
 	n.Settings = &Settings{
-		store: st, kinds: n.kinds, enforce: cfg.enforce, emailOK: n.mail != nil, pushOK: n.push != nil,
+		store: notes, kinds: n.kinds, enforce: cfg.enforce, emailOK: n.mail != nil, pushOK: n.push != nil,
 		clock: app.Clock(), location: cfg.location,
 	}
-	n.Devices = &Devices{store: st, sender: n.push, clock: app.Clock(), db: db}
+	n.Devices = &Devices{store: notes, sender: n.push, clock: app.Clock(), db: db}
 
 	app.Events(n.testConsumer())
 	app.Background(housekeeper{notices: n})

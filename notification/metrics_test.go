@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,37 +17,42 @@ import (
 	"gorm.io/gorm"
 )
 
+var errRelayDown = errors.New("mail: cannot reach the relay")
+
 const (
-	catAssigned = "tickets.assigned"
-	catPushed   = "tickets.pushed"
+	statusFailedRow = "failed"
+	catAssigned     = "tickets.assigned"
+	catPushed       = "tickets.pushed"
 )
 
 // counters is every notification counter of the application's registry as "name{label=value,...}" → value; the app
 // label is left out.
-func counters(t *testing.T, w *world) map[string]float64 {
+func counters(t *testing.T, env *world) map[string]float64 {
 	t.Helper()
 
-	families, err := w.app.Telemetry().Registry.Gather()
+	families, err := env.app.Telemetry().Registry.Gather()
 	require.NoError(t, err)
 
 	out := map[string]float64{}
 
-	for _, f := range families {
-		if !strings.HasPrefix(f.GetName(), "go_core_notification_") {
+	for _, fam := range families {
+		if !strings.HasPrefix(fam.GetName(), "go_core_notification_") {
 			continue
 		}
 
-		for _, m := range f.GetMetric() {
+		for _, sample := range fam.GetMetric() {
 			var labels []string
 
-			for _, l := range m.GetLabel() {
+			for _, l := range sample.GetLabel() {
 				if l.GetName() != "app" {
 					labels = append(labels, l.GetName()+"="+l.GetValue())
 				}
 			}
 
 			sort.Strings(labels)
-			out[strings.TrimPrefix(f.GetName(), "go_core_notification_")+"{"+strings.Join(labels, ",")+"}"] = m.GetCounter().GetValue()
+
+			name := strings.TrimPrefix(fam.GetName(), "go_core_notification_")
+			out[name+"{"+strings.Join(labels, ",")+"}"] = sample.GetCounter().GetValue()
 		}
 	}
 
@@ -62,93 +68,108 @@ func key(name, category, channel string, extra ...string) string {
 
 // Each outcome of an e-mail adds to its own counter and no other.
 func TestEmailOutcomesCountExactlyTheirOwnCounter(t *testing.T) {
+	t.Parallel()
+
 	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+		t.Helper()
+
 		loc := zagreb(t)
-		w := newMailWorld(t, db, notification.TimeZone(loc))
-		atNoon(w, loc)
-		w.consumeAssigned()
-		w.start()
+		env := newMailWorld(t, db, notification.TimeZone(loc))
+		atNoon(env, loc)
+		env.consumeAssigned()
+		env.start()
 
-		require.Empty(t, counters(t, w))
+		require.Empty(t, counters(t, env))
 
-		w.publish(assignedEvent{TicketID: 7, To: []int{1}})
-		require.NoError(t, w.drain())
+		env.publish(assignedEvent{TicketID: 7, To: []int{1}, Actor: 0})
+		require.NoError(t, env.drain())
 
 		require.Equal(t, map[string]float64{
 			key("created_total", catAssigned, "in_app"): 1,
 			key("created_total", catAssigned, "email"):  1,
-		}, counters(t, w))
+		}, counters(t, env))
 
-		require.Equal(t, 1, w.deliverDue())
+		require.Equal(t, 1, env.deliverDue())
 
 		require.Equal(t, map[string]float64{
 			key("created_total", catAssigned, "in_app"): 1,
 			key("created_total", catAssigned, "email"):  1,
 			key("sent_total", catAssigned, "email"):     1,
-		}, counters(t, w))
+		}, counters(t, env))
 	})
 }
 
 func TestAnEmailInQuietHoursIsHeldThenCancelledWhenReadFirst(t *testing.T) {
-	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
-		loc := zagreb(t)
-		w := newMailWorld(t, db, notification.TimeZone(loc))
-		w.clock.Set(time.Date(2026, 6, 10, 22, 0, 0, 0, loc))
-		w.consumeAssigned()
-		w.start()
+	t.Parallel()
 
-		w.publish(assignedEvent{TicketID: 7, To: []int{1}})
-		require.NoError(t, w.drain())
+	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+		t.Helper()
+
+		loc := zagreb(t)
+		env := newMailWorld(t, db, notification.TimeZone(loc))
+		env.clock.Set(time.Date(2026, 6, 10, 22, 0, 0, 0, loc))
+		env.consumeAssigned()
+		env.start()
+
+		env.publish(assignedEvent{TicketID: 7, To: []int{1}, Actor: 0})
+		require.NoError(t, env.drain())
 
 		require.Equal(t, map[string]float64{
 			key("created_total", catAssigned, "in_app"): 1,
 			key("created_total", catAssigned, "email"):  1,
 			key("held_total", catAssigned, "email"):     1,
-		}, counters(t, w))
+		}, counters(t, env))
 
-		_, err := w.notices.Inbox.MarkRead(t.Context(), 1, w.inbox(1).Items[0].ID)
+		_, err := env.notices.Inbox.MarkRead(t.Context(), 1, env.inbox(1).Items[0].ID)
 		require.NoError(t, err)
 
-		w.clock.Set(time.Date(2026, 6, 11, 7, 0, 0, 0, loc))
-		require.Equal(t, 1, w.deliverDue())
+		env.clock.Set(time.Date(2026, 6, 11, 7, 0, 0, 0, loc))
+		require.Equal(t, 1, env.deliverDue())
 
-		got := counters(t, w)
+		got := counters(t, env)
 		require.InDelta(t, 1, got[key("cancelled_total", catAssigned, "email")], 0)
 		require.Len(t, got, 4, "no sent, no failed")
 	})
 }
 
 func TestAnEmailThatFailsCountsItsReason(t *testing.T) {
-	for _, c := range []struct {
+	t.Parallel()
+
+	for _, scenario := range []struct {
 		name   string
 		err    error
 		reason string
 	}{
 		{"permanent", mail.ErrPermanent, "permanent"},
-		{"expired", errors.New("mail: cannot reach the relay"), "expired"},
+		{"expired", errRelayDown, "expired"},
 	} {
-		t.Run(c.name, func(t *testing.T) {
-			dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
-				w := newSenderWorld(t, db, &failing{err: c.err}, notification.TimeZone(zagreb(t)))
-				atNoon(w, zagreb(t))
-				w.consumeAssigned()
-				w.start()
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
 
-				w.publish(assignedEvent{TicketID: 7, To: []int{1}})
-				require.NoError(t, w.drain())
+			dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+				t.Helper()
+
+				relay := &failing{err: scenario.err, mu: sync.Mutex{}, tries: 0}
+				env := newSenderWorld(t, db, relay, notification.TimeZone(zagreb(t)))
+				atNoon(env, zagreb(t))
+				env.consumeAssigned()
+				env.start()
+
+				env.publish(assignedEvent{TicketID: 7, To: []int{1}, Actor: 0})
+				require.NoError(t, env.drain())
 
 				for range 100 {
-					d := w.deliveries()[0]
-					if d.Status == "failed" {
+					d := env.deliveries()[0]
+					if d.Status == statusFailedRow {
 						break
 					}
 
-					w.clock.Set(d.NextAttemptAt)
-					w.deliverDue()
+					env.clock.Set(d.NextAttemptAt)
+					env.deliverDue()
 				}
 
-				got := counters(t, w)
-				require.InDelta(t, 1, got[key("failed_total", catAssigned, "email", "reason="+c.reason)], 0)
+				got := counters(t, env)
+				require.InDelta(t, 1, got[key("failed_total", catAssigned, "email", "reason="+scenario.reason)], 0)
 				require.Len(t, got, 3, "created in_app, created email, failed: a retry counts nothing")
 			})
 		})
@@ -158,7 +179,7 @@ func TestAnEmailThatFailsCountsItsReason(t *testing.T) {
 func TestPushOutcomesCountByCategoryAndChannel(t *testing.T) {
 	t.Parallel()
 
-	for _, c := range []struct {
+	for _, scenario := range []struct {
 		status int
 		metric string
 		extra  []string
@@ -167,7 +188,7 @@ func TestPushOutcomesCountByCategoryAndChannel(t *testing.T) {
 		{http.StatusGone, "failed_total", []string{"reason=gone"}},
 		{http.StatusBadRequest, "failed_total", []string{"reason=rejected"}},
 	} {
-		t.Run(strconv.Itoa(c.status), func(t *testing.T) {
+		t.Run(strconv.Itoa(scenario.status), func(t *testing.T) {
 			t.Parallel()
 
 			dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
@@ -179,14 +200,14 @@ func TestPushOutcomesCountByCategoryAndChannel(t *testing.T) {
 				env.start()
 
 				env.subscribe(1, env.svc.NewDevice(t))
-				env.svc.Answer(c.status)
+				env.svc.Answer(scenario.status)
 				env.notify(pushedEvent, 1, 1)
 				require.Equal(t, 1, env.deliverPush())
 
 				require.Equal(t, map[string]float64{
-					key("created_total", catPushed, "in_app"):    1,
-					key("created_total", catPushed, "push"):      1,
-					key(c.metric, catPushed, "push", c.extra...): 1,
+					key("created_total", catPushed, "in_app"):                  1,
+					key("created_total", catPushed, "push"):                    1,
+					key(scenario.metric, catPushed, "push", scenario.extra...): 1,
 				}, counters(t, env.world))
 			})
 		})

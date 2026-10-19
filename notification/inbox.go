@@ -258,6 +258,7 @@ func (s *store) insertNew(
 			for _, d := range deliveries[r.UserID] {
 				d.NotificationID = r.ID
 
+				//nolint:exhaustruct,exhaustruct_v5 // zero by design
 				res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&d)
 				if res.Error != nil {
 					return res.Error

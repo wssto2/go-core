@@ -396,20 +396,21 @@ func (n *Notices) finish(ctx context.Context, d *deliveryRow, outcome func(*deli
 }
 
 // noteEnd counts the end of a delivery in the metrics, once its result is saved.
-func (n *Notices) noteEnd(ctx context.Context, d deliveryRow) {
+func (n *Notices) noteEnd(ctx context.Context, done deliveryRow) {
 	if !n.metrics.enabled() {
 		return
 	}
 
-	if d.category == "" {
-		d.category = unknownCategory
+	if done.category == "" {
+		done.category = unknownCategory
 
-		if note, found, err := n.store.byID(ctx, d.NotificationID); err == nil && found {
-			d.category = note.Category
+		note, found, err := n.store.byID(ctx, done.NotificationID)
+		if err == nil && found {
+			done.category = note.Category
 		}
 	}
 
-	n.metrics.finished(d, d.category)
+	n.metrics.finished(done)
 }
 
 func deref(s *string) string {

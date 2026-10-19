@@ -140,7 +140,7 @@ func (s *store) refreshDevice(ctx context.Context, cur, next deviceRow, now time
 		return deviceRow{}, fmt.Errorf("notification: refresh the device: %w", err)
 	}
 
-	s.metrics.cancelAll(cancelled, pushChannel)
+	s.metrics.cancelPushes(cancelled)
 
 	out, _, err := s.deviceByID(ctx, cur.ID)
 
@@ -180,7 +180,7 @@ func (s *store) removeDevice(ctx context.Context, userID int, deviceID uint64, r
 		return fmt.Errorf("notification: remove the device: %w", err)
 	}
 
-	s.metrics.cancelAll(cancelled, pushChannel)
+	s.metrics.cancelPushes(cancelled)
 
 	return nil
 }
@@ -205,14 +205,16 @@ func (s *store) dropGoneDevice(ctx context.Context, id uint64, hash string, now 
 		return fmt.Errorf("notification: remove the gone device: %w", err)
 	}
 
-	s.metrics.cancelAll(cancelled, pushChannel)
+	s.metrics.cancelPushes(cancelled)
 
 	return nil
 }
 
-// cancelPushOfDevice ends the pushes a device is still owed, and returns how many per category it ended, for the metrics
-// (nil when they are not kept). The caller counts them once its transaction has committed.
-func (s *store) cancelPushOfDevice(tx *gorm.DB, deviceID uint64, reason string, now time.Time) (map[string]int64, error) {
+// cancelPushOfDevice ends the pushes a device is still owed, and returns how many per category it ended, for the
+// metrics (nil when they are not kept). The caller counts them once its transaction has committed.
+func (s *store) cancelPushOfDevice(
+	conn *gorm.DB, deviceID uint64, reason string, now time.Time,
+) (map[string]int64, error) {
 	owed := func(q *gorm.DB) *gorm.DB {
 		return q.Where("device_id = ? AND channel = ? AND status IN ?", deviceID, pushChannel, dueStatuses)
 	}
@@ -222,11 +224,11 @@ func (s *store) cancelPushOfDevice(tx *gorm.DB, deviceID uint64, reason string, 
 	if s.metrics.enabled() {
 		var rows []struct {
 			Category string
-			N        int64
+			Total    int64
 		}
 
-		err := owed(tx.Table("notification_deliveries AS d").
-			Select("COALESCE(n.category, ?) AS category, COUNT(*) AS n", unknownCategory).
+		err := owed(conn.Table("notification_deliveries AS d").
+			Select("COALESCE(n.category, ?) AS category, COUNT(*) AS total", unknownCategory).
 			Joins("LEFT JOIN notifications n ON n.id = d.notification_id")).
 			Group("category").Scan(&rows).Error
 		if err != nil {
@@ -235,12 +237,12 @@ func (s *store) cancelPushOfDevice(tx *gorm.DB, deviceID uint64, reason string, 
 
 		counts = map[string]int64{}
 		for _, r := range rows {
-			counts[r.Category] = r.N
+			counts[r.Category] = r.Total
 		}
 	}
 
-	err := owed(tx.Model(&deliveryRow{})). //nolint:exhaustruct,exhaustruct_v5 // zero by design
-						Updates(map[string]any{"status": statusCancelled, "last_error": reason, colUpdatedAt: now}).Error
+	err := owed(conn.Model(&deliveryRow{})). //nolint:exhaustruct,exhaustruct_v5 // zero by design
+							Updates(map[string]any{"status": statusCancelled, "last_error": reason, colUpdatedAt: now}).Error
 
 	return counts, err
 }
@@ -252,7 +254,7 @@ func (s *store) cancelPushOf(ctx context.Context, deviceID uint64, reason string
 		return fmt.Errorf("notification: cancel the pushes of the device: %w", err)
 	}
 
-	s.metrics.cancelAll(counts, pushChannel)
+	s.metrics.cancelPushes(counts)
 
 	return nil
 }

@@ -64,7 +64,8 @@ func (s *store) claimDue(ctx context.Context, channel string, now, leaseUntil ti
 // saveDelivery writes the result of an attempt. It is conditional on the row still being pending or held, the state the
 // worker claimed it in, so a delivery that was ended meanwhile keeps its state and the result is dropped (false).
 func (s *store) saveDelivery(ctx context.Context, d deliveryRow) (bool, error) {
-	res := s.conn(ctx).Model(&deliveryRow{}).Where("id = ? AND status IN ?", d.ID, dueStatuses).Updates(map[string]any{
+	res := s.conn(ctx).Model(&deliveryRow{}). //nolint:exhaustruct,exhaustruct_v5 // zero by design
+							Where("id = ? AND status IN ?", d.ID, dueStatuses).Updates(map[string]any{
 		"status": d.Status, "attempts": d.Attempts, "next_attempt_at": d.NextAttemptAt, "expires_at": d.ExpiresAt,
 		"sent_at": d.SentAt, "last_status": d.LastStatus, "last_error": d.LastError, "updated_at": d.UpdatedAt,
 	})
