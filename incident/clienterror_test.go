@@ -137,3 +137,41 @@ func TestAPersonsBrowserErrorsAreRateLimited(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, w.as(ivo, http.MethodPost, clientErrors, browserError("same", "f (a.js:1:1)")).Code)
 	assert.EqualValues(t, 3, w.rows("incidents")[0]["occurrence_count"], "another person has a limit of their own")
 }
+
+func TestABrowserErrorKeepsItsSourceAndDetailInTheContext(t *testing.T) {
+	w := newWorld(t)
+	message := "Cannot read properties of undefined (reading 'id')"
+	frame := "render (https://app.example.com/assets/index-3f9a.js:1:4521)"
+
+	handled := browserError(message, frame)
+	handled["source"], handled["detail"] = " handled ", "mount"
+	assert.Equal(t, http.StatusNoContent, w.as(ana, http.MethodPost, clientErrors, handled).Code)
+
+	// The same error unhandled, from a client that sends no detail, is the same incident.
+	unhandled := browserError(message, frame)
+	unhandled["source"] = "window"
+	w.as(ivo, http.MethodPost, clientErrors, unhandled)
+
+	// An old client sends neither.
+	w.as(ivo, http.MethodPost, clientErrors, browserError(message, frame))
+
+	require.Len(t, w.rows("incidents"), 1, "how it was caught does not split an incident")
+	assert.EqualValues(t, 3, w.rows("incidents")[0]["occurrence_count"])
+
+	contexts := w.rows("incident_occurrences")
+	require.Len(t, contexts, 3)
+	first, second, third := asJSON(t, contexts[0]["context_json"]), asJSON(t, contexts[1]["context_json"]), asJSON(t, contexts[2]["context_json"])
+	assert.Equal(t, "handled", first["source"])
+	assert.Equal(t, "mount", first["detail"])
+	assert.Equal(t, "window", second["source"])
+	assert.NotContains(t, second, "detail", "an empty detail is absent")
+	assert.NotContains(t, third, "source", "an old client's context is what it was")
+	assert.NotContains(t, third, "detail")
+
+	// Both are bounded.
+	tooLong := browserError(message, frame)
+	tooLong["source"] = strings.Repeat("s", 33)
+	assert.Equal(t, http.StatusUnprocessableEntity, w.as(ana, http.MethodPost, clientErrors, tooLong).Code)
+	tooLong["source"], tooLong["detail"] = "vue", strings.Repeat("d", 256)
+	assert.Equal(t, http.StatusUnprocessableEntity, w.as(ana, http.MethodPost, clientErrors, tooLong).Code)
+}

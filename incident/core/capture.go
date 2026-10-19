@@ -250,7 +250,9 @@ func (s *Service) opening(ctx context.Context, key string, failure Failure, now 
 
 // ClientError records an error the browser reported, as a low severity incident of SourceClientError. who is the
 // signed-in person; the request ids are cut to ClientRequests of at most requestIDMax characters. The module's route
-// rate-limits the person before it calls this.
+// rate-limits the person before it calls this. The context keeps the input's source and detail next to the route,
+// browser, app version and request ids; an empty one is left out (an old client's context is what it was). Neither is
+// part of the fingerprint.
 func (s *Service) ClientError(ctx context.Context, who Viewer, tenantID *int, input ClientErrorInput) error {
 	person, err := signedIn(who)
 	if err != nil {
@@ -269,10 +271,20 @@ func (s *Service) ClientError(ctx context.Context, who Viewer, tenantID *int, in
 		}
 	}
 
-	details, err := Marshal(map[string]any{
+	context := map[string]any{
 		"route": clean(input.Route, RouteMax), "browser": clean(input.Browser, browserMax),
 		"app_version": clean(input.AppVersion, versionMax), "request_ids": requests,
-	})
+	}
+
+	if source := clean(input.Source, sourceMax); source != "" {
+		context["source"] = source
+	}
+
+	if detail := clean(input.Detail, detailMax); detail != "" {
+		context["detail"] = detail
+	}
+
+	details, err := Marshal(context)
 	if err != nil {
 		return apperr.Internal(err)
 	}

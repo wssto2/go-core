@@ -17,6 +17,8 @@ const (
 	ClientRequests = 20
 
 	requestIDMax = 100
+	sourceMax    = 32
+	detailMax    = 255
 	classMax     = 255
 	codeMax      = 100
 	methodMax    = 10
@@ -159,7 +161,9 @@ func validProvider(p string) bool {
 
 // ClientErrorInput is an error the browser reports: what the script threw and where the person was. Every field is
 // bounded; the request ids are those of the last API calls the page made, which link the browser error to the server
-// incident of a call that failed.
+// incident of a call that failed. Source is how the page caught it ("vue", "unhandledrejection", "window", "handled")
+// and Detail the application's short label for where ("mount"); both are optional, so an older client keeps working,
+// and they say where the error came from without being part of the message, so they never change the grouping.
 //
 //nolint:tagliatelle // snake_case wire
 type ClientErrorInput struct {
@@ -169,6 +173,8 @@ type ClientErrorInput struct {
 	Browser    string   `json:"browser"     validation:"max:500"`
 	AppVersion string   `json:"app_version" validation:"max:100"`
 	RequestIDs []string `json:"request_ids" validation:"max:20"`
+	Source     string   `json:"source,omitempty" validation:"max:32"`
+	Detail     string   `json:"detail,omitempty" validation:"max:255"`
 }
 
 // validJSON reports whether the text is empty or a JSON document.
