@@ -47,8 +47,8 @@ type ConnectionConfig struct {
 	Charset string
 
 	// Pool settings — zero values use the defaults below.
-	MaxIdleConns    int // default: 5
-	MaxOpenConns    int // default: 75
+	MaxIdleConns    int           // default: 5
+	MaxOpenConns    int           // default: 75
 	ConnMaxLifetime time.Duration // default: 5 minutes
 
 	// Debug enables GORM query logging.
