@@ -8,12 +8,14 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/access"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/go2ts"
@@ -556,4 +558,76 @@ func callsShipping(fn *ast.FuncDecl) bool {
 	})
 
 	return found
+}
+
+func TestTypeScriptCheckListsDriftAndWritesNothing(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	// an App runs one command, so each one is built as main builds it
+	app := func(dir string) *gocore.App {
+		built := tsApp(dir, []string{tsGenerate})
+		tsFeature(built, tsPermissions())
+
+		return built
+	}
+
+	missing := filepath.Join(dir, "never")
+	out, err := tsRun(t, app(missing), tsGenerate, "--check")
+
+	if err == nil || !strings.Contains(err.Error(), "out of date") {
+		t.Fatalf("an empty folder is all drift, got %v", err)
+	}
+
+	if _, statErr := os.Stat(missing); statErr == nil {
+		t.Fatal("--check created the folder")
+	}
+
+	if !strings.Contains(out, filepath.Join(missing, "entities", "Label.ts")) {
+		t.Fatalf("the missing files are listed:\n%s", out)
+	}
+
+	tsMustRun(t, app(dir), tsGenerate)
+
+	clean, err := tsRun(t, app(dir), tsGenerate, "--check")
+	if err != nil {
+		t.Fatalf("a freshly generated tree is clean: %v\n%s", err, clean)
+	}
+
+	writeTS(t, filepath.Join(dir, "entities", "Label.ts"), "// edited")
+	writeTS(t, filepath.Join(dir, "entities", "Gone.ts"), "// stale")
+	writeTS(t, filepath.Join(dir, "routes", "extra", "routes.ts"), "// stale group")
+	writeTS(t, filepath.Join(dir, "routes", "tickets", "routes.ts"), "// edited")
+	writeTS(t, filepath.Join(dir, permissionsTS), "// edited")
+	writeTS(t, filepath.Join(dir, "notes.txt"), "mine")
+	require.NoError(t, os.Remove(filepath.Join(dir, "schemas", "tsCloseInput.ts")))
+
+	before := tsTree(t, dir)
+
+	out, err = tsRun(t, app(dir), tsGenerate, "--check")
+	if err == nil {
+		t.Fatal("drift must fail the command")
+	}
+
+	for _, want := range []string{
+		"entities/Label.ts", "entities/Gone.ts", "routes/extra/routes.ts", ticketRoutes, permissionsTS, "schemas/tsCloseInput.ts",
+	} {
+		if !strings.Contains(out, filepath.Join(dir, filepath.FromSlash(want))) {
+			t.Errorf("%s is not listed:\n%s", want, out)
+		}
+	}
+
+	if strings.Contains(out, "notes.txt") || strings.Contains(out, "routes/tickets/entities.ts") {
+		t.Errorf("only drifted files are listed:\n%s", out)
+	}
+
+	if after := tsTree(t, dir); !maps.Equal(before, after) {
+		t.Fatal("--check wrote to the tree")
+	}
+
+	out, err = tsRun(t, app(dir), tsGenerate, "--check", "schemas")
+	if err == nil || strings.Contains(out, "entities") {
+		t.Fatalf("one part is checked alone, got %v:\n%s", err, out)
+	}
 }

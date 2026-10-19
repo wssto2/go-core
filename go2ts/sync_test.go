@@ -96,3 +96,41 @@ func TestOmitzeroSchemaFieldIsOptionalUnlessRequired(t *testing.T) {
 	assert.Contains(t, string(got), "  name: z.string().max(10).optional(),")
 	assert.Contains(t, string(got), "  must: z.string().min(1),")
 }
+
+func TestDrift_ListsWhatSyncWouldChangeAndWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	gen := func(d string) error { return go2ts.GenerateTypes([]any{syncUser{}}, d) }
+
+	missing := filepath.Join(dir, "never")
+	drifted, err := go2ts.Drift(missing, gen)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"syncUser.ts"}, drifted, "a folder that does not exist yet is all drift")
+	assert.NoDirExists(t, missing, "checking creates nothing")
+
+	require.NoError(t, go2ts.Sync(dir, gen))
+
+	drifted, err = go2ts.Drift(dir, gen)
+	require.NoError(t, err)
+	assert.Empty(t, drifted, "a synced folder is clean")
+
+	file := filepath.Join(dir, "syncUser.ts")
+	stale := filepath.Join(dir, "Gone.ts")
+	notTS := filepath.Join(dir, "notes.txt")
+
+	require.NoError(t, os.WriteFile(file, []byte("changed"), 0o600))
+	require.NoError(t, os.WriteFile(stale, []byte("// old"), 0o600))
+	require.NoError(t, os.WriteFile(notTS, []byte("mine"), 0o600))
+
+	drifted, err = go2ts.Drift(dir, gen)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Gone.ts", "syncUser.ts"}, drifted, "a changed and a stale file, not another extension")
+
+	got, err := os.ReadFile(file) //nolint:gosec // a file of the test's temp dir
+	require.NoError(t, err)
+	assert.Equal(t, "changed", string(got), "the changed file is not rewritten")
+	assert.FileExists(t, stale, "the stale file is not deleted")
+
+	wantErr := errors.New("generator failed")
+	_, err = go2ts.Drift(dir, func(string) error { return wantErr })
+	assert.ErrorIs(t, err, wantErr)
+}
