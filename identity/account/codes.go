@@ -250,7 +250,8 @@ func (c *Codes) Issue(ctx context.Context, in IssueCode) (PendingCode, error) {
 			return PendingCode{}, apperr.Internal(errors.Join(sendErr, err))
 		}
 
-		return PendingCode{}, apperr.Wrap(sendErr, string(ReasonCodeNotDelivered), apperr.CodeInternal).WithReason(ReasonCodeNotDelivered)
+		return PendingCode{}, apperr.Wrap(sendErr, string(ReasonCodeNotDelivered), apperr.CodeInternal).
+			WithReason(ReasonCodeNotDelivered)
 	}
 
 	return c.pending(code), nil
@@ -307,7 +308,9 @@ func (c *Codes) Verify(ctx context.Context, accountID int, p Purpose, plain stri
 func (c *Codes) verifyOnce(ctx context.Context, accountID int, p Purpose, hash string) (string, error) {
 	code, err := c.deps.Store.Latest(ctx, accountID, p)
 	if errors.Is(err, ErrCodeNotFound) {
-		return "", apperr.Wrap(nil, string(ReasonCodeNoPending), apperr.CodeInvalidArgument).WithReason(ReasonCodeNoPending).WithLog(apperr.LevelInfo)
+		return "", apperr.Wrap(nil, string(ReasonCodeNoPending), apperr.CodeInvalidArgument).
+			WithReason(ReasonCodeNoPending).
+			WithLog(apperr.LevelInfo)
 	}
 
 	if err != nil {
@@ -321,7 +324,9 @@ func (c *Codes) verifyOnce(ctx context.Context, accountID int, p Purpose, hash s
 
 	now := c.deps.Clock.Now()
 	if !code.Live(now) {
-		return "", apperr.Wrap(nil, string(ReasonCodeExpired), apperr.CodeInvalidArgument).WithReason(ReasonCodeExpired).WithLog(apperr.LevelInfo)
+		return "", apperr.Wrap(nil, string(ReasonCodeExpired), apperr.CodeInvalidArgument).
+			WithReason(ReasonCodeExpired).
+			WithLog(apperr.LevelInfo)
 	}
 
 	read := code.Attempts
@@ -336,7 +341,9 @@ func (c *Codes) verifyOnce(ctx context.Context, accountID int, p Purpose, hash s
 		code.Attempts++
 		if code.Attempts >= c.rules.Attempts {
 			code.InvalidatedAt = &now
-			refusal = apperr.Wrap(nil, string(ReasonCodeTooManyAttempts), apperr.CodeInvalidArgument).WithReason(ReasonCodeTooManyAttempts).WithLog(apperr.LevelWarn)
+			refusal = apperr.Wrap(nil, string(ReasonCodeTooManyAttempts), apperr.CodeInvalidArgument).
+				WithReason(ReasonCodeTooManyAttempts).
+				WithLog(apperr.LevelWarn)
 		} else {
 			refusal = apperr.Wrap(nil, string(ReasonCodeMismatch), apperr.CodeInvalidArgument).
 				WithReason(ReasonCodeMismatch, map[string]any{"attempts_left": c.rules.Attempts - code.Attempts}).WithLog(apperr.LevelInfo)

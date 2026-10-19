@@ -408,8 +408,9 @@ func pagingOf(page, perPage int) account.Paging { return account.Paging{Page: pa
 
 func (h *Handler) listUsers(ctx context.Context, in ListUsersInput) (datatable.DatatableResult[UserRow], error) {
 	if in.OrderDir != "" && in.OrderDir != "asc" && in.OrderDir != "desc" {
-		return datatable.DatatableResult[UserRow]{}, apperr.Wrap(nil, "identity.list.dir_invalid", apperr.CodeValidationError).
-			WithReason("identity.list.dir_invalid").WithFields(map[string]string{"order_dir": "identity.list.dir_invalid"})
+		return datatable.DatatableResult[UserRow]{},
+			apperr.Wrap(nil, "identity.list.dir_invalid", apperr.CodeValidationError).
+				WithReason("identity.list.dir_invalid").WithFields(map[string]string{"order_dir": "identity.list.dir_invalid"})
 	}
 
 	listing, err := h.admin.List(ctx, account.ListInput{
