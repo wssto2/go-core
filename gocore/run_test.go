@@ -208,6 +208,27 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	}
 }
 
+// stoppingWorkerSees is what a worker finds while it drains: whether the HTTP server is still up and the database open.
+func stoppingWorkerSees(app *App, url string) string {
+	resp, err := get(url)
+	if err == nil {
+		_ = resp.Body.Close()
+	}
+
+	if err != nil {
+		return "worker stopped, http already down"
+	}
+
+	// the database must still be open while workers drain
+	err = app.Database().Exec("select 1").Error
+	if err != nil {
+		return "worker: database already closed"
+	}
+
+	return "worker stopped, http still up"
+}
+
+//nolint:paralleltest // like the tests around it
 func TestRunShutdownOrder_HTTPThenWorkersThenDatabase(t *testing.T) {
 	app, port := runnable(t)
 	ev := &events{}
@@ -215,26 +236,11 @@ func TestRunShutdownOrder_HTTPThenWorkersThenDatabase(t *testing.T) {
 
 	app.authenticate = []gin.HandlerFunc{passthrough}
 	app.Routes(upRoute.To(pong))
-	w := &loopWorker{name: "w", started: make(chan struct{}), onStop: func() {
-		resp, err := get(url)
-		if err == nil {
-			_ = resp.Body.Close()
-		}
 
-		if err != nil {
-			ev.add("worker stopped, http already down")
-			return
-		}
-
-		// the database must still be open while workers drain
-		if err := app.Database().Exec("select 1").Error; err != nil {
-			ev.add("worker: database already closed")
-			return
-		}
-
-		ev.add("worker stopped, http still up")
-	}}
-	app.Background(w)
+	stopper := &loopWorker{
+		name: "w", started: make(chan struct{}), onStop: func() { ev.add(stoppingWorkerSees(app, url)) },
+	}
+	app.Background(stopper)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -257,7 +263,7 @@ func TestRunShutdownOrder_HTTPThenWorkersThenDatabase(t *testing.T) {
 		return resp.StatusCode == http.StatusOK
 	})
 
-	<-w.started
+	<-stopper.started
 	cancel()
 
 	if err := <-done; err != nil {

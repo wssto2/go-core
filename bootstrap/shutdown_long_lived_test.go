@@ -177,6 +177,7 @@ func TestShutdown_ModulesGetTheConfiguredTimeout(t *testing.T) {
 
 	var ctxErr error
 	var remaining time.Duration
+
 	app.modules = []Component{&ctxModule{fn: func(ctx context.Context) {
 		ctxErr = ctx.Err()
 		if dl, ok := ctx.Deadline(); ok {

@@ -432,19 +432,22 @@ type LegacyAssigned struct {
 func TestRowsFromInsertOutboxEventAreConsumedUnderTheirOldName(t *testing.T) {
 	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
 		require.NoError(t, event.Migrate(db))
-		require.NoError(t, db.Create(&event.OutboxEvent{
+
+		legacy := event.OutboxEvent{ //nolint:exhaustruct,exhaustruct_v5 // zero by design
 			EventType: "event_test.LegacyAssigned",
 			Envelope:  []byte(`{"_v":"1","payload":{"lead_id":9}}`),
-		}).Error)
+		}
+		require.NoError(t, db.Create(&legacy).Error)
 
 		var got []int
 
-		legacy := event.Define[LegacyAssigned]("event_test.LegacyAssigned")
-		q := event.NewQueue(db, newClock(), quiet(), legacy.To("notifications.lead", func(_ context.Context, a LegacyAssigned) error {
+		declared := event.Define[LegacyAssigned]("event_test.LegacyAssigned")
+		consumer := declared.To("notifications.lead", func(_ context.Context, a LegacyAssigned) error {
 			got = append(got, a.LeadID)
 
 			return nil
-		}))
+		})
+		q := event.NewQueue(db, newClock(), quiet(), consumer)
 
 		require.NoError(t, q.Drain(context.Background()))
 		require.Equal(t, []int{9}, got)

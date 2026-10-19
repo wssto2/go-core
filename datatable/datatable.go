@@ -422,51 +422,56 @@ func (d *Datatable[T]) Get(ctx context.Context) (*DatatableResult[T], error) {
 	}, nil
 }
 
+const (
+	dayStartLayout = "2006-01-02 00:00:00"
+	dayLayout      = "2006-01-02"
+	dayEnd         = " 23:59:59"
+	dateTimeLayout = "2006-01-02 15:04:05"
+	daysInWeek     = 7
+)
+
 // dateRange returns the date range based on the given value keyword.
 // Supported: "today", "yesterday", "this_week", "last_week", "this_month", "last_month", "this_year", "last_year".
-func dateRange(value string) (fromDate, toDate string) {
+func dateRange(value string) (string, string) {
 	now := time.Now()
 
 	switch value {
 	case "today":
-		fromDate = now.Format("2006-01-02 00:00:00")
-		toDate = now.Format("2006-01-02") + " 23:59:59"
+		return dayRange(now)
 	case "yesterday":
-		yesterday := now.AddDate(0, 0, -1)
-		fromDate = yesterday.Format("2006-01-02 00:00:00")
-		toDate = yesterday.Format("2006-01-02") + " 23:59:59"
+		return dayRange(now.AddDate(0, 0, -1))
 	case "this_week":
-		// Monday is 0, Sunday is 6
-		weekDay := int(now.Weekday())
-		if weekDay == 0 { // Sunday
-			weekDay = 6
-		} else {
-			weekDay--
-		}
-		fromDate = now.AddDate(0, 0, -weekDay).Format("2006-01-02 00:00:00")
-		toDate = now.AddDate(0, 0, 6-weekDay).Format("2006-01-02") + " 23:59:59"
+		return weekRange(now, 0)
 	case "last_week":
-		weekDay := int(now.Weekday())
-		if weekDay == 0 { // Sunday
-			weekDay = 6
-		} else {
-			weekDay--
-		}
-		fromDate = now.AddDate(0, 0, -weekDay-7).Format("2006-01-02 00:00:00")
-		toDate = now.AddDate(0, 0, -weekDay-1).Format("2006-01-02") + " 23:59:59"
+		return weekRange(now, -1)
 	case "this_month":
-		fromDate = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02 15:04:05")
-		toDate = now.AddDate(0, 1, -now.Day()).Format("2006-01-02") + " 23:59:59"
+		return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).Format(dateTimeLayout),
+			now.AddDate(0, 1, -now.Day()).Format(dayLayout) + dayEnd
 	case "last_month":
-		fromDate = time.Date(now.Year(), now.Month()-1, 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02 15:04:05")
-		toDate = now.AddDate(0, 0, -now.Day()).Format("2006-01-02") + " 23:59:59"
+		return time.Date(now.Year(), now.Month()-1, 1, 0, 0, 0, 0, now.Location()).Format(dateTimeLayout),
+			now.AddDate(0, 0, -now.Day()).Format(dayLayout) + dayEnd
 	case "this_year":
-		fromDate = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02 15:04:05")
-		toDate = time.Date(now.Year(), 12, 31, 23, 59, 59, 0, now.Location()).Format("2006-01-02 15:04:05")
+		return yearRange(now.Year(), now.Location())
 	case "last_year":
-		fromDate = time.Date(now.Year()-1, 1, 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02 15:04:05")
-		toDate = time.Date(now.Year()-1, 12, 31, 23, 59, 59, 0, now.Location()).Format("2006-01-02 15:04:05")
+		return yearRange(now.Year()-1, now.Location())
 	}
 
-	return fromDate, toDate
+	return "", ""
+}
+
+func dayRange(day time.Time) (string, string) {
+	return day.Format(dayStartLayout), day.Format(dayLayout) + dayEnd
+}
+
+// weekRange is the Monday-to-Sunday week that is weeks away from the one holding now.
+func weekRange(now time.Time, weeks int) (string, string) {
+	sinceMonday := (int(now.Weekday()) + daysInWeek - 1) % daysInWeek // Sunday counts as the last day
+	monday := now.AddDate(0, 0, -sinceMonday+weeks*daysInWeek)
+
+	return monday.Format(dayStartLayout), monday.AddDate(0, 0, daysInWeek-1).Format(dayLayout) + dayEnd
+}
+
+func yearRange(year int, loc *time.Location) (string, string) {
+	return time.Date(year, 1, 1, 0, 0, 0, 0, loc).Format(dateTimeLayout),
+		time.Date(year, 12, 31, 23, 59, 59, 0, loc).Format(dateTimeLayout)
 }

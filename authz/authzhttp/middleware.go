@@ -31,8 +31,8 @@ func abort(ctx *gin.Context, err error) {
 // Without an identity the request is rejected with 401.
 func Principals(resolve func(context.Context, auth.Identifiable) (authz.Principal, bool)) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		identity, ok := auth.UserFromContext(ctx.Request.Context())
-		if !ok {
+		identity, signedIn := auth.UserFromContext(ctx.Request.Context())
+		if !signedIn {
 			abort(ctx, apperr.Unauthorized("user not authenticated"))
 			return
 		}

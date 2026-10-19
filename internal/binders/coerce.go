@@ -47,7 +47,7 @@ func coerceValue(field reflect.Value, value any, isMultipart bool) *validation.F
 	case map[string]interface{}:
 		return coerceMap(field, v)
 	default:
-		return ptr(validation.Fail(validation.CodeInvalidType))
+		return new(validation.Fail(validation.CodeInvalidType))
 	}
 }
 
@@ -77,10 +77,10 @@ func jsonUnmarshaler(field reflect.Value) (json.Unmarshaler, bool) {
 func coerceViaUnmarshaler(u json.Unmarshaler, value any) *validation.Failure {
 	raw, err := json.Marshal(value)
 	if err != nil {
-		return ptr(validation.Fail(validation.CodeInvalidType))
+		return new(validation.Fail(validation.CodeInvalidType))
 	}
 	if err := u.UnmarshalJSON(raw); err != nil {
-		return ptr(validation.Fail(validation.CodeInvalidType))
+		return new(validation.Fail(validation.CodeInvalidType))
 	}
 	return nil
 }
@@ -96,7 +96,7 @@ func coerceString(field reflect.Value, v string, isMultipart bool) *validation.F
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		if !isMultipart {
-			return ptr(validation.Fail(validation.CodeMustBeNumber))
+			return new(validation.Fail(validation.CodeMustBeNumber))
 		}
 		if v == "null" || v == "" {
 			field.Set(reflect.Zero(field.Type()))
@@ -104,14 +104,14 @@ func coerceString(field reflect.Value, v string, isMultipart bool) *validation.F
 		}
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
-			return ptr(validation.Fail(validation.CodeMustBeNumber))
+			return new(validation.Fail(validation.CodeMustBeNumber))
 		}
 		field.SetInt(n)
 		return nil
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		if !isMultipart {
-			return ptr(validation.Fail(validation.CodeMustBePositiveNumber))
+			return new(validation.Fail(validation.CodeMustBePositiveNumber))
 		}
 		if v == "null" || v == "" {
 			field.Set(reflect.Zero(field.Type()))
@@ -119,14 +119,14 @@ func coerceString(field reflect.Value, v string, isMultipart bool) *validation.F
 		}
 		n, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			return ptr(validation.Fail(validation.CodeMustBePositiveNumber))
+			return new(validation.Fail(validation.CodeMustBePositiveNumber))
 		}
 		field.SetUint(n)
 		return nil
 
 	case reflect.Float32, reflect.Float64:
 		if !isMultipart {
-			return ptr(validation.Fail(validation.CodeMustBeNumber))
+			return new(validation.Fail(validation.CodeMustBeNumber))
 		}
 		if v == "null" || v == "" {
 			field.Set(reflect.Zero(field.Type()))
@@ -134,14 +134,14 @@ func coerceString(field reflect.Value, v string, isMultipart bool) *validation.F
 		}
 		n, err := strconv.ParseFloat(v, 64)
 		if err != nil {
-			return ptr(validation.Fail(validation.CodeMustBeNumber))
+			return new(validation.Fail(validation.CodeMustBeNumber))
 		}
 		field.SetFloat(n)
 		return nil
 
 	case reflect.Bool:
 		if !isMultipart {
-			return ptr(validation.Fail(validation.CodeMustBeBoolean))
+			return new(validation.Fail(validation.CodeMustBeBoolean))
 		}
 		switch v {
 		case "true", "1":
@@ -149,12 +149,12 @@ func coerceString(field reflect.Value, v string, isMultipart bool) *validation.F
 		case "false", "0", "null", "":
 			field.SetBool(false)
 		default:
-			return ptr(validation.Fail(validation.CodeMustBeBoolean))
+			return new(validation.Fail(validation.CodeMustBeBoolean))
 		}
 		return nil
 
 	default:
-		return ptr(validation.Fail(validation.CodeInvalidType))
+		return new(validation.Fail(validation.CodeInvalidType))
 	}
 }
 
@@ -166,20 +166,20 @@ func coerceFloat64(field reflect.Value, v float64) *validation.Failure {
 		field.SetFloat(v)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		if v != math.Trunc(v) {
-			return ptr(validation.Fail(validation.CodeMustBeNumber))
+			return new(validation.Fail(validation.CodeMustBeNumber))
 		}
 		field.SetInt(int64(v))
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		if v < 0 {
-			return ptr(validation.Fail(validation.CodeMustBePositiveNumber))
+			return new(validation.Fail(validation.CodeMustBePositiveNumber))
 		}
 		field.SetUint(uint64(v))
 	case reflect.String:
-		return ptr(validation.Fail(validation.CodeMustBeString))
+		return new(validation.Fail(validation.CodeMustBeString))
 	case reflect.Bool:
-		return ptr(validation.Fail(validation.CodeMustBeBoolean))
+		return new(validation.Fail(validation.CodeMustBeBoolean))
 	default:
-		return ptr(validation.Fail(validation.CodeInvalidType))
+		return new(validation.Fail(validation.CodeInvalidType))
 	}
 	return nil
 }
@@ -190,13 +190,13 @@ func coerceBool(field reflect.Value, v bool) *validation.Failure {
 	case reflect.Bool:
 		field.SetBool(v)
 	case reflect.String:
-		return ptr(validation.Fail(validation.CodeMustBeString))
+		return new(validation.Fail(validation.CodeMustBeString))
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return ptr(validation.Fail(validation.CodeMustBeNumber))
+		return new(validation.Fail(validation.CodeMustBeNumber))
 	case reflect.Float32, reflect.Float64:
-		return ptr(validation.Fail(validation.CodeMustBeNumber))
+		return new(validation.Fail(validation.CodeMustBeNumber))
 	default:
-		return ptr(validation.Fail(validation.CodeInvalidType))
+		return new(validation.Fail(validation.CodeInvalidType))
 	}
 	return nil
 }
@@ -204,7 +204,7 @@ func coerceBool(field reflect.Value, v bool) *validation.Failure {
 // coerceSlice handles JSON arrays → slice fields.
 func coerceSlice(field reflect.Value, v []interface{}, isMultipart bool) *validation.Failure {
 	if field.Kind() != reflect.Slice {
-		return ptr(validation.Fail(validation.CodeMustBeList))
+		return new(validation.Fail(validation.CodeMustBeList))
 	}
 
 	slice := reflect.MakeSlice(field.Type(), len(v), len(v))
@@ -227,7 +227,7 @@ func coerceMap(field reflect.Value, v map[string]interface{}) *validation.Failur
 	case reflect.Struct:
 		return coerceMapIntoStruct(field, v)
 	default:
-		return ptr(validation.Fail(validation.CodeMustBeObject))
+		return new(validation.Fail(validation.CodeMustBeObject))
 	}
 }
 
@@ -259,5 +259,3 @@ func coerceMapIntoStruct(field reflect.Value, v map[string]interface{}) *validat
 
 	return nil
 }
-
-func ptr[T any](value T) *T { return &value }

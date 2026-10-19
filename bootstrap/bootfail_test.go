@@ -11,6 +11,9 @@ import (
 	"time"
 )
 
+// errBoot is the boot failure of the last component.
+var errBoot = errors.New("boom")
+
 type recordingModule struct {
 	name    string
 	bootErr error
@@ -41,7 +44,7 @@ func TestRunContext_BootFailureStopsBootedModulesInReverse(t *testing.T) {
 
 	log := slog.New(slog.DiscardHandler)
 
-	app := NewApp(DefaultConfig(), log, nil, nil, nil, []Component{mod("a", nil), mod("b", nil), mod("c", errors.New("boom"))})
+	app := NewApp(DefaultConfig(), log, nil, nil, nil, []Component{mod("a", nil), mod("b", nil), mod("c", errBoot)})
 	if err := app.RunContext(context.Background()); err == nil {
 		t.Fatal("want the boot error")
 	}

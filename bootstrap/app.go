@@ -42,7 +42,9 @@ type App struct {
 }
 
 // NewApp constructs an App instance.
-func NewApp(cfg Config, log *slog.Logger, hr *health.HealthRegistry, engine *gin.Engine, httpSrv HTTPServer, modules []Component) *App {
+func NewApp(
+	cfg Config, log *slog.Logger, hr *health.HealthRegistry, engine *gin.Engine, httpSrv HTTPServer, modules []Component,
+) *App {
 	return &App{
 		cfg:        cfg,
 		log:        log,
@@ -123,7 +125,8 @@ func (a *App) RunContext(ctx context.Context) error {
 // racy startup behavior.
 func (a *App) registerModules() error {
 	for _, m := range a.modules {
-		if err := m.Register(a.engine); err != nil {
+		err := m.Register(a.engine)
+		if err != nil {
 			return fmt.Errorf("module %q register failed: %w", m.Name(), err)
 		}
 	}

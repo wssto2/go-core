@@ -28,6 +28,7 @@ func TestAppBuilder_ModuleRegisteredExactlyOnce(t *testing.T) {
 
 	cfg := DefaultConfig()
 	builder := New(cfg).DefaultInfrastructure()
+
 	app, err := builder.WithComponents(m).Build()
 	if err != nil {
 		t.Fatalf("Build() failed: %v", err)

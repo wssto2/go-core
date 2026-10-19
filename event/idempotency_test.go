@@ -14,9 +14,12 @@ import (
 )
 
 func openTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+
 	// use unique in-memory database per test to avoid cross-test interference
 	dsn := fmt.Sprintf("file:idempotency_test_%d?mode=memory&cache=shared", time.Now().UnixNano())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{}) //nolint:exhaustruct,exhaustruct_v5 // zero by design
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -39,6 +42,7 @@ func TestIdempotency_ReserveWithinTransaction(t *testing.T) {
 		if !ok {
 			return errors.New("no tx")
 		}
+
 		reserved, err := reserveKey(ctx, tx, key)
 		if err != nil {
 			return err
@@ -75,6 +79,7 @@ func TestIdempotency_ReserveRollback(t *testing.T) {
 		if !ok {
 			return errors.New("no tx")
 		}
+
 		reserved, err := reserveKey(ctx, tx, key)
 		if err != nil {
 			return err

@@ -239,7 +239,7 @@ func (a *App) build() (*bootstrap.App, error) {
 		configure(builder)
 	}
 
-	booted, err := builder.WithComponents(&featuresModule{app: a}).WithHttp().Build()
+	booted, err := builder.WithComponents(&featuresModule{app: a, mgr: nil, cancel: nil}).WithHttp().Build()
 	if err != nil {
 		return nil, fmt.Errorf("gocore: %w", err)
 	}

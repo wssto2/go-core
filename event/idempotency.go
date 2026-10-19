@@ -38,12 +38,12 @@ func EnsureIdempotencySchema(db *gorm.DB) error {
 	return db.AutoMigrate(&IdempotencyRecord{})
 }
 
-// reserveKey attempts to reserve an idempotency key using the provided transaction/db.
+// reserveKey attempts to reserve an idempotency key using the provided transaction or connection.
 // Returns (true, nil) when reservation succeeded (new key inserted).
 // Returns (false, nil) when the key already exists.
 // Returns (false, err) when an unexpected error occurred.
-func reserveKey(ctx context.Context, tx *gorm.DB, key string) (bool, error) {
-	if tx == nil {
+func reserveKey(ctx context.Context, conn *gorm.DB, key string) (bool, error) {
+	if conn == nil {
 		return false, gorm.ErrInvalidDB
 	}
 	if key == "" {
@@ -51,7 +51,9 @@ func reserveKey(ctx context.Context, tx *gorm.DB, key string) (bool, error) {
 		return false, nil
 	}
 	r := IdempotencyRecord{Key: key}
-	if err := tx.WithContext(ctx).Create(&r).Error; err != nil {
+
+	err := conn.WithContext(ctx).Create(&r).Error
+	if err != nil {
 		if database.IsDuplicateKey(err) {
 			return false, nil
 		}
@@ -61,8 +63,8 @@ func reserveKey(ctx context.Context, tx *gorm.DB, key string) (bool, error) {
 }
 
 // confirmKey marks the key as processed and optionally stores a response payload.
-func confirmKey(ctx context.Context, tx *gorm.DB, key string, resp []byte) error {
-	if tx == nil {
+func confirmKey(ctx context.Context, conn *gorm.DB, key string, resp []byte) error {
+	if conn == nil {
 		return gorm.ErrInvalidDB
 	}
 	now := time.Now().UTC()
@@ -70,7 +72,8 @@ func confirmKey(ctx context.Context, tx *gorm.DB, key string, resp []byte) error
 	if resp != nil {
 		updates["response"] = resp
 	}
-	return tx.WithContext(ctx).Model(&IdempotencyRecord{}).Where("`key` = ?", key).Updates(updates).Error
+
+	return conn.WithContext(ctx).Model(new(IdempotencyRecord)).Where("`key` = ?", key).Updates(updates).Error
 }
 
 // GetResponse fetches stored response for a key if present. Found==false when no record.

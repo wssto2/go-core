@@ -95,6 +95,7 @@ func (b *AppBuilder) setupLogger() {
 		b.errors = append(b.errors, fmt.Errorf("logger: %w", err))
 		return
 	}
+
 	b.log = log
 }
 
@@ -194,6 +195,7 @@ func (b *AppBuilder) setupI18n() {
 		b.errors = append(b.errors, fmt.Errorf("i18n: %w", err))
 		return
 	}
+
 	b.translator = t
 }
 
