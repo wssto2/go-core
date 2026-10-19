@@ -8,7 +8,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -496,7 +495,7 @@ func TestHelpListsTheGeneratorOnlyWhenTheApplicationUsesIt(t *testing.T) {
 	}
 
 	again := tsBare(gocore.WithTypeScript(gocore.TS{Entities: nil, Inputs: nil, Dir: ""}))
-	again.Command(tsGenerate, "mine", func(context.Context, *gocore.App, []string, io.Writer) error { return nil })
+	again.Command(tsGenerate, "mine", func(context.Context, *gocore.Cmd) error { return nil })
 
 	err = again.Check()
 	if err == nil || !strings.Contains(err.Error(), "built-in") {

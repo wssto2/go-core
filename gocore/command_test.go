@@ -3,9 +3,7 @@ package gocore_test
 import (
 	"context"
 	"errors"
-	"flag"
-	"fmt"
-	"io"
+		"fmt"
 	"strings"
 	"testing"
 
@@ -20,20 +18,17 @@ const (
 
 var errBoom = errors.New("boom")
 
-// prune is a command that parses its own flags, the way an application's does.
-func prune(_ context.Context, _ *gocore.App, args []string, out io.Writer) error {
-	flags := flag.NewFlagSet(pruneName, flag.ContinueOnError)
-	flags.SetOutput(out)
+// prune is a command with flags, the way an application's has them.
+func prune(_ context.Context, cmd *gocore.Cmd) error {
+	dryRun := cmd.Bool("dry-run", false, "count the rows without deleting them")
+	only := cmd.List("only", "the targets to run, comma-separated")
 
-	dryRun := flags.Bool("dry-run", false, "count the rows without deleting them")
-	only := flags.String("only", "", "run only these targets")
-
-	err := flags.Parse(args)
+	err := cmd.Parse(gocore.Args(1))
 	if err != nil {
 		return fmt.Errorf("db:prune: %w", err)
 	}
 
-	_, err = fmt.Fprintf(out, "dry-run=%t only=%q rest=%v\n", *dryRun, *only, flags.Args())
+	_, err = fmt.Fprintf(cmd.Out, "dry-run=%t only=%q rest=%v\n", *dryRun, *only, cmd.Args())
 	if err != nil {
 		return fmt.Errorf("db:prune: %w", err)
 	}
@@ -41,7 +36,7 @@ func prune(_ context.Context, _ *gocore.App, args []string, out io.Writer) error
 	return nil
 }
 
-func nothing(context.Context, *gocore.App, []string, io.Writer) error { return nil }
+func nothing(context.Context, *gocore.Cmd) error { return nil }
 
 // commandApp is an App over a test database, and the registry to see whether it was closed.
 func commandApp(t *testing.T) (*gocore.App, *database.Registry) {
@@ -62,7 +57,7 @@ func runArgs(app *gocore.App, args ...string) (string, error) {
 	return out.String(), err
 }
 
-func TestAppCommandGetsItsArgsUnparsedAndTheDatabase(t *testing.T) {
+func TestAppCommandGetsParsedFlagsAndTheDatabase(t *testing.T) {
 	t.Parallel()
 
 	app, reg := commandApp(t)
@@ -70,17 +65,15 @@ func TestAppCommandGetsItsArgsUnparsedAndTheDatabase(t *testing.T) {
 
 	var got *gocore.App
 
-	app.Command(pruneName, "delete old rows", func(
-		ctx context.Context, given *gocore.App, args []string, out io.Writer,
-	) error {
-		got = given
+	app.Command(pruneName, "delete old rows", func(ctx context.Context, cmd *gocore.Cmd) error {
+		got = cmd.App
 
-		err := given.Database().WithContext(ctx).Exec("select 1").Error
+		err := cmd.App.Database().WithContext(ctx).Exec("select 1").Error
 		if err != nil {
 			return fmt.Errorf("the command's database: %w", err)
 		}
 
-		return prune(ctx, given, args, out)
+		return prune(ctx, cmd)
 	})
 
 	out, err := runArgs(app, pruneName, "--dry-run", "--only", "a,b", "extra")
@@ -88,7 +81,7 @@ func TestAppCommandGetsItsArgsUnparsedAndTheDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if want := "dry-run=true only=\"a,b\" rest=[extra]\n"; out != want {
+	if want := "dry-run=true only=[\"a\" \"b\"] rest=[extra]\n"; out != want {
 		t.Errorf("output = %q, want %q", out, want)
 	}
 
@@ -129,17 +122,70 @@ func TestAppCommandHelpFlagPrintsItsFlagsAndSucceeds(t *testing.T) {
 	t.Parallel()
 
 	app, _ := commandApp(t)
-	app.Command(pruneName, "", prune)
+	app.Command(pruneName, "delete old rows", prune)
 
 	out, err := runArgs(app, pruneName, "-h")
 	if err != nil {
 		t.Fatalf("-h is not a failure: %v", err)
 	}
 
-	for _, want := range []string{"-dry-run", "-only"} {
+	for _, want := range []string{"Usage: ", pruneName, "delete old rows", "-dry-run", "-only", "comma-separated"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("-h output lacks %s: %q", want, out)
 		}
+	}
+}
+
+func noArgs(_ context.Context, cmd *gocore.Cmd) error {
+	_ = cmd.Bool("force", false, "do it")
+
+	return cmd.Parse()
+}
+
+func TestAStrayArgumentIsAnErrorUnlessTheCommandAllowsIt(t *testing.T) {
+	t.Parallel()
+
+	app, _ := commandApp(t)
+	app.Command("strict", "", noArgs)
+	app.Command("loose", "", func(_ context.Context, cmd *gocore.Cmd) error { return cmd.Parse(gocore.Args(2)) })
+
+	if _, err := runArgs(app, "strict", "-force"); err != nil {
+		t.Fatalf("flags only: %v", err)
+	}
+
+	app, _ = commandApp(t)
+	app.Command("strict", "", noArgs)
+
+	_, err := runArgs(app, "strict", "extra")
+	if err == nil || !strings.Contains(err.Error(), `"extra"`) {
+		t.Fatalf("want an error naming the stray argument, got %v", err)
+	}
+
+	app, _ = commandApp(t)
+	app.Command("loose", "", func(_ context.Context, cmd *gocore.Cmd) error { return cmd.Parse(gocore.Args(2)) })
+
+	if _, err = runArgs(app, "loose", "a", "b"); err != nil {
+		t.Fatalf("two allowed: %v", err)
+	}
+
+	if _, err = runArgs(app, "loose", "a", "b", "c"); err == nil {
+		t.Fatal("a third positional must fail")
+	}
+}
+
+func TestCmdListSplitsACommaList(t *testing.T) {
+	t.Parallel()
+
+	app, _ := commandApp(t)
+	app.Command(pruneName, "", prune)
+
+	out, err := runArgs(app, pruneName, "-only", " a, b ,,c")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := "dry-run=false only=[\"a\" \"b\" \"c\"] rest=[]\n"; out != want {
+		t.Errorf("output = %q, want %q", out, want)
 	}
 }
 
@@ -147,7 +193,7 @@ func TestAppCommandErrorFlowsBack(t *testing.T) {
 	t.Parallel()
 
 	app, _ := commandApp(t)
-	app.Command("fail", "", func(context.Context, *gocore.App, []string, io.Writer) error { return errBoom })
+	app.Command("fail", "", func(context.Context, *gocore.Cmd) error { return errBoom })
 
 	_, err := runArgs(app, "fail")
 	if !errors.Is(err, errBoom) {
@@ -268,7 +314,7 @@ func TestAppProblemStopsAnAppCommand(t *testing.T) {
 	app, reg := commandApp(t)
 	ran := false
 
-	app.Command("noop", "", func(context.Context, *gocore.App, []string, io.Writer) error {
+	app.Command("noop", "", func(context.Context, *gocore.Cmd) error {
 		ran = true
 
 		return nil

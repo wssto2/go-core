@@ -2,9 +2,7 @@ package gocore_test
 
 import (
 	"context"
-	"flag"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -317,19 +315,16 @@ func ExampleApp_Consumers() {
 	// Output: [audit.ticket-assigned notifications.ticket-assigned]
 }
 
-// dryRunPrune is a command: it parses its own arguments with the standard flag package.
-func dryRunPrune(_ context.Context, _ *gocore.App, args []string, out io.Writer) error {
-	flags := flag.NewFlagSet("db:prune", flag.ContinueOnError)
-	flags.SetOutput(out)
+// dryRunPrune is a command: it declares its flags on cmd and parses them.
+func dryRunPrune(_ context.Context, cmd *gocore.Cmd) error {
+	dryRun := cmd.Bool("dry-run", false, "count the rows without deleting them")
 
-	dryRun := flags.Bool("dry-run", false, "count the rows without deleting them")
-
-	err := flags.Parse(args)
+	err := cmd.Parse() // -h prints the flags and ends the command with success; a stray argument is an error
 	if err != nil {
-		return fmt.Errorf("prune: %w", err) // flag.ErrHelp, from -h, still ends the command with success
+		return fmt.Errorf("prune: %w", err)
 	}
 
-	_, err = fmt.Fprintf(out, "dry run: %t\n", *dryRun)
+	_, err = fmt.Fprintf(cmd.Out, "dry run: %t\n", *dryRun)
 	if err != nil {
 		return fmt.Errorf("prune: %w", err)
 	}
@@ -338,8 +333,8 @@ func dryRunPrune(_ context.Context, _ *gocore.App, args []string, out io.Writer)
 }
 
 // Command adds the application's own commands to its command line. They run
-// like migrate (the databases open, nothing is served), take their arguments
-// unparsed, and print their flags for -h. Run reads the command line;
+// like migrate (the databases open, nothing is served), declare their flags on the *gocore.Cmd they are given,
+// and print them for -h. Run reads the command line;
 // RunCommand takes the arguments, for tests.
 func ExampleApp_Command() {
 	for _, args := range [][]string{{"db:prune", "-dry-run"}, {"db:prune", "-h"}} {
@@ -363,7 +358,11 @@ func ExampleApp_Command() {
 	// $ myapp db:prune -dry-run
 	// dry run: true
 	// $ myapp db:prune -h
-	// Usage of db:prune:
+	// Usage: db:prune [flags]
+	//
+	// delete rows past their retention window
+	//
+	// Flags:
 	//   -dry-run
 	//     	count the rows without deleting them
 }
