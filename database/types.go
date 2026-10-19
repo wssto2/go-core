@@ -49,7 +49,7 @@ type ConnectionConfig struct {
 	// Pool settings — zero values use the defaults below.
 	MaxIdleConns    int // default: 5
 	MaxOpenConns    int // default: 75
-	ConnMaxLifetime int // minutes, default: 5
+	ConnMaxLifetime time.Duration // default: 5 minutes
 
 	// Debug enables GORM query logging.
 	Debug bool
@@ -64,13 +64,9 @@ func (c ConnectionConfig) withDefaults() ConnectionConfig {
 		c.MaxOpenConns = 75
 	}
 	if c.ConnMaxLifetime == 0 {
-		c.ConnMaxLifetime = 5
+		c.ConnMaxLifetime = 5 * time.Minute
 	}
 	return c
-}
-
-func (c ConnectionConfig) connMaxLifetimeDuration() time.Duration {
-	return time.Duration(c.ConnMaxLifetime) * time.Minute
 }
 
 // RegistryConfig holds the options used when creating a Registry.

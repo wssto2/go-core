@@ -18,13 +18,13 @@ func (f *fakePool) SetMaxOpenConns(n int)              { f.open = n }
 func (f *fakePool) SetConnMaxLifetime(d time.Duration) { f.lt = d }
 
 func TestApplyPoolSettings_AppliesValues(t *testing.T) {
-	cfg := ConnectionConfig{MaxIdleConns: 3, MaxOpenConns: 7, ConnMaxLifetime: 2}
+	cfg := ConnectionConfig{MaxIdleConns: 3, MaxOpenConns: 7, ConnMaxLifetime: 2 * time.Minute}
 	p := &fakePool{}
 	ApplyPoolSettings(p, cfg)
 
 	require.Equal(t, 3, p.idle)
 	require.Equal(t, 7, p.open)
-	require.Equal(t, cfg.connMaxLifetimeDuration(), p.lt)
+	require.Equal(t, cfg.ConnMaxLifetime, p.lt)
 }
 
 func TestApplyPoolSettings_WithDefaults(t *testing.T) {
@@ -34,7 +34,7 @@ func TestApplyPoolSettings_WithDefaults(t *testing.T) {
 
 	require.Equal(t, 5, p.idle)
 	require.Equal(t, 75, p.open)
-	require.Equal(t, cfg.connMaxLifetimeDuration(), p.lt)
+	require.Equal(t, cfg.ConnMaxLifetime, p.lt)
 }
 
 func TestApplyPoolSettings_NilSafe(t *testing.T) {

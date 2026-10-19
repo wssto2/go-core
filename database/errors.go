@@ -64,7 +64,7 @@ func validateConfig(cfg ConnectionConfig) error {
 			return ErrInvalidConfig{Name: cfg.Name, Reason: "database is required"}
 		}
 	default:
-		return ErrInvalidConfig{Name: cfg.Name, Reason: fmt.Sprintf("unsupported driver %q", driver)}
+		return ErrInvalidConfig{Name: cfg.Name, Reason: fmt.Sprintf("unsupported driver %q (supported: %s, %s)", driver, DriverMySQL, DriverSQLite)}
 	}
 	return nil
 }

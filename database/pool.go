@@ -19,5 +19,5 @@ func ApplyPoolSettings(s poolSetter, cfg ConnectionConfig) {
 	}
 	s.SetMaxIdleConns(cfg.MaxIdleConns)
 	s.SetMaxOpenConns(cfg.MaxOpenConns)
-	s.SetConnMaxLifetime(cfg.connMaxLifetimeDuration())
+	s.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 }

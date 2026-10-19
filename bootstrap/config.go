@@ -163,9 +163,9 @@ type DatabaseConnectionConfig struct {
 	// Default: 75
 	MaxOpenConns int
 
-	// Maximum amount of time a connection may be reused in minutes.
+	// Maximum amount of time a connection may be reused.
 	// Default: 5 minutes
-	ConnMaxLifetime int
+	ConnMaxLifetime time.Duration
 
 	// Debug enables GORM query logging.
 	Debug bool

@@ -176,7 +176,7 @@ func loadConfig() bootstrap.Config {
 			Password:        bootstrap.EnvStr("DB_PASSWORD", "root"),
 			MaxIdleConns:    bootstrap.EnvInt("DB_MAX_IDLE_CONNS", 5),
 			MaxOpenConns:    bootstrap.EnvInt("DB_MAX_OPEN_CONNS", 75),
-			ConnMaxLifetime: bootstrap.EnvInt("DB_CONN_MAX_LIFETIME_MIN", 5),
+			ConnMaxLifetime: bootstrap.EnvDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute),
 		},
 		// Second database ("shared") -- available to any module via c.DB("shared").
 		// Uncomment and set env vars when a shared/multi-tenant DB is needed.
@@ -190,7 +190,7 @@ func loadConfig() bootstrap.Config {
 		// 	Password:        envStr("SHARED_DB_PASSWORD", "secret"),
 		// 	MaxIdleConns:    envInt("SHARED_DB_MAX_IDLE_CONNS", 5),
 		// 	MaxOpenConns:    envInt("SHARED_DB_MAX_OPEN_CONNS", 25),
-		// 	ConnMaxLifetime: envInt("SHARED_DB_CONN_MAX_LIFETIME_MIN", 5),
+		// 	ConnMaxLifetime: envDuration("SHARED_DB_CONN_MAX_LIFETIME", 5*time.Minute),
 		// },
 	}
 

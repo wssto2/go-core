@@ -17,6 +17,7 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -200,10 +201,7 @@ func (r *Registry) CloseAll() error {
 		delete(r.connections, name)
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("CloseAll errors: %v", errs)
-	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // AddConnection lets you inject a pre-built *gorm.DB directly. The first
@@ -238,7 +236,7 @@ func (r *Registry) openConnection(cfg ConnectionConfig) (*gorm.DB, error) {
 	case DriverMySQL:
 		return r.openMySQL(cfg)
 	default:
-		return nil, fmt.Errorf("unsupported driver %q", driver)
+		return nil, fmt.Errorf("unsupported driver %q (supported: %s, %s)", driver, DriverMySQL, DriverSQLite)
 	}
 }
 
