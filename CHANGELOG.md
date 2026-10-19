@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.22.0 (unreleased)
+## v1.22.0 (2026-10-19)
 
 One package to start an app. `gocore` is the whole entry point: `bootstrap` is gone, `gocore.New` reads the environment, settings are read with explicit calls that stop start-up on a bad value. **Breaking**: an application upgrading from v1.21.0 follows "Removed" and "Changed".
 
