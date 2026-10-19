@@ -139,7 +139,7 @@ Or directly:
 go run ./cmd/api/
 ```
 
-> **Note:** `go run cmd/api/main.go` will not work because `config.go` is a
+> **Note:** `go run cmd/api/main.go` will not work because `app_state.go` is a
 > separate file in the same package. Always use `go run ./cmd/api/` or `make run`.
 
 The backend starts on `:8080`.

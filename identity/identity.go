@@ -4,7 +4,7 @@
 // person's own profile (password, e-mail address confirmed by a code).
 // Install it once:
 //
-//	app := gocore.New(cfg)
+//	app := gocore.New(gocore.WithPrefix("/api"))
 //
 //	mailing := identity.Mail{Sender: sender, CodeSecret: secret}
 //	users := identity.Install(app, identity.WithMail(mailing)) // routes, tables, authentication

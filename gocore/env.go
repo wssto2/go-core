@@ -14,13 +14,13 @@ import (
 // LoadEnv reads the environment file at path (KEY=value lines, as in a
 // ".env") into the process environment, the way godotenv.Load does: a
 // variable already set, even to the empty string, keeps its value, so the
-// real environment wins over the file. Call it first in main, before the
-// configuration is read, since New takes the configuration as it is:
+// real environment wins over the file. Call it first in main, before New
+// reads the environment:
 //
 //	if err := gocore.LoadEnv(".env"); err != nil && !errors.Is(err, fs.ErrNotExist) {
 //	    log.Fatal(err)
 //	}
-//	app := gocore.New(config.FromEnv())
+//	app := gocore.New()
 //
 // A file that does not exist returns an error that is fs.ErrNotExist, so the
 // caller decides whether that matters: the example above takes the file when

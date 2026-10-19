@@ -12,7 +12,7 @@ architecture error was introduced.
 
 ```
 Layer 0 — no internal imports:
-  apperr, env (standard library only), i18n (types only), navigation, mail (standard library only),
+  apperr, env (standard library only), i18n (types only), navigation, mail (standard library and env),
   pagination (paging primitives for a framework-free domain or application)
 
 Layer 1 — imports Layer 0 only:

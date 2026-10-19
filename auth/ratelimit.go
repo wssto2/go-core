@@ -19,7 +19,7 @@ const userRateLimiterKey = "go-core.auth.user_rate_limiter"
 // (an office) shared one bucket. This middleware only hands the limiter down;
 // Authenticated enforces it right after the identity is resolved, keyed by the
 // user's ID. Routes without Authenticated are not counted — pair it with a per-IP
-// limiter (bootstrap WithIPRateLimit) for anonymous traffic.
+// limiter (gocore.WithRateLimit) for anonymous traffic.
 func DeferUserRateLimit(l ratelimit.Limiter) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		ctx.Set(userRateLimiterKey, l)
