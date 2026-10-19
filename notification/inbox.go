@@ -214,7 +214,10 @@ var errNotFound = errors.New("notification not found")
 // store keeps notifications. Every query is keyed on user_id, so one person's
 // inbox can never be read or changed through another's session. It is portable SQL:
 // MariaDB 10.3 has no SKIP LOCKED, FOR UPDATE OF or FOR SHARE, and none is needed.
-type store struct{ db *gorm.DB }
+type store struct {
+	db      *gorm.DB
+	metrics *metrics
+}
 
 // conn is the connection to use: the transaction in ctx, or the store's own.
 func (s *store) conn(ctx context.Context) *gorm.DB {
@@ -231,8 +234,13 @@ func (s *store) conn(ctx context.Context) *gorm.DB {
 // deliveries racing on one event still make a single row. The deliveries planned for
 // a person is written in the same transaction, only for a notification that was written: a
 // retried event makes no second e-mail (NOTIF-DELIVERY-001, rule 5).
-func (s *store) insertNew(ctx context.Context, rows []row, deliveries map[uint32][]deliveryRow) ([]row, error) {
-	var created []row
+func (s *store) insertNew(
+	ctx context.Context, rows []row, deliveries map[uint32][]deliveryRow,
+) ([]row, []deliveryRow, error) {
+	var (
+		created []row
+		made    []deliveryRow
+	)
 
 	err := s.conn(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, r := range rows {
@@ -250,8 +258,14 @@ func (s *store) insertNew(ctx context.Context, rows []row, deliveries map[uint32
 			for _, d := range deliveries[r.UserID] {
 				d.NotificationID = r.ID
 
-				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&d).Error; err != nil {
-					return err
+				res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&d)
+				if res.Error != nil {
+					return res.Error
+				}
+
+				if res.RowsAffected > 0 {
+					d.category = r.Category
+					made = append(made, d)
 				}
 			}
 		}
@@ -259,10 +273,10 @@ func (s *store) insertNew(ctx context.Context, rows []row, deliveries map[uint32
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("notification: save the notifications: %w", err)
+		return nil, nil, fmt.Errorf("notification: save the notifications: %w", err)
 	}
 
-	return created, nil
+	return created, made, nil
 }
 
 func (s *store) list(ctx context.Context, userID int, q ListQuery) (Page, error) {

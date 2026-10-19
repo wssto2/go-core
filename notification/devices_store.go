@@ -120,10 +120,14 @@ func (s *store) refreshDevice(ctx context.Context, cur, next deviceRow, now time
 		fields["label"] = next.Label // a label the earlier person chose is not the new person's
 	}
 
+	var cancelled map[string]int64
+
 	err := s.conn(ctx).Transaction(func(conn *gorm.DB) error {
 		if moved {
 			// Pushes queued for the earlier person must not reach the new one.
-			err := cancelPushOfDevice(conn, cur.ID, "device moved to another user", now)
+			var err error
+
+			cancelled, err = s.cancelPushOfDevice(conn, cur.ID, "device moved to another user", now)
 			if err != nil {
 				return err
 			}
@@ -135,6 +139,8 @@ func (s *store) refreshDevice(ctx context.Context, cur, next deviceRow, now time
 	if err != nil {
 		return deviceRow{}, fmt.Errorf("notification: refresh the device: %w", err)
 	}
+
+	s.metrics.cancelAll(cancelled, pushChannel)
 
 	out, _, err := s.deviceByID(ctx, cur.ID)
 
@@ -157,8 +163,12 @@ func (s *store) renameDevice(ctx context.Context, userID int, id uint64, label s
 
 // removeDevice deletes the person's device and cancels the pushes queued for it, in one transaction.
 func (s *store) removeDevice(ctx context.Context, userID int, deviceID uint64, reason string, now time.Time) error {
+	var cancelled map[string]int64
+
 	err := s.conn(ctx).Transaction(func(conn *gorm.DB) error {
-		err := cancelPushOfDevice(conn, deviceID, reason, now)
+		var err error
+
+		cancelled, err = s.cancelPushOfDevice(conn, deviceID, reason, now)
 		if err != nil {
 			return err
 		}
@@ -170,14 +180,20 @@ func (s *store) removeDevice(ctx context.Context, userID int, deviceID uint64, r
 		return fmt.Errorf("notification: remove the device: %w", err)
 	}
 
+	s.metrics.cancelAll(cancelled, pushChannel)
+
 	return nil
 }
 
 // dropGoneDevice deletes the device whose subscription the push service says is gone, by its endpoint: the device may
 // have moved to another person while the push was in flight, and its subscription is still the dead one.
 func (s *store) dropGoneDevice(ctx context.Context, id uint64, hash string, now time.Time) error {
+	var cancelled map[string]int64
+
 	err := s.conn(ctx).Transaction(func(conn *gorm.DB) error {
-		err := cancelPushOfDevice(conn, id, "subscription gone", now)
+		var err error
+
+		cancelled, err = s.cancelPushOfDevice(conn, id, "subscription gone", now)
 		if err != nil {
 			return err
 		}
@@ -189,22 +205,54 @@ func (s *store) dropGoneDevice(ctx context.Context, id uint64, hash string, now 
 		return fmt.Errorf("notification: remove the gone device: %w", err)
 	}
 
+	s.metrics.cancelAll(cancelled, pushChannel)
+
 	return nil
 }
 
-// cancelPushOfDevice ends the pushes a device is still owed.
-func cancelPushOfDevice(tx *gorm.DB, deviceID uint64, reason string, now time.Time) error {
-	return tx.Model(&deliveryRow{}). //nolint:exhaustruct,exhaustruct_v5 // zero by design
-						Where("device_id = ? AND channel = ? AND status IN ?", deviceID, pushChannel, dueStatuses).
+// cancelPushOfDevice ends the pushes a device is still owed, and returns how many per category it ended, for the metrics
+// (nil when they are not kept). The caller counts them once its transaction has committed.
+func (s *store) cancelPushOfDevice(tx *gorm.DB, deviceID uint64, reason string, now time.Time) (map[string]int64, error) {
+	owed := func(q *gorm.DB) *gorm.DB {
+		return q.Where("device_id = ? AND channel = ? AND status IN ?", deviceID, pushChannel, dueStatuses)
+	}
+
+	var counts map[string]int64
+
+	if s.metrics.enabled() {
+		var rows []struct {
+			Category string
+			N        int64
+		}
+
+		err := owed(tx.Table("notification_deliveries AS d").
+			Select("COALESCE(n.category, ?) AS category, COUNT(*) AS n", unknownCategory).
+			Joins("LEFT JOIN notifications n ON n.id = d.notification_id")).
+			Group("category").Scan(&rows).Error
+		if err != nil {
+			return nil, err
+		}
+
+		counts = map[string]int64{}
+		for _, r := range rows {
+			counts[r.Category] = r.N
+		}
+	}
+
+	err := owed(tx.Model(&deliveryRow{})). //nolint:exhaustruct,exhaustruct_v5 // zero by design
 						Updates(map[string]any{"status": statusCancelled, "last_error": reason, colUpdatedAt: now}).Error
+
+	return counts, err
 }
 
 // cancelPushOf is cancelPushOfDevice for a caller outside a transaction.
 func (s *store) cancelPushOf(ctx context.Context, deviceID uint64, reason string, now time.Time) error {
-	err := cancelPushOfDevice(s.conn(ctx), deviceID, reason, now)
+	counts, err := s.cancelPushOfDevice(s.conn(ctx), deviceID, reason, now)
 	if err != nil {
 		return fmt.Errorf("notification: cancel the pushes of the device: %w", err)
 	}
+
+	s.metrics.cancelAll(counts, pushChannel)
 
 	return nil
 }

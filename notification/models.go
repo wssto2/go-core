@@ -22,6 +22,10 @@ type deliveryRow struct {
 	LastError      *string    `gorm:"column:last_error;size:500"`
 	CreatedAt      time.Time  `gorm:"column:created_at;type:datetime;not null"`
 	UpdatedAt      time.Time  `gorm:"column:updated_at;type:datetime;not null;index:notification_deliveries_finished,priority:2"`
+
+	// Not stored: the notification's category and, for a failed delivery, why, for the metrics.
+	category   string
+	failReason string
 }
 
 func (deliveryRow) TableName() string { return "notification_deliveries" }

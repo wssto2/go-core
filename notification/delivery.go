@@ -84,20 +84,20 @@ func (d *deliveryRow) record(sendErr error, now time.Time) {
 	}
 
 	failed := func(reason string) {
-		d.Status = statusFailed
-		msg := truncate(reason+sendErr.Error(), lastErrorMax)
+		d.Status, d.failReason = statusFailed, reason
+		msg := truncate(reason+": "+sendErr.Error(), lastErrorMax)
 		d.LastError = &msg
 	}
 
 	if errors.Is(sendErr, mail.ErrPermanent) {
-		failed("permanent: ")
+		failed(reasonPermanent)
 
 		return
 	}
 
 	next := now.Add(backoff(int(d.Attempts)))
 	if !next.Before(d.ExpiresAt) {
-		failed("expired: ")
+		failed(reasonExpired)
 
 		return
 	}
@@ -339,6 +339,8 @@ func (n *Notices) deliver(ctx context.Context, d deliveryRow) error {
 		return err
 	}
 
+	d.category = note.Category
+
 	switch {
 	case !found:
 		return n.finish(ctx, &d, func(d *deliveryRow) { d.cancel("notification deleted", n.clock.Now()) })
@@ -383,7 +385,31 @@ func (n *Notices) finish(ctx context.Context, d *deliveryRow, outcome func(*deli
 			"channel", d.Channel, "delivery", d.ID, "status", d.Status, "attempts", d.Attempts)
 	}
 
-	return n.store.saveDelivery(ctx, *d)
+	applied, err := n.store.saveDelivery(ctx, *d)
+	if err != nil || !applied {
+		return err
+	}
+
+	n.noteEnd(ctx, *d)
+
+	return nil
+}
+
+// noteEnd counts the end of a delivery in the metrics, once its result is saved.
+func (n *Notices) noteEnd(ctx context.Context, d deliveryRow) {
+	if !n.metrics.enabled() {
+		return
+	}
+
+	if d.category == "" {
+		d.category = unknownCategory
+
+		if note, found, err := n.store.byID(ctx, d.NotificationID); err == nil && found {
+			d.category = note.Category
+		}
+	}
+
+	n.metrics.finished(d, d.category)
 }
 
 func deref(s *string) string {

@@ -182,6 +182,7 @@ type Notices struct {
 	appURL    string
 	db        *gorm.DB
 	store     *store
+	metrics   *metrics
 	clock     gocore.Clock
 	log       *slog.Logger
 	heartbeat time.Duration
@@ -217,13 +218,14 @@ func Install(app *gocore.App, users People, opts ...Option) *Notices {
 	}
 
 	db := app.Database()
-	st := &store{db: db}
+	m := newMetrics(app.Telemetry())
+	st := &store{db: db, metrics: m}
 
 	app.Schema(gocore.Schema{Files: migrations.Files, Models: Migrate})
 
 	n := &Notices{
 		people: users, kinds: append(slices.Clone(cfg.kinds), systemTest), location: cfg.location, appURL: cfg.appURL,
-		db: db, store: st, clock: app.Clock(), log: app.Logger(), heartbeat: heartbeatInterval,
+		db: db, store: st, metrics: m, clock: app.Clock(), log: app.Logger(), heartbeat: heartbeatInterval,
 	}
 	n.mail = mailOf(users)
 
@@ -343,11 +345,12 @@ func (n *Notices) send(
 		return err
 	}
 
-	created, err := n.store.insertNew(ctx, rows, plans)
+	created, made, err := n.store.insertNew(ctx, rows, plans)
 	if err != nil {
 		return err
 	}
 
+	n.noteCreated(created, made)
 	n.announce(ctx, created)
 
 	return nil

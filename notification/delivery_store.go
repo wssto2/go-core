@@ -62,17 +62,17 @@ func (s *store) claimDue(ctx context.Context, channel string, now, leaseUntil ti
 }
 
 // saveDelivery writes the result of an attempt. It is conditional on the row still being pending or held, the state the
-// worker claimed it in, so a delivery that was ended meanwhile keeps its state and the result is dropped.
-func (s *store) saveDelivery(ctx context.Context, d deliveryRow) error {
-	err := s.conn(ctx).Model(&deliveryRow{}).Where("id = ? AND status IN ?", d.ID, dueStatuses).Updates(map[string]any{
+// worker claimed it in, so a delivery that was ended meanwhile keeps its state and the result is dropped (false).
+func (s *store) saveDelivery(ctx context.Context, d deliveryRow) (bool, error) {
+	res := s.conn(ctx).Model(&deliveryRow{}).Where("id = ? AND status IN ?", d.ID, dueStatuses).Updates(map[string]any{
 		"status": d.Status, "attempts": d.Attempts, "next_attempt_at": d.NextAttemptAt, "expires_at": d.ExpiresAt,
 		"sent_at": d.SentAt, "last_status": d.LastStatus, "last_error": d.LastError, "updated_at": d.UpdatedAt,
-	}).Error
-	if err != nil {
-		return fmt.Errorf("notification: save the delivery: %w", err)
+	})
+	if res.Error != nil {
+		return false, fmt.Errorf("notification: save the delivery: %w", res.Error)
 	}
 
-	return nil
+	return res.RowsAffected > 0, nil
 }
 
 // byID reads one notification, and false when it does not exist (any more).

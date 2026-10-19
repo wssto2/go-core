@@ -14,9 +14,12 @@ import (
 // application. It owns all metric registrations.
 type Telemetry struct {
 	Registry *prometheus.Registry
-	HTTP     *metrics.Metrics
-	Service  *ServiceObserver
-	Worker   *worker.ManagerMetrics
+	// Registerer registers a feature's own collectors on Registry with the constant app label, like the built-in
+	// ones. A Telemetry built without New may leave it nil: use Registry then.
+	Registerer prometheus.Registerer
+	HTTP       *metrics.Metrics
+	Service    *ServiceObserver
+	Worker     *worker.ManagerMetrics
 }
 
 // New initialises Telemetry for the application.
@@ -46,9 +49,10 @@ func New(log *slog.Logger, appName string) *Telemetry {
 	)
 
 	return &Telemetry{
-		Registry: reg,
-		HTTP:     metrics.NewMetrics(reg, labeled),
-		Service:  NewServiceMiddleware(log, labeled),
-		Worker:   worker.NewManagerMetrics(labeled),
+		Registry:   reg,
+		Registerer: labeled,
+		HTTP:       metrics.NewMetrics(reg, labeled),
+		Service:    NewServiceMiddleware(log, labeled),
+		Worker:     worker.NewManagerMetrics(labeled),
 	}
 }

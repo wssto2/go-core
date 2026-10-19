@@ -117,14 +117,16 @@ func (d *deliveryRow) recordPush(status int, retryAfter time.Duration, errText s
 		next := now.Add(max(retryAfter, backoff(int(d.Attempts))))
 		if !next.Before(d.ExpiresAt) {
 			expired := truncate("expired: "+text, lastErrorMax)
-			d.Status, d.LastError = statusFailed, &expired
+			d.Status, d.LastError, d.failReason = statusFailed, &expired, reasonExpired
 
 			break
 		}
 
 		d.Status, d.NextAttemptAt = statusPending, whole(next)
-	case pushGone, pushRejected:
-		d.Status = statusFailed
+	case pushGone:
+		d.Status, d.failReason = statusFailed, reasonGone
+	case pushRejected:
+		d.Status, d.failReason = statusFailed, reasonRejected
 	}
 
 	return outcome
@@ -248,6 +250,7 @@ func (n *Notices) triage(ctx context.Context, dev deviceRow, due deliveryRow) (p
 	}
 
 	reason := ""
+	due.category = note.Category
 
 	switch {
 	case !found:
@@ -320,12 +323,17 @@ func (n *Notices) sendPush(ctx context.Context, dev deviceRow, entries []pending
 
 	for _, e := range entries {
 		d := e.delivery
+		d.category = e.note.Category
 		outcome = d.recordPush(result.Status, result.RetryAfter, result.Detail, now)
 
 		// Not written when the delivery was cancelled while the push was in flight: the cancellation stands.
-		err := n.store.saveDelivery(ctx, d)
+		applied, err := n.store.saveDelivery(ctx, d)
 		if err != nil {
 			return err
+		}
+
+		if applied {
+			n.noteEnd(ctx, d)
 		}
 	}
 
