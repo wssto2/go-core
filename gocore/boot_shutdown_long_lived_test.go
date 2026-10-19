@@ -1,3 +1,4 @@
+//nolint:testpackage // tests the unexported lifecycle and builder gocore is built on
 package gocore
 
 import (
@@ -19,7 +20,8 @@ func startRealServer(t *testing.T, cfg Config, routes func(e *gin.Engine)) (*lif
 	t.Helper()
 	cfg.I18n.Dir = tempI18nDir(t)
 	cfg.HTTP.Port = freePort(t)
-	app, err := newBuilder(cfg).DefaultInfrastructure().WithHttp().Build()
+
+	app, err := newBuilder(cfg).DefaultInfrastructure().WithHTTP().Build()
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -155,6 +157,7 @@ func TestShutdown_ModulesGetTheConfiguredTimeout(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.I18n.Dir = tempI18nDir(t)
 	cfg.HTTP.ShutdownTimeout = 10 * time.Second
+
 	app, err := newBuilder(cfg).DefaultInfrastructure().Build()
 	if err != nil {
 		t.Fatalf("Build: %v", err)

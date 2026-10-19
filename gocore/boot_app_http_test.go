@@ -1,3 +1,4 @@
+//nolint:testpackage // tests the unexported lifecycle and builder gocore is built on
 package gocore
 
 import (
@@ -158,7 +159,7 @@ func TestApp_Run_HTTPFailureAfterStartupWindow_ReturnsError(t *testing.T) {
 func TestWithHTTP_DefaultConfig_HasReadHeaderTimeout(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.I18n.Dir = tempI18nDir(t)
-	builder := newBuilder(cfg).DefaultInfrastructure().WithHttp()
+	builder := newBuilder(cfg).DefaultInfrastructure().WithHTTP()
 	app, err := builder.Build()
 	if err != nil {
 		t.Fatalf("Build: %v", err)

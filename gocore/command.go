@@ -148,27 +148,13 @@ type Cmd struct {
 }
 
 func newCmd(app *App, c *appCommand, args []string, out io.Writer) *Cmd {
-	cmd := &Cmd{FlagSet: flag.NewFlagSet(c.name, flag.ContinueOnError), App: app, Out: out, short: c.short, args: args}
+	cmd := new(Cmd)
+	cmd.FlagSet = flag.NewFlagSet(c.name, flag.ContinueOnError)
+	cmd.App, cmd.Out, cmd.short, cmd.args = app, out, c.short, args
 	cmd.SetOutput(out)
 	cmd.Usage = cmd.usage
 
 	return cmd
-}
-
-func (c *Cmd) usage() {
-	line := "Usage: " + c.Name() + " [flags]"
-	if c.positionals > 0 {
-		line += " [arguments]"
-	}
-
-	text := line + "\n"
-	if c.short != "" {
-		text += "\n" + c.short + "\n"
-	}
-
-	_, _ = fmt.Fprint(c.Output(), text+"\nFlags:\n")
-
-	c.PrintDefaults()
 }
 
 // ParseOption adjusts Cmd.Parse.
@@ -192,11 +178,8 @@ func (c *Cmd) Parse(opts ...ParseOption) error {
 	}
 
 	if c.NArg() > c.positionals {
-		if c.positionals == 0 {
-			return fmt.Errorf("%s: unexpected argument %q (it takes no arguments, only flags; -h lists them)", c.Name(), c.Arg(0))
-		}
-
-		return fmt.Errorf("%s: unexpected argument %q (it takes at most %d; -h lists the flags)", c.Name(), c.Arg(c.positionals), c.positionals)
+		return fmt.Errorf("%w: %s got %q, and takes %s; -h lists the flags",
+			errStrayArgument, c.Name(), c.Arg(c.positionals), c.takes())
 	}
 
 	return nil
@@ -209,6 +192,33 @@ func (c *Cmd) List(name, usage string) *[]string {
 	c.Var(listFlag{items}, name, usage)
 
 	return items
+}
+
+func (c *Cmd) takes() string {
+	switch c.positionals {
+	case 0:
+		return "no arguments, only flags"
+	case 1:
+		return "one argument"
+	default:
+		return fmt.Sprintf("at most %d arguments", c.positionals)
+	}
+}
+
+func (c *Cmd) usage() {
+	line := "Usage: " + c.Name() + " [flags]"
+	if c.positionals > 0 {
+		line += " [arguments]"
+	}
+
+	text := line + "\n"
+	if c.short != "" {
+		text += "\n" + c.short + "\n"
+	}
+
+	_, _ = fmt.Fprint(c.Output(), text+"\nFlags:\n")
+
+	c.PrintDefaults()
 }
 
 type listFlag struct{ items *[]string }
@@ -383,6 +393,7 @@ func (a *App) migrationStatus(ctx context.Context, out io.Writer) error {
 
 var (
 	errUnknownCommand = errors.New("unknown command")
+	errStrayArgument  = errors.New("unexpected argument")
 	errMarkUsage      = errors.New("gocore: mark-applied takes a connection and at least one version or file")
 )
 

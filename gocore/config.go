@@ -105,8 +105,12 @@ func (c HTTPConfig) BodyLimit() int64 {
 	return max(c.MaxBodyBytes, 0)
 }
 
-// Defaults applied when ShutdownTimeout / ShutdownGracePeriod are not set.
+// The timeouts DefaultConfig sets (and the environment overrides), and the defaults applied when ShutdownTimeout /
+// ShutdownGracePeriod are zero.
 const (
+	defaultReadTimeout         = 15 * time.Second
+	defaultWriteTimeout        = 15 * time.Second
+	defaultIdleTimeout         = 60 * time.Second
 	defaultShutdownTimeout     = 10 * time.Second
 	defaultShutdownGracePeriod = 3 * time.Second
 )
@@ -290,10 +294,10 @@ func DefaultConfig() Config {
 		},
 		HTTP: HTTPConfig{
 			Port:              8080, //nolint:mnd
-			ReadTimeout:       15 * time.Second,
-			WriteTimeout:      15 * time.Second,
-			IdleTimeout:       60 * time.Second,
-			ShutdownTimeout:   10 * time.Second,
+			ReadTimeout:       defaultReadTimeout,
+			WriteTimeout:      defaultWriteTimeout,
+			IdleTimeout:       defaultIdleTimeout,
+			ShutdownTimeout:   defaultShutdownTimeout,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
 		Database: DatabaseConfig{

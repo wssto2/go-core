@@ -1,4 +1,4 @@
-//nolint:testpackage,paralleltest,gochecknoglobals,goconst,lll,varnamelen // uses the package's runnable and serving helpers
+//nolint:testpackage // uses the package's runnable and serving helpers
 package gocore
 
 import (
@@ -26,14 +26,19 @@ func (w probeWorker) Run(ctx context.Context) error {
 }
 
 func TestACommandAndAWorkerActForNoTenantAndARequestDoesNot(t *testing.T) {
+	t.Parallel()
+
 	app, port := runnable(t)
 
 	seen := make(chan bool, 1)
+
 	app.Background(probeWorker{seen})
 
 	request := make(chan bool, 1)
+
 	app.Routes(route.Raw(http.MethodGet, "/tenants").Name("tenants").Public().To(func(ctx *gin.Context) {
 		request <- tenancy.AllTenantsFromContext(ctx.Request.Context())
+
 		ctx.Status(http.StatusNoContent)
 	}))
 
@@ -61,13 +66,15 @@ func TestACommandAndAWorkerActForNoTenantAndARequestDoesNot(t *testing.T) {
 }
 
 func TestACommandGetsAnAllTenantsContextThatOneTenantNarrows(t *testing.T) {
+	t.Parallel()
+
 	app, _ := runnable(t)
 
 	var marked, narrowed bool
 
 	var tenant int
 
-	app.Command("probe", "", func(ctx context.Context, cmd *Cmd) error {
+	app.Command("probe", "", func(ctx context.Context, _ *Cmd) error {
 		marked = tenancy.AllTenantsFromContext(ctx)
 		tenant, narrowed = tenancy.TenantIDFromContext(tenancy.WithTenantID(ctx, 7))
 
@@ -75,7 +82,9 @@ func TestACommandGetsAnAllTenantsContextThatOneTenantNarrows(t *testing.T) {
 	})
 
 	var out strings.Builder
-	if err := app.RunCommand(t.Context(), []string{"probe"}, &out); err != nil {
+
+	err := app.RunCommand(t.Context(), []string{"probe"}, &out)
+	if err != nil {
 		t.Fatal(err)
 	}
 

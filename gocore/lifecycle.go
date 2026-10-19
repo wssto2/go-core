@@ -45,14 +45,10 @@ type lifecycle struct {
 func newLifecycle(
 	cfg Config, log *slog.Logger, hr *health.HealthRegistry, engine *gin.Engine, httpSrv httpServer, modules []component,
 ) *lifecycle {
-	return &lifecycle{
-		cfg:        cfg,
-		log:        log,
-		health:     hr,
-		engine:     engine,
-		httpServer: httpSrv,
-		modules:    modules,
-	}
+	lc := new(lifecycle)
+	lc.cfg, lc.log, lc.health, lc.engine, lc.httpServer, lc.modules = cfg, log, hr, engine, httpSrv, modules
+
+	return lc
 }
 
 // Run starts the application and its modules, then waits for a termination signal.
@@ -70,94 +66,40 @@ func (a *lifecycle) RunContext(ctx context.Context) error {
 	log := a.log
 
 	// 1. Register Phase
-	if err := a.registerModules(); err != nil {
+	err := a.registerModules()
+	if err != nil {
 		return err
 	}
 
 	// 2. Boot Phase
-	if err := a.bootModules(ctx); err != nil {
+	err = a.bootModules(ctx)
+	if err != nil {
 		a.shutdown(log, a.booted) //nolint:contextcheck // shutdown runs on a fresh timeout context: the run context is already done
+
 		return err
 	}
 
-	var httpErrCh <-chan error
-	// Start HTTP server if configured
-	if a.httpServer != nil {
-		errCh := make(chan error, 1)
-		go func() {
-			err := a.httpServer.Start()
-			switch {
-			case err == nil:
-				errCh <- errors.New("http server exited unexpectedly")
-			case !errors.Is(err, http.ErrServerClosed):
-				errCh <- err
-			}
-		}()
-		httpErrCh = errCh
-		// Give the server a short window to detect immediate failures (e.g. port in use).
-		select {
-		case err := <-httpErrCh:
-			a.Shutdown(log) //nolint:contextcheck // shutdown runs on a fresh timeout context: the run context is already done
-			return fmt.Errorf("http server failed to start: %w", err)
-		case <-time.After(100 * time.Millisecond):
-		}
+	httpErrCh, err := a.startHTTP()
+	if err != nil {
+		a.Shutdown(log) //nolint:contextcheck // shutdown runs on a fresh timeout context: the run context is already done
+
+		return err
 	}
 
 	log.Info("application_running")
-	if httpErrCh != nil {
-		select {
-		case <-ctx.Done():
-		case err := <-httpErrCh:
-			a.Shutdown(log) //nolint:contextcheck // shutdown runs on a fresh timeout context: the run context is already done
-			return fmt.Errorf("http server stopped unexpectedly: %w", err)
-		}
-	} else {
-		<-ctx.Done()
+
+	select {
+	case <-ctx.Done():
+	case err = <-httpErrCh:
+		a.Shutdown(log) //nolint:contextcheck // shutdown runs on a fresh timeout context: the run context is already done
+
+		return fmt.Errorf("http server stopped unexpectedly: %w", err)
 	}
 
 	// 3. Shutdown Phase
 	a.Shutdown(log)
+
 	return nil
-}
-
-// registerModules calls Register on every component in declaration order.
-// Register mounts routes on the shared engine, so keeping it sequential avoids
-// racy startup behavior.
-func (a *lifecycle) registerModules() error {
-	for _, m := range a.modules {
-		err := m.Register(a.engine)
-		if err != nil {
-			return fmt.Errorf("module %q register failed: %w", m.Name(), err)
-		}
-	}
-	return nil
-}
-
-// bootModules boots all modules concurrently. Boot receives a context that
-// lives until shutdown, so a module may start workers on it. If any Boot
-// returns an error, that context is canceled (siblings still booting see it)
-// and bootModules returns the first error.
-func (a *lifecycle) bootModules(ctx context.Context) error {
-	// Not derived from the run context's cancellation: a signal must stop the
-	// HTTP server first, and only then end what Boot started.
-	bootCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	a.cancelBoot = cancel
-
-	var g errgroup.Group
-
-	a.booted = make([]bool, len(a.modules))
-	for i, m := range a.modules {
-		g.Go(func() error {
-			if err := m.Boot(bootCtx); err != nil {
-				cancel()
-				return fmt.Errorf("module %q boot failed: %w", m.Name(), err)
-			}
-			a.booted[i] = true
-			return nil
-		})
-	}
-
-	return g.Wait()
 }
 
 // Shutdown gracefully shuts down the HTTP server and all modules.
@@ -205,5 +147,89 @@ func (a *lifecycle) shutdown(log *slog.Logger, only []bool) {
 		if err := m.Shutdown(shutdownCtx); err != nil {
 			log.Error("shutdown_failed", "module", m.Name(), "error", err)
 		}
+	}
+}
+
+// registerModules calls Register on every component in declaration order.
+// Register mounts routes on the shared engine, so keeping it sequential avoids
+// racy startup behavior.
+func (a *lifecycle) registerModules() error {
+	for _, m := range a.modules {
+		err := m.Register(a.engine)
+		if err != nil {
+			return fmt.Errorf("module %q register failed: %w", m.Name(), err)
+		}
+	}
+
+	return nil
+}
+
+// bootModules boots all modules concurrently. Boot receives a context that
+// lives until shutdown, so a module may start workers on it. If any Boot
+// returns an error, that context is canceled (siblings still booting see it)
+// and bootModules returns the first error.
+func (a *lifecycle) bootModules(ctx context.Context) error {
+	// Not derived from the run context's cancellation: a signal must stop the
+	// HTTP server first, and only then end what Boot started.
+	bootCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	a.cancelBoot = cancel
+
+	var group errgroup.Group
+
+	a.booted = make([]bool, len(a.modules))
+
+	for idx, mod := range a.modules {
+		group.Go(func() error {
+			err := mod.Boot(bootCtx)
+			if err != nil {
+				cancel()
+
+				return fmt.Errorf("module %q boot failed: %w", mod.Name(), err)
+			}
+
+			a.booted[idx] = true
+
+			return nil
+		})
+	}
+
+	err := group.Wait()
+	if err != nil {
+		return fmt.Errorf("booting: %w", err)
+	}
+
+	return nil
+}
+
+var errServerExited = errors.New("http server exited unexpectedly")
+
+// startupWindow is how long the HTTP server has to fail at once (a port in use) for the start to fail.
+const startupWindow = 100 * time.Millisecond
+
+// startHTTP starts the HTTP server, when there is one, and gives it a short window to fail at once. The channel
+// carries a later failure; without a server it never delivers.
+func (a *lifecycle) startHTTP() (<-chan error, error) {
+	errCh := make(chan error, 1)
+
+	if a.httpServer == nil {
+		return errCh, nil
+	}
+
+	go func() {
+		err := a.httpServer.Start()
+
+		switch {
+		case err == nil:
+			errCh <- errServerExited
+		case !errors.Is(err, http.ErrServerClosed):
+			errCh <- err
+		}
+	}()
+
+	select {
+	case err := <-errCh:
+		return nil, fmt.Errorf("http server failed to start: %w", err)
+	case <-time.After(startupWindow):
+		return errCh, nil
 	}
 }

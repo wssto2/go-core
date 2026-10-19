@@ -1,7 +1,8 @@
-//nolint:testpackage,paralleltest,gochecknoglobals,goconst,lll,varnamelen // t.Setenv tests; they use the package's helpers
+//nolint:testpackage,paralleltest,goconst // t.Setenv tests (not parallel); they use the package's helpers
 package gocore
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,7 +24,8 @@ func TestNewReadsTheEnvironment(t *testing.T) {
 
 	cfg := New(WithLogger(quietLogger())).Config()
 
-	if cfg.App.Env != "staging" || cfg.HTTP.Port != 9191 || cfg.HTTP.ReadTimeout != 7*time.Second || cfg.HTTP.MaxBodyBytes != 2048 {
+	if cfg.App.Env != "staging" || cfg.HTTP.Port != 9191 || cfg.HTTP.ReadTimeout != 7*time.Second ||
+		cfg.HTTP.MaxBodyBytes != 2048 {
 		t.Fatalf("config = %+v", cfg)
 	}
 
@@ -62,7 +64,9 @@ func TestWithConfigDoesNotReadTheEnvironment(t *testing.T) {
 	cfg.HTTP.Port = 1234
 
 	app := New(WithConfig(cfg), WithLogger(quietLogger()))
-	if err := app.Check(); err != nil || app.Config().HTTP.Port != 1234 {
+
+	err := app.Check()
+	if err != nil || app.Config().HTTP.Port != 1234 {
 		t.Fatalf("port %d, err %v", app.Config().HTTP.Port, err)
 	}
 }
@@ -77,7 +81,8 @@ func TestWithDatabaseReadsItsOwnPrefixAndTheFirstIsThePrimary(t *testing.T) {
 	t.Setenv("OTHER_DB_DRIVER", "sqlite")
 	t.Setenv("OTHER_DB_DATABASE", ":memory:")
 
-	app := New(WithLogger(quietLogger()), WithDatabase("local"), WithDatabase("shared"), WithDatabase("other", DefaultMaxOpenConns(25)))
+	app := New(WithLogger(quietLogger()),
+		WithDatabase("local"), WithDatabase("shared"), WithDatabase("other", DefaultMaxOpenConns(25)))
 	t.Cleanup(app.closeDatabase)
 
 	conns := app.Config().Database.Connections
@@ -102,13 +107,15 @@ func TestWithoutWithDatabaseThereIsNoDatabase(t *testing.T) {
 
 func TestWithDatabaseNeedsAnEnvironmentSafeName(t *testing.T) {
 	app := New(WithLogger(quietLogger()), WithDatabase("my-db"), WithConfig(DefaultConfig()))
-	if err := app.Check(); err == nil || !strings.Contains(err.Error(), `"my-db"`) {
+
+	err := app.Check()
+	if err == nil || !strings.Contains(err.Error(), `"my-db"`) {
 		t.Fatalf("got %v", err)
 	}
 }
 
 func serveOnce(engine http.Handler, path string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, path, nil)
 	req.RemoteAddr = "192.0.2.1:1234"
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, req)
@@ -129,7 +136,8 @@ func TestHTTPOptionsReachTheEngineThroughRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := booted.registerModules(); err != nil {
+	err = booted.registerModules()
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -150,27 +158,34 @@ func TestHTTPOptionsReachTheEngineThroughRun(t *testing.T) {
 
 func TestTheSPAShellLeavesOnlyThePrefixOfWithPrefixAlone(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(`<!doctype html><div id="app"></div>`), 0o600); err != nil {
+
+	err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(`<!doctype html><div id="app"></div>`), 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	app := New(WithConfig(DefaultConfig()), WithLogger(quietLogger()), WithPrefix("/v9"),
-		WithSPAConfig(frontend.SPAConfig{TemplatesPath: filepath.Join(dir, "*.html"), TemplateName: "index.html"}))
+		WithSPAConfig(frontend.SPAConfig{ //nolint:exhaustruct,exhaustruct_v5 // the rest is the default
+			TemplatesPath: filepath.Join(dir, "*.html"), TemplateName: "index.html",
+		}))
 
 	booted, err := app.build()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if shell := serveOnce(booted.engine, "/anywhere"); shell.Code != http.StatusOK || !strings.Contains(shell.Body.String(), `id="app"`) {
+	shell := serveOnce(booted.engine, "/anywhere")
+	if shell.Code != http.StatusOK || !strings.Contains(shell.Body.String(), `id="app"`) {
 		t.Errorf("shell = %d %q", shell.Code, shell.Body.String())
 	}
 
-	if api := serveOnce(booted.engine, "/v9/missing"); api.Code != http.StatusNotFound || strings.Contains(api.Body.String(), `id="app"`) {
+	api := serveOnce(booted.engine, "/v9/missing")
+	if api.Code != http.StatusNotFound || strings.Contains(api.Body.String(), `id="app"`) {
 		t.Errorf("the prefix fell to the shell: %d", api.Code)
 	}
 
-	if other := serveOnce(booted.engine, "/api/missing"); !strings.Contains(other.Body.String(), `id="app"`) {
+	other := serveOnce(booted.engine, "/api/missing")
+	if !strings.Contains(other.Body.String(), `id="app"`) {
 		t.Errorf("/api is not the prefix here, so the shell answers it: %d", other.Code)
 	}
 }

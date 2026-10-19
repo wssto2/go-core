@@ -9,68 +9,89 @@ import (
 )
 
 func reader(vars map[string]string) *env.Reader {
-	return env.New(func(k string) (string, bool) { v, ok := vars[k]; return v, ok })
+	return env.New(func(key string) (string, bool) {
+		value, ok := vars[key]
+
+		return value, ok
+	})
 }
 
-func TestReaderReadsValuesAndDefaults(t *testing.T) {
+func TestReaderReadsScalarsAndDefaults(t *testing.T) {
 	t.Parallel()
 
-	r := reader(map[string]string{"S": "x", "I": "7", "B": "true", "D": "90s", "L": " a, b ,,c ", "EMPTY": ""})
+	rdr := reader(map[string]string{"S": "x", "I": "7", "B": "true", "D": "90s", "EMPTY": ""})
 
-	if r.String("S", "d") != "x" || r.String("NONE", "d") != "d" || r.String("EMPTY", "d") != "d" {
+	if rdr.String("S", "d") != "x" || rdr.String("NONE", "d") != "d" || rdr.String("EMPTY", "d") != "d" {
 		t.Fatal("String")
 	}
 
-	if r.Int("I", 1) != 7 || r.Int("NONE", 1) != 1 {
+	if rdr.Int("I", 1) != 7 || rdr.Int("NONE", 1) != 1 {
 		t.Fatal("Int")
 	}
 
-	if !r.Bool("B", false) || r.Bool("NONE", true) != true {
+	if !rdr.Bool("B", false) || !rdr.Bool("NONE", true) {
 		t.Fatal("Bool")
 	}
 
-	if r.Duration("D", time.Second) != 90*time.Second || r.Duration("NONE", time.Second) != time.Second {
+	if rdr.Err() != nil {
+		t.Fatalf("unexpected: %v", rdr.Err())
+	}
+}
+
+func TestReaderReadsDurations(t *testing.T) {
+	t.Parallel()
+
+	rdr := reader(map[string]string{"D": "90s"})
+
+	if rdr.Duration("D", time.Second) != 90*time.Second || rdr.Duration("NONE", time.Second) != time.Second {
 		t.Fatal("Duration")
 	}
+}
 
-	if got := strings.Join(r.List("L"), "|"); got != "a|b|c" {
+func TestReaderListTrimsAndDropsEmptyItems(t *testing.T) {
+	t.Parallel()
+
+	rdr := reader(map[string]string{"L": " a, b ,,c "})
+
+	if got := strings.Join(rdr.List("L"), "|"); got != "a|b|c" {
 		t.Fatalf("List = %q", got)
 	}
 
-	if r.List("NONE") != nil || r.Err() != nil {
-		t.Fatalf("unexpected: %v", r.Err())
+	if rdr.List("NONE") != nil {
+		t.Fatal("an unset list is nil")
 	}
 }
 
 func TestReaderBadValueIsAProblemNamingTheVariable(t *testing.T) {
 	t.Parallel()
 
-	r := reader(map[string]string{"APP_PORT": "80a0", "FLAG": "maybe", "WAIT": "soon"})
+	rdr := reader(map[string]string{"APP_PORT": "80a0", "FLAG": "maybe", "WAIT": "soon"})
 
-	if got := r.Int("APP_PORT", 8080); got != 8080 {
+	if got := rdr.Int("APP_PORT", 8080); got != 8080 {
 		t.Fatalf("a bad number returns the default so the caller goes on, got %d", got)
 	}
 
-	r.Bool("FLAG", false)
-	r.Duration("WAIT", time.Second)
-	r.Required("SECRET")
+	rdr.Bool("FLAG", false)
+	rdr.Duration("WAIT", time.Second)
+	rdr.Required("SECRET")
 
-	problems := r.Problems()
+	problems := rdr.Problems()
 	if len(problems) != 4 {
 		t.Fatalf("problems = %v", problems)
 	}
 
-	for i, name := range []string{"APP_PORT=80a0", "FLAG=maybe", "WAIT=soon", "SECRET"} {
-		if !strings.Contains(problems[i].What, name) {
-			t.Errorf("problem %d %q does not name %s", i, problems[i].What, name)
+	for idx, name := range []string{"APP_PORT=80a0", "FLAG=maybe", "WAIT=soon", "SECRET"} {
+		if !strings.Contains(problems[idx].What, name) {
+			t.Errorf("problem %d %q does not name %s", idx, problems[idx].What, name)
 		}
 
-		if problems[i].Fix == "" {
-			t.Errorf("problem %d has no fix", i)
+		if problems[idx].Fix == "" {
+			t.Errorf("problem %d has no fix", idx)
 		}
 	}
 
-	if err := r.Err(); err == nil || !strings.Contains(err.Error(), "APP_PORT=80a0") || !strings.Contains(err.Error(), "SECRET") {
+	err := rdr.Err()
+	if err == nil || !strings.Contains(err.Error(), "APP_PORT=80a0") || !strings.Contains(err.Error(), "SECRET") {
 		t.Fatalf("Err = %v", err)
 	}
 }
@@ -78,8 +99,8 @@ func TestReaderBadValueIsAProblemNamingTheVariable(t *testing.T) {
 func TestRequiredReturnsTheValue(t *testing.T) {
 	t.Parallel()
 
-	r := reader(map[string]string{"SECRET": "s3"})
-	if r.Required("SECRET") != "s3" || r.Err() != nil {
+	rdr := reader(map[string]string{"SECRET": "s3"})
+	if rdr.Required("SECRET") != "s3" || rdr.Err() != nil {
 		t.Fatal("Required")
 	}
 }

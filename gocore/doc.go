@@ -49,6 +49,6 @@
 // go-core's own modules are left out (Shipping).
 //
 // The command line is Run's: serve, migrate, help, ts:generate and the application's own commands, added with Command
-// (they run like migrate, each declaring its flags on the *Cmd it is given). LoadEnv, called first in main, reads a .env into the
-// environment before New reads it.
+// (they run like migrate, each declaring its flags on the *Cmd it is given). LoadEnv, called first in main, reads a
+// .env into the environment before New reads it.
 package gocore

@@ -1,3 +1,4 @@
+//nolint:testpackage // tests the unexported lifecycle and builder gocore is built on
 package gocore
 
 import (

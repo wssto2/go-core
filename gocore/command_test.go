@@ -139,7 +139,21 @@ func TestAppCommandHelpFlagPrintsItsFlagsAndSucceeds(t *testing.T) {
 func noArgs(_ context.Context, cmd *gocore.Cmd) error {
 	_ = cmd.Bool("force", false, "do it")
 
-	return cmd.Parse()
+	err := cmd.Parse()
+	if err != nil {
+		return fmt.Errorf("strict: %w", err)
+	}
+
+	return nil
+}
+
+func loose(_ context.Context, cmd *gocore.Cmd) error {
+	err := cmd.Parse(gocore.Args(2))
+	if err != nil {
+		return fmt.Errorf("loose: %w", err)
+	}
+
+	return nil
 }
 
 func TestAStrayArgumentIsAnErrorUnlessTheCommandAllowsIt(t *testing.T) {
@@ -147,28 +161,31 @@ func TestAStrayArgumentIsAnErrorUnlessTheCommandAllowsIt(t *testing.T) {
 
 	app, _ := commandApp(t)
 	app.Command("strict", "", noArgs)
-	app.Command("loose", "", func(_ context.Context, cmd *gocore.Cmd) error { return cmd.Parse(gocore.Args(2)) })
+	app.Command("loose", "", loose)
 
-	if _, err := runArgs(app, "strict", "-force"); err != nil {
+	_, err := runArgs(app, "strict", "-force")
+	if err != nil {
 		t.Fatalf("flags only: %v", err)
 	}
 
 	app, _ = commandApp(t)
 	app.Command("strict", "", noArgs)
 
-	_, err := runArgs(app, "strict", "extra")
+	_, err = runArgs(app, "strict", "extra")
 	if err == nil || !strings.Contains(err.Error(), `"extra"`) {
 		t.Fatalf("want an error naming the stray argument, got %v", err)
 	}
 
 	app, _ = commandApp(t)
-	app.Command("loose", "", func(_ context.Context, cmd *gocore.Cmd) error { return cmd.Parse(gocore.Args(2)) })
+	app.Command("loose", "", loose)
 
-	if _, err = runArgs(app, "loose", "a", "b"); err != nil {
+	_, err = runArgs(app, "loose", "a", "b")
+	if err != nil {
 		t.Fatalf("two allowed: %v", err)
 	}
 
-	if _, err = runArgs(app, "loose", "a", "b", "c"); err == nil {
+	_, err = runArgs(app, "loose", "a", "b", "c")
+	if err == nil {
 		t.Fatal("a third positional must fail")
 	}
 }

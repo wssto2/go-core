@@ -1,3 +1,4 @@
+//nolint:testpackage // tests the unexported lifecycle and builder gocore is built on
 package gocore
 
 import (
@@ -10,6 +11,7 @@ import (
 
 func TestDefaultTrustedProxies_DoNotTrustForwardedHeaders(t *testing.T) {
 	cfg := DefaultConfig()
+
 	app, err := newBuilder(cfg).DefaultInfrastructure().Build()
 	if err != nil {
 		t.Fatalf("Build: %v", err)
@@ -32,6 +34,7 @@ func TestDefaultTrustedProxies_DoNotTrustForwardedHeaders(t *testing.T) {
 
 func TestWithTrustedProxies_AllowsOptInForwardedHeaders(t *testing.T) {
 	cfg := DefaultConfig()
+
 	app, err := newBuilder(cfg).WithTrustedProxies("127.0.0.1").DefaultInfrastructure().Build()
 	if err != nil {
 		t.Fatalf("Build: %v", err)

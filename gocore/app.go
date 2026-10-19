@@ -235,7 +235,8 @@ func WithConfig(cfg Config) Option {
 // read, opening the logger and opening the database connections can fail; the failure is held and reported by Run
 // with the other start-up problems.
 func New(opts ...Option) *App {
-	app := &App{clock: systemClock{}, env: env.New(os.LookupEnv)}
+	app := new(App)
+	app.clock, app.env = systemClock{}, env.New(os.LookupEnv)
 
 	for _, opt := range opts {
 		opt(app)
@@ -249,57 +250,10 @@ func New(opts ...Option) *App {
 		app.registry = nil
 	}
 
-	if !app.cfgSet {
-		app.cfg = app.readConfig()
-	}
-
-	cfg := &app.cfg
-
-	if !app.offline {
-		cfg.Database.Connections = append(cfg.Database.Connections, app.readConnections()...)
-	}
-
-	if envErr := cfg.App.Validate(); envErr != nil {
-		app.fail(envErr.Error(), "set APP_ENV to production, staging or development (empty means development)")
-	}
-
-	if err := gin.New().SetTrustedProxies(cfg.HTTP.TrustedProxies); err != nil {
-		app.fail("TRUSTED_PROXIES: "+err.Error(), "list IP addresses or CIDRs, comma-separated")
-	}
-
-	if app.log == nil && app.offline {
-		app.log = offlineLogger()
-	}
-
-	if app.log == nil {
-		log, err := logger.New(logger.Config{
-			AppName:    cfg.App.Name,
-			LogDir:     cfg.Log.Dir,
-			Env:        cfg.App.Env,
-			Level:      logger.LogLevel(cfg.Log.Level),
-			MaxSizeMB:  cfg.Log.MaxSize,
-			MaxBackups: cfg.Log.MaxBackups,
-			MaxAgeDays: cfg.Log.MaxAgeDays,
-		})
-		if err != nil {
-			app.fail("the logger could not be opened: "+err.Error(), "check the LOG_* settings, such as LOG_DIR being writable")
-
-			log = slog.Default()
-		}
-
-		app.log = log
-	}
-
-	app.tel = observability.New(app.log, cfg.App.Name)
-
-	if app.registry == nil && !app.offline && len(cfg.Database.Connections) > 0 {
-		reg, err := openDatabase(app.log, cfg.Database)
-		if err != nil {
-			app.fail("the database could not be opened: "+err.Error(), "check the connection settings and that the server is reachable")
-		}
-
-		app.registry = reg
-	}
+	app.configure()
+	app.openLogger()
+	app.tel = observability.New(app.log, app.cfg.App.Name)
+	app.openRegistry()
 
 	return app
 }
@@ -313,17 +267,6 @@ func New(opts ...Option) *App {
 //
 // A variable set to the empty string counts as unset. See package env, which gives the same reader outside an App.
 func (a *App) Env() *env.Reader { return a.env }
-
-// found lists every problem so far: the ones features reported and the ones Env found.
-func (a *App) found() []Problem {
-	out := append([]Problem(nil), a.problems...)
-
-	for _, p := range a.env.Problems() {
-		out = append(out, Problem{What: p.What, Fix: p.Fix})
-	}
-
-	return out
-}
 
 // security is what routes are mounted behind.
 func (a *App) security() route.Security {
@@ -587,4 +530,82 @@ func (a *App) handled() []route.Handled {
 	}
 
 	return out
+}
+
+// found lists every problem so far: the ones features reported and the ones Env found.
+func (a *App) found() []Problem {
+	out := append([]Problem(nil), a.problems...)
+
+	for _, p := range a.env.Problems() {
+		out = append(out, Problem{What: p.What, Fix: p.Fix})
+	}
+
+	return out
+}
+
+// configure reads the configuration from the environment unless WithConfig gave one, adds the declared connections,
+// and checks what it can without opening anything.
+func (a *App) configure() {
+	if !a.cfgSet {
+		a.cfg = a.readConfig()
+	}
+
+	if !a.offline {
+		a.cfg.Database.Connections = append(a.cfg.Database.Connections, a.readConnections()...)
+	}
+
+	envErr := a.cfg.App.Validate()
+	if envErr != nil {
+		a.fail(envErr.Error(), "set APP_ENV to production, staging or development (empty means development)")
+	}
+
+	err := gin.New().SetTrustedProxies(a.cfg.HTTP.TrustedProxies)
+	if err != nil {
+		a.fail("TRUSTED_PROXIES: "+err.Error(), "list IP addresses or CIDRs, comma-separated")
+	}
+}
+
+// openLogger builds the logger from the log config, unless WithLogger gave one or the App is offline.
+func (a *App) openLogger() {
+	if a.log != nil {
+		return
+	}
+
+	if a.offline {
+		a.log = offlineLogger()
+
+		return
+	}
+
+	log, err := logger.New(logger.Config{
+		AppName:    a.cfg.App.Name,
+		LogDir:     a.cfg.Log.Dir,
+		Env:        a.cfg.App.Env,
+		Level:      logger.LogLevel(a.cfg.Log.Level),
+		MaxSizeMB:  a.cfg.Log.MaxSize,
+		MaxBackups: a.cfg.Log.MaxBackups,
+		MaxAgeDays: a.cfg.Log.MaxAgeDays,
+	})
+	if err != nil {
+		a.fail("the logger could not be opened: "+err.Error(), "check the LOG_* settings, such as LOG_DIR being writable")
+
+		log = slog.Default()
+	}
+
+	a.log = log
+}
+
+// openRegistry opens the configured connections, unless WithRegistry gave a registry or the App is offline.
+func (a *App) openRegistry() {
+	if a.registry != nil || a.offline || len(a.cfg.Database.Connections) == 0 {
+		return
+	}
+
+	reg, err := openDatabase(a.log, a.cfg.Database)
+	if err != nil {
+		a.fail("the database could not be opened: "+err.Error(),
+			"check the connection settings and that the server is reachable")
+	}
+
+	a.registry = reg
 }

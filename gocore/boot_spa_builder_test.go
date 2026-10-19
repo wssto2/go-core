@@ -1,3 +1,4 @@
+//nolint:testpackage // tests the unexported lifecycle and builder gocore is built on
 package gocore
 
 import (
@@ -178,6 +179,7 @@ func TestWithSPAConfig_UsesExplicitConfig(t *testing.T) {
 	cfg.App.Env = "production"
 	cfg.I18n.Dir = tempI18nDir(t)
 
+	//nolint:exhaustruct,exhaustruct_v5 // the rest of the SPA config is the default
 	builder := newBuilder(cfg).DefaultInfrastructure().WithSPAConfig(frontend.SPAConfig{
 		TemplatesPath: filepath.Join(templateDir, "*.html"),
 		TemplateName:  "shell.html",

@@ -1,4 +1,4 @@
-//nolint:testpackage,paralleltest,gochecknoglobals,goconst,lll,varnamelen // uses the package's runnable and serving helpers
+//nolint:testpackage // uses the package's runnable and serving helpers
 package gocore
 
 import (
@@ -10,6 +10,8 @@ import (
 // /health and /ready are part of the application, however it is entered: Run (the deploy checklist's probes) and
 // Handler (tests).
 func TestHealthAndReadyAreMountedThroughRunAndHandler(t *testing.T) {
+	t.Parallel()
+
 	app, port := runnable(t)
 	base := serving(t, app, port)
 
@@ -33,7 +35,7 @@ func TestHealthAndReadyAreMountedThroughRunAndHandler(t *testing.T) {
 
 	for _, path := range []string{"/health", "/ready"} {
 		w := httptest.NewRecorder()
-		handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 
 		if w.Code != http.StatusOK {
 			t.Errorf("Handler: GET %s = %d", path, w.Code)

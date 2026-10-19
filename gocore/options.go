@@ -19,13 +19,13 @@ type spaOption struct {
 // as appState (state may be nil). The templates, the Vite manifest and the assets are found by convention under
 // ./frontend; WithSPAConfig names them. The API prefix (WithPrefix) is the one path the shell leaves alone.
 func WithSPA(state frontend.AppStateBuilder) Option {
-	return func(app *App) { app.spa = &spaOption{state: state} }
+	return func(app *App) { app.spa = &spaOption{state: state, config: nil} }
 }
 
 // WithSPAConfig serves the single-page application with an explicit frontend configuration. The configuration's
 // APIPrefix defaults to the prefix of WithPrefix, and DevMode to the development environment.
 func WithSPAConfig(cfg frontend.SPAConfig) Option {
-	return func(app *App) { app.spa = &spaOption{config: &cfg} }
+	return func(app *App) { app.spa = &spaOption{state: nil, config: &cfg} }
 }
 
 // WithRateLimit limits requests with two limiters; either may be nil.
@@ -75,30 +75,32 @@ type DatabaseOption func(*declaredDatabase)
 
 // DefaultMaxOpenConns is the pool size used when <NAME>_DB_MAX_OPEN_CONNS is not set (75 otherwise).
 func DefaultMaxOpenConns(n int) DatabaseOption {
-	return func(d *declaredDatabase) { d.maxOpen = n }
+	return func(decl *declaredDatabase) { decl.maxOpen = n }
 }
 
 var databaseName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
 // WithDatabase declares a connection by name and reads it from the environment under that name's prefix:
-// WithDatabase("local") reads LOCAL_DB_HOST, _PORT, _DATABASE, _USERNAME, _PASSWORD, _DRIVER (default mysql), _SQL_MODE,
-// _CHARSET, _MAX_IDLE_CONNS (5), _MAX_OPEN_CONNS (75) and _CONN_MAX_LIFETIME_MIN (5). The first connection declared is
-// the primary, the one App.Database returns without an argument. There is no implicit DB_* connection: an application
-// that declares none has no database.
+// WithDatabase("local") reads LOCAL_DB_HOST, _PORT, _DATABASE, _USERNAME, _PASSWORD, _DRIVER (default mysql),
+// _SQL_MODE, _CHARSET, _MAX_IDLE_CONNS (5), _MAX_OPEN_CONNS (75) and _CONN_MAX_LIFETIME_MIN (5). The first
+// connection declared is the primary, the one App.Database returns without an argument. There is no implicit DB_*
+// connection: an application that declares none has no database.
 func WithDatabase(name string, opts ...DatabaseOption) Option {
 	return func(app *App) {
-		d := declaredDatabase{name: name, maxOpen: defaultMaxOpenConns}
+		decl := declaredDatabase{name: name, maxOpen: defaultMaxOpenConns}
 		for _, o := range opts {
-			o(&d)
+			o(&decl)
 		}
 
 		switch {
 		case !databaseName.MatchString(name):
-			app.fail("WithDatabase was given the name "+quote(name), "a connection name is letters, digits and underscores, such as \"local\": it names the "+strings.ToUpper(name)+"_DB_* variables")
+			app.fail("WithDatabase was given the name "+quote(name),
+				"a connection name is letters, digits and underscores, such as \"local\": it names the "+
+					strings.ToUpper(name)+"_DB_* variables")
 		case app.hasDatabase(name):
 			app.fail("the connection "+quote(name)+" is declared twice", "declare each connection once")
 		default:
-			app.databases = append(app.databases, d)
+			app.databases = append(app.databases, decl)
 		}
 	}
 }
@@ -123,60 +125,61 @@ const (
 
 // readConfig reads Config from the environment. The names are the ones an application's .env already carries.
 func (a *App) readConfig() Config {
-	e, cfg := a.env, DefaultConfig()
+	vars, cfg := a.env, DefaultConfig()
 	sec := func(name string, def time.Duration) time.Duration {
-		return time.Duration(e.Int(name, int(def/time.Second))) * time.Second
+		return time.Duration(vars.Int(name, int(def/time.Second))) * time.Second
 	}
 
-	cfg.App.Name = e.String("APP_NAME", cfg.App.Name)
-	cfg.App.Env = e.String("APP_ENV", cfg.App.Env)
-	cfg.HTTP.Port = e.Int("APP_PORT", cfg.HTTP.Port)
+	cfg.App.Name = vars.String("APP_NAME", cfg.App.Name)
+	cfg.App.Env = vars.String("APP_ENV", cfg.App.Env)
+	cfg.HTTP.Port = vars.Int("APP_PORT", cfg.HTTP.Port)
 	cfg.HTTP.ReadTimeout = sec("READ_TIMEOUT_SEC", cfg.HTTP.ReadTimeout)
 	cfg.HTTP.WriteTimeout = sec("WRITE_TIMEOUT_SEC", cfg.HTTP.WriteTimeout)
 	cfg.HTTP.IdleTimeout = sec("IDLE_TIMEOUT_SEC", cfg.HTTP.IdleTimeout)
 	cfg.HTTP.ShutdownTimeout = sec("SHUTDOWN_TIMEOUT_SEC", cfg.HTTP.ShutdownTimeout)
-	cfg.HTTP.MaxBodyBytes = int64(e.Int("HTTP_MAX_BODY_BYTES", 0))
-	cfg.HTTP.TrustedProxies = e.List("TRUSTED_PROXIES")
+	cfg.HTTP.MaxBodyBytes = int64(vars.Int("HTTP_MAX_BODY_BYTES", 0))
+	cfg.HTTP.TrustedProxies = vars.List("TRUSTED_PROXIES")
 
-	cfg.Database.LogLevel = e.String("DATABASE_LOG_LEVEL", cfg.Database.LogLevel)
-	cfg.Database.LogParameters = e.Bool("DATABASE_LOG_PARAMETERS", false)
+	cfg.Database.LogLevel = vars.String("DATABASE_LOG_LEVEL", cfg.Database.LogLevel)
+	cfg.Database.LogParameters = vars.Bool("DATABASE_LOG_PARAMETERS", false)
 
-	cfg.Log.Dir = e.String("LOG_DIR", cfg.Log.Dir)
-	cfg.Log.Level = e.String("LOG_LEVEL", cfg.Log.Level)
-	cfg.Log.MaxSize = e.Int("LOG_MAX_SIZE_MB", cfg.Log.MaxSize)
-	cfg.Log.MaxBackups = e.Int("LOG_MAX_BACKUPS", cfg.Log.MaxBackups)
-	cfg.Log.MaxAgeDays = e.Int("LOG_MAX_AGE_DAYS", cfg.Log.MaxAgeDays)
+	cfg.Log.Dir = vars.String("LOG_DIR", cfg.Log.Dir)
+	cfg.Log.Level = vars.String("LOG_LEVEL", cfg.Log.Level)
+	cfg.Log.MaxSize = vars.Int("LOG_MAX_SIZE_MB", cfg.Log.MaxSize)
+	cfg.Log.MaxBackups = vars.Int("LOG_MAX_BACKUPS", cfg.Log.MaxBackups)
+	cfg.Log.MaxAgeDays = vars.Int("LOG_MAX_AGE_DAYS", cfg.Log.MaxAgeDays)
 
-	cfg.I18n.Dir = e.String("I18N_DIR", cfg.I18n.Dir)
-	cfg.I18n.DefaultLocale = e.String("I18N_FALLBACK_LANG", "en")
+	cfg.I18n.Dir = vars.String("I18N_DIR", cfg.I18n.Dir)
+	cfg.I18n.DefaultLocale = vars.String("I18N_FALLBACK_LANG", "en")
 
-	cfg.Frontend.StaticPath = e.String("STATIC_PATH", cfg.Frontend.StaticPath)
-	cfg.Frontend.StaticURL = e.String("STATIC_URL", cfg.Frontend.StaticURL)
+	cfg.Frontend.StaticPath = vars.String("STATIC_PATH", cfg.Frontend.StaticPath)
+	cfg.Frontend.StaticURL = vars.String("STATIC_URL", cfg.Frontend.StaticURL)
 
 	return cfg
 }
 
 // readConnections reads the connections declared with WithDatabase, in declaration order.
 func (a *App) readConnections() []DatabaseConnectionConfig {
-	e := a.env
+	vars := a.env
 
 	out := make([]DatabaseConnectionConfig, 0, len(a.databases))
-	for _, d := range a.databases {
-		p := strings.ToUpper(d.name) + "_DB_"
+	for _, decl := range a.databases {
+		pre := strings.ToUpper(decl.name) + "_DB_"
 
 		out = append(out, DatabaseConnectionConfig{
-			Name:            d.name,
-			Driver:          e.String(p+"DRIVER", "mysql"),
-			Host:            e.String(p+"HOST", ""),
-			Port:            e.String(p+"PORT", ""),
-			Database:        e.String(p+"DATABASE", ""),
-			Username:        e.String(p+"USERNAME", ""),
-			Password:        e.String(p+"PASSWORD", ""),
-			SQLMode:         e.String(p+"SQL_MODE", ""),
-			Charset:         e.String(p+"CHARSET", ""),
-			MaxIdleConns:    e.Int(p+"MAX_IDLE_CONNS", defaultMaxIdleConns),
-			MaxOpenConns:    e.Int(p+"MAX_OPEN_CONNS", d.maxOpen),
-			ConnMaxLifetime: time.Duration(e.Int(p+"CONN_MAX_LIFETIME_MIN", defaultLifetimeMin)) * time.Minute,
+			Name:            decl.name,
+			Driver:          vars.String(pre+"DRIVER", "mysql"),
+			Host:            vars.String(pre+"HOST", ""),
+			Port:            vars.String(pre+"PORT", ""),
+			Database:        vars.String(pre+"DATABASE", ""),
+			Username:        vars.String(pre+"USERNAME", ""),
+			Password:        vars.String(pre+"PASSWORD", ""),
+			SQLMode:         vars.String(pre+"SQL_MODE", ""),
+			Charset:         vars.String(pre+"CHARSET", ""),
+			MaxIdleConns:    vars.Int(pre+"MAX_IDLE_CONNS", defaultMaxIdleConns),
+			MaxOpenConns:    vars.Int(pre+"MAX_OPEN_CONNS", decl.maxOpen),
+			ConnMaxLifetime: time.Duration(vars.Int(pre+"CONN_MAX_LIFETIME_MIN", defaultLifetimeMin)) * time.Minute,
+			Debug:           false,
 		})
 	}
 

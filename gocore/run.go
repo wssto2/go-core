@@ -265,7 +265,7 @@ func (a *App) build() (*lifecycle, error) {
 	builder.trustedOrigins = append(builder.trustedOrigins, a.trustedOrigins...)
 	builder.csp = append(builder.csp, a.csp...)
 
-	booted, err := builder.WithComponents(&featuresModule{app: a, mgr: nil, cancel: nil}).WithHttp().Build()
+	booted, err := builder.WithComponents(&featuresModule{app: a, mgr: nil, cancel: nil}).WithHTTP().Build()
 	if err != nil {
 		return nil, fmt.Errorf("gocore: %w", err)
 	}
