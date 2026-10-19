@@ -15,7 +15,7 @@ import (
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authzhttp"
-	"github.com/wssto2/go-core/binders"
+	"github.com/wssto2/go-core/internal/binders"
 	"github.com/wssto2/go-core/validation"
 	"github.com/wssto2/go-core/web"
 )

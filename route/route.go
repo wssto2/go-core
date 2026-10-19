@@ -2,7 +2,7 @@ package route
 
 import (
 	"fmt"
-	"github.com/wssto2/go-core/binders"
+	"github.com/wssto2/go-core/internal/binders"
 	"net/http"
 	"reflect"
 	"slices"
@@ -224,6 +224,3 @@ func (s Spec) permissionProblem() string {
 
 	return ""
 }
-
-// FreeFormTag is the query tag value of the field that takes free-form filters.
-const FreeFormTag = binders.FreeForm

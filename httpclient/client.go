@@ -23,8 +23,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/httpclient/internal/resilience"
 	"github.com/wssto2/go-core/observability/tracing"
-	"github.com/wssto2/go-core/resilience"
 )
 
 // Client is a configured HTTP client for a single external API base URL.
@@ -41,8 +41,8 @@ type Client struct {
 	retryBackoff  time.Duration
 
 	// outbound metrics (nil = disabled)
-	metricRequests  *prometheus.CounterVec
-	metricDuration  *prometheus.HistogramVec
+	metricRequests *prometheus.CounterVec
+	metricDuration *prometheus.HistogramVec
 }
 
 // Option configures a Client.

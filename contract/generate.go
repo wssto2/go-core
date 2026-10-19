@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/wssto2/go-core/go2ts"
+	"github.com/wssto2/go-core/internal/binders"
 	"github.com/wssto2/go-core/route"
 )
 
@@ -375,7 +376,7 @@ func hasWireProps(t reflect.Type, embedded bool) bool {
 // inWire reports whether a field is a property of its type's schema.
 func inWire(field reflect.StructField, embedded bool) bool {
 	switch {
-	case !field.IsExported(), field.Tag.Get("json") == "-", field.Tag.Get("query") == route.FreeFormTag:
+	case !field.IsExported(), field.Tag.Get("json") == "-", field.Tag.Get("query") == binders.FreeForm:
 		return false
 	case embedded && (field.Tag.Get("path") != "" || field.Tag.Get("query") != ""):
 		return false

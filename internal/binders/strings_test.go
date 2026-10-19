@@ -3,7 +3,7 @@ package binders_test
 import (
 	"fmt"
 
-	"github.com/wssto2/go-core/binders"
+	"github.com/wssto2/go-core/internal/binders"
 )
 
 func ExampleBindStrings() {

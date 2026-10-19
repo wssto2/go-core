@@ -22,10 +22,10 @@ const (
 // layer and the layers below, never a layer above.
 func layers() [][]string {
 	return [][]string{
-		{"apperr", "utils", "i18n", "navigation", "mail", "pagination"},
-		{"validation", "logger", "resilience", "archtest"},
+		{"apperr", "i18n", "navigation", "mail", "pagination"},
+		{"validation", "logger", "httpclient/internal/resilience", "archtest"},
 		{pkgDatabase, "database/types", pkgAuth, pkgEvent, "storage", "tenancy", "worker"},
-		{"binders", "middlewares", "datatable", "resource", "observability", "web", "audit", "health"},
+		{"internal/binders", "middlewares", "datatable", "resource", "observability", "web", "audit", "health"},
 		{pkgBootstrap, "frontend", "go2ts", pkgRoute, "web/typed"},
 		{"contract"},
 		{pkgGocore},
@@ -84,7 +84,7 @@ func prohibitions() []archtest.Banned {
 // modules are the arrows of sections 4 and 4.1 that are not between two layers.
 func modules() []archtest.Banned {
 	pure := banned(goCore+"...", "", "section 4: resilience imports nothing from go-core")
-	pure.In = []string{"resilience"}
+	pure.In = []string{"httpclient/internal/resilience"}
 
 	// neither event nor identity imports notification; the key notice, which needs both, is the one package that may.
 	arrow := banned(goCore+pkgNotify, "", "section 4: notification imports event and identity, not the other way round")
