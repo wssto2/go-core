@@ -22,6 +22,8 @@ func (p *project) rules() []rule {
 		set.rules = append(set.rules, rule{name: bannedRule, check: p.banned})
 	}
 
+	p.guardRules(set)
+
 	return set.rules
 }
 
@@ -32,7 +34,8 @@ func (p *project) conventionRules(set *ruleSet) {
 
 	set.add(inner, NoPanic, "no panic in application/domain",
 		"return an error so the caller decides", p.noPanic)
-	set.add(layers.Application != "", NoContextBackground, "no context.Background() in the application layer",
+	set.add(layers.Application != "", NoContextBackground,
+		"no context.Background() or context.TODO() in the application layer",
 		"accept ctx from the caller so cancellation, deadlines and tenancy/auth values propagate",
 		p.noContextBackground)
 	set.add(inner, NoSleep, "no time.Sleep in application/domain",
@@ -91,9 +94,12 @@ func (p *project) dataRules(set *ruleSet) {
 	set.add(layers.Domain != "" && layers.Application != "", ServiceRepositories,
 		"services inject only their own aggregate's repositories",
 		"obtain that domain's data through its Service, not its Repository", p.serviceRepositories)
-	set.add(shape.Dir != "" && (shape.TxFile != "" || shape.ScopeFile != ""), RepositoryShape, "repository shape",
+	set.add(shape.Dir != "" && (shape.TxFile != "" || shape.ScopeFile != "" || shape.NoNestedTransaction),
+		RepositoryShape, "repository shape",
 		"a repository reaches the caller's transaction and tenant scope through the one file of the package "+
-			"that owns them", p.repositoryShape)
+			"that owns them, and opens a transaction with the BaseRepository's WithinTx: a nested .Transaction( opens a "+
+			"savepoint and leaves tx out of the context, so a helper called inside it uses the outer connection",
+		p.repositoryShape)
 }
 
 func (p *project) portabilityRules(set *ruleSet) {
@@ -151,7 +157,9 @@ func isIdent(expr ast.Expr, name string) bool {
 }
 
 func (p *project) noContextBackground() []finding {
-	return callsOf(p.productionIn(p.cfg.Layers.Application), "context", "Background")
+	srcs := p.productionIn(p.cfg.Layers.Application)
+
+	return append(callsOf(srcs, "context", "Background"), callsOf(srcs, "context", "TODO")...)
 }
 
 func (p *project) noSleep() []finding { return callsOf(p.appAndDomain(), "time", "Sleep") }
@@ -172,7 +180,7 @@ func (p *project) errorfWrap() []finding {
 		}
 
 		ast.Inspect(src.File, func(node ast.Node) bool {
-			if call, isErrorf := selectorCall(node, alias, "Errorf"); isErrorf && passesErrUnwrapped(call) {
+			if call, isErrorf := SelectorCall(node, alias, "Errorf"); isErrorf && passesErrUnwrapped(call) {
 				out = append(out, finding{key: src.Rel, text: src.At(call) + "  fmt.Errorf(...) passes err without %w"})
 			}
 

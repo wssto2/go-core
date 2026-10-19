@@ -1,6 +1,7 @@
 package archtest_test
 
 import (
+	"github.com/wssto2/go-core/archtest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -74,4 +75,63 @@ func TestBannedEverythingOutsideTheStandardLibraryUnless(t *testing.T) {
 	got := problems(t, cfg, "banned")
 	require.Contains(t, got, "imports example.com/legacy")
 	require.NotContains(t, got, "go-core/auth")
+}
+
+const (
+	modulesMethod    = "Modules"
+	frameworkImport  = "example.com/framework"
+	permissionImport = "example.com/app/internal/permission"
+)
+
+func TestBannedMethod(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig(fixture(t, "bannedforms"))
+	ban := banned(frameworkImport, "", "the container is gone")
+	ban.Method = modulesMethod
+	cfg.Banned = []archtest.Banned{ban}
+
+	got := problems(t, cfg, "banned")
+	require.Contains(t, got, "BANNED (example.com/framework .Modules)")
+	require.Contains(t, got, "forms.go:10  uses .Modules")
+	require.NotContains(t, got, "WithModules", "the method name is exact")
+	require.NotContains(t, got, "forms.go:12", "migrations.Modules is a package member, not a method")
+	require.NotContains(t, got, "other.go", "only files that import the package")
+}
+
+func TestBannedLiteral(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig(fixture(t, "bannedforms"))
+	ban := banned(permissionImport, "", "build it with Of")
+	ban.Literal = "Permission"
+	cfg.Banned = []archtest.Banned{ban}
+
+	got := problems(t, cfg, "banned")
+	require.Contains(t, got, "BANNED (example.com/app/internal/permission.Permission{})")
+	require.Contains(t, got, "forms.go:13  uses domainpermission.Permission{...}")
+	require.NotContains(t, got, "forms.go:14", "an empty literal sets nothing")
+	require.Contains(t, got, "allowed.go:5")
+
+	cfg.Banned[0].Except = []string{orderApp + "/allowed.go"}
+	require.NotContains(t, problems(t, cfg, "banned"), "allowed.go")
+}
+
+func TestBannedNeedsAnImportAndOneForm(t *testing.T) {
+	t.Parallel()
+
+	cfg := testConfig(fixture(t))
+	noImport := banned("", "", "x")
+	noImport.Method = modulesMethod
+	cfg.Banned = []archtest.Banned{noImport}
+
+	_, err := archtest.Check(cfg)
+	require.ErrorContains(t, err, "Method needs an Import")
+
+	both := banned(frameworkImport, "Thing", "x")
+	both.Method = modulesMethod
+	cfg.Banned = []archtest.Banned{both}
+
+	_, err = archtest.Check(cfg)
+	require.ErrorContains(t, err, "only one of Symbol, Method and Literal")
 }

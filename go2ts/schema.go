@@ -2,11 +2,14 @@ package go2ts
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -62,10 +65,56 @@ func valRuleArgs(rules []valRule, name string) (string, bool) {
 // and cannot be expressed as a standalone Zod field validator.
 func isCrossFieldRule(name string) bool {
 	switch name {
-	case "required_if", "required_unless", "same", "confirmed", "different", "password":
+	case "required_if", "same", "confirmed", "different":
 		return true
 	}
 	return false
+}
+
+// zodRules are the validation rules the generator writes as Zod.
+func zodRules() []string {
+	return []string{
+		"between", "date", "date_time", "email", "in", "len", "max", "min", "month", "required", "url", "uuid", "year",
+	}
+}
+
+var (
+	serverOnlyMu sync.RWMutex //nolint:gochecknoglobals // guards the rules declared before generation
+	// The validator's rules with no standalone Zod form: they compare with a sibling field or are the server's
+	// own password policy. A cross-field one is noted in the generated file for a manual refine.
+	serverOnlyRules = map[string]bool{ //nolint:gochecknoglobals // the registry ServerOnly adds to
+		"required_if": true, "same": true, "confirmed": true, "different": true, "password": true,
+	}
+)
+
+// errNoZodForm is the cause of a validation rule that generation cannot write.
+var errNoZodForm = errors.New("validation rule has no Zod form")
+
+// ServerOnly declares validation rules that only the server can check (a rule the application registers
+// with validation.NewWithRules, such as one that queries the database). Any other rule the generator does not
+// know fails generation, naming the struct, the field and the rule, so a rule is never dropped from the schema
+// unnoticed. Call it before generating.
+func ServerOnly(rules ...string) {
+	serverOnlyMu.Lock()
+	defer serverOnlyMu.Unlock()
+
+	for _, rule := range rules {
+		serverOnlyRules[rule] = true
+	}
+}
+
+// unknownRule is the first rule of the tag that is neither written as Zod nor declared server-only.
+func unknownRule(tag string) (string, bool) {
+	serverOnlyMu.RLock()
+	defer serverOnlyMu.RUnlock()
+
+	for _, r := range parseValidationTag(tag) {
+		if !slices.Contains(zodRules(), r.name) && !serverOnlyRules[r.name] {
+			return r.name, true
+		}
+	}
+
+	return "", false
 }
 
 // knownCustomType returns true for the well-known nullable/custom struct types
@@ -186,6 +235,18 @@ func isNumericBase(t reflect.Type) bool {
 	}
 }
 
+// buildEnum generates z.enum([...]) from a comma-separated list of values: "a,b" gives z.enum(["a", "b"]).
+func buildEnum(args string) string {
+	values := strings.Split(args, ",")
+	parts := make([]string, 0, len(values))
+
+	for _, v := range values {
+		parts = append(parts, fmt.Sprintf("%q", strings.TrimSpace(v)))
+	}
+
+	return fmt.Sprintf("z.enum([%s])", strings.Join(parts, ", "))
+}
+
 // buildLiteralUnion generates a Zod literal or union of literals from a
 // comma-separated list of values (e.g. "1,2" → "z.union([z.literal(1), z.literal(2)])").
 func buildLiteralUnion(args string) string {
@@ -245,8 +306,12 @@ func fieldToZodExprScoped(
 		}
 	}
 
-	// `in` rule replaces the base type entirely with a literal union.
+	// `in` rule replaces the base type entirely: a string field is an enum, a number a union of literals.
 	if inArgs, ok := valRuleArgs(rules, "in"); ok {
+		if isStringBase(ft) {
+			return buildEnum(inArgs), hasCrossField
+		}
+
 		return buildLiteralUnion(inArgs), hasCrossField
 	}
 
@@ -305,6 +370,19 @@ func fieldToZodExprScoped(
 			}
 		case "uuid":
 			expr += ".uuid()"
+
+			if !isRequired && !isNullable {
+				needsOrEmpty = true
+			}
+		case "year":
+			expr += `.regex(/^\d{4}$/)`
+
+			if !isRequired && !isNullable {
+				needsOrEmpty = true
+			}
+		case "month":
+			expr += ".regex(/^(0?[1-9]|1[0-2])$/)"
+
 			if !isRequired && !isNullable {
 				needsOrEmpty = true
 			}
@@ -381,6 +459,11 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 		jsonName := wireName(field)
 
 		validationTag := field.Tag.Get("validation")
+		if rule, unknown := unknownRule(validationTag); unknown {
+			return "", "", nil, fmt.Errorf("%s.%s: %w %q: go2ts writes %s; declare a rule only the server can check "+
+				"with go2ts.ServerOnly", rt.Name(), field.Name, errNoZodForm, rule, strings.Join(zodRules(), ", "))
+		}
+
 		zodExpr, hasCrossField := fieldToZodExprScoped(field.Type, validationTag, typeName, ctx, children)
 
 		// A field Go leaves out of the JSON when it is empty may be left out of the

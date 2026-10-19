@@ -2,9 +2,12 @@ package go2ts
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 // The modes of the generated folder and its files: sources the whole team reads.
@@ -113,4 +116,74 @@ func removeStale(dir string, out *os.Root, written map[string]bool) error {
 	}
 
 	return nil
+}
+
+// Drift lists, without writing anything, the top-level .ts files of dir that Sync with the same gen would write or
+// delete, sorted: the ones gen produces that are missing or differ, and the stale ones. It is the check a CI step
+// makes that the generated folder is current. A dir that does not exist is all drift, and is not created.
+func Drift(dir string, gen func(dir string) error) ([]string, error) {
+	scratch, err := os.MkdirTemp("", "go2ts-")
+	if err != nil {
+		return nil, fmt.Errorf("go2ts: create the scratch folder: %w", err)
+	}
+
+	defer func() { _ = os.RemoveAll(scratch) }() // best-effort: a scratch folder of the temp dir
+
+	err = gen(scratch)
+	if err != nil {
+		return nil, err
+	}
+
+	drifted, written, err := differing(scratch, dir)
+	if err != nil {
+		return nil, err
+	}
+
+	existing, err := os.ReadDir(dir)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("go2ts: read %s: %w", dir, err)
+	}
+
+	for _, entry := range existing {
+		if name := entry.Name(); !entry.IsDir() && filepath.Ext(name) == ".ts" && !written[name] {
+			drifted = append(drifted, name)
+		}
+	}
+
+	slices.Sort(drifted)
+
+	return drifted, nil
+}
+
+// differing lists the files of the scratch folder that are missing from dir or differ from it, and names them all.
+func differing(scratch, dir string) ([]string, map[string]bool, error) {
+	generated, err := os.ReadDir(scratch)
+	if err != nil {
+		return nil, nil, fmt.Errorf("go2ts: read the scratch folder: %w", err)
+	}
+
+	var drifted []string
+
+	written := make(map[string]bool, len(generated))
+
+	for _, entry := range generated {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		written[name] = true
+
+		want, err := os.ReadFile(filepath.Join(scratch, name)) //nolint:gosec // our own scratch directory
+		if err != nil {
+			return nil, nil, fmt.Errorf("go2ts: read generated %s: %w", name, err)
+		}
+
+		have, err := os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // the folder the caller named
+		if err != nil || !bytes.Equal(have, want) {
+			drifted = append(drifted, name)
+		}
+	}
+
+	return drifted, written, nil
 }

@@ -30,9 +30,12 @@
 // registry of Logic IDs (every ID the mapping declares is named in a comment).
 //
 // A rule whose layer is not configured is not run. Banned adds the rules of the
-// application itself (a removed API, a package one layer must not import), and
-// an application's own guards walk the same parsed files with Sources and
-// freeze their violations with Ratchet.
+// application itself (a removed API or method, a composite literal, a package one
+// layer must not import); FieldWrites holds a field to the places that may assign
+// it, RequiresCall makes a file that calls one function call another, and
+// ContextRoots bans a root context outside its wrappers. RepositoryShape also
+// bans a nested .Transaction( with Repository.NoNestedTransaction. An application's
+// own guards walk the same parsed files with Sources and freeze their violations with Ratchet.
 //
 // Pre-existing violations are frozen in a ratchet: Config.Allowed lists, per
 // rule, the files (for ServiceRepositories "file|domain/path") that may still
@@ -196,10 +199,15 @@ func orDefault(value, fallback string) string {
 // directory with no Go file, an unknown rule name.
 func (p *project) validate(root string) error {
 	for name, dir := range p.cfg.Layers.named() {
-		if dir != "" && !slices.ContainsFunc(p.files, func(src Source) bool { return inTree(src.Rel, dir) }) {
+		if dir != "" && !slices.ContainsFunc(p.files, func(src Source) bool { return InTree(src.Rel, dir) }) {
 			return fmt.Errorf("%w: Layers.%s %q holds no Go file under %s (a guard that sees nothing passes forever)",
 				errConfig, name, dir, root)
 		}
+	}
+
+	err := p.validateGuards()
+	if err != nil {
+		return err
 	}
 
 	known := ruleNames()
@@ -213,6 +221,26 @@ func (p *project) validate(root string) error {
 	for name := range p.cfg.Allowed {
 		if !slices.Contains(known, name) {
 			return fmt.Errorf("%w: Allowed names the unknown rule %q", errConfig, name)
+		}
+	}
+
+	return nil
+}
+
+// validateGuards refuses a Banned, RequiresCall or ContextRoots that is malformed.
+func (p *project) validateGuards() error {
+	for _, ban := range p.cfg.Banned {
+		err := ban.validate()
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, req := range p.cfg.RequiresCall {
+		for _, call := range []string{req.Call, req.Also} {
+			if pkg, _ := splitMember(call); pkg == "" {
+				return fmt.Errorf("%w: RequiresCall.Call and Also are \"import/path.Member\", not %q", errConfig, call)
+			}
 		}
 	}
 

@@ -127,7 +127,7 @@ func TestFieldToZodExpr_InSingleValue(t *testing.T) {
 
 func TestFieldToZodExpr_InString(t *testing.T) {
 	expr, _ := fieldToZodExpr(stringType, "in:foo,bar")
-	if expr != `z.union([z.literal("foo"), z.literal("bar")])` {
+	if expr != `z.enum(["foo", "bar"])` {
 		t.Errorf("got %q", expr)
 	}
 }

@@ -22,8 +22,9 @@ import (
 //	migrate mark-applied <connection> <version|file>...
 //	                record migrations as applied without running them, for a database
 //	                whose tables already exist, then return
-//	ts:generate [entities|schemas|permissions|routes]
-//	                write the application's TypeScript (only with WithTypeScript), then return
+//	ts:generate [--check] [entities|schemas|permissions|routes]
+//	                write the application's TypeScript (only with WithTypeScript), then return;
+//	                --check writes nothing and fails listing the files that are out of date
 //	help            list these commands, then return
 //	<name> [args]   a command the application added with Command, then return
 //
@@ -123,8 +124,8 @@ func tsUsage(typescript bool) string {
 		return ""
 	}
 
-	return "  " + tsCommand + " [entities|schemas|permissions|routes]\n" +
-		"                  write the application's TypeScript, then exit\n"
+	return "  " + tsCommand + " [--check] [entities|schemas|permissions|routes]\n" +
+		"                  write the application's TypeScript, then exit; --check only lists the files out of date\n"
 }
 
 // CommandFunc is a command the application added with App.Command. cmd carries the flags, the App and the output.

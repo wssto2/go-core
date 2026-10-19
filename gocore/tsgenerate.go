@@ -1,10 +1,12 @@
 package gocore
 
 import (
+	"bytes"
 	"cmp"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -21,8 +23,12 @@ const tsCommand = "ts:generate"
 // defaultTSDir is where ts:generate writes when TS.Dir is empty.
 const defaultTSDir = "frontend/generated"
 
+// checkFlag makes ts:generate list the drifted files instead of writing.
+const checkFlag = "--check"
+
 var (
 	errUnknownPart    = errors.New("unknown part")
+	errTSDrift        = errors.New("generated files are out of date")
 	errManyCatalogues = errors.New(
 		"the Permission union is written from one: define the permissions of the others in the application's catalogue")
 )
@@ -51,7 +57,10 @@ type TS struct {
 //	schemas/                                      ts.Inputs, through go2ts.Sync
 //	permissions.ts                                the permission union and its metadata, from App.Catalogues, overwritten
 //
-// "./myapp ts:generate" writes all four; "./myapp ts:generate routes" (or entities, schemas, permissions) one. It runs
+// "./myapp ts:generate" writes all four; "./myapp ts:generate routes" (or entities, schemas, permissions) one.
+// "./myapp ts:generate --check" (with or without a part) writes nothing: it lists the generated files that differ
+// from what the application would write, missing, edited and stale ones, and exits non-zero when there are any, so a
+// CI step is that one command. It runs
 // offline: New sees the command line and makes the App Offline itself, so main is unchanged and needs no database,
 // but the Installs still run and need the settings they read (see Offline). Output is deterministic, so a regenerate
 // and diff check in CI is stable.
@@ -103,6 +112,8 @@ func (a *App) generateTypeScript(args []string, out io.Writer) error {
 		return &StartupError{Problems: a.found()}
 	}
 
+	check := slices.Contains(args, checkFlag)
+	args = slices.DeleteFunc(slices.Clone(args), func(arg string) bool { return arg == checkFlag })
 	parts := tsParts()
 
 	if len(args) > 0 {
@@ -115,6 +126,10 @@ func (a *App) generateTypeScript(args []string, out io.Writer) error {
 	}
 
 	dir := cmp.Or(a.ts.Dir, defaultTSDir)
+
+	if check {
+		return a.checkTypeScript(parts, dir, out)
+	}
 
 	for _, part := range parts {
 		err := a.generatePart(part, dir, out)
@@ -208,4 +223,185 @@ func (a *App) generateRoutes(dir string, out io.Writer) error {
 	_, err = fmt.Fprintf(out, "%s: %d route groups written\n", dir, len(own))
 
 	return err //nolint:wrapcheck // the writer's own error
+}
+
+// checkTypeScript lists, writing nothing, the files of the parts that ts:generate would write or delete, and fails
+// when there are any.
+func (a *App) checkTypeScript(parts []string, dir string, out io.Writer) error {
+	var drifted []string
+
+	for _, part := range parts {
+		found, err := a.driftOf(part, filepath.Join(dir, part))
+		if err != nil {
+			return fmt.Errorf("gocore: ts:generate --check %s: %w", part, err)
+		}
+
+		drifted = append(drifted, found...)
+	}
+
+	if len(drifted) == 0 {
+		_, err := fmt.Fprintf(out, "%s: generated files are up to date\n", dir)
+
+		return err //nolint:wrapcheck // the writer's own error
+	}
+
+	for _, file := range drifted {
+		_, err := fmt.Fprintln(out, file)
+		if err != nil {
+			return err //nolint:wrapcheck // the writer's own error
+		}
+	}
+
+	return fmt.Errorf("gocore: ts:generate --check: %d %w: run %s to write them", len(drifted), errTSDrift, tsCommand)
+}
+
+// driftOf is the paths of one part that differ from what generating would write.
+func (a *App) driftOf(part, target string) ([]string, error) {
+	switch part {
+	case "entities":
+		return driftTypes(target, a.ts.Entities, go2ts.GenerateTypes)
+	case "schemas":
+		return driftTypes(target, a.ts.Inputs, go2ts.GenerateSchemas)
+	case "permissions":
+		return a.driftPermissions(target + ".ts")
+	default:
+		return a.driftRoutes(target)
+	}
+}
+
+func driftTypes(dir string, list []any, generate func([]any, string) error) ([]string, error) {
+	if len(list) == 0 {
+		return []string{}, nil // "no types listed": the folder is left as it is
+	}
+
+	names, err := go2ts.Drift(dir, func(scratch string) error { return generate(list, scratch) })
+
+	return pathsIn(dir, names), err
+}
+
+func (a *App) driftPermissions(file string) ([]string, error) {
+	catalogues := a.Catalogues()
+
+	switch len(catalogues) {
+	case 0:
+		return []string{}, nil
+	case 1:
+		scratch, err := os.MkdirTemp("", "gocore-ts-")
+		if err != nil {
+			return nil, fmt.Errorf("create the scratch folder: %w", err)
+		}
+
+		defer func() { _ = os.RemoveAll(scratch) }() // best-effort: a scratch folder of the temp dir
+
+		want := filepath.Join(scratch, filepath.Base(file))
+
+		err = authzts.WriteFile(catalogues[0], want, authzts.Options{Hierarchy: nil})
+		if err != nil {
+			return nil, err //nolint:wrapcheck // authzts names the file
+		}
+
+		if sameFile(want, file) {
+			return []string{}, nil
+		}
+
+		return []string{file}, nil
+	default:
+		return nil, fmt.Errorf("%d permission catalogues were installed: %w", len(catalogues), errManyCatalogues)
+	}
+}
+
+func (a *App) driftRoutes(dir string) ([]string, error) {
+	scratch, err := os.MkdirTemp("", "gocore-ts-")
+	if err != nil {
+		return nil, fmt.Errorf("create the scratch folder: %w", err)
+	}
+
+	defer func() { _ = os.RemoveAll(scratch) }() // best-effort: a scratch folder of the temp dir
+
+	err = contract.Generate(scratch, a.OwnContracts()...)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // contract lists every problem with its fix
+	}
+
+	return treeDrift(scratch, dir)
+}
+
+// sameFile reports whether the two files hold the same bytes; a file that cannot be read is not the same.
+func sameFile(want, have string) bool {
+	generated, err := os.ReadFile(want) //nolint:gosec // our own scratch directory
+	if err != nil {
+		return false
+	}
+
+	current, err := os.ReadFile(have) //nolint:gosec // the file the application named
+	if err != nil {
+		return false
+	}
+
+	return bytes.Equal(current, generated)
+}
+
+// filesUnder lists the files below dir, relative; a dir that does not exist holds none.
+func filesUnder(dir string) ([]string, error) {
+	var files []string
+
+	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil
+		case err != nil:
+			return err
+		case !entry.IsDir():
+			rel, _ := filepath.Rel(dir, path)
+			files = append(files, rel)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list %s: %w", dir, err)
+	}
+
+	return files, nil
+}
+
+// treeDrift lists the files under have that differ from the generated folder want, or want holds and have lacks,
+// or have holds and want does not.
+func treeDrift(want, have string) ([]string, error) {
+	generated, err := filesUnder(want)
+	if err != nil {
+		return nil, err
+	}
+
+	current, err := filesUnder(have)
+	if err != nil {
+		return nil, err
+	}
+
+	var drifted []string
+
+	for _, rel := range generated {
+		if !sameFile(filepath.Join(want, rel), filepath.Join(have, rel)) {
+			drifted = append(drifted, filepath.Join(have, rel))
+		}
+	}
+
+	for _, rel := range current {
+		if !slices.Contains(generated, rel) {
+			drifted = append(drifted, filepath.Join(have, rel))
+		}
+	}
+
+	slices.Sort(drifted)
+
+	return drifted, nil
+}
+
+func pathsIn(dir string, names []string) []string {
+	out := make([]string, len(names))
+	for idx, name := range names {
+		out[idx] = filepath.Join(dir, name)
+	}
+
+	return out
 }

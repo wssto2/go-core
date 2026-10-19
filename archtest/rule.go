@@ -82,13 +82,13 @@ func settle(title, hint string, allowed []string, found []finding) []string {
 	return out
 }
 
-// inTree reports whether rel is dir or under it.
-func inTree(rel, dir string) bool {
+// InTree reports whether rel is dir or under it.
+func InTree(rel, dir string) bool {
 	return rel == dir || strings.HasPrefix(rel, dir+"/")
 }
 
 func inAnyTree(rel string, dirs ...string) bool {
-	return slices.ContainsFunc(dirs, func(dir string) bool { return dir != "" && inTree(rel, dir) })
+	return slices.ContainsFunc(dirs, func(dir string) bool { return dir != "" && InTree(rel, dir) })
 }
 
 // under reports whether an import path is prefix or below it.
@@ -106,8 +106,8 @@ func importPath(imp *ast.ImportSpec) string {
 	return unquoted
 }
 
-// stringLit is the value of a string literal expression.
-func stringLit(expr ast.Expr) (string, bool) {
+// StringLit is the value of a string literal expression.
+func StringLit(expr ast.Expr) (string, bool) {
 	lit, isLit := expr.(*ast.BasicLit)
 	if !isLit || lit.Kind != token.STRING {
 		return "", false
@@ -148,8 +148,8 @@ func lastSegment(importPath string) string {
 	return last
 }
 
-// selectorCall reports whether node is a call of <pkg>.<member>(...).
-func selectorCall(node ast.Node, pkg, member string) (*ast.CallExpr, bool) {
+// SelectorCall reports whether node is a call of <pkg>.<member>(...).
+func SelectorCall(node ast.Node, pkg, member string) (*ast.CallExpr, bool) {
 	call, isCall := node.(*ast.CallExpr)
 	if !isCall {
 		return nil, false
@@ -213,7 +213,7 @@ func callsOf(srcs []Source, pkgPath, member string) []finding {
 		}
 
 		ast.Inspect(src.File, func(node ast.Node) bool {
-			if call, isCall := selectorCall(node, alias, member); isCall {
+			if call, isCall := SelectorCall(node, alias, member); isCall {
 				out = append(out, finding{key: src.Rel, text: src.At(call)})
 			}
 
