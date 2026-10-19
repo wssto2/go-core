@@ -3,6 +3,8 @@ package apperr_test
 import (
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -83,4 +85,74 @@ func TestEveryCodeHasAMessageAndAFromForm(t *testing.T) {
 		require.Equal(t, code, pair[1].Code)
 		require.ErrorIs(t, pair[1], cause)
 	}
+}
+
+var errTicketGone = errors.New("ticket gone")
+
+func TestWhen(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil stays nil", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, apperr.When(nil, apperr.On(errTicketGone, apperr.NotFound("x"))))
+	})
+
+	t.Run("first match maps and keeps the cause", func(t *testing.T) {
+		t.Parallel()
+
+		other := errors.New("other") //nolint:err113
+		cause := fmt.Errorf("find: %w", errTicketGone)
+		got := apperr.When(cause,
+			apperr.On(other, apperr.BadRequest("no")),
+			apperr.On(errTicketGone, apperr.NotFound("ticket not found")),
+			apperr.On(errTicketGone, apperr.Conflict("later case")),
+		)
+
+		var ae *apperr.AppError
+		require.ErrorAs(t, got, &ae)
+		require.Equal(t, apperr.CodeNotFound, ae.Code)
+		require.Equal(t, "ticket not found", ae.Message)
+		require.ErrorIs(t, got, errTicketGone)
+	})
+
+	t.Run("an AppError passes unchanged", func(t *testing.T) {
+		t.Parallel()
+
+		in := apperr.Forbidden("no")
+		require.Same(t, in, apperr.When(in, apperr.On(errTicketGone, apperr.NotFound("x"))))
+
+		wrapped := fmt.Errorf("ctx: %w", in)
+		require.Equal(t, wrapped, apperr.When(wrapped))
+	})
+
+	t.Run("no match is Internal at the callers line", func(t *testing.T) {
+		t.Parallel()
+
+		boom := errors.New("boom")                                               //nolint:err113
+		got := apperr.When(boom, apperr.On(errTicketGone, apperr.NotFound("x"))) // WHEN-CALL
+
+		var ae *apperr.AppError
+		require.ErrorAs(t, got, &ae)
+		require.Equal(t, apperr.CodeInternal, ae.Code)
+		require.ErrorIs(t, got, boom)
+		require.True(t, strings.HasSuffix(ae.File, "apperr_test.go"), ae.File)
+		require.Equal(t, lineOf(t, "// WHEN-CALL"), ae.Line)
+	})
+}
+
+func lineOf(t *testing.T, marker string) int {
+	t.Helper()
+
+	src, err := os.ReadFile("apperr_test.go")
+	require.NoError(t, err)
+
+	for i, l := range strings.Split(string(src), "\n") {
+		if strings.HasSuffix(l, marker) {
+			return i + 1
+		}
+	}
+
+	t.Fatalf("marker %s not found", marker)
+
+	return 0
 }

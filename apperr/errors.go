@@ -288,3 +288,45 @@ func Unauthorized(message string) *AppError {
 func Forbidden(message string) *AppError {
 	return newWithSkip(nil, message, CodePermissionDenied).WithLog(LevelWarn)
 }
+
+// Case is one mapping for When: an error to look for and the AppError that answers it. Build it with On.
+type Case struct {
+	match  error
+	mapped *AppError
+}
+
+// On maps every error that is, or wraps, sentinel to mapped.
+func On(sentinel error, mapped *AppError) Case { return Case{match: sentinel, mapped: mapped} }
+
+// When translates a service's error for the edge, in one expression:
+//
+//	t, err := s.repo.Find(ctx, in.ID)
+//	return t, apperr.When(err, apperr.On(ticket.ErrNotFound, apperr.NotFound("ticket not found")))
+//
+// It returns nil for nil; for the first case whose sentinel err matches (errors.Is), a copy of that case's AppError
+// that keeps err as its cause, so errors.Is(result, sentinel) stays true; err itself when it already is, or wraps,
+// an *AppError; and for anything else Internal(err). That Internal is recorded at the file and line of the call to
+// When, so a 500's log and incident point at the failing service, not at the edge that finally sees it.
+func When(err error, cases ...Case) error {
+	if err == nil {
+		return nil
+	}
+
+	for _, c := range cases {
+		if errors.Is(err, c.match) {
+			mapped := *c.mapped
+			if mapped.Err == nil {
+				mapped.Err = err
+			}
+
+			return &mapped
+		}
+	}
+
+	var ae *AppError
+	if errors.As(err, &ae) {
+		return err
+	}
+
+	return Internal(err)
+}
