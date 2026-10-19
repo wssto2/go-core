@@ -315,7 +315,7 @@ func (a *App) Command(name, short string, run CommandFunc, opts ...CommandOption
 			return
 		}
 
-		c := appCommand{name: name, short: short, run: run}
+		c := appCommand{name: name, short: short, long: "", run: run}
 		for _, o := range opts {
 			o(&c)
 		}
