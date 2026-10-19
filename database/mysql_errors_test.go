@@ -142,3 +142,30 @@ func TestIsDeadlock_AgainstTheServers(t *testing.T) {
 		assert.Equal(t, 1, deadlocks, "exactly one transaction is the victim")
 	}, dbtest.MySQL, dbtest.MariaDB)
 }
+
+func TestCreateUnlessDuplicate(t *testing.T) {
+	type item struct {
+		Key  string `gorm:"primaryKey"`
+		Note string
+	}
+
+	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+		require.NoError(t, db.AutoMigrate(&item{}))
+
+		created, err := database.CreateUnlessDuplicate(db, &item{Key: "a", Note: "first"})
+		require.NoError(t, err)
+		assert.True(t, created)
+
+		created, err = database.CreateUnlessDuplicate(db, &item{Key: "a", Note: "second"})
+		require.NoError(t, err)
+		assert.False(t, created, "a refused duplicate is not an error")
+
+		var got item
+		require.NoError(t, db.First(&got, "`key` = ?", "a").Error)
+		assert.Equal(t, "first", got.Note, "the stored row is untouched")
+
+		// Any other failure is still an error.
+		_, err = database.CreateUnlessDuplicate(db.Table("no_such_table"), &item{Key: "b"})
+		require.Error(t, err)
+	})
+}
