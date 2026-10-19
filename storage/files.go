@@ -220,6 +220,16 @@ func (f *Files) Exists(ctx context.Context, key string) (bool, error) {
 	return f.driver.Exists(ctx, full) //nolint:wrapcheck // a driver's own apperr error
 }
 
+// PublicPath is the path the disk's files are served at when Public was given a path ("/media"), and "" for a private
+// disk or an absolute URL, which someone else serves.
+func (f *Files) PublicPath() string {
+	if f.public && strings.HasPrefix(f.base, "/") {
+		return f.base
+	}
+
+	return ""
+}
+
 // URL is where anyone can open the file, on a public disk: "/media/vehicles/123/front.jpg". A private disk has no URL,
 // its files are served through the application (see web.Serve), so asking is an error.
 func (f *Files) URL(_ context.Context, key string) (string, error) {

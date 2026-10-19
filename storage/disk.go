@@ -37,6 +37,9 @@ func Disk(name string) DiskSpec {
 	return DiskSpec{name: name, driver: nil, public: false, base: "", err: nil}
 }
 
+// Name is the disk's name.
+func (s DiskSpec) Name() string { return s.name }
+
 // Local keeps the files under root on the local file system. The root is created when missing.
 func (s DiskSpec) Local(root string) DiskSpec {
 	d, err := local.New(root)

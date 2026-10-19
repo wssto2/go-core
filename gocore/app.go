@@ -22,6 +22,7 @@ import (
 	"github.com/wssto2/go-core/route"
 	"github.com/wssto2/go-core/storage"
 	"github.com/wssto2/go-core/tenancy"
+	"github.com/wssto2/go-core/web"
 	"github.com/wssto2/go-core/worker"
 	"gorm.io/gorm"
 )
@@ -301,6 +302,10 @@ func (a *App) Prefix() string {
 //	    storage.Disk("public").Local("storage/public").Public("/media"), // anyone with the URL can open it
 //	)
 //
+// A disk made Public with a path is served by the application at that path, outside the prefix: GET and HEAD only, the
+// file and never a directory listing, and nothing outside the disk's root. A Public absolute URL ("https://cdn…") is
+// served by whatever is behind it, so nothing is mounted.
+//
 // A disk without a name or a driver, a name declared twice, or a root that cannot be used stops start-up.
 func (a *App) Disks(disks ...storage.DiskSpec) {
 	if a.disks == nil {
@@ -311,7 +316,26 @@ func (a *App) Disks(disks ...storage.DiskSpec) {
 		err := a.disks.Add(d)
 		if err != nil {
 			a.fail(err.Error(), "give each disk in app.Disks a unique name and Local(root), Memory() or Driver(d)")
+
+			continue
 		}
+
+		a.serveDisk(d)
+	}
+}
+
+func (a *App) serveDisk(spec storage.DiskSpec) {
+	files, _ := a.disks.Disk(spec.Name())
+
+	base := files.PublicPath()
+	if base == "" {
+		return
+	}
+
+	serve := func(ctx *gin.Context) { web.Serve(ctx, files, strings.TrimPrefix(ctx.Param("key"), "/"), "") }
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		a.Root(route.Raw(method, base+"/*key").Name("disk." + spec.Name() + "." + strings.ToLower(method)).Public().To(serve))
 	}
 }
 
