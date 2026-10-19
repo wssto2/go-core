@@ -168,7 +168,7 @@ func (c *capturer) failed(ctx *gin.Context) (core.Failure, bool) {
 	appErr := asAppError(last.Err)
 	if appErr != nil && len(appErr.Fields) > 0 {
 		failure.ContextJSON = marshal(map[string]any{
-			"handler": routeOf(ctx), "error_fields": appErr.Fields, "principal": principalOf(ctx),
+			"handler": routeOf(ctx), "error_fields": audit.Mask(appErr.Fields), "principal": principalOf(ctx),
 			"recent_requests": c.recent(ctx),
 		})
 	}
@@ -203,9 +203,11 @@ func (c *capturer) describe(ctx *gin.Context, status int) core.Failure {
 		Environment: c.env,
 	}
 
+	params, path := maskedParams(ctx)
+
 	failure.RequestJSON = marshal(map[string]any{
-		"path": request.URL.Path, "query": audit.Mask(request.URL.Query()), "status_code": status, "request_path": route,
-		"params": paramsOf(ctx), "headers": audit.Mask(maskedHeaders(request.Header)),
+		"path": path, "query": audit.Mask(request.URL.Query()), "status_code": status, "request_path": route,
+		"params": params, "headers": audit.Mask(maskedHeaders(request.Header)),
 	})
 	failure.ContextJSON = marshal(map[string]any{
 		"handler": route, "principal": principalOf(ctx), "recent_requests": c.recent(ctx),
@@ -266,13 +268,25 @@ func principalOf(ctx *gin.Context) map[string]any {
 	return map[string]any{"kind": string(who.kind), "id": who.id}
 }
 
-func paramsOf(ctx *gin.Context) map[string]string {
+// maskedParams are the path parameters with the ones audit.Mask finds secret by name redacted (a reset token), and the
+// path with their values redacted too.
+func maskedParams(ctx *gin.Context) (map[string]string, string) {
 	params := make(map[string]string, len(ctx.Params))
+	path := ctx.Request.URL.Path
+
 	for _, p := range ctx.Params {
 		params[p.Key] = p.Value
 	}
 
-	return params
+	masked, _ := audit.Mask(params).(map[string]any)
+	for _, p := range ctx.Params {
+		if masked[p.Key] == redacted {
+			params[p.Key] = redacted
+			path = strings.Replace(path, "/"+p.Value, "/"+redacted, 1)
+		}
+	}
+
+	return params, path
 }
 
 // credentialHeaders are the request headers that hold a secret whatever their value; audit.Mask redacts by the names of

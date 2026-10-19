@@ -157,6 +157,45 @@ func (s *Service) Comments(ctx context.Context, incidentID int, viewer Viewer) (
 	return comments, nil
 }
 
+// Occurrences is a page of the sightings of an incident, newest first, with the people named. Only the staff reads
+// them: they hold the request and context of failures, which no reporter is shown.
+func (s *Service) Occurrences(
+	ctx context.Context, incidentID int, page pagination.Page, viewer Viewer,
+) (*pagination.PageResult[Occurrence], error) {
+	if incidentID <= 0 {
+		return nil, apperr.BadRequest("invalid incident id")
+	}
+
+	if !viewer.Staff {
+		return nil, apperr.Forbidden("occurrences are for the staff")
+	}
+
+	result, err := s.store.Occurrences(ctx, incidentID, page, viewer)
+	if err != nil {
+		return nil, notFound(err)
+	}
+
+	ids := make([]int, 0, len(result.Items))
+	for _, occurrence := range result.Items {
+		if occurrence.UserID != nil {
+			ids = append(ids, *occurrence.UserID)
+		}
+	}
+
+	names, err := s.names(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range result.Items {
+		if id := result.Items[i].UserID; id != nil {
+			result.Items[i].User = names[*id]
+		}
+	}
+
+	return result, nil
+}
+
 // name fills the people of the incident, its reports and its comments, in one look-up.
 func (s *Service) name(ctx context.Context, detail *Detail) error {
 	ids := personIDs(detail.Incident)

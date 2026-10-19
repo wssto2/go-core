@@ -134,6 +134,12 @@ func signIn(c *gin.Context) {
 	c.Next()
 }
 
+// leakIn is a request that carries secrets in its path and body.
+type leakIn struct {
+	Token    string `path:"token"`
+	Password string `json:"password"`
+}
+
 type fixedClock struct{ at *time.Time }
 
 func (c fixedClock) Now() time.Time { return *c.at }
@@ -183,6 +189,9 @@ func newWorld(t *testing.T, opts ...incident.Option) *world {
 		}),
 		route.Get[none, route.Empty]("/v1/test/boom").Authenticated().To(func(context.Context, none) (route.Empty, error) {
 			return route.Empty{}, errors.New("database exploded for user 42")
+		}),
+		route.Post[leakIn, route.Empty]("/v1/test/leak/:token").Authenticated().To(func(context.Context, leakIn) (route.Empty, error) {
+			return route.Empty{}, apperr.Internal(errors.New("save failed")).WithFields(map[string]string{"password": "hunter2-field"})
 		}),
 		route.Get[none, route.Empty]("/v1/test/panic").Authenticated().To(func(context.Context, none) (route.Empty, error) {
 			var nothing []int

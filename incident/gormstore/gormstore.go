@@ -208,6 +208,40 @@ func (s *Store) Comments(ctx context.Context, incidentID int, who core.Viewer) (
 	return out, nil
 }
 
+// Occurrences implements core.Store. The incident is read first with the viewer's rules, so an incident the viewer may
+// not see answers ErrNotFound; the page is newest first by id, which follows the time and is unique.
+func (s *Store) Occurrences(
+	ctx context.Context, incidentID int, page pagination.Page, who core.Viewer,
+) (*pagination.PageResult[core.Occurrence], error) {
+	_, err := s.Find(ctx, incidentID, who)
+	if err != nil {
+		return nil, err
+	}
+
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	params := datatable.QueryParams{Page: page.Number, PerPage: page.Size, OrderCol: "id", OrderDir: "desc"}
+
+	result, err := datatable.New[occurrenceModel](s.conn(ctx), params).
+		WithColumns([]string{
+			"id", "incident_id", "environment", colModule, colRoute, "request_method", "user_id", "tenant_id", "ip_address",
+			"request_id", "error_class", "error_code", "message", "stacktrace", "context_json", "request_json", "occurred_at",
+			"created_at",
+		}).
+		WithScope(func(q *gorm.DB, table string) *gorm.DB { return q.Where(table+".incident_id = ?", incidentID) }).
+		Get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list occurrences of incident %d: %w", incidentID, err)
+	}
+
+	mapped := datatable.Map(result, func(m occurrenceModel) core.Occurrence { return m.occurrence() })
+
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
+	return &pagination.PageResult[core.Occurrence]{
+		Items: mapped.Data, Meta: mapped.Meta, Total: mapped.Total, PerPage: mapped.PerPage, Page: mapped.Page,
+		LastPage: mapped.LastPage, From: mapped.From, To: mapped.To,
+	}, nil
+}
+
 // Watching implements core.Store.
 func (s *Store) Watching(ctx context.Context, incidentID, userID int) (bool, error) {
 	var found int64
@@ -348,6 +382,17 @@ func (s *Store) CreateOccurrence(ctx context.Context, sighting *core.Occurrence)
 	}
 
 	return nil
+}
+
+func (m occurrenceModel) occurrence() core.Occurrence {
+	return core.Occurrence{
+		ID: m.ID, IncidentID: m.IncidentID, Fingerprint: m.Fingerprint, Environment: m.Environment,
+		AffectedModule: plain(m.AffectedModule), AffectedRoute: plain(m.AffectedRoute), RequestMethod: plain(m.RequestMethod),
+		UserID: m.UserID, TenantID: m.TenantID, IPAddress: plain(m.IPAddress), RequestID: plain(m.RequestID),
+		ErrorClass: plain(m.ErrorClass), ErrorCode: plain(m.ErrorCode), Message: m.Message,
+		NormalizedMessage: plain(m.NormalizedMessage), Stacktrace: plain(m.Stacktrace), ContextJSON: plain(m.ContextJSON),
+		RequestJSON: plain(m.RequestJSON), OccurredAt: m.OccurredAt.UTC(), CreatedAt: m.CreatedAt.UTC(), User: nil,
+	}
 }
 
 // CountComment implements core.Store.

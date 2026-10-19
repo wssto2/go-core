@@ -181,6 +181,41 @@ func reportOf(report core.Report) ReportResponse {
 	}
 }
 
+// OccurrenceResponse is one sighting of an incident: where and when a failure happened, who met it, and the request
+// and context captured with it (credentials already redacted). Context and Request are JSON documents.
+//
+//nolint:tagliatelle // snake_case wire
+type OccurrenceResponse struct {
+	ID          int             `json:"id"`
+	IncidentID  int             `json:"incident_id"`
+	OccurredAt  DateTime        `json:"occurred_at"`
+	Environment string          `json:"environment,omitempty"`
+	Module      string          `json:"module,omitempty"`
+	Route       string          `json:"route,omitempty"`
+	Method      string          `json:"method,omitempty"`
+	UserID      *int            `json:"user_id,omitempty"`
+	User        *PersonResponse `json:"user,omitempty"`
+	IPAddress   string          `json:"ip_address,omitempty"`
+	RequestID   string          `json:"request_id,omitempty"`
+	ErrorClass  string          `json:"error_class,omitempty"`
+	ErrorCode   string          `json:"error_code,omitempty"`
+	Message     string          `json:"message"`
+	Stacktrace  string          `json:"stacktrace,omitempty"`
+	Context     any             `json:"context,omitempty"` // a JSON document (json.RawMessage)
+	Request     any             `json:"request,omitempty"` // a JSON document (json.RawMessage)
+}
+
+func occurrenceOf(occ core.Occurrence) OccurrenceResponse {
+	return OccurrenceResponse{
+		ID: occ.ID, IncidentID: occ.IncidentID, OccurredAt: stamp(occ.OccurredAt), Environment: occ.Environment,
+		Module: occ.AffectedModule, Route: occ.AffectedRoute, Method: occ.RequestMethod,
+		UserID: occ.UserID, User: personOf(occ.User),
+		IPAddress: occ.IPAddress, RequestID: occ.RequestID, ErrorClass: occ.ErrorClass, ErrorCode: occ.ErrorCode,
+		Message: occ.Message, Stacktrace: occ.Stacktrace, Context: document([]byte(occ.ContextJSON)),
+		Request: document([]byte(occ.RequestJSON)),
+	}
+}
+
 // Meta is what an incident's answer carries beside it: the reports and comments the viewer may see and whether
 // they watch the incident. The fields are in the order of the keys sorted, which is how the first application wrote
 // them.
@@ -222,4 +257,8 @@ func recordOf(detail core.Detail) Shown {
 
 func pageOf(result *pagination.PageResult[core.Incident]) route.Page[Incident] {
 	return typed.ToPage(pagination.MapResult(result, incidentOf))
+}
+
+func occurrencePageOf(result *pagination.PageResult[core.Occurrence]) route.Page[OccurrenceResponse] {
+	return typed.ToPage(pagination.MapResult(result, occurrenceOf))
 }

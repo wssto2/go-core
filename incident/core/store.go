@@ -44,6 +44,11 @@ type Reader interface {
 	// Comments returns the comments of an incident that are not deleted, oldest first: all of them for the staff,
 	// the public ones for anybody else.
 	Comments(ctx context.Context, incidentID int, viewer Viewer) ([]Comment, error)
+	// Occurrences is a page of the sightings of an incident, newest first, if the viewer may see the incident, else
+	// ErrNotFound. The page's number and size apply; its order, search and filters do not.
+	Occurrences(
+		ctx context.Context, incidentID int, page pagination.Page, viewer Viewer,
+	) (*pagination.PageResult[Occurrence], error)
 	// Watching reports whether the person watches the incident.
 	Watching(ctx context.Context, incidentID, userID int) (bool, error)
 	// FindOpen returns the open incident with the fingerprint, else ErrNotFound.
