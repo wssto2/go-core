@@ -3,8 +3,8 @@
 // application see the list, work on the incidents and are told of the new ones.
 //
 //	incident.DefinePermissions(catalogue)
-//	notices := notification.Install(app, users, incident.AlertCategory, notification.AppURL(url))
-//	incidents := incident.Install(app, users, incident.Alerts{Enabled: true, Notices: notices})
+//	notices := notification.Install(app, users, notification.AppURL(url))
+//	incidents := incident.Install(app, users, notices, incident.Alerts{Enabled: true})
 //
 // What Install puts in the application:
 //
@@ -37,6 +37,7 @@ import (
 	"github.com/wssto2/go-core/incident/core"
 	"github.com/wssto2/go-core/incident/gormstore"
 	"github.com/wssto2/go-core/incident/migrations"
+	"github.com/wssto2/go-core/notification"
 	"github.com/wssto2/go-core/ratelimit"
 	"gorm.io/gorm"
 )
@@ -63,27 +64,34 @@ type Incidents struct {
 // command), the capture before every route, the routes, the housekeeper and, with Alerts, the alerts. people names the
 // people on an incident.
 //
-//	incidents := incident.Install(app, users)
-//	incidents := incident.Install(app, users,
-//		incident.Capture{TrailSize: 50}, incident.Alerts{Enabled: true, Notices: notices})
+//	incidents := incident.Install(app, users, nil)
+//	incidents := incident.Install(app, users, notices,
+//		incident.Capture{TrailSize: 50}, incident.Alerts{Enabled: true})
+//
+// notices is the notification module the alerts go through; Install registers AlertCategory with it, so the
+// application does not. It may be nil when the alerts are off.
 //
 // A bad option is a start-up problem Run lists with the fix.
-func Install(app *gocore.App, people People, opts ...Option) *Incidents {
+func Install(app *gocore.App, people People, notices *notification.Notices, opts ...Option) *Incidents {
 	defer app.Shipping()()
 
 	if people == nil {
-		app.Fail("incident needs the people to name", "pass the users as the second argument: incident.Install(app, users)")
+		app.Fail("incident needs the people to name", "pass the users as the second argument: incident.Install(app, users, notices)")
 
 		return new(Incidents)
 	}
 
-	cfg := collect(opts)
+	cfg := collect(opts, notices)
 	if len(cfg.problems) > 0 {
 		for _, p := range cfg.problems {
 			app.Fail(p.What, p.Fix)
 		}
 
 		return new(Incidents)
+	}
+
+	if notices != nil {
+		notices.Register(AlertCategory)
 	}
 
 	conn := app.Database()
@@ -110,14 +118,14 @@ func Install(app *gocore.App, people People, opts ...Option) *Incidents {
 	house := housekeeper{store: store, retain: cfg.retain, clock: app.Clock(), log: app.Logger()}
 	app.Background(house)
 
-	consumers, digest := installAlerts(app, cfg, conn, store)
+	consumers, digest := installAlerts(app, cfg, notices, conn, store)
 	app.Events(consumers...)
 
 	return &Incidents{Service: service, housekeeper: house, digest: digest}
 }
 
 // installAlerts starts the digest worker and returns the consumers of the alerts, none when they are off.
-func installAlerts(app *gocore.App, cfg *config, conn *gorm.DB, store core.Store) ([]event.Consumer, digestWorker) {
+func installAlerts(app *gocore.App, cfg *config, notices *notification.Notices, conn *gorm.DB, store core.Store) ([]event.Consumer, digestWorker) {
 	if !cfg.alerts.Enabled {
 		//nolint:exhaustruct,exhaustruct_v5 // zero by design
 		return nil, digestWorker{}
@@ -129,7 +137,7 @@ func installAlerts(app *gocore.App, cfg *config, conn *gorm.DB, store core.Store
 	}
 
 	alerts := &alerter{
-		cfg: cfg.alerts, store: store, clock: app.Clock(), log: app.Logger(), holders: holders, link: cfg.link,
+		cfg: cfg.alerts, notices: notices, store: store, clock: app.Clock(), log: app.Logger(), holders: holders, link: cfg.link,
 	}
 
 	digest := digestWorker{

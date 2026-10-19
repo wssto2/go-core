@@ -71,6 +71,7 @@ func publishOpened(ctx context.Context, opened core.Opened) error {
 // alerter sends the alerts: the consumer of Opened and of the digest.
 type alerter struct {
 	cfg     Alerts
+	notices *notification.Notices
 	store   core.Store
 	clock   gocore.Clock
 	log     *slog.Logger
@@ -209,7 +210,7 @@ func (a *alerter) send(
 		return notification.Message{Title: title, Body: body, Link: link, Data: data}
 	}
 
-	err = a.cfg.Notices.Send(ctx, AlertCategory, notification.To(people...), render)
+	err = a.notices.Send(ctx, AlertCategory, notification.To(people...), render)
 	if err != nil {
 		return false, fmt.Errorf("incident: send the alert: %w", err)
 	}

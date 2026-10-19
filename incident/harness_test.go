@@ -178,7 +178,7 @@ func newWorld(t *testing.T, opts ...incident.Option) *world {
 
 	app.Use(middlewares.RequestID())
 
-	w.inc = incident.Install(app, people(), opts...)
+	w.inc = incident.Install(app, people(), nil, opts...)
 
 	type none = route.None
 

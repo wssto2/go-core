@@ -649,11 +649,11 @@ The incident log of an application: **a server error becomes an incident**, repe
 ```go
 incident.DefinePermissions(catalogue)       // incident:{view,create,update,manage}, only the ones the catalogue lacks; before access.Install
 
-notices := notification.Install(app, users, incident.AlertCategory, notification.AppURL("https://app.example.com"))
+notices := notification.Install(app, users, notification.AppURL("https://app.example.com")) // incident registers its own alert category
 
-incidents := incident.Install(app, users, // users: *identity.Users
+incidents := incident.Install(app, users, notices, // users: *identity.Users; notices may be nil when the alerts are off
 	incident.Capture{TrailSize: 30, Environment: "production"},   // optional; the defaults are shown (TrailSize 30, Environment from APP_ENV)
-	incident.Alerts{Enabled: true, Notices: notices},              // off unless Enabled; Immediate, Cooldown, DigestEvery, Holders are optional
+	incident.Alerts{Enabled: true},                               // off unless Enabled; Immediate, Cooldown, DigestEvery, Holders are optional
 	incident.ClientErrors(ratelimit.NewInMemoryLimiter(20, time.Minute)), // per person; this is the default
 	incident.Retain(90*24*time.Hour),                               // occurrences, except the newest of each incident; this is the default
 	incident.Link(func(id int) string { return fmt.Sprintf("/incidents/%d", id) }), // where an alert opens; this is the default

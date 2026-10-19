@@ -29,7 +29,6 @@ func TestAlertsFromEnvDefaults(t *testing.T) {
 	assert.Equal(t, []incident.Severity{incident.SeverityCritical, incident.SeverityHigh}, got.Immediate)
 	assert.Equal(t, incident.DefaultCooldown, got.Cooldown)
 	assert.Equal(t, incident.DefaultDigestEvery, got.DigestEvery)
-	assert.Nil(t, got.Notices)
 }
 
 func TestAlertsFromEnvReadsTheVariables(t *testing.T) {

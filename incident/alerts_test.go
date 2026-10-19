@@ -83,9 +83,7 @@ func newAlertWorld(t *testing.T, alerts incident.Alerts) *alertWorld {
 	require.NoError(t, notification.DefinePermissions(catalogue))
 	app.Permissions(catalogue)
 
-	w.notices = notification.Install(app, notified{}, incident.AlertCategory)
-
-	alerts.Notices = w.notices
+	w.notices = notification.Install(app, notified{})
 
 	if alerts.Holders == nil {
 		alerts.Holders = func(context.Context, string) ([]int, error) {
@@ -97,7 +95,7 @@ func newAlertWorld(t *testing.T, alerts incident.Alerts) *alertWorld {
 		}
 	}
 
-	w.inc = incident.Install(app, people(), alerts)
+	w.inc = incident.Install(app, people(), w.notices, alerts)
 	w.app, w.store = app, gormstore.New(app.Database())
 
 	_, err := app.Handler()
@@ -281,7 +279,7 @@ func TestTheAlertsAreOffByDefaultButTheEventIsPublished(t *testing.T) {
 		return nil
 	}))
 
-	inc := incident.Install(app, people())
+	inc := incident.Install(app, people(), nil)
 
 	require.NoError(t, inc.Service.Capture(t.Context(), core.Failure{Message: "boom", AffectedModule: "x"}))
 	require.NoError(t, inc.Service.Capture(t.Context(), core.Failure{Message: "boom", AffectedModule: "x"}))
@@ -308,11 +306,11 @@ func TestAnEnabledAlertNeedsNotices(t *testing.T) {
 	require.NoError(t, incident.DefinePermissions(catalogue))
 	app.Permissions(catalogue)
 
-	incident.Install(app, people(), incident.Alerts{Enabled: true, Immediate: []incident.Severity{"bogus"}})
+	incident.Install(app, people(), nil, incident.Alerts{Enabled: true, Immediate: []incident.Severity{"bogus"}})
 
 	err := app.Check()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "incident.Alerts is enabled but has no Notices")
+	assert.Contains(t, err.Error(), "incident.Alerts is enabled but incident.Install has no Notices")
 	assert.Contains(t, err.Error(), `"bogus"`)
 }
 
@@ -353,8 +351,8 @@ func TestTheDefaultRecipientsAreTheHoldersOfManageInTheAccessRoles(t *testing.T)
 		authz.Role{Key: "reader", Name: "Reader", Grants: reading},
 	))
 
-	notices := notification.Install(app, notified{}, incident.AlertCategory)
-	inc := incident.Install(app, people(), incident.Alerts{Enabled: true, Notices: notices})
+	notices := notification.Install(app, notified{})
+	inc := incident.Install(app, people(), notices, incident.Alerts{Enabled: true})
 
 	_, err := app.Handler()
 	require.NoError(t, err)
@@ -394,4 +392,44 @@ func TestWithoutTheAccessEngineHoldersAreRequired(t *testing.T) {
 	w.drain()
 	assert.Len(t, w.inbox(managerEn), 1)
 	assert.Empty(t, w.inbox(managerHr))
+}
+
+// The module registers its own category: an application installs notification without AlertCategory and the alert
+// still goes out, and the category is among the person's settings.
+func TestInstallRegistersTheAlertCategory(t *testing.T) {
+	w := newAlertWorld(t, incident.Alerts{Enabled: true})
+
+	w.failure("boom", core.SeverityHigh)
+	w.drain()
+
+	assert.Len(t, w.inbox(managerHr), 1)
+
+	prefs, err := w.notices.Settings.Get(t.Context(), managerHr)
+	require.NoError(t, err)
+
+	var codes []string
+	for _, c := range prefs.Categories {
+		codes = append(codes, c.Category)
+	}
+
+	assert.Contains(t, codes, incident.AlertCategory.Code())
+}
+
+// An application that still passes AlertCategory to notification.Install keeps working.
+func TestAnApplicationThatRegisteredTheCategoryItselfStillWorks(t *testing.T) {
+	reg, cleanup := database.NewTestRegistry("local")
+
+	t.Cleanup(func() { _ = cleanup() })
+
+	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()),
+		gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signIn), gocore.WithAuthorizer(permissions))
+	catalogue := authz.NewCatalogue()
+	require.NoError(t, incident.DefinePermissions(catalogue))
+	require.NoError(t, notification.DefinePermissions(catalogue))
+	app.Permissions(catalogue)
+
+	notices := notification.Install(app, notified{}, incident.AlertCategory)
+	incident.Install(app, people(), notices, incident.Alerts{Enabled: true})
+
+	require.NoError(t, app.Check())
 }

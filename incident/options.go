@@ -70,8 +70,8 @@ type Holders func(ctx context.Context, permission string) ([]int, error)
 // Alerts configures the alert a new incident raises. The zero Alerts is off: nothing is queued or sent. Pass one to
 // Install with Enabled set:
 //
-//	notices := notification.Install(app, users, incident.AlertCategory, notification.AppURL(url))
-//	incident.Install(app, users, incident.Alerts{Enabled: true, Notices: notices})
+//	notices := notification.Install(app, users, notification.AppURL(url))
+//	incident.Install(app, users, notices, incident.Alerts{Enabled: true})
 //
 // A new incident of an immediate severity is sent at once to the people who hold ManageIncidents, as a high priority
 // notification of AlertCategory (the inbox, and e-mail unless a person turned it off). A second one of the same
@@ -81,8 +81,6 @@ type Holders func(ctx context.Context, permission string) ([]int, error)
 type Alerts struct {
 	// Enabled turns the alerts on.
 	Enabled bool
-	// Notices sends the alerts; required when Enabled. Its Install must have been given AlertCategory.
-	Notices *notification.Notices
 	// Immediate are the severities sent at once; the default is critical and high.
 	Immediate []Severity
 	// Cooldown is the time before a second immediate alert of one severity; the default is DefaultCooldown.
@@ -161,7 +159,7 @@ type problem struct{ What, Fix string }
 func (c *config) problem(what, fix string) { c.problems = append(c.problems, problem{what, fix}) }
 
 // collect reads the options, fills the defaults and says what is wrong with them.
-func collect(opts []Option) *config {
+func collect(opts []Option, notices *notification.Notices) *config {
 	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	cfg := &config{retain: DefaultOccurrenceRetention, link: defaultLink}
 
@@ -177,9 +175,9 @@ func collect(opts []Option) *config {
 
 	cfg.alerts = cfg.alerts.withDefaults()
 
-	if cfg.alerts.Enabled && cfg.alerts.Notices == nil {
-		cfg.problem("incident.Alerts is enabled but has no Notices",
-			"pass the *notification.Notices that notification.Install returned, installed with incident.AlertCategory")
+	if cfg.alerts.Enabled && notices == nil {
+		cfg.problem("incident.Alerts is enabled but incident.Install has no Notices",
+			"pass the *notification.Notices that notification.Install returned as the third argument")
 	}
 
 	for _, s := range cfg.alerts.Immediate {
