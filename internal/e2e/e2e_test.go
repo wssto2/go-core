@@ -136,7 +136,7 @@ func TestIdentityAndAccessWorkTogether(t *testing.T) {
 		owned := map[string]bool{"dora": true} // the application's rule: dora still owns open records
 
 		users := identity.Install(app,
-			identity.WithMail(identity.Mail{Sender: sink, CodeSecret: "an-installation-secret-of-32-chars!"}),
+			identity.WithMail(identity.Mail{Sender: sink, CodeSecret: "an-installation-secret-of-32-chars!", Content: nil}),
 			identity.WithImpersonation(identity.HoldersOf("iam.user:impersonate")),
 			identity.WithDeactivationHook(identity.DeactivationHookFunc(func(_ context.Context, a account.Account, _ int) error {
 				if owned[a.Login] {

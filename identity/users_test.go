@@ -161,7 +161,9 @@ func TestAPasswordChangeIsMailedToTheAccount(t *testing.T) {
 func TestAFailingNoticeMailDoesNotUndoThePasswordChange(t *testing.T) {
 	app := newApp(t)
 
-	identity.Install(app, identity.WithMail(identity.Mail{Sender: mail.SenderFunc(func(context.Context, mail.Message) error { return assert.AnError }), CodeSecret: secret}))
+	failing := mail.SenderFunc(func(context.Context, mail.Message) error { return assert.AnError })
+
+	identity.Install(app, mailTo(failing, secret))
 
 	ana := identitytest.Account(1, "ana", "secret")
 	ana.Email = "ana@example.test"
@@ -353,7 +355,8 @@ func TestConfigLocalesAlsoHoldsForTheAdmin(t *testing.T) {
 	t.Parallel()
 
 	app := newApp(t)
-	users := identity.Install(app, identity.WithoutMail(), configured(func(c *identity.Config) { c.Locales = []string{"hr"} }))
+	users := identity.Install(app, identity.WithoutMail(),
+		configured(func(c *identity.Config) { c.Locales = []string{"hr"} }))
 
 	_, err := users.Admin().Create(t.Context(), account.CreateAccount{ //nolint:exhaustruct,exhaustruct_v5 // no phone
 		Login: "root", Name: "Root", Email: "root@example.test", Locale: "en", Password: "a long password",
