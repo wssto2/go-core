@@ -6,6 +6,12 @@ import (
 	"gorm.io/gorm"
 )
 
+// BaseRepository is the embedded base of a repository on the application's primary connection.
+//
+// A transaction is opened one way inside a repository: WithinTx. Do not call r.DB(ctx).Transaction(func(tx *gorm.DB)
+// ...) there: inside a transaction that call opens a savepoint, and in any case it does not put tx into ctx, so every
+// helper the closure calls with ctx still runs on the outer connection, outside the unit of work. WithinTx joins the
+// caller's transaction or opens one, and DB(ctx) is that transaction everywhere below it.
 type BaseRepository struct {
 	Conn *gorm.DB
 }

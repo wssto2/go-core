@@ -553,7 +553,7 @@ In a test, `identity.Install` runs on `gocoretest.New(t)`: SQLite tables are cre
 ## Database
 
 * GORM-based repositories
-* Transaction support via context
+* Transaction support via context: in a repository `WithinTx` (on `BaseRepository`) is the one way to open a transaction. A nested `r.DB(ctx).Transaction(...)` opens a savepoint and does not put `tx` in ctx, so helpers below it run outside the unit of work
 * Custom nullable & typed fields
 * SQL migrations per connection (`database/migrate`, goose): `migrations/<connection>/<yyyymmddhhmmss>_<name>.sql`, each database records its own versions; `MarkApplied` adopts a database whose changes ran by hand. `go-core new migration <name> -c <connection>` creates one (the CLI also scaffolds `new feature` and `new event`: `go run github.com/wssto2/go-core/cmd/go-core@vX new …`, versioned with every go-core tag)
 
