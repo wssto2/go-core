@@ -96,17 +96,17 @@ architecture error was introduced.
 
 ```
 Layer 0 — no internal imports:
-  apperr, utils, i18n (types only), navigation, mail (standard library only),
+  apperr, i18n (types only), navigation, mail (standard library only),
   pagination (paging primitives for a framework-free domain or application)
 
 Layer 1 — imports Layer 0 only:
-  validation, logger, resilience
+  validation, logger
 
 Layer 2 — imports Layers 0–1:
   database, database/types (column value types over the driver), auth, event, storage, tenancy, worker
 
 Layer 3 — imports Layers 0–2:
-  binders, middlewares, datatable, resource, observability, web, audit, health
+  middlewares, datatable, resource, observability, web, audit, health
 
 Layer 4 — imports Layers 0–3 (and authz):
   bootstrap, frontend, go2ts, route, web/typed (the web helpers that need route)
@@ -159,10 +159,10 @@ Specific prohibitions:
 - `audit`    MUST NOT import `bootstrap` or `auth`
 - `database` MUST NOT import `event`, `auth`, or `bootstrap`
 - `health`   MUST NOT import `bootstrap`
-- `resilience` MUST NOT import anything from go-core (pure algorithms)
+- `httpclient/internal/resilience` MUST NOT import anything from go-core (pure algorithms)
 - `route`   MUST NOT import `bootstrap` or `gocore`: a route declaration is plain
   data, readable (by a generator, for instance) without an application. It
-  imports `binders`, `validation`, `web` and `authz` / `authzhttp` for the adapter.
+  imports `internal/binders`, `validation`, `web` and `authz` / `authzhttp` for the adapter.
 - `gocore`  is the only package that knows both `route` and `bootstrap`; features
   import `gocore` in their `Install` function and nothing in `bootstrap`
   (old-style modules hosted with `App.Modules` are the exception).
@@ -182,7 +182,7 @@ Verify with: `go build ./...` — an import cycle produces "import cycle not all
 production files (`_test.go` files and `*test` support packages are exempt):
 
 - the layers 0 to 6 of the diagram: a package never imports a layer above its own;
-- every specific prohibition above, `resilience` importing nothing from go-core,
+- every specific prohibition above, `httpclient/internal/resilience` importing nothing from go-core,
   `notification` imported by neither `event` nor `identity` (the key notice
   excepted), and `gocore` imported only by a module's facade;
 - `gocoretest` imported by test code only;

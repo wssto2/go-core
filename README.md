@@ -38,13 +38,12 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 * `gocore` → assembles an application from features: `New`, `Install`-style features, `Later`, `Run` (see "Installing features")
 * `route` → typed routes: `route.Get[In, Out](path).Requires(permission)`, binding, validation, permission check
 * `gocoretest` → a `gocore.App` for tests: in-memory SQLite, fixed clock, `Do` / `Decode` to call routes
-* `bootstrap` → application lifecycle, DI container, config (what `gocore` is built on)
+* `bootstrap` → application lifecycle, config, the HTTP engine (what `gocore` is built on)
 * `web` → HTTP handling, response format, helpers
-* `auth` → authentication, JWT, policies, middleware
+* `auth` → authentication (`Provider`, `Authenticated`), the request user (`UserOf`, `UserFromContext`), rate limiting
 * `authz` → roles, bindings at a scope, per-record access, delegation, list filtering (see `authz/doc.go`; sub-packages `authzgorm`, `gormstore`, `authzhttp`, `authzts`, `authztest`, `storetest`)
 * `database` → repositories, transactions, types
 * `validation` → input validation system
-* `binders` → request binding (JSON, multipart)
 * `middlewares` → HTTP middleware (auth, logging, security)
 * `worker` → background workers
 
@@ -69,7 +68,6 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 * `apperr` → structured application errors
 * `i18n` → localization helpers
 * `go2ts` → Go → TypeScript type generation
-* `utils` → generic helpers
 * `retention` → delete or redact an application's own rows past a window, from rules it owns (`retention.New(db, clock, rules...)`, `Run` with `DryRun` and `Only`)
 * `validation` → input validation; `CheckStorable` is the opt-in check for legacy utf8mb3 columns (code `unsupported_characters`)
 * `pdf` → document rendering; `pdf/widget` has the paper-form widgets (`SignatureLine`, `LabelWithValue`, `TextLines`, `CodeBoxes`, `YesNo`, `PageBreak`)
@@ -84,9 +82,9 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 
 ### Request Flow
 
-1. HTTP request enters via `engine/gin.go`
+1. HTTP request enters the engine `gocore` builds
 2. Middleware chain executes (`middlewares`)
-3. Request is bound using `binders`
+3. Request is bound by `route` (path, query, JSON body)
 4. Input validated via `validation`
 5. Handler calls service layer
 6. Service uses repositories (`database`)
@@ -156,7 +154,7 @@ func main() {
 
 identity needs no engine: `/auth/me` and `AllowImpersonation` read the application's authorizer (the engine `access.Install` builds) when a request comes, and `*identity.Users` is the `access.SubjectDirectory`. `internal/e2e` installs exactly this and signs in on SQLite, MySQL and MariaDB.
 
-`Install` only collects (`Routes`, `Background`, `Permissions`, `Modules`); nothing runs until `Run`, so the order of those never matters. Old-style `bootstrap.Module`s run in the same app through `app.Modules(...)`, so an application moves to `Install` one feature at a time.
+`Install` only collects (`Routes`, `Background`, `Permissions`, `Events`); nothing runs until `Run`, so the order of those never matters.
 
 **A real cycle between two features uses `gocore.Later`:**
 
@@ -176,22 +174,14 @@ app.RoutesWith(arv, pricerule.Routes(svc)...)                                   
 
 Public routes stay public, `Requires` is checked, and an undefined permission still stops start-up. A `Security` without `Authenticate` does not fall back to the application's chain. The tenant is not put in the context for you: the chain does that if it wants to.
 
-**Moving an old module to `Install`: `FromContainer`.** While the collaborators of a moved feature (repositories, a cached config, a service) are still built by `bootstrap.Module`s passed to `app.Modules`, the feature takes a promise that `Run` keeps from the container after every module registered and before the routes serve; a type nobody bound stops start-up and is named:
-
-```go
-vehicles := gocore.FromContainer[vehicles.Service](app)
-pricerule.Install(app, vehicles) // handlers call vehicles.MustGet() at request time, never in Install
-```
-
 Checklist for one module:
 
 1. Declare typed routes and a `route.Group` with a request type of the transport: `type CreatePartRequest struct { ThingPath; apppkg.CreatePartInput }`, where `ThingPath` holds the typed ids (`ID int `path:"id"``) and the application's input stays free of HTTP. Embedded structs are bound and validated like `encoding/json` promotes them; the generated TypeScript has the path and query fields flat in the route input and only the body in the schema. No `json:"-"` or text ids needed. An `int` id that does not parse answers 422 `must_be_number`; a feature that answers 400 for a malformed URL says so once with `route.Group(...).MalformedPath(http.StatusBadRequest)` (or per route; the route wins; query and body errors stay 422).
 2. Write `Install(app, deps)`: build the service from `deps`, collect `app.Routes` (or `app.RoutesWith` for the application's own chain), `app.Permissions`, `app.Background`.
-3. Take what is still built by old modules with `gocore.FromContainer[T](app)` and read it at request time; hoist the collaborator out of its module as soon as it can be built from `app.Database()`.
-4. Keep a module only for what other old modules still resolve (`Bind` the service there) and delete it with its last user.
-5. `contract.Generate` the feature's TypeScript and compare it with the wire golden before removing the old handlers.
-6. For an application's own subject kind (service accounts), answer access screens with `accesshttp.BindingOf`, `RoleSummaryOf`, `RoleOf`, `ScopeOf` and `SubjectAccessOf`.
-7. Answer what the old handlers answered, typed: `.Status(http.StatusCreated)` for a create (204 for no body; only 2xx). A paged list is `route.Page[Row]` (byte-identical to `web.Paginated`, `Result.Meta` merged), any other data with a top-level meta is `route.WithMeta[T, M]` (as `web.JSON(c, status, data, meta)`); both combine with `.Status`. Datatable filters are a `Filters url.Values `query:"*" json:"-"`` field (at most one; it takes the parameters no other field declares), read with `datatable.ParamsFromValues`. Several permissions: `.RequiresAny(a, b)` or `.RequiresAll(a, b)` (all must be in the catalogue); the three combine and all must hold (`.Requires(a).RequiresAny(b, c)` is a and (b or c); a refusal names the first unmet `Requires`, else (any-of unmet) the last id of the set, as `RequiresAny` alone does, else the first unmet all-of). A response header (`Cache-Control`) is `route.ExchangeOf(ctx).SetHeader(name, value)` (returns an error for `Content-Type`/`Content-Length`; set on success and on error). The request id is `route.ExchangeOf(ctx).RequestID()`; the application's own user is `auth.UserOf[*User](ctx)`, provided its authentication calls `auth.SetUser`. `validation.CheckRules(Input{}, …)` in a test finds a `validation:` rule the validator does not know (`gte=0`); routes refuse one at start-up. None of status, rules or filters is in the generated TypeScript.
+3. Build the collaborators from `app.Database()` and the other features' services, passed as arguments.
+4. `contract.Generate` the feature's TypeScript and compare it with the wire golden before removing the old handlers.
+5. For an application's own subject kind (service accounts), answer access screens with `accesshttp.BindingOf`, `RoleSummaryOf`, `RoleOf`, `ScopeOf` and `SubjectAccessOf`.
+6. Answer what the old handlers answered, typed: `.Status(http.StatusCreated)` for a create (204 for no body; only 2xx). A paged list is `route.Page[Row]` (byte-identical to `web.Paginated`, `Result.Meta` merged), any other data with a top-level meta is `route.WithMeta[T, M]` (as `web.JSON(c, status, data, meta)`); both combine with `.Status`. Datatable filters are a `Filters url.Values `query:"*" json:"-"`` field (at most one; it takes the parameters no other field declares), read with `datatable.ParamsFromValues`. Several permissions: `.RequiresAny(a, b)` or `.RequiresAll(a, b)` (all must be in the catalogue); the three combine and all must hold (`.Requires(a).RequiresAny(b, c)` is a and (b or c); a refusal names the first unmet `Requires`, else (any-of unmet) the last id of the set, as `RequiresAny` alone does, else the first unmet all-of). A response header (`Cache-Control`) is `route.ExchangeOf(ctx).SetHeader(name, value)` (returns an error for `Content-Type`/`Content-Length`; set on success and on error). The request id is `route.ExchangeOf(ctx).RequestID()`; the application's own user is `auth.UserOf[*User](ctx)`, provided its authentication calls `auth.SetUser`. `validation.CheckRules(Input{}, …)` in a test finds a `validation:` rule the validator does not know (`gte=0`); routes refuse one at start-up. None of status, rules or filters is in the generated TypeScript.
 
 **`Run` checks first and says what to fix.** Every problem is collected, each with its fix (`ExampleApp_Check`):
 
@@ -201,7 +191,7 @@ gocore: cannot start, 2 problem(s):
   2. gocore.Later[gocore_test.Reads] was never set. Fix: call Set on it once every feature that needs it is installed
 ```
 
-The check covers an unset `Later`, a declared route with no handler (typed or raw), a `Requires` permission the catalogue does not define, a non-public route with no authentication or a permission route with no authorizer, duplicate or refused routes, and an unknown connection. Then it boots; a failed boot stops what already started, in reverse. Shutdown order: HTTP, background workers and modules, database last.
+The check covers an unset `Later`, a declared route with no handler (typed or raw), a `Requires` permission the catalogue does not define, a non-public route with no authentication or a permission route with no authorizer, duplicate or refused routes, and an unknown connection. Then it boots; a failed boot stops what already started, in reverse. Shutdown order: HTTP, background workers, database last.
 
 **Test a feature with plain calls** (`gocoretest/example_test.go`):
 
@@ -377,12 +367,12 @@ return apperr.BadRequest("invalid input")
 
 ## Authentication
 
-* JWT-based authentication
-* Policy-based authorization (`namespace:action`)
+* Session authentication through `identity` (any `auth.Provider` plugs into `auth.Authenticated`)
+* Permission-based authorization (`authz`, `.Requires(permission)` on a route)
 * Context-based user injection
 
 ```go
-user := auth.MustGetUser[MyUser](ctx)
+user, ok := auth.UserOf[MyUser](ctx) // ctx is the request context
 ```
 
 ### Sign-in
@@ -409,17 +399,6 @@ The routes are declared under `/v1/auth` (an app with `gocore.WithPrefix("/api")
 When the session was opened by signing in as somebody (`login-as`), the payload also has `"impersonator": {"id": 1, "name": "Ana Anić"}`, the person really signed in; for a person's own session the key is absent. `user` is what the projector makes of the account (the default has `id`, `login`, `name`, `email`, `locale`, never the password hash), `access` is the authz engine's answer and `navigation` your menu filtered by it. Refusals are `apperr` reasons with params, never sentences: `identity.signin.failed` (an unknown login and a wrong password answer alike, 422), `identity.signin.locked` (`params.locked_until`), `identity.signin.inactive`, `identity.session.invalid`. Five wrong passwords lock sign-in for fifteen minutes, ten attempts a minute per login are let through; the rules, with their Logic IDs (IAM-USER-001 to 004 and 008), are in `docs/rules/identity/signin.md`.
 
 **Preferences: a JSON object per person.** `identity.WithPreferences(identity.Preferences{})` keeps what the client remembers between devices (dark mode, the tips a person dismissed). `PUT /v1/auth/preferences` (person only, a service account is refused) takes `{"preferences": {...a part...}}`, merges it into the stored object (RFC 7396: a key sent replaces, a `null` removes, objects merge in depth) and answers `{"preferences": {...the whole object...}}`; the session payload carries the object as a top-level `preferences`, `{}` when nothing is stored. The merged object is capped at 16 KiB (`MaxBytes`; beyond it `422`, field `preferences`, rule `max`). The object is the application's: pass its rules as `Merge func(stored, patch json.RawMessage) (json.RawMessage, error)` and `Validate func(merged json.RawMessage) error` (return `preferences.Invalid("preferences.onboarding.tips", "identifier_format")` or any `*validation.ValidationError` for `422`; any other error is `422` on `preferences`), and a `Store` (`Get(ctx, accountID)`, `Set(ctx, accountID, json)`) over a column the application already has. Without a `Store` the objects live in identity's table `account_preferences` (a goose migration on the connection of identity's other tables; `identity/preferences/storetest` is the conformance suite for your own). Without the option there is no route, no table and no `preferences` key in the payload; the rules are `docs/rules/identity/preferences.md` (IAM-PREF-001). Reading and writing is not atomic, so two patches of one person that arrive together may overwrite each other's keys.
-
-**A host that caches verified tokens.** `auth.DBTokenProvider` with `WithVerifyCache(ttl)` serves a token from memory for up to `ttl`, so a session identity ends (logout, a refresh that replaces the access token, a revoke, a password change, a deactivation, a return from login-as) would still answer on the host's own routes. Identity says so through `account.Notices`: `SessionsEnded(ctx, account.SessionsEnded{AccountID, SessionIDs, Reason, ActorID})` after the change is committed, and `AccountChanged(ctx, accountID)` after a locale, name, phone, e-mail, password, activate or deactivate. Wire them to the provider, one line each (embed `account.DiscardNotices` to hear only these):
-
-```go
-func (f forgetting) SessionsEnded(_ context.Context, e account.SessionsEnded) { f.tokens.InvalidateUser(e.AccountID) }
-func (f forgetting) AccountChanged(_ context.Context, id int)                 { f.tokens.InvalidateUser(id) }
-
-identity.Install(app, identity.WithNotices(forgetting{tokens: provider}))
-```
-
-`provider.InvalidateUser(id)` drops every cached entry of that person (`InvalidateSession(tokenID)` one session's). A host route behind the provider then refuses the old token on the very next request (`identity/tokencache_test.go` runs it on SQLite, MySQL and MariaDB).
 
 #### Users and profile
 
@@ -498,7 +477,7 @@ In a test, `identity.Install` runs on `gocoretest.New(t)`: SQLite tables are cre
 * GORM-based repositories
 * Transaction support via context
 * Custom nullable & typed fields
-* SQL migrations per connection (`database/migrate`, goose): `migrations/<connection>/<yyyymmddhhmmss>_<name>.sql`, each database records its own versions; `MarkApplied` adopts a database whose changes ran by hand. `go-core new migration <name> -c <connection>` creates one (the CLI also scaffolds `new feature`, `new module` and `new event`: `go run github.com/wssto2/go-core/cmd/go-core@vX new …`, versioned with every go-core tag)
+* SQL migrations per connection (`database/migrate`, goose): `migrations/<connection>/<yyyymmddhhmmss>_<name>.sql`, each database records its own versions; `MarkApplied` adopts a database whose changes ran by hand. `go-core new migration <name> -c <connection>` creates one (the CLI also scaffolds `new feature` and `new event`: `go run github.com/wssto2/go-core/cmd/go-core@vX new …`, versioned with every go-core tag)
 
 ---
 
@@ -535,7 +514,7 @@ gocoretest.Publish(t, app, Assigned, TicketAssigned{TicketID: 7, UserID: 3}) // 
 * `event.NewDeadLetters(db, clock)` lists the dead letters and puts them back (`Retry` one, `RetryAll` of a consumer); its HTTP routes come with the notification module (see "Notifications").
 * A housekeeper, added to the background workers by `app.Events`, deletes events every consumer finished more than 30 days ago (`event.Retention`) with their attempts, in batches by primary key. Dead letters are not deleted by it: their events stay for a retry. To end them after a time, give `gocore.New` the option `gocore.WithDeadLetterRetention(90 * 24 * time.Hour)`: a letter older than that, and the event only it kept, are deleted by that same housekeeper (a host that builds its own `event.Housekeeper` calls `KeepDeadLetters`).
 * The claim is MariaDB 10.3 safe (no `SKIP LOCKED`, no `FOR UPDATE OF`: candidates are read, their outbox rows locked by primary key, the consumer's attempts read and the leases written). The queue is tested on SQLite, MySQL and MariaDB 10.3, including three workers on one database never handling an event twice.
-* Rows an application wrote with `event.InsertOutboxEvent` are named by the Go type (`"lead.AssignedEvent"`: package name and type name) with version 1; `event.Define[AssignedEvent]("lead.AssignedEvent")` consumes them unchanged. `outbox_events` has the DDL such an application already has.
+* Rows an application wrote with the old `event.InsertOutboxEvent` (removed in v1.21.0) are named by the Go type (`"lead.AssignedEvent"`: package name and type name) with version 1; `event.Define[AssignedEvent]("lead.AssignedEvent")` consumes them unchanged. `outbox_events` has the DDL such an application already has.
 
 ---
 
