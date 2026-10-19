@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/wssto2/go-core/access"
+	"github.com/wssto2/go-core/access/admin"
 	"github.com/wssto2/go-core/authz"
 	"gorm.io/gorm"
 )
@@ -41,7 +41,7 @@ func (p *Places) Parent(ctx context.Context, s authz.Scope) (authz.Scope, error)
 	return authz.Scope{}, fmt.Errorf("%w: no parent for %s", authz.ErrInvalidScope, s)
 }
 
-// Names implements access.ScopeCatalog: the display name of each given dealer or location that exists.
+// Names implements admin.ScopeCatalog: the display name of each given dealer or location that exists.
 func (p *Places) Names(ctx context.Context, scopes []authz.Scope) (map[authz.Scope]string, error) {
 	out := map[authz.Scope]string{organization: "Organization"}
 
@@ -73,8 +73,8 @@ func (p *Places) Names(ctx context.Context, scopes []authz.Scope) (map[authz.Sco
 	return out, nil
 }
 
-// Options implements access.ScopeCatalog: every dealer, each followed by its locations.
-func (p *Places) Options(ctx context.Context) ([]access.ScopeOption, error) {
+// Options implements admin.ScopeCatalog: every dealer, each followed by its locations.
+func (p *Places) Options(ctx context.Context) ([]admin.ScopeOption, error) {
 	var dealers []Dealer
 	if err := p.db.WithContext(ctx).Order("id").Find(&dealers).Error; err != nil {
 		return nil, err
@@ -85,15 +85,15 @@ func (p *Places) Options(ctx context.Context) ([]access.ScopeOption, error) {
 		return nil, err
 	}
 
-	var out []access.ScopeOption
+	var out []admin.ScopeOption
 
 	for _, d := range dealers {
 		dealer := authz.Scope{Level: LevelDealer, ID: d.ID}
-		out = append(out, access.ScopeOption{Scope: dealer, Name: d.Name, Parent: organization})
+		out = append(out, admin.ScopeOption{Scope: dealer, Name: d.Name, Parent: organization})
 
 		for _, l := range locations {
 			if l.DealerID == d.ID {
-				out = append(out, access.ScopeOption{Scope: authz.Scope{Level: LevelLocation, ID: l.ID}, Name: l.Name, Parent: dealer})
+				out = append(out, admin.ScopeOption{Scope: authz.Scope{Level: LevelLocation, ID: l.ID}, Name: l.Name, Parent: dealer})
 			}
 		}
 	}
