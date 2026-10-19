@@ -578,7 +578,8 @@ func TestTypeScriptCheckOfAnEmptyFolderListsEverythingAndCreatesNothing(t *testi
 		t.Fatalf("an empty folder is all drift, got %v", err)
 	}
 
-	if _, statErr := os.Stat(missing); statErr == nil {
+	_, statErr := os.Stat(missing)
+	if statErr == nil {
 		t.Fatal("--check created the folder")
 	}
 

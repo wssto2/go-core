@@ -4,7 +4,6 @@ package go2ts_test
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -83,6 +82,6 @@ func TestGenerateSchemas_InIsAnEnumForStringsAndYearAndMonthAreRegexes(t *testin
 		`born: z.string().min(1).regex(/^\d{4}$/),`,
 		`month: z.string().min(1).regex(/^(0?[1-9]|1[0-2])$/),`,
 	} {
-		assert.True(t, strings.Contains(string(got), want), "missing %s in\n%s", want, got)
+		assert.Contains(t, string(got), want)
 	}
 }

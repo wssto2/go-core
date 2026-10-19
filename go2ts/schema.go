@@ -370,6 +370,7 @@ func fieldToZodExprScoped(
 			}
 		case "uuid":
 			expr += ".uuid()"
+
 			if !isRequired && !isNullable {
 				needsOrEmpty = true
 			}
