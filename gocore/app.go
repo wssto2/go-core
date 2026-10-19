@@ -221,6 +221,10 @@ func WithBuilder(configure func(*bootstrap.AppBuilder)) Option {
 func New(cfg bootstrap.Config, opts ...Option) *App {
 	app := &App{cfg: cfg, clock: systemClock{}}
 
+	if err := cfg.App.Validate(); err != nil {
+		app.fail(err.Error(), "set APP_ENV to production, staging or development (empty means development)")
+	}
+
 	for _, opt := range opts {
 		opt(app)
 	}

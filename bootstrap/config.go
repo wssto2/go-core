@@ -1,13 +1,43 @@
 package bootstrap
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type AppConfig struct {
 	Name string
 
-	// Env is the application environment.
-	// Common values are "production" and "development".
+	// Env is the application environment: "production", "staging" or
+	// "development"; empty means development. Staging behaves exactly as
+	// production (CSP, error bodies, HSTS); any other value is a start-up
+	// problem (see Validate).
 	Env string
+}
+
+// The values of AppConfig.Env.
+const (
+	EnvProduction  = "production"
+	EnvStaging     = "staging"
+	EnvDevelopment = "development"
+)
+
+// Development reports whether the application runs in development: Env is
+// "development" or empty. Everything else, including an unknown value that
+// Validate reports, gets the production behaviour, so a typo never loosens
+// the CSP or exposes debug error bodies.
+func (a AppConfig) Development() bool {
+	return a.Env == "" || a.Env == EnvDevelopment
+}
+
+// Validate reports an Env that is none of the three values, naming it.
+func (a AppConfig) Validate() error {
+	switch a.Env {
+	case "", EnvDevelopment, EnvStaging, EnvProduction:
+		return nil
+	}
+
+	return fmt.Errorf("APP_ENV %q is not one of %s, %s, %s", a.Env, EnvProduction, EnvStaging, EnvDevelopment)
 }
 
 type HTTPConfig struct {

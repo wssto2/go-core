@@ -66,7 +66,7 @@ func New(cfg Config) (*slog.Logger, error) {
 
 	var handler slog.Handler
 
-	if cfg.Env != "production" {
+	if cfg.Env == "" || cfg.Env == "development" {
 		multiWriter := io.MultiWriter(fileWriter, os.Stdout)
 		handler = slog.NewJSONHandler(multiWriter, opts)
 	} else {

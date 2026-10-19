@@ -9,7 +9,7 @@ import (
 )
 
 func TestWithCSPAddsSourcesAndCreatesDirectivesInDevAndProduction(t *testing.T) {
-	for _, env := range []string{"development", "production"} {
+	for _, env := range []string{"development", "production", "staging"} {
 		t.Run(env, func(t *testing.T) {
 			app, port := runnable(t)
 			app.cfg.App.Env = env
@@ -33,7 +33,7 @@ func TestWithCSPAddsSourcesAndCreatesDirectivesInDevAndProduction(t *testing.T) 
 				t.Errorf("'unsafe-eval' in the %s policy: %s", env, csp)
 			}
 
-			if env == "production" && !strings.Contains(csp, "script-src 'self' 'nonce-") {
+			if env != "development" && !strings.Contains(csp, "script-src 'self' 'nonce-") {
 				t.Errorf("production must stay nonce-only: %s", csp)
 			}
 		})

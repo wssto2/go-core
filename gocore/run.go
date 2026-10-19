@@ -313,17 +313,27 @@ func (m *featuresModule) Shutdown(ctx context.Context) error {
 
 // Handler returns the installed routes as an http.Handler without opening a
 // port or booting modules, for tests. It checks the application first, like
-// Run, and maps errors the way a running application does, but leaves out the
-// rest of the middleware stack (request id, CORS, rate limits).
+// Run, and builds the engine the way Run does (the configured trusted proxies,
+// release-mode error bodies outside development), but leaves out the rest of
+// the middleware stack (request id, CORS, rate limits) and never touches
+// gin's global mode.
 func (a *App) Handler() (http.Handler, error) {
 	if err := a.Check(); err != nil {
 		return nil, err
 	}
 
-	gin.SetMode(gin.TestMode)
-
 	engine := gin.New()
-	engine.Use(middlewares.ErrorHandler(a.log, nil, true))
+
+	proxies := a.cfg.HTTP.TrustedProxies
+	if len(proxies) == 0 {
+		proxies = nil
+	}
+
+	if err := engine.SetTrustedProxies(proxies); err != nil {
+		return nil, fmt.Errorf("gocore: trusted proxies: %w", err)
+	}
+
+	engine.Use(middlewares.ErrorHandler(a.log, nil, a.cfg.App.Development()))
 	engine.Use(a.middleware...)
 
 	for _, r := range a.routes {

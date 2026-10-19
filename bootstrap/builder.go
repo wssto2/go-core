@@ -236,8 +236,8 @@ func (b *AppBuilder) setupHTTPMiddlewares() {
 		middlewares.RequestLogger(log),
 		metrics.InstrumentHTTP(tel.HTTP),
 		middlewares.PanicRecovery(log),
-		middlewares.ErrorHandler(log, translator, b.cfg.App.Env != "production"),
-		middlewares.Security(b.cfg.App.Env != "production"),
+		middlewares.ErrorHandler(log, translator, b.cfg.App.Development()),
+		middlewares.Security(b.cfg.App.Development(), middlewares.SecurityConfig{TrustProxy: len(b.cfg.HTTP.TrustedProxies) > 0}),
 		middlewares.Cors(middlewares.CorsConfig{
 			AllowOrigins: b.cfg.CORS.AllowedOrigins,
 			AllowMethods: b.cfg.CORS.AllowedMethods,
@@ -354,7 +354,7 @@ func (b *AppBuilder) WithSPA(stateBuilder frontend.AppStateBuilder) *AppBuilder 
 		TemplateName:  b.cfg.Frontend.TemplateName,
 		APIPrefix:     b.cfg.Frontend.APIPrefix,
 		StateBuilder:  stateBuilder,
-		DevMode:       b.cfg.App.Env == "development",
+		DevMode:       b.cfg.App.Development(),
 		Vite: frontend.ViteConfig{
 			Entry:           b.cfg.Frontend.EntryScript,
 			ManifestPath:    b.cfg.Frontend.ManifestPath,
@@ -398,7 +398,7 @@ func (b *AppBuilder) WithSPAConfig(cfg frontend.SPAConfig) *AppBuilder {
 	}
 
 	if !cfg.DevMode {
-		cfg.DevMode = b.cfg.App.Env == "development"
+		cfg.DevMode = b.cfg.App.Development()
 	}
 
 	b.spaConfig = &cfg
@@ -453,7 +453,7 @@ func (b *AppBuilder) WithHttp() *AppBuilder {
 		port = 8080
 	}
 
-	if b.cfg.App.Env == "production" {
+	if !b.cfg.App.Development() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
