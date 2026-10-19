@@ -2,18 +2,27 @@ package mail
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"net/mail"
 	"strings"
 
-	"github.com/wssto2/go-core/gocore"
+	"github.com/wssto2/go-core/env"
 )
+
+// App is what the readers of the environment need of the application: *gocore.App is one (mail does not import gocore).
+type App interface {
+	Env() *env.Reader
+	Environment() string
+	Logger() *slog.Logger
+	Fail(what, fix string)
+}
 
 // SMTPFromEnv reads the relay every mail goes through from SMTP_HOST, SMTP_PORT (587), SMTP_USERNAME, SMTP_PASSWORD,
 // SMTP_FROM_ADDRESS and SMTP_FROM_NAME (defaultFromName when it is not set). The connection starts in the clear and is
 // upgraded with STARTTLS when the relay offers it, which is what port 25 and 587 do. Without SMTP_HOST or
 // SMTP_FROM_ADDRESS every send fails naming what to set (see SMTP).
-func SMTPFromEnv(app *gocore.App, defaultFromName string) SMTPConfig {
+func SMTPFromEnv(app App, defaultFromName string) SMTPConfig {
 	vars := app.Env()
 	from := mail.Address{Name: vars.String("SMTP_FROM_NAME", defaultFromName), Address: vars.String("SMTP_FROM_ADDRESS", "")}
 
@@ -34,15 +43,15 @@ func SMTPFromEnv(app *gocore.App, defaultFromName string) SMTPConfig {
 // of every mail failing later; the sender returned with that error refuses every Send, it never reaches the relay.
 //
 //nolint:ireturn // Sender is the port every sender here implements
-func SenderFromEnv(app *gocore.App, defaultFromName string) (Sender, error) {
+func SenderFromEnv(app App, defaultFromName string) (Sender, error) {
 	next := SMTP(SMTPFromEnv(app, defaultFromName))
 
 	address := strings.TrimSpace(app.Env().String("MAIL_REDIRECT_TO", ""))
 	live := app.Env().Bool("MAIL_LIVE", false)
 
 	if address == "" {
-		if app.Config().App.Env != gocore.EnvProduction && !live && app.Env().String("SMTP_HOST", "") != "" {
-			app.Fail("mail is on in "+envName(app)+" with neither MAIL_REDIRECT_TO nor MAIL_LIVE=true: it would reach real people",
+		if app.Environment() != "production" && !live && app.Env().String("SMTP_HOST", "") != "" {
+			app.Fail("mail is on in "+app.Environment()+" with neither MAIL_REDIRECT_TO nor MAIL_LIVE=true: it would reach real people",
 				"set MAIL_REDIRECT_TO to one address that receives every mail, or MAIL_LIVE=true to send for real")
 		}
 
@@ -57,12 +66,4 @@ func SenderFromEnv(app *gocore.App, defaultFromName string) (Sender, error) {
 	app.Logger().Warn("mail redirection is on: every mail goes to one address", "MAIL_REDIRECT_TO", address)
 
 	return Redirect(next, address), nil
-}
-
-func envName(app *gocore.App) string {
-	if name := app.Config().App.Env; name != "" {
-		return name
-	}
-
-	return gocore.EnvDevelopment
 }

@@ -390,6 +390,16 @@ func (a *App) OnStart(check func(ctx context.Context) error) {
 // Config returns the configuration the App runs with.
 func (a *App) Config() Config { return a.cfg }
 
+// Environment is the application environment: "production", "staging" or "development" (an unset APP_ENV is
+// development).
+func (a *App) Environment() string {
+	if a.cfg.App.Env == "" {
+		return EnvDevelopment
+	}
+
+	return a.cfg.App.Env
+}
+
 // Logger returns the application logger.
 func (a *App) Logger() *slog.Logger { return a.log }
 
