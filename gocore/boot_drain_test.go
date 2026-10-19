@@ -1,4 +1,5 @@
-package bootstrap
+//nolint:testpackage // tests the unexported lifecycle and builder gocore is built on
+package gocore
 
 import (
 	"context"
@@ -32,7 +33,7 @@ func (f *fakeServerWithRegistry) Shutdown(ctx context.Context) error {
 func TestReadinessDraining(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.I18n.Dir = tempI18nDir(t)
-	builder := New(cfg).DefaultInfrastructure()
+	builder := newBuilder(cfg).DefaultInfrastructure()
 	app, _ := builder.Build()
 
 	hr := app.health
@@ -56,7 +57,7 @@ func TestReadinessDraining(t *testing.T) {
 func TestAppShutdownSetsDrainingBeforeHTTPShutdown(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.I18n.Dir = tempI18nDir(t)
-	builder := New(cfg).DefaultInfrastructure()
+	builder := newBuilder(cfg).DefaultInfrastructure()
 	app, _ := builder.Build()
 
 	hr := app.health

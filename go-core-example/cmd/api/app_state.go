@@ -8,7 +8,7 @@ import (
 	"go-core-example/internal/domain/product"
 
 	"github.com/gin-gonic/gin"
-	"github.com/wssto2/go-core/bootstrap"
+	"github.com/wssto2/go-core/gocore"
 	corei18n "github.com/wssto2/go-core/i18n"
 )
 
@@ -114,7 +114,7 @@ type catalogPageShellComposer struct {
 }
 
 func newCatalogPageShellComposer(
-	cfg bootstrap.Config,
+	cfg gocore.Config,
 	translator pageTranslator,
 	listCatalogProducts catalogProductListFunc,
 	getCatalogProduct catalogProductGetFunc,

@@ -19,7 +19,6 @@ import (
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/dbtest"
 	"github.com/wssto2/go-core/gocore"
@@ -257,7 +256,7 @@ func TestInstallEndToEndOnEveryDatabase(t *testing.T) {
 			opts = append(opts, gocore.WithAutoMigrate(t.Context()))
 		}
 
-		app := gocore.New(bootstrap.DefaultConfig(), opts...)
+		app := gocore.New(opts...)
 
 		cat := authz.NewCatalogue()
 		require.NoError(t, identity.DefinePermissions(cat))
@@ -329,7 +328,7 @@ func TestWithAccountsCreatesNoAccountsTable(t *testing.T) {
 			opts = append(opts, gocore.WithAutoMigrate(t.Context()))
 		}
 
-		app := gocore.New(bootstrap.DefaultConfig(), opts...)
+		app := gocore.New(opts...)
 
 		cat := authz.NewCatalogue()
 		require.NoError(t, identity.DefinePermissions(cat))

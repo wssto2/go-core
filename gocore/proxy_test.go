@@ -169,7 +169,7 @@ func TestAnUnknownAppEnvIsAStartUpProblemNamingIt(t *testing.T) {
 		cfg := app.cfg
 		cfg.App.Env = env
 
-		app = New(cfg, WithLogger(app.log))
+		app = New(WithConfig(cfg), WithLogger(app.log))
 		app.Routes(ipRoute.To(showIP))
 
 		err := app.Check()

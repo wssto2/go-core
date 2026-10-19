@@ -1,4 +1,4 @@
-package bootstrap
+package gocore
 
 import (
 	"context"
@@ -7,14 +7,14 @@ import (
 	"time"
 )
 
-// HTTPServer is an abstraction used by the App to start and shutdown the HTTP server.
+// httpServer is an abstraction used by the App to start and shutdown the HTTP server.
 // This allows tests to provide a fake implementation for graceful shutdown verification.
-type HTTPServer interface {
+type httpServer interface {
 	Start() error
 	Shutdown(ctx context.Context) error
 }
 
-// serverWrapper wraps a standard *http.Server to implement HTTPServer.
+// serverWrapper wraps a standard *http.Server to implement httpServer.
 //
 // Every request context derives from a base context the wrapper owns. Shutdown
 // first drains gracefully (http.Server.Shutdown: stop accepting, wait for

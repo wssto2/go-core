@@ -2,9 +2,7 @@ package gocore_test
 
 import (
 	"context"
-	"flag"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -12,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/gocore"
@@ -50,7 +47,7 @@ func ExampleApp() {
 	reg, cleanup := database.NewTestRegistry("local", "shared")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg),
 		gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithClock(fixedClock(time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC))),
@@ -71,7 +68,7 @@ func (reads) Count() int { return 3 }
 // Later breaks a real cycle between two features: one gets a promise that is
 // kept once both exist.
 func ExampleLater() {
-	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+	app := gocore.New(gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	promise := gocore.Later[Reads](app)
 
@@ -93,7 +90,7 @@ func ExampleApp_Check() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	gocore.Later[Reads](app) // never set
@@ -119,7 +116,7 @@ func ExampleWithAuthentication() {
 		{gocore.WithAuthentication(signedIn)},
 		{}, // no authentication configured
 	} {
-		app := gocore.New(bootstrap.DefaultConfig(),
+		app := gocore.New(
 			append(opts, gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))...)
 		Install(app)
 
@@ -147,7 +144,7 @@ func ExampleApp_RunCommand() {
 
 	for _, args := range [][]string{{}, {"migrate"}, {"migrate", "status"}, mark, {"help"}, {"serve"}} {
 		reg, cleanup := database.NewTestRegistry("local", "shared")
-		app := gocore.New(bootstrap.DefaultConfig(),
+		app := gocore.New(
 			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 		app.Migrations(things)         // the primary connection
@@ -189,7 +186,7 @@ func ExampleApp_Migrate() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	app.Migrations(things)
@@ -204,7 +201,7 @@ func ExampleApp_MigrationsByConnection() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	app.MigrationsByConnection(fstest.MapFS{"local/20260101000000_orders.sql": things["20261015000000_things.sql"]})
@@ -219,7 +216,7 @@ func ExampleWithAutoMigrate() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAutoMigrate(context.Background()))
 
@@ -232,7 +229,7 @@ func ExampleWithAutoMigrate() {
 // WithPrefix is where the API lives. Routes declare their own version, so a
 // route declared "/v1/ping" is served at "/api/v1/ping".
 func ExampleWithPrefix() {
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithPrefix("/api"),
 	)
@@ -247,7 +244,7 @@ func ExampleApp_Schema() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAutoMigrate(context.Background()))
 
@@ -270,7 +267,7 @@ func ExampleApp_Authenticate() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	app.Authenticate(func(c *gin.Context) { c.Next() })
@@ -286,7 +283,7 @@ func ExampleApp_Fail() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	app.Fail("tickets needs a mail sender", "pass mail.Install(app) to tickets.Install")
@@ -306,7 +303,7 @@ func ExampleApp_Consumers() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+	app := gocore.New(gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 	assigned := event.Define[ticketAssigned]("tickets.assigned")
 
 	app.Events(
@@ -318,19 +315,16 @@ func ExampleApp_Consumers() {
 	// Output: [audit.ticket-assigned notifications.ticket-assigned]
 }
 
-// dryRunPrune is a command: it parses its own arguments with the standard flag package.
-func dryRunPrune(_ context.Context, _ *gocore.App, args []string, out io.Writer) error {
-	flags := flag.NewFlagSet("db:prune", flag.ContinueOnError)
-	flags.SetOutput(out)
+// dryRunPrune is a command: it declares its flags on cmd and parses them.
+func dryRunPrune(_ context.Context, cmd *gocore.Cmd) error {
+	dryRun := cmd.Bool("dry-run", false, "count the rows without deleting them")
 
-	dryRun := flags.Bool("dry-run", false, "count the rows without deleting them")
-
-	err := flags.Parse(args)
+	err := cmd.Parse() // -h prints the flags and ends the command with success; a stray argument is an error
 	if err != nil {
-		return fmt.Errorf("prune: %w", err) // flag.ErrHelp, from -h, still ends the command with success
+		return fmt.Errorf("prune: %w", err)
 	}
 
-	_, err = fmt.Fprintf(out, "dry run: %t\n", *dryRun)
+	_, err = fmt.Fprintf(cmd.Out, "dry run: %t\n", *dryRun)
 	if err != nil {
 		return fmt.Errorf("prune: %w", err)
 	}
@@ -339,13 +333,13 @@ func dryRunPrune(_ context.Context, _ *gocore.App, args []string, out io.Writer)
 }
 
 // Command adds the application's own commands to its command line. They run
-// like migrate (the databases open, nothing is served), take their arguments
-// unparsed, and print their flags for -h. Run reads the command line;
+// like migrate (the databases open, nothing is served), declare their flags on the *gocore.Cmd they are given,
+// and print them for -h. Run reads the command line;
 // RunCommand takes the arguments, for tests.
 func ExampleApp_Command() {
 	for _, args := range [][]string{{"db:prune", "-dry-run"}, {"db:prune", "-h"}} {
 		reg, cleanup := database.NewTestRegistry("local")
-		app := gocore.New(bootstrap.DefaultConfig(),
+		app := gocore.New(
 			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 		app.Command("db:prune", "delete rows past their retention window", dryRunPrune)
@@ -364,7 +358,11 @@ func ExampleApp_Command() {
 	// $ myapp db:prune -dry-run
 	// dry run: true
 	// $ myapp db:prune -h
-	// Usage of db:prune:
+	// Usage: db:prune [flags]
+	//
+	// delete rows past their retention window
+	//
+	// Flags:
 	//   -dry-run
 	//     	count the rows without deleting them
 }

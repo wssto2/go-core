@@ -9,7 +9,6 @@ import (
 const (
 	goCore        = "github.com/wssto2/go-core/"
 	pkgAuth       = "auth"
-	pkgBootstrap  = "bootstrap"
 	pkgDatabase   = "database"
 	pkgEvent      = "event"
 	pkgGocore     = "gocore"
@@ -22,11 +21,11 @@ const (
 // layer and the layers below, never a layer above.
 func layers() [][]string {
 	return [][]string{
-		{"apperr", "i18n", "navigation", "mail", "pagination"},
+		{"apperr", "i18n", "navigation", "mail", "pagination", "env"},
 		{"validation", "logger", "httpclient/internal/resilience", "archtest"},
 		{pkgDatabase, "database/types", pkgAuth, pkgEvent, "storage", "tenancy", "worker"},
 		{"internal/binders", "middlewares", "datatable", "resource", "observability", "web", "audit", "health"},
-		{pkgBootstrap, "frontend", "go2ts", pkgRoute, "web/typed"},
+		{"frontend", "go2ts", pkgRoute, "web/typed"},
 		{"contract"},
 		{pkgGocore},
 	}
@@ -63,14 +62,13 @@ func prohibitions() []archtest.Banned {
 	var out []archtest.Banned
 
 	for pkg, targets := range map[string][]string{
-		pkgAuth:      {pkgDatabase, pkgBootstrap, pkgEvent},
-		pkgEvent:     {pkgBootstrap, pkgAuth},
-		"audit":      {pkgBootstrap, pkgAuth},
-		pkgDatabase:  {pkgEvent, pkgAuth, pkgBootstrap, pkgGocore, pkgGocoreTest},
-		"health":     {pkgBootstrap},
-		pkgRoute:     {pkgBootstrap, pkgGocore, pkgGocoreTest},
-		"contract":   {pkgBootstrap, pkgGocore},
-		pkgBootstrap: {pkgGocore, pkgGocoreTest},
+		pkgAuth:      {pkgDatabase, pkgEvent},
+		pkgEvent:     {pkgAuth},
+		"audit":      {pkgAuth},
+		pkgDatabase:  {pkgEvent, pkgAuth, pkgGocore, pkgGocoreTest},
+		"health":     {pkgGocore, pkgGocoreTest},
+		pkgRoute:     {pkgGocore, pkgGocoreTest},
+		"contract":   {pkgGocore},
 		"authz":      {pkgGocore, pkgGocoreTest},
 	} {
 		for _, target := range targets {

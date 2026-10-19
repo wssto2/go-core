@@ -1,10 +1,11 @@
 package incident
 
 import (
+	"os"
 	"strings"
 	"time"
 
-	"github.com/wssto2/go-core/bootstrap"
+	"github.com/wssto2/go-core/env"
 )
 
 // AlertsFromEnv reads the alerts' settings from the environment: INCIDENT_NOTIFICATIONS_ENABLED (off),
@@ -13,9 +14,11 @@ import (
 // setting of the environment. An unknown severity is
 // reported by Install.
 func AlertsFromEnv() Alerts {
+	// The reader's problems are dropped: a malformed value keeps its default, as before (R2-b makes them start-up ones).
+	vars := env.New(os.LookupEnv)
 	severities := []Severity{}
 
-	for s := range strings.SplitSeq(bootstrap.EnvStr("INCIDENT_IMMEDIATE_SEVERITIES", "critical,high"), ",") {
+	for s := range strings.SplitSeq(vars.String("INCIDENT_IMMEDIATE_SEVERITIES", "critical,high"), ",") {
 		if s = strings.ToLower(strings.TrimSpace(s)); s != "" {
 			severities = append(severities, Severity(s))
 		}
@@ -23,13 +26,13 @@ func AlertsFromEnv() Alerts {
 
 	//nolint:exhaustruct,exhaustruct_v5 // zero by design: Holders is not a setting of the environment
 	return Alerts{
-		Enabled:   bootstrap.EnvBool("INCIDENT_NOTIFICATIONS_ENABLED", false),
+		Enabled:   vars.Bool("INCIDENT_NOTIFICATIONS_ENABLED", false),
 		Immediate: severities,
 		Cooldown: time.Duration(
-			bootstrap.EnvInt("INCIDENT_IMMEDIATE_COOLDOWN_MINUTES", int(DefaultCooldown/time.Minute)),
+			vars.Int("INCIDENT_IMMEDIATE_COOLDOWN_MINUTES", int(DefaultCooldown/time.Minute)),
 		) * time.Minute,
 		DigestEvery: time.Duration(
-			bootstrap.EnvInt("INCIDENT_DIGEST_INTERVAL_MINUTES", int(DefaultDigestEvery/time.Minute)),
+			vars.Int("INCIDENT_DIGEST_INTERVAL_MINUTES", int(DefaultDigestEvery/time.Minute)),
 		) * time.Minute,
 	}
 }

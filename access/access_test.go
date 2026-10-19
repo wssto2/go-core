@@ -24,7 +24,6 @@ import (
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authzts"
 	"github.com/wssto2/go-core/authz/gormstore"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/dbtest"
 	"github.com/wssto2/go-core/gocore"
@@ -97,7 +96,7 @@ func newApp(db *gorm.DB, install func(*gocore.App) *access.Access) (*gocore.App,
 	reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
 	reg.AddConnection(string(local), db)
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		append(opts(db), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signedIn), gocore.WithPrefix("/api"))...)
 
 	return app, install(app)

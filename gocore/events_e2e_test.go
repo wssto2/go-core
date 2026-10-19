@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/dbtest"
 	"gorm.io/gorm"
@@ -51,7 +50,7 @@ func TestEventsBetweenTwoFeaturesOnEveryDatabase(t *testing.T) {
 		reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
 		reg.AddConnection("local", db)
 
-		app := New(bootstrap.DefaultConfig(), WithRegistry(reg), WithLogger(slog.New(slog.DiscardHandler)), WithAutoMigrate(t.Context()))
+		app := New(WithRegistry(reg), WithLogger(slog.New(slog.DiscardHandler)), WithAutoMigrate(t.Context()))
 		require.NoError(t, db.Exec("CREATE TABLE assignments (ticket_id INT, user_id INT)").Error)
 
 		var sent []int

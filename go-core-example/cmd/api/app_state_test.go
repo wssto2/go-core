@@ -9,11 +9,21 @@ import (
 
 	dbtypes "github.com/wssto2/go-core/database/types"
 	"go-core-example/internal/domain/product"
+	"github.com/wssto2/go-core/gocore"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	corei18n "github.com/wssto2/go-core/i18n"
 )
+
+// loadConfig is the configuration the composer is tested with.
+func loadConfig() gocore.Config {
+	cfg := gocore.DefaultConfig()
+	cfg.App.Name = "go-core-example"
+	cfg.I18n.DefaultLocale = "en"
+
+	return cfg
+}
 
 func TestCatalogPageShellComposer_ComposePageShell_UsesTranslatedHeadFromLocale(t *testing.T) {
 	t.Helper()

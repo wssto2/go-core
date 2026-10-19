@@ -1,4 +1,5 @@
-package bootstrap
+//nolint:testpackage // tests the unexported lifecycle and builder gocore is built on
+package gocore
 
 import (
 	"context"
@@ -85,7 +86,7 @@ func TestApp_Run_HTTPStartFailure_ReturnsError(t *testing.T) {
 
 	cfg := DefaultConfig()
 	cfg.I18n.Dir = tempI18nDir(t)
-	builder := New(cfg).DefaultInfrastructure()
+	builder := newBuilder(cfg).DefaultInfrastructure()
 	app, buildErr := builder.Build()
 	if buildErr != nil {
 		t.Fatalf("Build: %v", buildErr)
@@ -103,7 +104,7 @@ func TestApp_Run_HTTPStartFailure_ReturnsError(t *testing.T) {
 func TestShutdownCallsHTTPServerBeforeModules(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.I18n.Dir = tempI18nDir(t)
-	builder := New(cfg).DefaultInfrastructure()
+	builder := newBuilder(cfg).DefaultInfrastructure()
 	app, _ := builder.Build()
 
 	// prepare fake server and modules
@@ -113,7 +114,7 @@ func TestShutdownCallsHTTPServerBeforeModules(t *testing.T) {
 	var order []string
 	m1 := &testModule{name: "m1", onShutdown: func() { order = append(order, "m1") }}
 	m2 := &testModule{name: "m2", onShutdown: func() { order = append(order, "m2") }}
-	app.modules = []Component{m1, m2}
+	app.modules = []component{m1, m2}
 
 	app.Shutdown(slog.Default())
 
@@ -133,7 +134,7 @@ func TestShutdownCallsHTTPServerBeforeModules(t *testing.T) {
 func TestApp_Run_HTTPFailureAfterStartupWindow_ReturnsError(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.I18n.Dir = tempI18nDir(t)
-	builder := New(cfg).DefaultInfrastructure()
+	builder := newBuilder(cfg).DefaultInfrastructure()
 	app, buildErr := builder.Build()
 	if buildErr != nil {
 		t.Fatalf("Build: %v", buildErr)
@@ -158,7 +159,7 @@ func TestApp_Run_HTTPFailureAfterStartupWindow_ReturnsError(t *testing.T) {
 func TestWithHTTP_DefaultConfig_HasReadHeaderTimeout(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.I18n.Dir = tempI18nDir(t)
-	builder := New(cfg).DefaultInfrastructure().WithHttp()
+	builder := newBuilder(cfg).DefaultInfrastructure().WithHTTP()
 	app, err := builder.Build()
 	if err != nil {
 		t.Fatalf("Build: %v", err)

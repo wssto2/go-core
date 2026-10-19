@@ -13,7 +13,6 @@ import (
 	"github.com/wssto2/go-core/access"
 	"github.com/wssto2/go-core/authz"
 	authzstore "github.com/wssto2/go-core/authz/gormstore"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/identity/account"
@@ -74,7 +73,7 @@ func newAlertWorld(t *testing.T, alerts incident.Alerts) *alertWorld {
 
 	w := &alertWorld{t: t, now: time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC), holders: []int{managerHr, managerEn}}
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signIn), gocore.WithAuthorizer(permissions), gocore.WithClock(fixedClock{at: &w.now}))
 
@@ -267,7 +266,7 @@ func TestTheAlertsAreOffByDefaultButTheEventIsPublished(t *testing.T) {
 	t.Cleanup(func() { _ = cleanup() })
 
 	now := time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC)
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signIn), gocore.WithAuthorizer(permissions), gocore.WithClock(fixedClock{at: &now}))
 
@@ -300,7 +299,7 @@ func TestAnEnabledAlertNeedsNotices(t *testing.T) {
 
 	t.Cleanup(func() { _ = cleanup() })
 
-	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()),
+	app := gocore.New(gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()),
 		gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signIn), gocore.WithAuthorizer(permissions))
 	catalogue := authz.NewCatalogue()
 	require.NoError(t, incident.DefinePermissions(catalogue))
@@ -335,7 +334,7 @@ func TestTheDefaultRecipientsAreTheHoldersOfManageInTheAccessRoles(t *testing.T)
 	t.Cleanup(func() { _ = cleanup() })
 
 	now := time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC)
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signIn), gocore.WithClock(fixedClock{at: &now}))
 

@@ -10,9 +10,9 @@ import (
 	"syscall"
 
 	"github.com/gin-gonic/gin"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/middlewares"
 	"github.com/wssto2/go-core/route"
+	"github.com/wssto2/go-core/tenancy"
 	"github.com/wssto2/go-core/web"
 	"github.com/wssto2/go-core/worker"
 )
@@ -34,7 +34,7 @@ func (a *App) Check() error {
 
 // checked is Check plus the extra problems.
 func (a *App) checked(extra []Problem) error {
-	problems := append([]Problem(nil), a.problems...)
+	problems := a.found()
 	problems = append(problems, extra...)
 
 	for _, l := range a.laters {
@@ -228,19 +228,44 @@ func (a *App) closeDatabase() {
 	}
 }
 
-func (a *App) build() (*bootstrap.App, error) {
-	builder := bootstrap.New(a.cfg).WithLogger(a.log).WithTelemetry(a.tel)
+func (a *App) build() (*lifecycle, error) {
+	builder := newBuilder(a.cfg).WithLogger(a.log).WithTelemetry(a.tel)
+	builder.prefix = a.Prefix()
+
 	if a.registry != nil {
 		builder.WithRegistry(a.registry)
 	}
 
 	builder.DefaultInfrastructure().Use(a.middleware...)
 
-	for _, configure := range a.customize {
-		configure(builder)
+	if a.spa != nil {
+		if a.spa.config != nil {
+			builder.WithSPAConfig(*a.spa.config)
+		} else {
+			builder.WithSPA(a.spa.state)
+		}
 	}
 
-	booted, err := builder.WithComponents(&featuresModule{app: a, mgr: nil, cancel: nil}).WithHttp().Build()
+	if a.idempotencyTTL > 0 {
+		builder.WithIdempotency(a.idempotencyTTL)
+	}
+
+	if a.perIPLimit != nil {
+		builder.WithIPRateLimit(a.perIPLimit, a.Prefix()+"/")
+	}
+
+	if a.perUserLimit != nil {
+		builder.WithRateLimit(a.perUserLimit)
+	}
+
+	if a.globalLimit != nil {
+		builder.WithGlobalRateLimit(a.globalLimit)
+	}
+
+	builder.trustedOrigins = append(builder.trustedOrigins, a.trustedOrigins...)
+	builder.csp = append(builder.csp, a.csp...)
+
+	booted, err := builder.WithComponents(&featuresModule{app: a, mgr: nil, cancel: nil}).WithHTTP().Build()
 	if err != nil {
 		return nil, fmt.Errorf("gocore: %w", err)
 	}
@@ -283,7 +308,8 @@ func (m *featuresModule) Boot(boot context.Context) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithCancel(boot)
+	// Workers act for no tenant (see tenancy.WithAllTenants); a request's context is never marked.
+	ctx, cancel := context.WithCancel(tenancy.WithAllTenants(boot))
 	m.cancel = cancel
 	m.mgr.Start(ctx)
 
@@ -312,7 +338,7 @@ func (m *featuresModule) Shutdown(ctx context.Context) error {
 	}
 }
 
-// Handler returns the installed routes as an http.Handler without opening a
+// Handler returns the installed routes, and /health and /ready as Run serves them, as an http.Handler without opening a
 // port or booting modules, for tests. It checks the application first, like
 // Run, and builds the engine the way Run does (the configured trusted proxies,
 // release-mode error bodies outside development), but leaves out the rest of
@@ -337,6 +363,8 @@ func (a *App) Handler() (http.Handler, error) {
 
 	engine.Use(middlewares.ErrorHandler(a.log, nil, a.cfg.App.Development()), web.BodyLimit(a.cfg.HTTP.BodyLimit()))
 	engine.Use(a.middleware...)
+
+	mountHealth(engine, a.registry)
 
 	for _, r := range a.routes {
 		err := r.mount(engine, a.prefix, a.security())

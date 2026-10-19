@@ -20,7 +20,6 @@ import (
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/audit"
 	"github.com/wssto2/go-core/authz"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/dbtest"
 	"github.com/wssto2/go-core/gocore"
@@ -126,7 +125,7 @@ func TestIdentityAndAccessWorkTogether(t *testing.T) {
 			opts = append(opts, gocore.WithAutoMigrate(t.Context())) // what gocoretest.New sets
 		}
 
-		app := gocore.New(bootstrap.DefaultConfig(), opts...)
+		app := gocore.New(opts...)
 
 		permissions := authz.NewCatalogue()
 		permissions.MustDefine("crm.customer:view")
@@ -300,7 +299,7 @@ func TestAPersonsActivity(t *testing.T) {
 			opts = append(opts, gocore.WithAutoMigrate(t.Context()))
 		}
 
-		app := gocore.New(bootstrap.DefaultConfig(), opts...)
+		app := gocore.New(opts...)
 
 		permissions := authz.NewCatalogue()
 		permissions.MustDefine("iam.user:impersonate", authz.Sensitive())

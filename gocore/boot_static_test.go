@@ -1,5 +1,6 @@
+//nolint:testpackage // tests the unexported lifecycle and builder gocore is built on
 //nolint:testpackage // serves through the unexported serveStatic, the one place both static mounts go through
-package bootstrap
+package gocore
 
 import (
 	"net/http"

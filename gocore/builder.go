@@ -1,6 +1,7 @@
-package bootstrap
+package gocore
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -23,14 +24,15 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
-// AppBuilder constructs an App using a fluent chain of calls.
-type AppBuilder struct {
+// appBuilder constructs an App using a fluent chain of calls.
+type appBuilder struct {
 	cfg                 Config
+	prefix              string // the API prefix, handed to the SPA so its catch-all leaves the API alone
 	engine              *gin.Engine
-	modules             []Component
+	modules             []component
 	translator          *i18n.Translator       // built from cfg.I18n, nil when it names no directory
 	health              *health.HealthRegistry // built by DefaultInfrastructure
-	server              HTTPServer
+	server              httpServer
 	errors              []error // accumulate wiring errors, report all at once in build
 	perUserLimiter      ratelimit.Limiter
 	ipLimiter           ratelimit.Limiter
@@ -46,13 +48,11 @@ type AppBuilder struct {
 	csp                 []gin.HandlerFunc        // supplied with WithCSP, applied by Build
 }
 
-// New creates a new AppBuilder with the given config.
-func New(cfg Config) *AppBuilder {
+// New creates a new appBuilder with the given config.
+func newBuilder(cfg Config) *appBuilder {
 	engine := gin.New()
-	builder := &AppBuilder{
-		cfg:    cfg,
-		engine: engine,
-	}
+	builder := new(appBuilder)
+	builder.cfg, builder.engine = cfg, engine
 	proxies := cfg.HTTP.TrustedProxies
 	if len(proxies) == 0 {
 		proxies = nil
@@ -67,51 +67,14 @@ func New(cfg Config) *AppBuilder {
 // DefaultInfrastructure builds the core services (logger, database registry,
 // i18n, telemetry, health) and registers the infrastructure HTTP routes. Call
 // this first, before WithComponents.
-func (b *AppBuilder) DefaultInfrastructure() *AppBuilder {
+func (b *appBuilder) DefaultInfrastructure() *appBuilder {
 	b.setupLogger()
-	b.setupDatabase()
 	b.setupI18n()
 	b.setupObservability()
 	b.setupHealth()
 	b.setupHTTPMiddlewares()
 
 	return b
-}
-
-func (b *AppBuilder) setupLogger() {
-	if b.log != nil {
-		return
-	}
-
-	log, err := logger.New(logger.Config{
-		AppName:    b.cfg.App.Name,
-		LogDir:     b.cfg.Log.Dir,
-		Env:        b.cfg.App.Env,
-		Level:      logger.LogLevel(b.cfg.Log.Level),
-		MaxSizeMB:  b.cfg.Log.MaxSize,
-		MaxBackups: b.cfg.Log.MaxBackups,
-		MaxAgeDays: b.cfg.Log.MaxAgeDays,
-	})
-	if err != nil {
-		b.errors = append(b.errors, fmt.Errorf("logger: %w", err))
-		return
-	}
-
-	b.log = log
-}
-
-func (b *AppBuilder) setupDatabase() {
-	reg := b.registry
-
-	if reg == nil {
-		if len(b.cfg.Database.Connections) == 0 {
-			return // database is optional
-		}
-
-		reg = database.NewRegistryFromConfigs(b.log, registryConfig(b.cfg.Database), connectionConfigs(b.cfg.Database))
-	}
-
-	b.registry = reg
 }
 
 func registryConfig(cfg DatabaseConfig) database.RegistryConfig {
@@ -145,10 +108,9 @@ func connectionConfigs(cfg DatabaseConfig) []database.ConnectionConfig {
 	return connections
 }
 
-// OpenDatabase opens every connection of cfg into a Registry and returns the
-// first failure as an error (NewRegistryFromConfigs panics instead). Pass the
-// result to AppBuilder.WithRegistry.
-func OpenDatabase(log *slog.Logger, cfg DatabaseConfig) (*database.Registry, error) {
+// openDatabase opens every connection of cfg into a Registry and returns the
+// first failure as an error. Pass the result to appBuilder.WithRegistry.
+func openDatabase(log *slog.Logger, cfg DatabaseConfig) (*database.Registry, error) {
 	reg := database.NewRegistry(log, registryConfig(cfg))
 
 	for _, conn := range connectionConfigs(cfg) {
@@ -163,14 +125,14 @@ func OpenDatabase(log *slog.Logger, cfg DatabaseConfig) (*database.Registry, err
 
 // WithRegistry makes the application use reg instead of opening the
 // connections listed in the config. The caller closes it.
-func (b *AppBuilder) WithRegistry(reg *database.Registry) *AppBuilder {
+func (b *appBuilder) WithRegistry(reg *database.Registry) *appBuilder {
 	b.registry = reg
 	return b
 }
 
 // WithLogger makes the application use log instead of building one from the
 // log config.
-func (b *AppBuilder) WithLogger(log *slog.Logger) *AppBuilder {
+func (b *appBuilder) WithLogger(log *slog.Logger) *appBuilder {
 	b.log = log
 	return b
 }
@@ -178,75 +140,24 @@ func (b *AppBuilder) WithLogger(log *slog.Logger) *AppBuilder {
 // WithTelemetry makes the application use tel instead of building its own,
 // for a host that needs the handle before the builder runs. Call it before
 // DefaultInfrastructure.
-func (b *AppBuilder) WithTelemetry(tel *observability.Telemetry) *AppBuilder {
+func (b *appBuilder) WithTelemetry(tel *observability.Telemetry) *appBuilder {
 	b.telemetry = tel
 
 	return b
 }
 
-func (b *AppBuilder) setupI18n() {
-	if b.cfg.I18n.Dir == "" {
-		return // i18n is optional
-	}
-	t, err := i18n.New(i18n.Config{
-		FallbackLang: b.cfg.I18n.DefaultLocale,
-		I18nDir:      b.cfg.I18n.Dir,
-	})
-	if err != nil {
-		b.errors = append(b.errors, fmt.Errorf("i18n: %w", err))
-		return
-	}
-
-	b.translator = t
-}
-
-func (b *AppBuilder) setupObservability() {
-	tel := b.telemetry
-	if tel == nil {
-		tel = observability.New(b.log, b.cfg.App.Name)
-		b.telemetry = tel
-	}
-
-	// Expose /metrics using the app's own registry — not the global default
-	b.engine.GET("/metrics", gin.WrapH(
-		promhttp.HandlerFor(tel.Registry, promhttp.HandlerOpts{}),
-	))
-}
-
-func (b *AppBuilder) setupHealth() {
+// mountHealth serves /health (liveness) and /ready (a ping of the primary connection, when there is one) on engine.
+func mountHealth(engine gin.IRouter, reg *database.Registry) *health.HealthRegistry {
 	hr := health.NewHealthRegistry()
-	b.health = hr
 
-	// Add DB health checker if a registry exists
-	if reg := b.registry; reg != nil && reg.PrimaryName() != "" {
+	if reg != nil && reg.PrimaryName() != "" {
 		hr.Add(health.NewDBHealthChecker(reg.Primary()))
 	}
 
-	b.engine.GET("/health", health.LivenessHandler())
-	b.engine.GET("/ready", health.ReadinessHandler(hr))
-}
+	engine.GET("/health", health.LivenessHandler())
+	engine.GET("/ready", health.ReadinessHandler(hr))
 
-func (b *AppBuilder) setupHTTPMiddlewares() {
-	log := b.log
-	tel := b.telemetry
-	translator := b.translator
-
-	b.engine.Use(
-		otelgin.Middleware(b.cfg.App.Name),
-		middlewares.RequestID(),
-		middlewares.RequestLogger(log),
-		metrics.InstrumentHTTP(tel.HTTP),
-		middlewares.PanicRecovery(log),
-		middlewares.ErrorHandler(log, translator, b.cfg.App.Development()),
-		web.BodyLimit(b.cfg.HTTP.BodyLimit()),
-		middlewares.Security(b.cfg.App.Development(), securityConfig(b.cfg)),
-		middlewares.Cors(middlewares.CorsConfig{
-			AllowOrigins: b.cfg.CORS.AllowedOrigins,
-			AllowMethods: b.cfg.CORS.AllowedMethods,
-			AllowHeaders: b.cfg.CORS.AllowedHeaders,
-		}),
-	)
-
+	return hr
 }
 
 // securityConfig lets Security trust X-Forwarded-Proto for HSTS when proxies are trusted.
@@ -263,13 +174,7 @@ func securityConfig(cfg Config) middlewares.SecurityConfig {
 // key fell back to the client IP for every request and everyone behind one NAT
 // shared a bucket. Routes without Authenticated are not counted here: add
 // WithIPRateLimit for anonymous traffic (login, public endpoints).
-//
-//	bootstrap.New(cfg).
-//	    DefaultInfrastructure().
-//	    WithIPRateLimit(ratelimit.NewInMemoryLimiter(3000, time.Minute)).
-//	    WithRateLimit(ratelimit.NewInMemoryLimiter(300, time.Minute)).
-//	    ...
-func (b *AppBuilder) WithRateLimit(l ratelimit.Limiter) *AppBuilder {
+func (b *appBuilder) WithRateLimit(l ratelimit.Limiter) *appBuilder {
 	b.perUserLimiter = l
 	return b
 }
@@ -281,7 +186,7 @@ func (b *AppBuilder) WithRateLimit(l ratelimit.Limiter) *AppBuilder {
 // Size the ceiling for a whole office behind one NAT: it is a guard against a
 // single flooding machine and brute force on anonymous endpoints, while
 // WithRateLimit budgets each signed-in user.
-func (b *AppBuilder) WithIPRateLimit(l ratelimit.Limiter, pathPrefix ...string) *AppBuilder {
+func (b *appBuilder) WithIPRateLimit(l ratelimit.Limiter, pathPrefix ...string) *appBuilder {
 	b.ipLimiter = l
 	b.ipLimiterPrefix = "/api/"
 
@@ -310,7 +215,7 @@ func (b *AppBuilder) WithIPRateLimit(l ratelimit.Limiter, pathPrefix ...string) 
 //
 // For production abuse prevention prefer WithRateLimit (per-user/IP) combined
 // with per-endpoint limits inside each module.
-func (b *AppBuilder) WithGlobalRateLimit(l ratelimit.Limiter) *AppBuilder {
+func (b *appBuilder) WithGlobalRateLimit(l ratelimit.Limiter) *appBuilder {
 	b.sharedGlobalLimiter = l
 	return b
 }
@@ -324,12 +229,7 @@ func (b *AppBuilder) WithGlobalRateLimit(l ratelimit.Limiter) *AppBuilder {
 //
 // Chain it before WithComponents so the middleware is in place when
 // components register their routes.
-//
-//	bootstrap.New(cfg).
-//	    DefaultInfrastructure().
-//	    WithIdempotency(24 * time.Hour).
-//	    WithComponents(...)
-func (b *AppBuilder) WithIdempotency(ttl time.Duration) *AppBuilder {
+func (b *appBuilder) WithIdempotency(ttl time.Duration) *appBuilder {
 	b.idempotencyStore = middlewares.NewInMemoryIdempotencyStore(ttl)
 
 	return b
@@ -339,7 +239,7 @@ func (b *AppBuilder) WithIdempotency(ttl time.Duration) *AppBuilder {
 // included, after the builder's own (request id, logging, security, rate
 // limits) and in the order given. It is applied by Build, so it may be called
 // at any point of the chain.
-func (b *AppBuilder) Use(middleware ...gin.HandlerFunc) *AppBuilder {
+func (b *appBuilder) Use(middleware ...gin.HandlerFunc) *appBuilder {
 	b.engineMiddleware = append(b.engineMiddleware, middleware...)
 
 	return b
@@ -347,7 +247,7 @@ func (b *AppBuilder) Use(middleware ...gin.HandlerFunc) *AppBuilder {
 
 // WithComponents adds the components the App registers, boots and shuts down,
 // in this order and its reverse.
-func (b *AppBuilder) WithComponents(components ...Component) *AppBuilder {
+func (b *appBuilder) WithComponents(components ...component) *appBuilder {
 	b.modules = append(b.modules, components...)
 	return b
 }
@@ -355,11 +255,11 @@ func (b *AppBuilder) WithComponents(components ...Component) *AppBuilder {
 // WithSPA enables the convention-based SPA setup for applications that keep
 // their frontend files under ./frontend. The provided state builder is optional
 // and is injected into the rendered template as appState.
-func (b *AppBuilder) WithSPA(stateBuilder frontend.AppStateBuilder) *AppBuilder {
+func (b *appBuilder) WithSPA(stateBuilder frontend.AppStateBuilder) *appBuilder {
 	cfg := frontend.SPAConfig{
 		TemplatesPath: b.cfg.Frontend.TemplatesPath,
 		TemplateName:  b.cfg.Frontend.TemplateName,
-		APIPrefix:     b.cfg.Frontend.APIPrefix,
+		APIPrefix:     b.prefix,
 		StateBuilder:  stateBuilder,
 		DevMode:       b.cfg.App.Development(),
 		Vite: frontend.ViteConfig{
@@ -395,9 +295,9 @@ func (b *AppBuilder) WithSPA(stateBuilder frontend.AppStateBuilder) *AppBuilder 
 }
 
 // WithSPAConfig enables SPA support with an explicit frontend configuration.
-func (b *AppBuilder) WithSPAConfig(cfg frontend.SPAConfig) *AppBuilder {
+func (b *appBuilder) WithSPAConfig(cfg frontend.SPAConfig) *appBuilder {
 	if cfg.APIPrefix == "" {
-		cfg.APIPrefix = b.cfg.Frontend.APIPrefix
+		cfg.APIPrefix = b.prefix
 	}
 
 	if cfg.APIPrefix == "" {
@@ -416,12 +316,7 @@ func (b *AppBuilder) WithSPAConfig(cfg frontend.SPAConfig) *AppBuilder {
 // WithTrustedOrigins registers HTTP origins that are allowed to load resources
 // from this app (img-src) and embed it in iframes (frame-ancestors). Pass full
 // URLs or bare origins — only the scheme and host are used.
-//
-//	bootstrap.New(cfg).
-//	    DefaultInfrastructure().
-//	    WithTrustedOrigins(os.Getenv("LEGACY_URL")).
-//	    ...
-func (b *AppBuilder) WithTrustedOrigins(origins ...string) *AppBuilder {
+func (b *appBuilder) WithTrustedOrigins(origins ...string) *appBuilder {
 	b.trustedOrigins = append(b.trustedOrigins, origins...)
 	return b
 }
@@ -429,11 +324,7 @@ func (b *AppBuilder) WithTrustedOrigins(origins ...string) *AppBuilder {
 // WithCSP adds sources to a directive of the Content-Security-Policy, and
 // creates the directive when the policy has none. Sources are written as in a
 // policy, quotes included; production keeps its nonce-only script-src.
-//
-//	bootstrap.New(cfg).
-//	    DefaultInfrastructure().
-//	    WithCSP("frame-src", "'self'", "https://www.google.com/maps/")
-func (b *AppBuilder) WithCSP(directive string, sources ...string) *AppBuilder {
+func (b *appBuilder) WithCSP(directive string, sources ...string) *appBuilder {
 	b.csp = append(b.csp, middlewares.CSPSources(directive, sources...))
 
 	return b
@@ -441,7 +332,7 @@ func (b *AppBuilder) WithCSP(directive string, sources ...string) *AppBuilder {
 
 // WithTrustedProxies configures the proxies Gin will trust for client-IP and
 // forwarded-proto resolution. Passing no values disables proxy trust.
-func (b *AppBuilder) WithTrustedProxies(proxies ...string) *AppBuilder {
+func (b *appBuilder) WithTrustedProxies(proxies ...string) *appBuilder {
 	if len(proxies) == 0 {
 		proxies = nil
 	}
@@ -454,7 +345,7 @@ func (b *AppBuilder) WithTrustedProxies(proxies ...string) *AppBuilder {
 	return b
 }
 
-func (b *AppBuilder) WithHttp() *AppBuilder {
+func (b *appBuilder) WithHTTP() *appBuilder {
 	port := b.cfg.HTTP.Port
 	if port == 0 {
 		port = 8080
@@ -478,40 +369,40 @@ func (b *AppBuilder) WithHttp() *AppBuilder {
 		}
 	}
 
-	readHeaderTimeout := b.cfg.HTTP.ReadHeaderTimeout
-	if readHeaderTimeout <= 0 {
-		readHeaderTimeout = 10 * time.Second
-	}
-	readTimeout := b.cfg.HTTP.ReadTimeout
-	if readTimeout <= 0 {
-		readTimeout = 30 * time.Second
-	}
-	writeTimeout := b.cfg.HTTP.WriteTimeout
-	if writeTimeout <= 0 {
-		writeTimeout = 30 * time.Second
-	}
-	idleTimeout := b.cfg.HTTP.IdleTimeout
-	if idleTimeout <= 0 {
-		idleTimeout = 120 * time.Second
-	}
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", port),
 		Handler:           b.engine,
-		ReadTimeout:       readTimeout,
-		WriteTimeout:      writeTimeout,
-		IdleTimeout:       idleTimeout,
-		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       positive(b.cfg.HTTP.ReadTimeout, fallbackTimeout),
+		WriteTimeout:      positive(b.cfg.HTTP.WriteTimeout, fallbackTimeout),
+		IdleTimeout:       positive(b.cfg.HTTP.IdleTimeout, fallbackIdleTimeout),
+		ReadHeaderTimeout: positive(b.cfg.HTTP.ReadHeaderTimeout, fallbackHeaderTimeout),
 	}
 	b.server = newServerWrapper(srv, b.cfg.HTTP.shutdownGracePeriod())
 
 	return b
 }
 
+// The server timeouts used when the config leaves one zero or negative.
+const (
+	fallbackTimeout       = 30 * time.Second
+	fallbackIdleTimeout   = 120 * time.Second
+	fallbackHeaderTimeout = 10 * time.Second
+)
+
+// positive is d, or def when d is not positive.
+func positive(d, def time.Duration) time.Duration {
+	if d <= 0 {
+		return def
+	}
+
+	return d
+}
+
 // Build validates accumulated errors, registers SPA wiring, and
-// returns the runnable *App. Returns an error if any wiring step failed.
-func (b *AppBuilder) Build() (*App, error) {
+// returns the runnable *lifecycle. Returns an error if any wiring step failed.
+func (b *appBuilder) Build() (*lifecycle, error) {
 	if len(b.errors) > 0 {
-		return nil, fmt.Errorf("bootstrap: wiring errors: %v", b.errors)
+		return nil, fmt.Errorf("wiring errors: %w", errors.Join(b.errors...))
 	}
 
 	// Idempotency runs ahead of the rate limiters so a replayed response
@@ -554,5 +445,85 @@ func (b *AppBuilder) Build() (*App, error) {
 		frontend.RegisterSPAWithTemplates(b.engine, *b.spaConfig, b.log)
 	}
 
-	return NewApp(b.cfg, b.log, b.health, b.engine, b.server, b.modules), nil
+	return newLifecycle(b.cfg, b.log, b.health, b.engine, b.server, b.modules), nil
+}
+
+func (b *appBuilder) setupLogger() {
+	if b.log != nil {
+		return
+	}
+
+	log, err := logger.New(logger.Config{
+		AppName:    b.cfg.App.Name,
+		LogDir:     b.cfg.Log.Dir,
+		Env:        b.cfg.App.Env,
+		Level:      logger.LogLevel(b.cfg.Log.Level),
+		MaxSizeMB:  b.cfg.Log.MaxSize,
+		MaxBackups: b.cfg.Log.MaxBackups,
+		MaxAgeDays: b.cfg.Log.MaxAgeDays,
+	})
+	if err != nil {
+		b.errors = append(b.errors, fmt.Errorf("logger: %w", err))
+
+		return
+	}
+
+	b.log = log
+}
+
+func (b *appBuilder) setupI18n() {
+	if b.cfg.I18n.Dir == "" {
+		return // i18n is optional
+	}
+
+	translator, err := i18n.New(i18n.Config{
+		FallbackLang: b.cfg.I18n.DefaultLocale,
+		I18nDir:      b.cfg.I18n.Dir,
+	})
+	if err != nil {
+		b.errors = append(b.errors, fmt.Errorf("i18n: %w", err))
+
+		return
+	}
+
+	b.translator = translator
+}
+
+func (b *appBuilder) setupObservability() {
+	tel := b.telemetry
+	if tel == nil {
+		tel = observability.New(b.log, b.cfg.App.Name)
+		b.telemetry = tel
+	}
+
+	// Expose /metrics using the app's own registry — not the global default
+	var opts promhttp.HandlerOpts
+
+	b.engine.GET("/metrics", gin.WrapH(promhttp.HandlerFor(tel.Registry, opts)))
+}
+
+func (b *appBuilder) setupHealth() {
+	b.health = mountHealth(b.engine, b.registry)
+}
+
+func (b *appBuilder) setupHTTPMiddlewares() {
+	log := b.log
+	tel := b.telemetry
+	translator := b.translator
+
+	b.engine.Use(
+		otelgin.Middleware(b.cfg.App.Name),
+		middlewares.RequestID(),
+		middlewares.RequestLogger(log),
+		metrics.InstrumentHTTP(tel.HTTP),
+		middlewares.PanicRecovery(log),
+		middlewares.ErrorHandler(log, translator, b.cfg.App.Development()),
+		web.BodyLimit(b.cfg.HTTP.BodyLimit()),
+		middlewares.Security(b.cfg.App.Development(), securityConfig(b.cfg)),
+		middlewares.Cors(middlewares.CorsConfig{
+			AllowOrigins: b.cfg.CORS.AllowedOrigins,
+			AllowMethods: b.cfg.CORS.AllowedMethods,
+			AllowHeaders: b.cfg.CORS.AllowedHeaders,
+		}),
+	)
 }

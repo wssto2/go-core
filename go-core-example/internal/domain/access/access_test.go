@@ -17,7 +17,6 @@ import (
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/gormstore"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/gocore"
 	idaccount "github.com/wssto2/go-core/identity/account"
@@ -90,7 +89,7 @@ func newApp(t *testing.T) *app {
 		c.Next()
 	}
 
-	a := gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+	a := gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signedIn), gocore.WithAuthorizer(engine))
 	a.Permissions(cat)
 	access.Install(a, engine)

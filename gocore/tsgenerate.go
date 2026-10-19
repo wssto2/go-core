@@ -70,7 +70,7 @@ func WithTypeScript(ts TS) Option {
 // WithArgs sets the command line the App runs, instead of os.Args[1:]: New reads it to decide whether the command
 // is one that runs offline (ts:generate), and Run executes it. For tests, which have no command line of their own:
 //
-//	app := gocore.New(cfg, gocore.WithArgs("ts:generate"), gocore.WithTypeScript(ts))
+//	app := gocore.New(gocore.WithArgs("ts:generate"), gocore.WithTypeScript(ts))
 //
 // No arguments means serving.
 func WithArgs(args ...string) Option {
@@ -99,8 +99,8 @@ func asksForOffline(args []string) bool {
 func tsParts() []string { return []string{"entities", "schemas", "permissions", "routes"} }
 
 func (a *App) generateTypeScript(args []string, out io.Writer) error {
-	if len(a.problems) > 0 {
-		return &StartupError{Problems: append([]Problem(nil), a.problems...)}
+	if len(a.found()) > 0 {
+		return &StartupError{Problems: a.found()}
 	}
 
 	parts := tsParts()

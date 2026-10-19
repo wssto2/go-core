@@ -1,4 +1,5 @@
-package bootstrap
+//nolint:testpackage // tests the unexported lifecycle and builder gocore is built on
+package gocore
 
 import (
 	"net/http/httptest"
@@ -8,7 +9,7 @@ import (
 func TestDefaultInfrastructureRegistersMetricsEndpoint(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.I18n.Dir = t.TempDir()
-	b := New(cfg).DefaultInfrastructure()
+	b := newBuilder(cfg).DefaultInfrastructure()
 
 	req := httptest.NewRequest("GET", "/metrics", nil)
 	rr := httptest.NewRecorder()

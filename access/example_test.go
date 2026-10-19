@@ -11,7 +11,6 @@ import (
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/authz/gormstore"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/gocore"
 )
@@ -22,7 +21,7 @@ func exampleApp() (*gocore.App, func()) {
 	reg, cleanup := database.NewTestRegistry("local")
 
 	// WithAutoMigrate is what gocoretest.New sets: Install's app.Schema creates the tables from the models.
-	return gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+	return gocore.New(gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 			gocore.WithAuthentication(signedIn), gocore.WithAutoMigrate(context.Background())),
 		func() { _ = cleanup() }
 }
@@ -124,7 +123,8 @@ func ExampleWithAudit() {
 	_ = gormstore.Migrate(db)
 	_ = audit.Migrate(db)
 
-	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signedIn))
+	app := gocore.New(gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithAuthentication(signedIn))
 	acc := access.Install(app, catalogue(), team{},
 		access.WithRoles(authz.Role{Key: "viewer", Name: "Viewer", Grants: authz.Grants(authz.QualifierAll, "tickets.ticket:view")}),
 		access.WithAudit(audit.NewRepository(database.NewTransactor(db))))
@@ -146,7 +146,8 @@ func ExampleOn() {
 
 	_ = gormstore.Migrate(reg.MustGet("shared"))
 
-	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signedIn))
+	app := gocore.New(gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithAuthentication(signedIn))
 	access.Install(app, catalogue(), team{}, access.On("shared"))
 	fmt.Println(app.Check())
 	// Output: <nil>

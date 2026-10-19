@@ -1,21 +1,18 @@
 // Command tool shows an application command: go run ./cmd/tool hello -name Ana
 //
 // Besides serving, an App has a command line. migrate and help are built in;
-// app.Command adds the application's own, each parsing its arguments with the
-// standard flag package. "go run ./cmd/tool help" lists them.
+// app.Command adds the application's own, each declaring its flags on the
+// *gocore.Cmd it is given. "go run ./cmd/tool help" lists them.
 package main
 
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
-	"io"
 	"io/fs"
 	"log"
 	"log/slog"
 
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/gocore"
 )
 
@@ -26,7 +23,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithLogger(slog.Default()))
+	app := gocore.New(gocore.WithLogger(slog.Default()))
 	app.Command("hello", "greet someone", hello)
 
 	if err := app.Run(); err != nil {
@@ -34,15 +31,12 @@ func main() {
 	}
 }
 
-// hello parses its own flags; "hello -h" prints them and exits 0.
-func hello(_ context.Context, _ *gocore.App, args []string, out io.Writer) error {
-	flags := flag.NewFlagSet("hello", flag.ContinueOnError)
-	flags.SetOutput(out)
+// hello declares its flags on cmd; "hello -h" prints them and exits 0, a stray argument is an error.
+func hello(_ context.Context, cmd *gocore.Cmd) error {
+	name := cmd.String("name", "world", "who to greet")
+	shout := cmd.Bool("shout", false, "greet loudly")
 
-	name := flags.String("name", "world", "who to greet")
-	shout := flags.Bool("shout", false, "greet loudly")
-
-	if err := flags.Parse(args); err != nil {
+	if err := cmd.Parse(); err != nil {
 		return err
 	}
 
@@ -51,7 +45,7 @@ func hello(_ context.Context, _ *gocore.App, args []string, out io.Writer) error
 		greeting += "!"
 	}
 
-	_, err := fmt.Fprintln(out, greeting)
+	_, err := fmt.Fprintln(cmd.Out, greeting)
 
 	return err
 }

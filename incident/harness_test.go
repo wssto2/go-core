@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/identity/account"
@@ -165,7 +164,7 @@ func newWorld(t *testing.T, opts ...incident.Option) *world {
 
 	w := &world{t: t, now: time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC)}
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signIn), gocore.WithAuthorizer(permissions), gocore.WithPrefix(prefix),
 		gocore.WithClock(fixedClock{at: &w.now}))

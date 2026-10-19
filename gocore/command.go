@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+
+	"github.com/wssto2/go-core/tenancy"
 )
 
 // RunCommand does what args ask, the way Run does with the command line:
@@ -125,10 +127,121 @@ func tsUsage(typescript bool) string {
 		"                  write the application's TypeScript, then exit\n"
 }
 
-// CommandFunc is a command the application added with App.Command. args are
-// what follows the command's name on the command line, unparsed; out is where
-// the command writes.
-type CommandFunc func(ctx context.Context, app *App, args []string, out io.Writer) error
+// CommandFunc is a command the application added with App.Command. cmd carries the flags, the App and the output.
+type CommandFunc func(ctx context.Context, cmd *Cmd) error
+
+// Cmd is what a command is given: a flag.FlagSet already named after the command, with its output and usage set (so
+// -h prints the command's short description and flags), and the App and the writer the command prints to. Declare the
+// flags with the FlagSet's methods and List, then call Parse.
+type Cmd struct {
+	*flag.FlagSet
+
+	// App is the application the command runs in; reach the databases with App.Database.
+	App *App
+	// Out is where the command writes.
+	Out io.Writer
+
+	short string
+	args  []string
+	// positionals is how many arguments Parse accepts after the flags.
+	positionals int
+}
+
+func newCmd(app *App, c *appCommand, args []string, out io.Writer) *Cmd {
+	cmd := new(Cmd)
+	cmd.FlagSet = flag.NewFlagSet(c.name, flag.ContinueOnError)
+	cmd.App, cmd.Out, cmd.short, cmd.args = app, out, c.short, args
+	cmd.SetOutput(out)
+	cmd.Usage = cmd.usage
+
+	return cmd
+}
+
+// ParseOption adjusts Cmd.Parse.
+type ParseOption func(*Cmd)
+
+// Args allows up to n arguments after the flags, which the command reads with Cmd.Args:
+// cmd.Parse(gocore.Args(1)). Without it a stray argument is an error.
+func Args(n int) ParseOption { return func(c *Cmd) { c.positionals = n } }
+
+// Parse reads the command line after the command's name into the flags declared so far. "-h" prints the flags and
+// ends the command with success (Parse returns flag.ErrHelp, which Run treats as success); an unknown flag, a bad
+// value or an argument the command does not allow is an error naming it.
+func (c *Cmd) Parse(opts ...ParseOption) error {
+	for _, o := range opts {
+		o(c)
+	}
+
+	err := c.FlagSet.Parse(c.args)
+	if err != nil {
+		return err //nolint:wrapcheck // flag's own error, which names the flag; ErrHelp must stay recognisable
+	}
+
+	if c.NArg() > c.positionals {
+		return fmt.Errorf("%w: %s got %q, and takes %s; -h lists the flags",
+			errStrayArgument, c.Name(), c.Arg(c.positionals), c.takes())
+	}
+
+	return nil
+}
+
+// List declares a flag whose value is a comma-separated list: "-only a,b" gives ["a", "b"]. Spaces are trimmed and
+// empty items dropped.
+func (c *Cmd) List(name, usage string) *[]string {
+	items := new([]string)
+	c.Var(listFlag{items}, name, usage)
+
+	return items
+}
+
+func (c *Cmd) takes() string {
+	switch c.positionals {
+	case 0:
+		return "no arguments, only flags"
+	case 1:
+		return "one argument"
+	default:
+		return fmt.Sprintf("at most %d arguments", c.positionals)
+	}
+}
+
+func (c *Cmd) usage() {
+	line := "Usage: " + c.Name() + " [flags]"
+	if c.positionals > 0 {
+		line += " [arguments]"
+	}
+
+	text := line + "\n"
+	if c.short != "" {
+		text += "\n" + c.short + "\n"
+	}
+
+	_, _ = fmt.Fprint(c.Output(), text+"\nFlags:\n")
+
+	c.PrintDefaults()
+}
+
+type listFlag struct{ items *[]string }
+
+func (l listFlag) String() string {
+	if l.items == nil {
+		return ""
+	}
+
+	return strings.Join(*l.items, ",")
+}
+
+func (l listFlag) Set(v string) error {
+	*l.items = nil
+
+	for item := range strings.SplitSeq(v, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			*l.items = append(*l.items, item)
+		}
+	}
+
+	return nil
+}
 
 type appCommand struct {
 	name, short string
@@ -142,6 +255,9 @@ func isBuiltin(name string) bool { return name == "migrate" || name == "help" ||
 // and help: "./myapp db:prune --dry-run" runs run with ["--dry-run"]. short is
 // the line "help" shows next to the name.
 //
+// ctx is cancelled by Ctrl-C and is marked all-tenants (tenancy.WithAllTenants): a command acts for nobody, so a
+// tenant-scoped query sees every tenant; acting for one narrows it with tenancy.WithTenantID.
+//
 // A command runs the way migrate does: the App is built and every feature
 // installed, but nothing is checked, served or booted, no worker or OnStart
 // runs, and the databases New opened are closed afterwards. It reaches them
@@ -150,20 +266,18 @@ func isBuiltin(name string) bool { return name == "migrate" || name == "help" ||
 // the problems listed. The error run returns is Run's error, so the process
 // exits non-zero.
 //
-// The arguments after the name are not parsed: the command parses its own,
-// usually with the standard flag package. A flag.ErrHelp from run (a FlagSet
-// parsed "-h") is a success, so "-h" prints the command's flags and exits 0.
+// The command declares its flags on cmd (a flag.FlagSet with the command's name, usage and output already set, and
+// List for comma-separated values) and calls cmd.Parse. "-h" prints the flags and exits 0; an unknown flag or a stray
+// argument is an error, unless cmd.Parse(gocore.Args(n)) allows up to n arguments, read with cmd.Args().
 //
-//	app.Command("db:prune", "delete rows past their retention window",
-//	    func(ctx context.Context, app *gocore.App, args []string, out io.Writer) error {
-//	        fs := flag.NewFlagSet("db:prune", flag.ContinueOnError)
-//	        fs.SetOutput(out)
-//	        dryRun := fs.Bool("dry-run", false, "count the rows without deleting them")
-//	        if err := fs.Parse(args); err != nil {
-//	            return err
-//	        }
-//	        return prune(ctx, app.Database(), *dryRun, out)
-//	    })
+//	app.Command("db:prune", "delete rows past their retention window", func(ctx context.Context, cmd *gocore.Cmd) error {
+//	    dryRun := cmd.Bool("dry-run", false, "count the rows without deleting them")
+//	    only := cmd.List("only", "the rules to run, comma-separated")
+//	    if err := cmd.Parse(); err != nil {
+//	        return err
+//	    }
+//	    return prune(ctx, cmd.App.Database(), *dryRun, *only, cmd.Out)
+//	})
 //
 // A name may contain ":" (iam:check-placement). Registering a name that is
 // empty, has whitespace or starts with "-", is a built-in command (migrate,
@@ -233,11 +347,12 @@ func (a *App) commandNames() string {
 }
 
 func (a *App) runAppCommand(ctx context.Context, c *appCommand, args []string, out io.Writer) error {
-	if len(a.problems) > 0 {
-		return &StartupError{Problems: append([]Problem(nil), a.problems...)}
+	if len(a.found()) > 0 {
+		return &StartupError{Problems: a.found()}
 	}
 
-	err := c.run(ctx, a, args, out)
+	// A command acts for nobody: every tenant's rows are in reach, and acting for one narrows with tenancy.WithTenantID.
+	err := c.run(tenancy.WithAllTenants(ctx), newCmd(a, c, args, out))
 	if errors.Is(err, flag.ErrHelp) {
 		return nil
 	}
@@ -278,6 +393,7 @@ func (a *App) migrationStatus(ctx context.Context, out io.Writer) error {
 
 var (
 	errUnknownCommand = errors.New("unknown command")
+	errStrayArgument  = errors.New("unexpected argument")
 	errMarkUsage      = errors.New("gocore: mark-applied takes a connection and at least one version or file")
 )
 

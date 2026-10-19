@@ -3,18 +3,22 @@ package gocore
 import (
 	"context"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/wssto2/go-core/authz"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
+	"github.com/wssto2/go-core/env"
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/logger"
+	"github.com/wssto2/go-core/middlewares"
 	"github.com/wssto2/go-core/observability"
+	"github.com/wssto2/go-core/ratelimit"
 	"github.com/wssto2/go-core/route"
 	"github.com/wssto2/go-core/storage"
 	"github.com/wssto2/go-core/tenancy"
@@ -65,7 +69,10 @@ func (e *StartupError) Error() string {
 // An App is built on one goroutine, in main or in a test, and is not safe for
 // concurrent Install calls.
 type App struct {
-	cfg          bootstrap.Config
+	cfg          Config
+	cfgSet       bool // WithConfig was given, so the environment is not read into cfg
+	env          *env.Reader
+	databases    []declaredDatabase
 	log          *slog.Logger
 	clock        Clock
 	tel          *observability.Telemetry
@@ -74,8 +81,16 @@ type App struct {
 	authenticate []gin.HandlerFunc
 	middleware   []gin.HandlerFunc
 	// onStart are the checks serving runs before it starts.
-	onStart   []func(ctx context.Context) error
-	customize []func(*bootstrap.AppBuilder)
+	onStart []func(ctx context.Context) error
+
+	// The site's HTTP options, applied by build.
+	spa            *spaOption
+	perUserLimit   ratelimit.Limiter
+	perIPLimit     ratelimit.Limiter
+	globalLimit    ratelimit.Limiter
+	idempotencyTTL time.Duration
+	trustedOrigins []string
+	csp            []gin.HandlerFunc
 
 	disks      *storage.Registry
 	routes     []mounted
@@ -169,7 +184,7 @@ func WithDeadLetterRetention(d time.Duration) Option {
 // The development policy already allows what Vite and vue-core need (HMR,
 // 'unsafe-eval' for Zod); production keeps a nonce-only script-src.
 func WithCSP(directive string, sources ...string) Option {
-	return WithBuilder(func(b *bootstrap.AppBuilder) { b.WithCSP(directive, sources...) })
+	return func(app *App) { app.csp = append(app.csp, middlewares.CSPSources(directive, sources...)) }
 }
 
 // WithServiceWorker serves the file at /sw.js, at the root of the site outside
@@ -209,22 +224,19 @@ func WithRegistry(reg *database.Registry) Option {
 	return func(app *App) { app.registry = reg }
 }
 
-// WithBuilder lets the application configure the bootstrap builder the App is
-// built on: rate limits, JWT authentication, the SPA, trusted origins.
-func WithBuilder(configure func(*bootstrap.AppBuilder)) Option {
-	return func(app *App) { app.customize = append(app.customize, configure) }
+// WithConfig uses cfg instead of reading the environment, for tests and for a host that does not configure itself
+// from the environment. Connections declared with WithDatabase are still read from the environment and added to it.
+func WithConfig(cfg Config) Option {
+	return func(app *App) { app.cfg, app.cfgSet = cfg, true }
 }
 
-// New creates an App from the configuration. Opening the logger and the
-// database connections can fail; the failure is held and reported by Run with
-// the other start-up problems.
-func New(cfg bootstrap.Config, opts ...Option) *App {
-	app := &App{cfg: cfg, clock: systemClock{}}
-
-	envErr := cfg.App.Validate()
-	if envErr != nil {
-		app.fail(envErr.Error(), "set APP_ENV to production, staging or development (empty means development)")
-	}
+// New creates an App. It reads its configuration from the environment (see Config; APP_ENV, APP_PORT, LOG_*,
+// TRUSTED_PROXIES, and the connections declared with WithDatabase), unless WithConfig gives one. A value that cannot be
+// read, opening the logger and opening the database connections can fail; the failure is held and reported by Run
+// with the other start-up problems.
+func New(opts ...Option) *App {
+	app := new(App)
+	app.clock, app.env = systemClock{}, env.New(os.LookupEnv)
 
 	for _, opt := range opts {
 		opt(app)
@@ -238,42 +250,23 @@ func New(cfg bootstrap.Config, opts ...Option) *App {
 		app.registry = nil
 	}
 
-	if app.log == nil && app.offline {
-		app.log = offlineLogger()
-	}
-
-	if app.log == nil {
-		log, err := logger.New(logger.Config{
-			AppName:    cfg.App.Name,
-			LogDir:     cfg.Log.Dir,
-			Env:        cfg.App.Env,
-			Level:      logger.LogLevel(cfg.Log.Level),
-			MaxSizeMB:  cfg.Log.MaxSize,
-			MaxBackups: cfg.Log.MaxBackups,
-			MaxAgeDays: cfg.Log.MaxAgeDays,
-		})
-		if err != nil {
-			app.fail("the logger could not be opened: "+err.Error(), "check the LOG_* settings, such as LOG_DIR being writable")
-
-			log = slog.Default()
-		}
-
-		app.log = log
-	}
-
-	app.tel = observability.New(app.log, cfg.App.Name)
-
-	if app.registry == nil && !app.offline && len(cfg.Database.Connections) > 0 {
-		reg, err := bootstrap.OpenDatabase(app.log, cfg.Database)
-		if err != nil {
-			app.fail("the database could not be opened: "+err.Error(), "check the connection settings and that the server is reachable")
-		}
-
-		app.registry = reg
-	}
+	app.configure()
+	app.openLogger()
+	app.tel = observability.New(app.log, app.cfg.App.Name)
+	app.openRegistry()
 
 	return app
 }
+
+// Env reads settings from the process environment with explicit calls: Required, String, Int, Bool, Duration and
+// List. A missing required value or a malformed one is a start-up problem that names the variable, listed by Run and
+// Check with the others, so nothing starts half-loaded:
+//
+//	secret := app.Env().Required("EMBED_SECRET")
+//	limit := app.Env().Int("IMPORT_BATCH", 500)
+//
+// A variable set to the empty string counts as unset. See package env, which gives the same reader outside an App.
+func (a *App) Env() *env.Reader { return a.env }
 
 // security is what routes are mounted behind.
 func (a *App) security() route.Security {
@@ -370,8 +363,8 @@ func (a *App) OnStart(check func(ctx context.Context) error) {
 	a.onStart = append(a.onStart, check)
 }
 
-// Config returns the configuration the App was created with.
-func (a *App) Config() bootstrap.Config { return a.cfg }
+// Config returns the configuration the App runs with.
+func (a *App) Config() Config { return a.cfg }
 
 // Logger returns the application logger.
 func (a *App) Logger() *slog.Logger { return a.log }
@@ -463,7 +456,9 @@ func (a *App) RoutesWith(security route.Security, routes ...route.Handled) {
 }
 
 // Background collects workers that run for the life of the application: they
-// start at boot and are drained at shutdown.
+// start at boot and are drained at shutdown. Their context is marked all-tenants
+// (tenancy.WithAllTenants), since a worker acts for nobody; a worker acting for one
+// tenant narrows it with tenancy.WithTenantID.
 func (a *App) Background(workers ...worker.Worker) {
 	a.workers = append(a.workers, workers...)
 }
@@ -535,4 +530,82 @@ func (a *App) handled() []route.Handled {
 	}
 
 	return out
+}
+
+// found lists every problem so far: the ones features reported and the ones Env found.
+func (a *App) found() []Problem {
+	out := append([]Problem(nil), a.problems...)
+
+	for _, p := range a.env.Problems() {
+		out = append(out, Problem{What: p.What, Fix: p.Fix})
+	}
+
+	return out
+}
+
+// configure reads the configuration from the environment unless WithConfig gave one, adds the declared connections,
+// and checks what it can without opening anything.
+func (a *App) configure() {
+	if !a.cfgSet {
+		a.cfg = a.readConfig()
+	}
+
+	if !a.offline {
+		a.cfg.Database.Connections = append(a.cfg.Database.Connections, a.readConnections()...)
+	}
+
+	envErr := a.cfg.App.Validate()
+	if envErr != nil {
+		a.fail(envErr.Error(), "set APP_ENV to production, staging or development (empty means development)")
+	}
+
+	err := gin.New().SetTrustedProxies(a.cfg.HTTP.TrustedProxies)
+	if err != nil {
+		a.fail("TRUSTED_PROXIES: "+err.Error(), "list IP addresses or CIDRs, comma-separated")
+	}
+}
+
+// openLogger builds the logger from the log config, unless WithLogger gave one or the App is offline.
+func (a *App) openLogger() {
+	if a.log != nil {
+		return
+	}
+
+	if a.offline {
+		a.log = offlineLogger()
+
+		return
+	}
+
+	log, err := logger.New(logger.Config{
+		AppName:    a.cfg.App.Name,
+		LogDir:     a.cfg.Log.Dir,
+		Env:        a.cfg.App.Env,
+		Level:      logger.LogLevel(a.cfg.Log.Level),
+		MaxSizeMB:  a.cfg.Log.MaxSize,
+		MaxBackups: a.cfg.Log.MaxBackups,
+		MaxAgeDays: a.cfg.Log.MaxAgeDays,
+	})
+	if err != nil {
+		a.fail("the logger could not be opened: "+err.Error(), "check the LOG_* settings, such as LOG_DIR being writable")
+
+		log = slog.Default()
+	}
+
+	a.log = log
+}
+
+// openRegistry opens the configured connections, unless WithRegistry gave a registry or the App is offline.
+func (a *App) openRegistry() {
+	if a.registry != nil || a.offline || len(a.cfg.Database.Connections) == 0 {
+		return
+	}
+
+	reg, err := openDatabase(a.log, a.cfg.Database)
+	if err != nil {
+		a.fail("the database could not be opened: "+err.Error(),
+			"check the connection settings and that the server is reachable")
+	}
+
+	a.registry = reg
 }

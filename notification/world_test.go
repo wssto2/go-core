@@ -18,7 +18,6 @@ import (
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/gocore"
@@ -186,7 +185,7 @@ func buildWorld(t *testing.T, db *gorm.DB, authorizer authz.Authorizer, sink *ma
 	reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
 	reg.AddConnection("local", db)
 
-	w.app = gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+	w.app = gocore.New(gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAutoMigrate(t.Context()), gocore.WithClock(w.clock), gocore.WithAuthorizer(authorizer),
 		gocore.WithAuthentication(func(c *gin.Context) {
 			robot, robotErr := strconv.Atoi(c.GetHeader("X-Robot"))

@@ -14,7 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 	coreaccess "github.com/wssto2/go-core/access"
 	"github.com/wssto2/go-core/authz"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/go2ts"
 	"github.com/wssto2/go-core/gocore"
 	corei18n "github.com/wssto2/go-core/i18n"
@@ -27,13 +26,37 @@ import (
 //
 // Run the migrations once before serving (go run ./cmd/api migrate): identity and access own their tables.
 func main() {
-	// A .env is optional; the real environment wins over it. Load it before the configuration is read.
+	// A .env is optional; the real environment wins over it. Load it before gocore.New reads the environment.
 	if err := gocore.LoadEnv(".env"); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		log.Fatal(err)
 	}
 
-	cfg := loadConfig()
 	ctx := context.Background()
+
+	// The SPA shell is built from the catalogue service, which exists once product is installed: the builder
+	// the App runs with reads it through this variable.
+	var shell spaShellDataBuilder
+
+	// New reads APP_*, the HTTP timeouts, TRUSTED_PROXIES and LOG_* from the environment, and LOCAL_DB_* for the
+	// connection declared here; a malformed value stops start-up, naming the variable.
+	app := gocore.New(
+		gocore.WithPrefix("/api"),
+		gocore.WithDatabase("local"),
+		gocore.WithSPA(func(c *gin.Context) (any, error) { return shell.Build(c), nil }),
+		// Per-user limiter: 300 req/min per identity (nil: no per-IP limit).
+		gocore.WithRateLimit(ratelimit.NewInMemoryLimiter(300, time.Minute), nil),
+		// Deduplicates a retried POST that carries an Idempotency-Key header, for 24 hours.
+		gocore.WithIdempotency(24*time.Hour),
+	)
+	cfg := app.Config()
+
+	translator, err := corei18n.New(corei18n.Config{
+		FallbackLang: cfg.I18n.DefaultLocale,
+		I18nDir:      cfg.I18n.Dir,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Initialize OpenTelemetry.
 	// Control via environment variables:
@@ -67,29 +90,6 @@ func main() {
 		log.Printf("go2ts: type generation failed: %v (non-fatal)", err)
 	}
 
-	translator, err := corei18n.New(corei18n.Config{
-		FallbackLang: cfg.I18n.DefaultLocale,
-		I18nDir:      cfg.I18n.Dir,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// The SPA shell is built from the catalogue service, which exists once product is installed: the builder
-	// the App runs with reads it through this variable.
-	var shell spaShellDataBuilder
-
-	app := gocore.New(cfg,
-		gocore.WithPrefix("/api"),
-		gocore.WithBuilder(func(b *bootstrap.AppBuilder) {
-			b.WithSPA(func(c *gin.Context) (any, error) { return shell.Build(c), nil }).
-				// Per-user/IP limiter: 300 req/min per identity.
-				WithRateLimit(ratelimit.NewInMemoryLimiter(300, time.Minute)).
-				// Deduplicates a retried POST that carries an Idempotency-Key header, for 24 hours.
-				WithIdempotency(24 * time.Hour)
-		}),
-	)
-
 	// Every permission of the application goes into one catalogue before access.Install builds the engine from it.
 	catalogue := authz.NewCatalogue()
 	product.DefinePermissions(catalogue)
@@ -114,7 +114,7 @@ func main() {
 	acc := coreaccess.Install(app, catalogue, users, coreaccess.WithRoles(roles...),
 		coreaccess.WithScopes(hierarchy, access.NewPlaces(app.Database())))
 
-	catalog := product.Install(app, cfg.Storage.Dir)
+	catalog := product.Install(app, app.Env().String("STORAGE_BASE_DIR", "/tmp/go-core-example/uploads"))
 	access.Install(app, acc.Engine)
 
 	composer := newCatalogPageShellComposer(cfg, translator, catalogList(catalog), catalogGet(catalog))
@@ -145,59 +145,4 @@ func catalogGet(svc product.Service) catalogProductGetFunc {
 
 		return svc.GetByID(ctx, id)
 	}
-}
-
-func loadConfig() bootstrap.Config {
-	cfg := bootstrap.DefaultConfig()
-
-	cfg.App.Name = bootstrap.EnvStr("APP_NAME", "go-core-example")
-	cfg.App.Env = bootstrap.EnvStr("APP_ENV", "development")
-	cfg.HTTP.Port = bootstrap.EnvInt("APP_PORT", 8080)
-	cfg.HTTP.ReadTimeout = time.Duration(bootstrap.EnvInt("READ_TIMEOUT_SEC", 15)) * time.Second
-	cfg.HTTP.WriteTimeout = time.Duration(bootstrap.EnvInt("WRITE_TIMEOUT_SEC", 15)) * time.Second
-	cfg.HTTP.IdleTimeout = time.Duration(bootstrap.EnvInt("IDLE_TIMEOUT_SEC", 60)) * time.Second
-	cfg.HTTP.ShutdownTimeout = time.Duration(bootstrap.EnvInt("SHUTDOWN_TIMEOUT_SEC", 10)) * time.Second
-
-	cfg.Frontend.TemplatesPath = bootstrap.EnvStr("TEMPLATES_PATH", "frontend/templates/*.html")
-	cfg.Frontend.TemplateName = bootstrap.EnvStr("TEMPLATE_NAME", "index.html")
-	cfg.Frontend.StaticPath = bootstrap.EnvStr("STATIC_PATH", "")
-	cfg.Frontend.StaticURL = bootstrap.EnvStr("STATIC_URL", "")
-	cfg.Frontend.APIPrefix = bootstrap.EnvStr("API_PREFIX", "/api")
-
-	// Primary database ("local") -- used by most modules.
-	cfg.Database.Connections = []bootstrap.DatabaseConnectionConfig{
-		{
-			Name:            "local",
-			Driver:          "mysql",
-			Host:            bootstrap.EnvStr("DB_HOST", "127.0.0.1"),
-			Port:            bootstrap.EnvStr("DB_PORT", "3306"),
-			Database:        bootstrap.EnvStr("DB_DATABASE", "go_core_example"),
-			Username:        bootstrap.EnvStr("DB_USERNAME", "root"),
-			Password:        bootstrap.EnvStr("DB_PASSWORD", "root"),
-			MaxIdleConns:    bootstrap.EnvInt("DB_MAX_IDLE_CONNS", 5),
-			MaxOpenConns:    bootstrap.EnvInt("DB_MAX_OPEN_CONNS", 75),
-			ConnMaxLifetime: bootstrap.EnvDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute),
-		},
-		// Second database ("shared") -- available to any module via c.DB("shared").
-		// Uncomment and set env vars when a shared/multi-tenant DB is needed.
-		// {
-		// 	Name:            "shared",
-		// 	Driver:          "mysql",
-		// 	Host:            envStr("SHARED_DB_HOST", "127.0.0.1"),
-		// 	Port:            envStr("SHARED_DB_PORT", "3306"),
-		// 	Database:        envStr("SHARED_DB_DATABASE", "go_core_shared"),
-		// 	Username:        envStr("SHARED_DB_USERNAME", "root"),
-		// 	Password:        envStr("SHARED_DB_PASSWORD", "secret"),
-		// 	MaxIdleConns:    envInt("SHARED_DB_MAX_IDLE_CONNS", 5),
-		// 	MaxOpenConns:    envInt("SHARED_DB_MAX_OPEN_CONNS", 25),
-		// 	ConnMaxLifetime: envDuration("SHARED_DB_CONN_MAX_LIFETIME", 5*time.Minute),
-		// },
-	}
-
-	cfg.I18n.Dir = bootstrap.EnvStr("I18N_DIR", "i18n")
-	cfg.I18n.DefaultLocale = bootstrap.EnvStr("I18N_FALLBACK_LANG", "en")
-
-	cfg.Storage.Dir = bootstrap.EnvStr("STORAGE_BASE_DIR", "/tmp/go-core-example/uploads")
-
-	return cfg
 }

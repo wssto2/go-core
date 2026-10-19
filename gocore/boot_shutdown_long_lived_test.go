@@ -1,4 +1,5 @@
-package bootstrap
+//nolint:testpackage // tests the unexported lifecycle and builder gocore is built on
+package gocore
 
 import (
 	"context"
@@ -13,27 +14,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// freePort returns a TCP port that was free a moment ago.
-func freePort(t *testing.T) int {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	if err := ln.Close(); err != nil {
-		t.Fatalf("close probe listener: %v", err)
-	}
-	return port
-}
-
 // startRealServer builds an App with a real *http.Server (WithHttp), lets the
 // caller add routes, starts it and waits until it accepts connections.
-func startRealServer(t *testing.T, cfg Config, routes func(e *gin.Engine)) (*App, string) {
+func startRealServer(t *testing.T, cfg Config, routes func(e *gin.Engine)) (*lifecycle, string) {
 	t.Helper()
 	cfg.I18n.Dir = tempI18nDir(t)
 	cfg.HTTP.Port = freePort(t)
-	app, err := New(cfg).DefaultInfrastructure().WithHttp().Build()
+
+	app, err := newBuilder(cfg).DefaultInfrastructure().WithHTTP().Build()
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -169,7 +157,8 @@ func TestShutdown_ModulesGetTheConfiguredTimeout(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.I18n.Dir = tempI18nDir(t)
 	cfg.HTTP.ShutdownTimeout = 10 * time.Second
-	app, err := New(cfg).DefaultInfrastructure().Build()
+
+	app, err := newBuilder(cfg).DefaultInfrastructure().Build()
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -178,7 +167,7 @@ func TestShutdown_ModulesGetTheConfiguredTimeout(t *testing.T) {
 	var ctxErr error
 	var remaining time.Duration
 
-	app.modules = []Component{&ctxModule{fn: func(ctx context.Context) {
+	app.modules = []component{&ctxModule{fn: func(ctx context.Context) {
 		ctxErr = ctx.Err()
 		if dl, ok := ctx.Deadline(); ok {
 			remaining = time.Until(dl)

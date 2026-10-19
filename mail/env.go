@@ -50,7 +50,7 @@ func SenderFromEnv(defaultFromName string, logger *slog.Logger) (Sender, error) 
 	return Redirect(next, address), nil
 }
 
-// env is bootstrap.EnvStr; mail sits below bootstrap and cannot import it.
+// env is env.String over the process environment; mail reads it directly to stay on the standard library.
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

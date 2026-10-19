@@ -41,7 +41,6 @@ import (
 	"github.com/wssto2/go-core/access"
 	"github.com/wssto2/go-core/auth"
 	"github.com/wssto2/go-core/authz"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/event"
 	"github.com/wssto2/go-core/gocore"
@@ -170,7 +169,7 @@ func (c clock) Now() time.Time { return c() }
 func build(ctx context.Context, origins []string, log *slog.Logger, now func() time.Time) (http.Handler, error) {
 	reg, _ := database.NewTestRegistry("local") // in-memory SQLite, gone with the process
 
-	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithLogger(log),
+	app := gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(log),
 		gocore.WithPrefix("/api"), gocore.WithAutoMigrate(ctx), gocore.WithClock(clock(now)))
 
 	permissions := authz.NewCatalogue()

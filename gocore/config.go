@@ -1,4 +1,4 @@
-package bootstrap
+package gocore
 
 import (
 	"errors"
@@ -105,8 +105,12 @@ func (c HTTPConfig) BodyLimit() int64 {
 	return max(c.MaxBodyBytes, 0)
 }
 
-// Defaults applied when ShutdownTimeout / ShutdownGracePeriod are not set.
+// The timeouts DefaultConfig sets (and the environment overrides), and the defaults applied when ShutdownTimeout /
+// ShutdownGracePeriod are zero.
 const (
+	defaultReadTimeout         = 15 * time.Second
+	defaultWriteTimeout        = 15 * time.Second
+	defaultIdleTimeout         = 60 * time.Second
 	defaultShutdownTimeout     = 10 * time.Second
 	defaultShutdownGracePeriod = 3 * time.Second
 )
@@ -209,23 +213,6 @@ type LogConfig struct {
 	MaxAgeDays int
 }
 
-type JWTConfig struct {
-	// Secret is the secret key used for signing JWT tokens. This should be a
-	// strong, random string to ensure the security of your tokens. It is important
-	// to keep this value secret and not expose it in your code or version control.
-	Secret string
-
-	// Issuer is the issuer claim for JWT tokens. This can be used to identify the
-	// issuer of the token and can be helpful for validating tokens and ensuring
-	// they are coming from a trusted source.
-	Issuer string
-
-	// Duration is the duration for which a JWT token is valid, specified in seconds.
-	// This determines how long a token can be used before it expires and needs to
-	// be refreshed.
-	Duration time.Duration
-}
-
 type FrontendConfig struct {
 	// TemplatesPath is the file system path to the directory containing HTML
 	// templates. This is used by the application to render dynamic HTML pages.
@@ -246,10 +233,6 @@ type FrontendConfig struct {
 	// set this to "/static", clients would access static files at URLs
 	// like "/static/css/style.css".
 	StaticURL string
-
-	// APIPrefix is the URL prefix that must NOT be caught by NoRoute.
-	// Defaults to "/api".
-	APIPrefix string
 
 	// EntryScript is the path to the frontend entry point file (e.g. "src/main.js").
 	EntryScript string
@@ -292,23 +275,15 @@ type I18nConfig struct {
 	DefaultLocale string
 }
 
-type StorageConfig struct {
-	// Dir is the directory where uploaded files or other persistent data will be
-	// stored. e.g. "storage/"
-	Dir string
-}
-
 // Config holds the configuration settings for the application.
 type Config struct {
 	App      AppConfig
 	HTTP     HTTPConfig
 	Database DatabaseConfig
 	Log      LogConfig
-	JWT      JWTConfig
 	Frontend FrontendConfig
 	CORS     CORSConfig
 	I18n     I18nConfig
-	Storage  StorageConfig
 }
 
 // DefaultConfig returns a Config struct with default values.
@@ -319,14 +294,14 @@ func DefaultConfig() Config {
 		},
 		HTTP: HTTPConfig{
 			Port:              8080, //nolint:mnd
-			ReadTimeout:       5 * time.Second,
-			WriteTimeout:      10 * time.Second,
-			IdleTimeout:       120 * time.Second,
-			ShutdownTimeout:   15 * time.Second,
+			ReadTimeout:       defaultReadTimeout,
+			WriteTimeout:      defaultWriteTimeout,
+			IdleTimeout:       defaultIdleTimeout,
+			ShutdownTimeout:   defaultShutdownTimeout,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
 		Database: DatabaseConfig{
-			LogLevel:           "info",
+			LogLevel:           "error",
 			SlowQueryThreshold: 1 * time.Second,
 		},
 		Log: LogConfig{
@@ -337,19 +312,15 @@ func DefaultConfig() Config {
 			MaxAgeDays: 30,  //nolint:mnd
 		},
 		Frontend: FrontendConfig{
-			TemplatesPath: "templates/*.html",
+			TemplatesPath: "frontend/templates/*.html",
 			TemplateName:  "index.html",
 			StaticPath:    "static/",
 			StaticURL:     "/static",
-			APIPrefix:     "/api",
 		},
 		CORS: CORSConfig{
 			AllowedOrigins: []string{},
 			AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 			AllowedHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
-		},
-		Storage: StorageConfig{
-			Dir: "storage/",
 		},
 	}
 }

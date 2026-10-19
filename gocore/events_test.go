@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/event"
 )
@@ -46,7 +45,7 @@ func TestCheckReportsEventProblemsWithTheirFix(t *testing.T) {
 }
 
 func TestEventsWithoutADatabaseIsAProblem(t *testing.T) {
-	app := New(bootstrap.DefaultConfig(), WithLogger(slog.New(slog.DiscardHandler)))
+	app := New(WithLogger(slog.New(slog.DiscardHandler)))
 	app.Events(assigned.To("notices", ok))
 
 	if err := app.Check(); err == nil || !strings.Contains(err.Error(), "primary database") {
@@ -162,7 +161,7 @@ func eventsLeftAfterSweep(t *testing.T, opts ...Option) int64 {
 	t.Cleanup(func() { _ = cleanup() })
 
 	all := append([]Option{WithRegistry(reg), WithLogger(slog.New(slog.DiscardHandler))}, opts...)
-	app := New(bootstrap.DefaultConfig(), all...)
+	app := New(all...)
 	app.Events()
 
 	conn := app.Database()
