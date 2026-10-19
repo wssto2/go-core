@@ -21,6 +21,11 @@ import (
 	"github.com/wssto2/go-core/route"
 )
 
+// mailTo is WithMail with the sender and the code secret a test sets.
+func mailTo(sender mail.Sender, secret string) identity.Option {
+	return identity.WithMail(identity.Mail{Sender: sender, CodeSecret: secret, Content: nil})
+}
+
 // configured is WithConfig over the zero Config with the fields a test sets.
 func configured(set func(*identity.Config)) identity.Option {
 	var cfg identity.Config
@@ -40,9 +45,9 @@ func TestInstallNeedsAMailSenderOrWithoutMail(t *testing.T) {
 		want string
 	}{
 		"nothing":                {nil, "identity needs a mail.Sender"},
-		"both":                   {[]identity.Option{identity.WithMail(identity.Mail{Sender: mail.NewSink(), CodeSecret: "", Content: nil}), identity.WithoutMail()}, "both WithMail and WithoutMail"},
-		"a sender, no secret":    {[]identity.Option{identity.WithMail(identity.Mail{Sender: mail.NewSink(), CodeSecret: "", Content: nil})}, "Mail.CodeSecret"},
-		"a sender, short secret": {[]identity.Option{identity.WithMail(identity.Mail{Sender: mail.NewSink(), CodeSecret: "short", Content: nil})}, "Mail.CodeSecret"},
+		"both":                   {[]identity.Option{mailTo(mail.NewSink(), ""), identity.WithoutMail()}, "both WithMail and WithoutMail"},
+		"a sender, no secret":    {[]identity.Option{mailTo(mail.NewSink(), "")}, "Mail.CodeSecret"},
+		"a sender, short secret": {[]identity.Option{mailTo(mail.NewSink(), "short")}, "Mail.CodeSecret"},
 	} {
 		app := newApp(t)
 		identity.Install(app, tc.opts...)
@@ -58,7 +63,7 @@ func TestInstallNeedsAMailSenderOrWithoutMail(t *testing.T) {
 	require.NoError(t, app.Check())
 
 	app = newApp(t)
-	identity.Install(app, identity.WithMail(identity.Mail{Sender: mail.NewSink(), CodeSecret: secret}))
+	identity.Install(app, mailTo(mail.NewSink(), secret))
 	require.NoError(t, app.Check())
 }
 
@@ -87,7 +92,7 @@ func TestEmailChangeThroughTheInstalledModule(t *testing.T) {
 	app := newApp(t)
 	sink := mail.NewSink()
 
-	users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sink, CodeSecret: secret}))
+	users := identity.Install(app, mailTo(sink, secret))
 
 	ana := identitytest.Account(1, "ana", "secret")
 	ana.Name, ana.Email = "Ana Anić", "ana@old.example"
@@ -133,7 +138,7 @@ func TestAPasswordChangeIsMailedToTheAccount(t *testing.T) {
 	app := newApp(t)
 	sink := mail.NewSink()
 
-	identity.Install(app, identity.WithMail(identity.Mail{Sender: sink, CodeSecret: secret}))
+	identity.Install(app, mailTo(sink, secret))
 
 	ana := identitytest.Account(1, "ana", "secret")
 	ana.Name, ana.Email = "Ana Anić", "ana@example.test"
@@ -270,7 +275,7 @@ func refusal() error {
 func TestUsersMailIsWhereIdentitysMailGoes(t *testing.T) {
 	sink := mail.NewSink()
 	app := newApp(t)
-	users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sink, CodeSecret: secret}))
+	users := identity.Install(app, mailTo(sink, secret))
 
 	m, ok := users.Mail()
 	require.True(t, ok)
@@ -325,7 +330,9 @@ func TestConfigLocalesRefusesAnotherLanguage(t *testing.T) {
 	t.Parallel()
 
 	app := newApp(t)
-	identity.Install(app, identity.WithoutMail(), configured(func(c *identity.Config) { c.Locales = []string{"hr", "ba", "si", "rs"} }))
+	identity.Install(app, identity.WithoutMail(), configured(func(c *identity.Config) {
+		c.Locales = []string{"hr", "ba", "si", "rs"}
+	}))
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 
 	web := newClient(t, app)
@@ -415,6 +422,7 @@ func TestConfigLimitsLargerThanGoCoresStopsInstall(t *testing.T) {
 
 	app := newApp(t)
 	tooWide := account.Limits{Login: 0, Name: account.NameMax + 1, Email: 0, Phone: 0}
+
 	identity.Install(app, identity.WithoutMail(), configured(func(c *identity.Config) { c.Limits = tooWide }))
 
 	_, err := app.Handler()

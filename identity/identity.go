@@ -272,7 +272,7 @@ func WithImpersonation(i account.Impersonation) Option {
 
 // HoldersOf is the Impersonation of a permission: whoever holds it may sign in as anybody. The check goes through
 // the application's authorizer when the request comes, so the permission must be in the catalogue access.Install gets.
-func HoldersOf(permission string) account.Impersonation {
+func HoldersOf(permission string) account.Impersonation { //nolint:ireturn // an Impersonation by design
 	return &permitted{app: nil, permission: permission}
 }
 
@@ -760,7 +760,7 @@ func (s settings) mailConfigured(app *gocore.App) bool {
 		return false
 	case s.mail == nil && !s.noMail:
 		app.Fail("identity needs a mail.Sender: a person's e-mail address changes only after a code mailed to the new address",
-			"pass identity.WithMail(identity.Mail{Sender: mail.SMTP(...), CodeSecret: secret}) (mail.NewSink() while developing),"+
+			"pass identity.WithMail(identity.Mail{Sender: mail.SMTP(...), CodeSecret: secret}) (mail.NewSink() in development),"+
 				" or identity.WithoutMail() to run without e-mail")
 
 		return false

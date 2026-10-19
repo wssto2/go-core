@@ -68,7 +68,7 @@ type Access struct {
 func Install(app *gocore.App, catalogue *authz.Catalogue, users admin.SubjectDirectory, opts ...Option) *Access {
 	defer app.Shipping()()
 
-	s := collect(opts)
+	cfg := collect(opts)
 
 	if users == nil {
 		app.Fail("access needs a SubjectDirectory", "pass the users as the third argument: access.Install(app, catalogue, users)")
@@ -79,7 +79,7 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users admin.SubjectDir
 	robots, hasRobots := users.(serviceAccounts)
 	hasRobots = hasRobots && robots.HasServiceAccounts()
 
-	err := s.define(catalogue, hasRobots)
+	err := cfg.define(catalogue, hasRobots)
 	if err != nil {
 		app.Fail("access cannot define its permissions: "+err.Error(), "define the five permissions yourself before Install, or leave them to it")
 
@@ -88,13 +88,13 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users admin.SubjectDir
 
 	app.Permissions(catalogue)
 
-	conn := s.connections()
+	conn := cfg.connections()
 	db := app.Database(conn...)
-	store := gormstore.New(db, s.storeOptions()...)
+	store := gormstore.New(db, cfg.storeOptions()...)
 
 	engine, err := authz.NewEngine(authz.Config{
-		Catalogue: catalogue, Hierarchy: s.hierarchy(), Roles: s.roles, Store: store,
-		Resolver: s.scopes, Features: s.features, Logger: app.Logger(), Cache: s.cache,
+		Catalogue: catalogue, Hierarchy: cfg.hierarchy(), Roles: cfg.roles, Store: store,
+		Resolver: cfg.scopes, Features: cfg.features, Logger: app.Logger(), Cache: cfg.cache,
 	})
 	if err != nil {
 		app.Fail("access cannot build the engine: "+err.Error(),
@@ -104,9 +104,9 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users admin.SubjectDir
 	}
 
 	roles, bindings, err := admin.New(admin.Config{
-		Engine: engine, Store: store, Scopes: s.scopes, Subjects: users,
+		Engine: engine, Store: store, Scopes: cfg.scopes, Subjects: users,
 		Transactor: database.NewTransactor(db),
-		RoleCheck:  s.roleCheck, BindingCheck: s.bindingCheck, Reach: s.reachWith(robots, hasRobots),
+		RoleCheck:  cfg.roleCheck, BindingCheck: cfg.bindingCheck, Reach: cfg.reachWith(robots, hasRobots),
 	})
 	if err != nil {
 		app.Fail(err.Error(), "see the message")

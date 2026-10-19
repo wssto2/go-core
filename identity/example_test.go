@@ -223,7 +223,9 @@ func ExampleWithMail() {
 	sink := mail.NewSink()
 
 	app := newApp(t)
-	users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sink, CodeSecret: "an-installation-secret-of-32-chars!", Content: nil}))
+	users := identity.Install(app, identity.WithMail(identity.Mail{
+		Sender: sink, CodeSecret: "an-installation-secret-of-32-chars!", Content: nil,
+	}))
 
 	ctx := context.Background()
 

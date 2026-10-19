@@ -15,7 +15,7 @@ func TestNullPtrConstructorsNilIsNullAndAValueIsKept(t *testing.T) {
 
 	whole, fraction, day := 7, 2.5, time.Date(2026, 3, 4, 0, 0, 0, 0, time.UTC)
 
-	for name, tc := range map[string]struct {
+	for name, row := range map[string]struct {
 		null, some driver.Valuer
 		want       driver.Value
 	}{
@@ -23,13 +23,13 @@ func TestNullPtrConstructorsNilIsNullAndAValueIsKept(t *testing.T) {
 		"float": {types.NewNullFloatPtr(nil), types.NewNullFloatPtr(&fraction), 2.5},
 		"date":  {types.NewNullDatePtr(nil), types.NewNullDatePtr(&day), "2026-03-04"},
 	} {
-		got, err := tc.null.Value()
+		got, err := row.null.Value()
 		require.NoError(t, err, name)
 		assert.Nil(t, got, name+": nil is NULL")
 
-		got, err = tc.some.Value()
+		got, err = row.some.Value()
 		require.NoError(t, err, name)
-		assert.Equal(t, tc.want, got, name)
+		assert.Equal(t, row.want, got, name)
 	}
 
 	var zero time.Time
