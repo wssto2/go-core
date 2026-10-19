@@ -7,6 +7,7 @@ import (
 
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/types"
+	"github.com/wssto2/go-core/pagination"
 	"gorm.io/gorm"
 )
 
@@ -103,13 +104,14 @@ func TestResource_WithCount_EmptyTableNameSetsError(t *testing.T) {
 	}
 }
 
-func TestResponse_ToPagination(t *testing.T) {
+// Response is pagination.Resource: a repository returns FindByID's value as its port's type with no conversion.
+func TestResponseIsPaginationResource(t *testing.T) {
 	t.Parallel()
 
-	got := Response[string]{Data: "row", Meta: map[string]any{"k": 1}}.ToPagination()
+	var got pagination.Resource[string] = Response[string]{Data: "row", Meta: map[string]any{"k": 1}}
 
 	if got.Data != "row" || got.Meta["k"] != 1 {
-		t.Fatalf("ToPagination() = %+v", got)
+		t.Fatalf("got %+v", got)
 	}
 }
 

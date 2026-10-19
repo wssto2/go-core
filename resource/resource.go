@@ -36,11 +36,9 @@ type Resource[T any] struct {
 	err          error
 }
 
-// Response holds the data and metadata for a response.
-type Response[T any] struct {
-	Data T              `json:"data"`
-	Meta map[string]any `json:"meta"`
-}
+// Response is the data and metadata FindByID returns. It is pagination.Resource: the same type, so a repository hands
+// it on as its port's value and pagination.MapResource maps it.
+type Response[T any] = pagination.Resource[T]
 
 type authorIDs struct {
 	creatorID int
@@ -259,10 +257,4 @@ func typesInt(v any) int {
 	}
 
 	return 0
-}
-
-// ToPagination converts the response into the pagination.Resource a repository port returns, so the layers above
-// need not import resource.
-func (r Response[T]) ToPagination() pagination.Resource[T] {
-	return pagination.Resource[T]{Data: r.Data, Meta: r.Meta}
 }
