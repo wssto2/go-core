@@ -30,8 +30,11 @@
 // registry of Logic IDs (every ID the mapping declares is named in a comment).
 //
 // A rule whose layer is not configured is not run. Banned adds the rules of the
-// application itself (a removed API, a package one layer must not import), and
-// an application's own guards walk the same parsed files with Sources and
+// application itself (a removed API or method, a composite literal, a package one
+// layer must not import); FieldWrites holds a field to the places that may assign
+// it, RequiresCall makes a file that calls one function call another, and
+// ContextRoots bans a root context outside its wrappers. RepositoryShape also
+// bans a nested .Transaction( with Repository.NoNestedTransaction. An application's own guards walk the same parsed files with Sources and
 // freeze their violations with Ratchet.
 //
 // Pre-existing violations are frozen in a ratchet: Config.Allowed lists, per
@@ -205,6 +208,14 @@ func (p *project) validate(root string) error {
 	for _, ban := range p.cfg.Banned {
 		if err := ban.validate(); err != nil {
 			return err
+		}
+	}
+
+	for _, req := range p.cfg.RequiresCall {
+		for _, call := range []string{req.Call, req.Also} {
+			if pkg, _ := splitMember(call); pkg == "" {
+				return fmt.Errorf("%w: RequiresCall.Call and Also are \"import/path.Member\", not %q", errConfig, call)
+			}
 		}
 	}
 

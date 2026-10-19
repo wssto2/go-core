@@ -241,6 +241,16 @@ func (p *project) repositoryShape() []finding {
 		out = append(out, p.bannedUses(restrictedToFile(tenancyImport, "ScopeByTenant", shape.Dir, shape.ScopeFile))...)
 	}
 
+	if shape.NoNestedTransaction {
+		var ban Banned
+
+		ban.Import = "gorm.io/gorm"
+		ban.Method = "Transaction"
+		ban.In = []string{shape.Dir}
+
+		out = append(out, p.bannedUses(ban)...)
+	}
+
 	return out
 }
 

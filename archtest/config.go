@@ -38,6 +38,14 @@ const (
 // ratchet and cannot be allowed.
 const bannedRule = "banned"
 
+// The names of the Config.FieldWrites, RequiresCall and ContextRoots checks in a Result; like
+// Banned, they have no ratchet.
+const (
+	fieldWritesRule  = "field-writes"
+	requiresCallRule = "requires-call"
+	contextRootsRule = "context-roots"
+)
+
 // ruleNames lists every rule Allowed and Skip may name.
 func ruleNames() []string {
 	return []string{
@@ -45,6 +53,7 @@ func ruleNames() []string {
 		DomainPurity, ApplicationPurity, NoTimeNowDomain, NoTimeNowApplication, CrossAggregate, DomainContextFirst,
 		ServiceContextFirst, BoundedStrings, RoutePaths, RouteIdentifiers, ValidationRules, RouteAccess,
 		ServiceRepositories, RepositoryShape, SQLPortability, RoutePersonOnly, bannedRule,
+		fieldWritesRule, requiresCallRule, contextRootsRule,
 	}
 }
 
@@ -115,6 +124,16 @@ type Config struct {
 
 	// PersonOnly switches on RoutePersonOnly.
 	PersonOnly PersonOnly
+
+	// FieldWrites hold a field to the few places that may assign it.
+	FieldWrites []FieldWrites
+
+	// RequiresCall holds a file that calls one function to calling another too.
+	RequiresCall []RequiresCall
+
+	// ContextRoots bans context.Background() and context.TODO() as a root context in
+	// directories of the application's own, with the wrappers that make one acceptable.
+	ContextRoots []ContextRoots
 }
 
 // PersonOnly names the areas of the API that only make sense for a person (a
@@ -145,6 +164,11 @@ type Repository struct {
 	TxFile string
 	// ScopeFile is the only file that may call tenancy.ScopeByTenant.
 	ScopeFile string
+	// NoNestedTransaction bans .Transaction( on a *gorm.DB in Dir: a transaction opens
+	// with the BaseRepository's WithinTx, because a nested Transaction opens a
+	// savepoint and leaves tx out of the context, so a helper called inside it
+	// uses the outer connection.
+	NoNestedTransaction bool
 }
 
 // Banned is a rule of the application's own: an import, or one symbol of a
@@ -245,4 +269,57 @@ func (b Banned) validate() error {
 	}
 
 	return nil
+}
+
+// FieldWrites holds a field of a struct to the places that may assign it: an assignment, an
+// increment, or (Literal) a keyed element of a composite literal of the type. Without type
+// information the value is found by the name it is selected by, x.Type.Field, which is the
+// type's own name when the group is embedded or named after it (v.Workflow.Phase).
+type FieldWrites struct {
+	// Type is the name the struct is selected by: the Workflow of v.Workflow.Phase.
+	Type string
+	// Field is the field; empty is every field of Type.
+	Field string
+	// Only are the places that may write it: a file, a package directory, "dir/..." for a tree,
+	// each optionally followed by ":Func" to allow that function (or method) name only,
+	// as in "internal/domain/vehicle/vehicle.go:transitionPhase". Empty allows nowhere.
+	Only []string
+	// Literal also bans Field (any field when empty) as a key of a Type{...} literal. Package,
+	// the directory of the package that declares Type, tells it from another package's Type:
+	// a bare Type{...} counts in that package only, pkg.Type{...} where pkg imports it.
+	Literal bool
+	Package string
+	// Why is the sentence a failure ends with: what to do instead.
+	Why string
+	// In, Except and Tests as Banned's: where the rule applies (default the whole module,
+	// production code only).
+	In, Except []string
+	Tests      bool
+}
+
+// RequiresCall holds every file that calls Call to call Also as well: a route group behind
+// authentication that never establishes a tenant, say. Both are "import/path.Member"; the file
+// is checked under whatever name it imports the package by.
+type RequiresCall struct {
+	Call, Also string
+	// Why is the sentence a failure ends with: what to do instead.
+	Why string
+	// In, Except and Tests as Banned's.
+	In, Except []string
+	Tests      bool
+}
+
+// ContextRoots bans context.Background() and context.TODO() in Dirs, except as the first argument
+// of a wrapper. An application's code that runs for nobody in particular (a worker, a command, a
+// start-up read) has no request to take a context from, and the wrapper gives it the one it needs.
+type ContextRoots struct {
+	// Dirs are the trees the ban covers, relative to the root.
+	Dirs []string
+	// Wrappers are the calls that may take the root as their first argument: "import/path.Func"
+	// for a package function, ".Method" for a method of any value (".InfoContext").
+	Wrappers []string
+	// Why is the sentence a failure ends with: what to do instead.
+	Why string
+	// Tests also covers _test.go files and test-support packages.
+	Tests bool
 }
