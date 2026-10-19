@@ -2,8 +2,20 @@
 
 ## v1.23.0 (unreleased)
 
+Errors and guards. **Breaking**: an application upgrading from v1.22.0 follows "Removed" and "Changed".
+
+### Removed
+
+- `apperr.New` (use `apperr.Wrap`); `apperr.BadRequestErr`, `NotFoundErr`, `ForbiddenErr` and `ConflictErr` (now `BadRequestFrom`, `NotFoundFrom`, `ForbiddenFrom`, `ConflictFrom`).
+- `resource.Map` (use `pagination.MapResource`) and `resource.Response.ToPagination` (`resource.Response` is now `pagination.Resource`).
+- `notification.DefinePermissions`: `access.Install` defines the dead-letter permissions, or pass `notification.WithCatalogue`.
+
 ### Added
 
+- apperr: `When(err, On(sentinel, mapped)...)` maps a service error in one expression: nil for nil, the first matching case (keeping `err` as its cause), `err` itself when it is already an `*AppError`, else `Internal(err)` recorded at the caller's line. `Conflict(msg)` answers 409.
+- database: `NotFoundAs(err, sentinel)` turns gorm's not-found (and `sql.ErrNoRows`) into the domain's sentinel and passes anything else through.
+- notification: `WithCatalogue(cat)` defines the module's permissions on the application's catalogue.
+- docs: `WithinTx` on `BaseRepository.DB` is the one way a repository opens a transaction.
 - archtest: `Banned.Method` bans a method name called on a value (`app.Modules()`) in the files that import `Banned.Import`, and `Banned.Literal` bans a composite literal with elements of a package type (`permission.Permission{Verb: "read"}`). `Banned` sets one of `Symbol`, `Method`, `Literal`; the config is refused otherwise.
 - archtest: `Config.FieldWrites` (`FieldWrites{Type, Field, Only, Literal, Package, In, Except, Why}`) holds a field to the files, directories and functions (`"dir/file.go:Func"`) that may assign it, and with `Literal` the keyed fields of a `Type{...}` literal too. Rule `field-writes`.
 - archtest: `Config.RequiresCall` (`RequiresCall{Call, Also}`, both `"import/path.Member"`): a file that calls `Call` must call `Also`. Rule `requires-call`.
@@ -16,6 +28,8 @@
 
 ### Changed
 
+- **Breaking:** `resource.Response[T]` is an alias of `pagination.Resource[T]`.
+- `access.Install` also defines `events.deadletter:view` and `events.deadletter:retry`, so either install order works.
 - **Breaking:** the archtest rule `no-context-background` also bans `context.TODO()`.
 - **Breaking:** go2ts fails generation on a `validation:` rule it neither writes as Zod nor knows as server-only, naming the struct, field and rule; it used to drop the rule silently. The server-only rules are the validator's `required_if`, `same`, `confirmed`, `different` and `password`; `password` is no longer noted as a cross-field rule in the generated file.
 - go2ts writes `year` as `.regex(/^\d{4}$/)` and `month` as `.regex(/^(0?[1-9]|1[0-2])$/)` (empty allowed when not required), and `in:a,b` on a string field as `z.enum(["a", "b"])` (a number keeps `z.literal` / `z.union`).
