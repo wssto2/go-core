@@ -362,9 +362,8 @@ func TestLongHelpIsPrintedOnHAndNotInTheCommandList(t *testing.T) {
 		t.Fatalf("-h is not a failure: %v", err)
 	}
 
-	short, long := strings.Index(out, "delete old rows"), strings.Index(out, "Rows older than")
-	flags := strings.Index(out, "Flags:")
-	if short < 0 || long < short || flags < long {
+	at := func(sub string) int { return strings.Index(out, sub) }
+	if at("delete old rows") < 0 || at("Rows older than") < at("delete old rows") || at("Flags:") < at("Rows older than") {
 		t.Errorf("want short, long, then flags: %q", out)
 	}
 
