@@ -16,7 +16,6 @@ import (
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/savedview"
@@ -54,7 +53,7 @@ func newWorld(t *testing.T) *world {
 
 	w := &world{t: t, now: time.Date(2026, time.March, 4, 10, 0, 0, 123456789, time.FixedZone("CET", 3600))}
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signIn), gocore.WithAuthorizer(authztest.AllowAll()), gocore.WithPrefix(prefix),
 		gocore.WithClock(fixedClock{at: &w.now}))
