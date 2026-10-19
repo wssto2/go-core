@@ -15,7 +15,7 @@ import (
 )
 
 func newDisksApp() *gocore.App {
-	return gocore.New(gocore.WithLogger(slog.New(slog.DiscardHandler)))
+	return gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 }
 
 func TestDisksDeclareNamedDisksThatFeaturesTake(t *testing.T) {

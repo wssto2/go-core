@@ -18,7 +18,7 @@ func signedInChain(c *gin.Context) { c.Next() }
 func answer(context.Context, route.None) (string, error) { return "ok", nil }
 
 func newAccessApp() *gocore.App {
-	return gocore.New(gocore.WithLogger(slog.New(slog.DiscardHandler)),
+	return gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signedInChain), gocore.WithPrefix("/api"))
 }
 

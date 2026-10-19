@@ -48,7 +48,7 @@ func ExampleApp() {
 	defer func() { _ = cleanup() }()
 
 	app := gocore.New(
-		gocore.WithRegistry(reg),
+		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg),
 		gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithClock(fixedClock(time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC))),
 	)
@@ -68,7 +68,7 @@ func (reads) Count() int { return 3 }
 // Later breaks a real cycle between two features: one gets a promise that is
 // kept once both exist.
 func ExampleLater() {
-	app := gocore.New(gocore.WithLogger(slog.New(slog.DiscardHandler)))
+	app := gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	promise := gocore.Later[Reads](app)
 
@@ -91,7 +91,7 @@ func ExampleApp_Check() {
 	defer func() { _ = cleanup() }()
 
 	app := gocore.New(
-		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	gocore.Later[Reads](app) // never set
 	_ = app.Database("shared")
@@ -117,7 +117,7 @@ func ExampleWithAuthentication() {
 		{}, // no authentication configured
 	} {
 		app := gocore.New(
-			append(opts, gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))...)
+			append(opts, gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))...)
 		Install(app)
 
 		fmt.Println(app.Check() == nil)
@@ -145,7 +145,7 @@ func ExampleApp_RunCommand() {
 	for _, args := range [][]string{{}, {"migrate"}, {"migrate", "status"}, mark, {"help"}, {"serve"}} {
 		reg, cleanup := database.NewTestRegistry("local", "shared")
 		app := gocore.New(
-			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+			gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 		app.Migrations(things)         // the primary connection
 		app.Migrations(things, Shared) // another one: a module can be installed On(Shared)
@@ -187,7 +187,7 @@ func ExampleApp_Migrate() {
 	defer func() { _ = cleanup() }()
 
 	app := gocore.New(
-		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	app.Migrations(things)
 
@@ -202,7 +202,7 @@ func ExampleApp_MigrationsByConnection() {
 	defer func() { _ = cleanup() }()
 
 	app := gocore.New(
-		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	app.MigrationsByConnection(fstest.MapFS{"local/20260101000000_orders.sql": things["20261015000000_things.sql"]})
 
@@ -217,7 +217,7 @@ func ExampleWithAutoMigrate() {
 	defer func() { _ = cleanup() }()
 
 	app := gocore.New(
-		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAutoMigrate(context.Background()))
 
 	app.Migrations(things)
@@ -230,7 +230,7 @@ func ExampleWithAutoMigrate() {
 // route declared "/v1/ping" is served at "/api/v1/ping".
 func ExampleWithPrefix() {
 	app := gocore.New(
-		gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithPrefix("/api"),
 	)
 
@@ -245,7 +245,7 @@ func ExampleApp_Schema() {
 	defer func() { _ = cleanup() }()
 
 	app := gocore.New(
-		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAutoMigrate(context.Background()))
 
 	mysqlOnly := fstest.MapFS{
@@ -268,7 +268,7 @@ func ExampleApp_Authenticate() {
 	defer func() { _ = cleanup() }()
 
 	app := gocore.New(
-		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	app.Authenticate(func(c *gin.Context) { c.Next() })
 	Install(app)
@@ -284,7 +284,7 @@ func ExampleApp_Fail() {
 	defer func() { _ = cleanup() }()
 
 	app := gocore.New(
-		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	app.Fail("tickets needs a mail sender", "pass mail.Install(app) to tickets.Install")
 
@@ -303,7 +303,7 @@ func ExampleApp_Consumers() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+	app := gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 	assigned := event.Define[ticketAssigned]("tickets.assigned")
 
 	app.Events(
@@ -340,7 +340,7 @@ func ExampleApp_Command() {
 	for _, args := range [][]string{{"db:prune", "-dry-run"}, {"db:prune", "-h"}} {
 		reg, cleanup := database.NewTestRegistry("local")
 		app := gocore.New(
-			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+			gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 		app.Command("db:prune", "delete rows past their retention window", dryRunPrune)
 

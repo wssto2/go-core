@@ -151,7 +151,7 @@ func panicWithoutTheModule(t *testing.T) answer {
 
 	t.Cleanup(func() { _ = cleanup() })
 
-	app := gocore.New(gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+	app := gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signIn), gocore.WithAuthorizer(permissions), gocore.WithPrefix(prefix))
 	app.Routes(route.Get[route.None, route.Empty]("/v1/test/panic").Authenticated().To(func(context.Context, route.None) (route.Empty, error) {
 		var nothing []int

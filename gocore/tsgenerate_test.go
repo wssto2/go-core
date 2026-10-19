@@ -53,7 +53,7 @@ type tsLabel struct {
 func tsBare(opts ...gocore.Option) *gocore.App {
 	quiet := gocore.WithLogger(newAccessApp().Logger())
 
-	return gocore.New(append([]gocore.Option{quiet}, opts...)...)
+	return gocore.New(append([]gocore.Option{gocore.WithConfig(gocore.DefaultConfig()), quiet}, opts...)...)
 }
 
 // tsNoLists asks for ts:generate with no lists of types, writing under dir.
@@ -97,8 +97,9 @@ func tsFeature(app *gocore.App, catalogue *authz.Catalogue) {
 
 // tsApp is an application as main builds it, with the command line args.
 func tsApp(dir string, args []string, opts ...gocore.Option) *gocore.App {
-	base := make([]gocore.Option, 0, 3+len(opts))
+	base := make([]gocore.Option, 0, 4+len(opts))
 	base = append(base,
+		gocore.WithConfig(gocore.DefaultConfig()),
 		gocore.WithArgs(args...),
 		gocore.WithLogger(newAccessApp().Logger()),
 		gocore.WithTypeScript(gocore.TS{

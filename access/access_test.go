@@ -97,7 +97,7 @@ func newApp(db *gorm.DB, install func(*gocore.App) *access.Access) (*gocore.App,
 	reg.AddConnection(string(local), db)
 
 	app := gocore.New(
-		append(opts(db), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signedIn), gocore.WithPrefix("/api"))...)
+		append(opts(db), gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signedIn), gocore.WithPrefix("/api"))...)
 
 	return app, install(app)
 }

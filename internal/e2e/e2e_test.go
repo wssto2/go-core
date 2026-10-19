@@ -105,7 +105,7 @@ func (b *browser) me() map[string]json.RawMessage {
 
 // Identity and access installed as an application's main does:
 //
-//	app := gocore.New(cfg, gocore.WithPrefix("/api"))
+//	app := gocore.New(gocore.WithPrefix("/api"))
 //	users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sender, CodeSecret: secret}),
 //		identity.WithImpersonation(identity.HoldersOf("iam.user:impersonate")), identity.WithDeactivationHook(hook))
 //	access.Install(app, permissions, users)
@@ -120,7 +120,7 @@ func TestIdentityAndAccessWorkTogether(t *testing.T) {
 		reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
 		reg.AddConnection("local", db)
 
-		opts := []gocore.Option{gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithPrefix("/api")}
+		opts := []gocore.Option{gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithPrefix("/api")}
 		if db.Name() == "sqlite" {
 			opts = append(opts, gocore.WithAutoMigrate(t.Context())) // what gocoretest.New sets
 		}
@@ -294,7 +294,7 @@ func TestAPersonsActivity(t *testing.T) {
 		reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
 		reg.AddConnection("local", db)
 
-		opts := []gocore.Option{gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithPrefix("/api")}
+		opts := []gocore.Option{gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithPrefix("/api")}
 		if db.Name() == "sqlite" {
 			opts = append(opts, gocore.WithAutoMigrate(t.Context()))
 		}

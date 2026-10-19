@@ -74,7 +74,7 @@ func newAlertWorld(t *testing.T, alerts incident.Alerts) *alertWorld {
 	w := &alertWorld{t: t, now: time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC), holders: []int{managerHr, managerEn}}
 
 	app := gocore.New(
-		gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signIn), gocore.WithAuthorizer(permissions), gocore.WithClock(fixedClock{at: &w.now}))
 
 	catalogue := authz.NewCatalogue()
@@ -267,7 +267,7 @@ func TestTheAlertsAreOffByDefaultButTheEventIsPublished(t *testing.T) {
 
 	now := time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC)
 	app := gocore.New(
-		gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signIn), gocore.WithAuthorizer(permissions), gocore.WithClock(fixedClock{at: &now}))
 
 	var seen []incident.NewIncident
@@ -299,7 +299,7 @@ func TestAnEnabledAlertNeedsNotices(t *testing.T) {
 
 	t.Cleanup(func() { _ = cleanup() })
 
-	app := gocore.New(gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()),
+	app := gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()),
 		gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signIn), gocore.WithAuthorizer(permissions))
 	catalogue := authz.NewCatalogue()
 	require.NoError(t, incident.DefinePermissions(catalogue))
@@ -335,7 +335,7 @@ func TestTheDefaultRecipientsAreTheHoldersOfManageInTheAccessRoles(t *testing.T)
 
 	now := time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC)
 	app := gocore.New(
-		gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signIn), gocore.WithClock(fixedClock{at: &now}))
 
 	catalogue := authz.NewCatalogue()

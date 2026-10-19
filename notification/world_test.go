@@ -185,7 +185,7 @@ func buildWorld(t *testing.T, db *gorm.DB, authorizer authz.Authorizer, sink *ma
 	reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
 	reg.AddConnection("local", db)
 
-	w.app = gocore.New(gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+	w.app = gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAutoMigrate(t.Context()), gocore.WithClock(w.clock), gocore.WithAuthorizer(authorizer),
 		gocore.WithAuthentication(func(c *gin.Context) {
 			robot, robotErr := strconv.Atoi(c.GetHeader("X-Robot"))

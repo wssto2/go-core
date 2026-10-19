@@ -165,7 +165,7 @@ func newWorld(t *testing.T, opts ...incident.Option) *world {
 	w := &world{t: t, now: time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC)}
 
 	app := gocore.New(
-		gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signIn), gocore.WithAuthorizer(permissions), gocore.WithPrefix(prefix),
 		gocore.WithClock(fixedClock{at: &w.now}))
 

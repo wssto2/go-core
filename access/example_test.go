@@ -21,7 +21,7 @@ func exampleApp() (*gocore.App, func()) {
 	reg, cleanup := database.NewTestRegistry("local")
 
 	// WithAutoMigrate is what gocoretest.New sets: Install's app.Schema creates the tables from the models.
-	return gocore.New(gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+	return gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 			gocore.WithAuthentication(signedIn), gocore.WithAutoMigrate(context.Background())),
 		func() { _ = cleanup() }
 }
@@ -123,7 +123,7 @@ func ExampleWithAudit() {
 	_ = gormstore.Migrate(db)
 	_ = audit.Migrate(db)
 
-	app := gocore.New(gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+	app := gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signedIn))
 	acc := access.Install(app, catalogue(), team{},
 		access.WithRoles(authz.Role{Key: "viewer", Name: "Viewer", Grants: authz.Grants(authz.QualifierAll, "tickets.ticket:view")}),
@@ -146,7 +146,7 @@ func ExampleOn() {
 
 	_ = gormstore.Migrate(reg.MustGet("shared"))
 
-	app := gocore.New(gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+	app := gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signedIn))
 	access.Install(app, catalogue(), team{}, access.On("shared"))
 	fmt.Println(app.Check())

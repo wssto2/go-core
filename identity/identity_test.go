@@ -251,7 +251,7 @@ func TestInstallEndToEndOnEveryDatabase(t *testing.T) {
 		reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
 		reg.AddConnection("local", db)
 
-		opts := []gocore.Option{gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthorizer(authztest.AllowAll())}
+		opts := []gocore.Option{gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthorizer(authztest.AllowAll())}
 		if db.Name() == "sqlite" {
 			opts = append(opts, gocore.WithAutoMigrate(t.Context()))
 		}
@@ -321,7 +321,7 @@ func TestWithAccountsCreatesNoAccountsTable(t *testing.T) {
 		reg.AddConnection("local", conn)
 
 		opts := []gocore.Option{
-			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+			gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 			gocore.WithAuthorizer(authztest.AllowAll()),
 		}
 		if conn.Name() == "sqlite" {

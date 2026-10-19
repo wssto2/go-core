@@ -36,7 +36,7 @@ func twoMigrations() fstest.MapFS {
 func newApp(reg *database.Registry) *gocore.App {
 	quiet := gocore.WithLogger(slog.New(slog.DiscardHandler))
 
-	return gocore.New(gocore.WithRegistry(reg), quiet)
+	return gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), quiet)
 }
 
 func appOver(reg *database.Registry) *gocore.App {

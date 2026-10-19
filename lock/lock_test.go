@@ -265,7 +265,7 @@ func TestInstall_RegistersTheTableAndReturnsAWorkingLocker(t *testing.T) {
 	t.Cleanup(func() { _ = cleanup() })
 
 	app := gocore.New(
-		gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 	locker := lock.Install(app)
 	require.NotNil(t, app.Database())
