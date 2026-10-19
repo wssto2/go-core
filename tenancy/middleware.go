@@ -12,8 +12,8 @@ import (
 // This assumes auth.Authenticated has already run (i.e. a user is in the context).
 // The user must implement TenantAware:
 //
-//   - HasTenant() true: the tenant ID is stored (WithTenantID);
-//   - HasTenant() false: the user is a super-admin without a tenant, and the
+//   - GetTenantID() above 0: the tenant ID is stored (WithTenantID);
+//   - GetTenantID() 0: the user is a super-admin without a tenant, and the
 //     context is marked as crossing tenants (WithAllTenants);
 //   - a user that is not TenantAware, or no user at all: nothing is set, so
 //     ScopeByTenant matches nothing.
@@ -32,8 +32,8 @@ func FromAuthenticatedUser() gin.HandlerFunc {
 		}
 
 		if ta, ok := user.(TenantAware); ok {
-			if ta.HasTenant() {
-				ctx.Request = ctx.Request.WithContext(WithTenantID(ctx.Request.Context(), ta.GetTenantID()))
+			if id := ta.GetTenantID(); id > 0 {
+				ctx.Request = ctx.Request.WithContext(WithTenantID(ctx.Request.Context(), id))
 			} else {
 				ctx.Request = ctx.Request.WithContext(WithAllTenants(ctx.Request.Context()))
 			}

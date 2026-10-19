@@ -5,6 +5,6 @@ package tenancy
 // This is separate from Identifiable — a user can be authenticated (Identifiable)
 // without necessarily belonging to a tenant (system admins, for example).
 type TenantAware interface {
-	GetTenantID() int // returns 0 if the user is a super-admin with no tenant
-	HasTenant() bool  // true if scoped to a tenant; false marks a super-admin that crosses tenants
+	// GetTenantID returns the tenant the user is scoped to; 0 marks a super-admin with no tenant, who crosses tenants.
+	GetTenantID() int
 }

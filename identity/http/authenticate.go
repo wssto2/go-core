@@ -14,7 +14,6 @@ import (
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/identity/serviceaccount"
-	"github.com/wssto2/go-core/tenancy"
 )
 
 type authenticatedKey struct{}
@@ -236,45 +235,5 @@ func (k *Keys) record(ctx *gin.Context, caller serviceaccount.Caller) {
 	if err != nil && k.Log != nil {
 		k.Log.ErrorContext(ctx.Request.Context(), "service account request trail failed",
 			"service_account", caller.AccountID, "error", err)
-	}
-}
-
-// TenantOf says which tenant an account works in. A tenantID above 0 is that tenant; all true (with no
-// tenant) marks the account as crossing tenants, as a super-administrator does; neither leaves the request
-// without a tenant, so tenant-scoped reads match nothing.
-type TenantOf func(ctx context.Context, a account.Account) (tenantID int, all bool, err error)
-
-// Tenant is the middleware that, behind Authentication, puts the signed-in account's tenant in the request
-// context (tenancy.WithTenantID or tenancy.WithAllTenants), so the hooks and handlers of every route read
-// tenant-scoped data as that person. An account the authentication did not find is left alone.
-func Tenant(tenantOf TenantOf) gin.HandlerFunc {
-	return func(ctx *gin.Context) {
-		who, ok := AuthenticatedFrom(ctx.Request.Context())
-		if !ok {
-			ctx.Next()
-
-			return
-		}
-
-		tenantID, all, err := tenantOf(ctx.Request.Context(), who.Account)
-		if err != nil {
-			_ = ctx.Error(err)
-			ctx.Abort()
-
-			return
-		}
-
-		reqCtx := ctx.Request.Context()
-
-		switch {
-		case tenantID > 0:
-			reqCtx = tenancy.WithTenantID(reqCtx, tenantID)
-		case all:
-			reqCtx = tenancy.WithAllTenants(reqCtx)
-		}
-
-		ctx.Request = ctx.Request.WithContext(reqCtx)
-
-		ctx.Next()
 	}
 }

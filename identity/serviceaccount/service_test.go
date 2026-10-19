@@ -278,7 +278,7 @@ func TestKeysAreMadeOnceListedAndRevoked(t *testing.T) {
 	assert.Equal(t, serviceaccount.Caller{AccountID: a.ID, KeyID: created.Key.ID, Name: "feed"}, caller)
 	assert.Zero(t, caller.GetID())
 	assert.Equal(t, "service:"+itoa(a.ID), caller.RateLimitKey())
-	assert.False(t, caller.HasTenant())
+	assert.Zero(t, caller.GetTenantID())
 
 	require.NoError(t, f.svc.RevokeKey(ctx, a.ID, created.Key.ID))
 	require.NoError(t, f.svc.RevokeKey(ctx, a.ID, created.Key.ID))
