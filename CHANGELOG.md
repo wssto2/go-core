@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.20.0 (unreleased)
+
+Notification metrics. Opt-in by having telemetry (every `gocore.New` app has it); nothing else changes.
+
+### Added
+
+- notification: Prometheus counters `go_core_notification_{created,held,sent,cancelled}_total` and `go_core_notification_failed_total{reason}` (`gone`, `rejected`, `permanent`, `expired`), by `category` and `channel` (`in_app`, `email`, `push`), on the app's telemetry (NOTIF-DELIVERY-001 rule 12); an app without telemetry counts nothing.
+- observability: `Telemetry.Registerer`, the app-labelled registerer, for features that register their own collectors.
+
 ## v1.17.0 (unreleased)
 
 One binary: an application adds its own commands to the command line, loads its .env through go-core, and gets its TypeScript from the installed App instead of hand lists. Everything new is opt-in; an application that uses none of it starts, serves and prints help exactly as before.
