@@ -1,7 +1,6 @@
 package logger
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,8 +9,6 @@ import (
 
 	"gopkg.in/natefinch/lumberjack.v2"
 )
-
-type ctxKey struct{}
 
 type LogLevel string
 
@@ -86,14 +83,6 @@ func New(cfg Config) (*slog.Logger, error) {
 	return log, nil
 }
 
-func MustNew(cfg Config) *slog.Logger {
-	log, err := New(cfg)
-	if err != nil {
-		panic(err)
-	}
-	return log
-}
-
 func parseLevel(l LogLevel) slog.Level {
 	switch l {
 	case LevelDebug:
@@ -107,13 +96,4 @@ func parseLevel(l LogLevel) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
-}
-
-func GetFromContext(ctx context.Context) *slog.Logger {
-	if val := ctx.Value(ctxKey{}); val != nil {
-		if l, ok := val.(*slog.Logger); ok {
-			return l
-		}
-	}
-	return slog.Default()
 }

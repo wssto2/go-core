@@ -72,7 +72,7 @@ func (r *Resource[T]) WithAuthorLoader(authorField, editorField string, loader A
 // The callback receives a fresh *gorm.DB session and the table name.
 // Constraints are additive — calling WithScope multiple times is safe.
 //
-// Tenant scoping example (use tenancy.RequireTenantScope for security-critical paths):
+// Tenant scoping example (ScopeByTenant fails closed: no tenant in the context matches nothing):
 //
 //	resource.New[Vehicle](db).
 //	    WithScope(func(q *gorm.DB, _ string) *gorm.DB {

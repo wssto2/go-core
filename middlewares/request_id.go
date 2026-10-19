@@ -36,8 +36,3 @@ func RequestID() gin.HandlerFunc {
 		ctx.Next()
 	}
 }
-
-// GetRequestID retrieves the request ID from the gin context.
-func GetRequestID(ctx *gin.Context) string {
-	return ctx.GetString("request_id")
-}

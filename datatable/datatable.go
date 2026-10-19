@@ -190,7 +190,7 @@ func (d *Datatable[T]) WithStatusFilter(column string) *Datatable[T] {
 // are accumulated on the datatable's query builder.
 // If called multiple times, constraints are additive.
 //
-// Tenant scoping example (use tenancy.RequireTenantScope for security-critical paths):
+// Tenant scoping example (ScopeByTenant fails closed: no tenant in the context matches nothing):
 //
 //	datatable.New[Vehicle](db, params).
 //	    WithScope(func(q *gorm.DB, _ string) *gorm.DB {

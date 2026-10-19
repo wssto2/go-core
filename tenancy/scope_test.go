@@ -81,27 +81,3 @@ func TestScopeByTenant_TenantWinsOverMarker(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, 2, got[0].DealerID)
 }
-
-func TestRequireTenantScope_AppliesWhereClause(t *testing.T) {
-	db := openTestDB(t)
-	ctx := tenancy.WithTenantID(context.Background(), 7)
-
-	scope, err := tenancy.RequireTenantScope(ctx, "dealer_id")
-	require.NoError(t, err)
-
-	stmt := db.Session(&gorm.Session{DryRun: true}).
-		Scopes(scope).
-		Find(&vehicle{}).Statement
-
-	assert.Contains(t, stmt.SQL.String(), "= ?")
-	assert.Equal(t, []interface{}{7}, stmt.Vars)
-}
-
-func TestRequireTenantScope_NoTenant_ReturnsError(t *testing.T) {
-	_, err := tenancy.RequireTenantScope(context.Background(), "dealer_id")
-	assert.Error(t, err)
-
-	// the all-tenants marker does not satisfy it
-	_, err = tenancy.RequireTenantScope(tenancy.WithAllTenants(context.Background()), "dealer_id")
-	assert.Error(t, err)
-}

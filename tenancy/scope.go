@@ -3,7 +3,6 @@ package tenancy
 
 import (
 	"context"
-	"fmt"
 
 	"gorm.io/gorm"
 )
@@ -33,20 +32,4 @@ func ScopeByTenant(ctx context.Context, column string) func(*gorm.DB) *gorm.DB {
 		}
 		return db.Where("1 = 0") // tenant never established: match nothing
 	}
-}
-
-// RequireTenantScope is like ScopeByTenant but returns an error unless a tenant ID
-// is present. The all-tenants marker does not satisfy it: use it on paths that must
-// never run across tenants.
-// Use this in services where being unscoped would be a security problem.
-// column must be a hardcoded string literal, not user-provided input.
-// Example: tenancy.RequireTenantScope(ctx, "dealer_id")
-func RequireTenantScope(ctx context.Context, column string) (func(*gorm.DB) *gorm.DB, error) {
-	tenantID, ok := TenantIDFromContext(ctx)
-	if !ok {
-		return nil, fmt.Errorf("tenancy: operation requires a tenant scope but no tenant ID is in context")
-	}
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Where(db.Statement.Quote(column)+" = ?", tenantID)
-	}, nil
 }

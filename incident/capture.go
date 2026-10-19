@@ -21,7 +21,6 @@ import (
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/incident/core"
-	"github.com/wssto2/go-core/middlewares"
 	"github.com/wssto2/go-core/tenancy"
 )
 
@@ -199,7 +198,7 @@ func (c *capturer) describe(ctx *gin.Context, status int) core.Failure {
 	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	failure := core.Failure{
 		Source: core.SourceRuntimeError, AffectedModule: c.module(request.URL.Path), AffectedRoute: route,
-		RequestMethod: request.Method, IPAddress: ctx.ClientIP(), RequestID: middlewares.GetRequestID(ctx),
+		RequestMethod: request.Method, IPAddress: ctx.ClientIP(), RequestID: ctx.GetString("request_id"),
 		Environment: c.env,
 	}
 

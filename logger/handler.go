@@ -16,17 +16,6 @@ const (
 	ctxKeyRequestID  contextKey = "request_id"
 )
 
-// WithSource adds source file/line to the context for logging.
-func WithSource(ctx context.Context, file string, line int) context.Context {
-	ctx = context.WithValue(ctx, ctxKeySourceFile, file)
-	return context.WithValue(ctx, ctxKeySourceLine, line)
-}
-
-// WithUser adds user ID to the context for logging.
-func WithUser(ctx context.Context, userID int) context.Context {
-	return context.WithValue(ctx, ctxKeyUserID, userID)
-}
-
 // WithRequestID adds request ID to the context for logging.
 func WithRequestID(ctx context.Context, requestID string) context.Context {
 	return context.WithValue(ctx, ctxKeyRequestID, requestID)

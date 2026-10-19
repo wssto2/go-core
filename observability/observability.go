@@ -52,7 +52,7 @@ func New(log *slog.Logger, appName string) *Telemetry {
 		Registry:   reg,
 		Registerer: labeled,
 		HTTP:       metrics.NewMetrics(reg, labeled),
-		Service:    NewServiceMiddleware(log, labeled),
+		Service:    newServiceObserver(log, labeled),
 		Worker:     worker.NewManagerMetrics(labeled),
 	}
 }

@@ -19,7 +19,7 @@ type ServiceObserver struct {
 	errors    *prometheus.CounterVec
 }
 
-func NewServiceMiddleware(logger *slog.Logger, reg prometheus.Registerer) *ServiceObserver {
+func newServiceObserver(logger *slog.Logger, reg prometheus.Registerer) *ServiceObserver {
 	if reg == nil {
 		reg = prometheus.DefaultRegisterer
 	}

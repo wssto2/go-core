@@ -31,13 +31,13 @@ func Mask(v any) any {
 	// Fast path: avoid redundant marshal when the value is already JSON bytes.
 	switch typed := v.(type) {
 	case json.RawMessage:
-		masked, err := MaskJSON(typed)
+		masked, err := maskJSON(typed)
 		if err != nil {
 			return v
 		}
 		return json.RawMessage(masked)
 	case []byte:
-		masked, err := MaskJSON(typed)
+		masked, err := maskJSON(typed)
 		if err != nil {
 			return v
 		}
@@ -56,11 +56,11 @@ func Mask(v any) any {
 	return decoded
 }
 
-// MaskJSON masks sensitive fields in already-serialized JSON bytes.
+// maskJSON masks sensitive fields in already-serialized JSON bytes.
 // It is more efficient than Mask when the caller already has JSON bytes,
 // since it avoids a redundant marshal step.
 // Returns the original bytes unchanged if parsing fails.
-func MaskJSON(data []byte) ([]byte, error) {
+func maskJSON(data []byte) ([]byte, error) {
 	if len(data) == 0 {
 		return data, nil
 	}
