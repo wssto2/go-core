@@ -117,7 +117,8 @@ func ExampleWithAuthentication() {
 		{}, // no authentication configured
 	} {
 		app := gocore.New(
-			append(opts, gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))...)
+			append(opts, gocore.WithConfig(gocore.DefaultConfig()),
+				gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))...)
 		Install(app)
 
 		fmt.Println(app.Check() == nil)
@@ -145,7 +146,8 @@ func ExampleApp_RunCommand() {
 	for _, args := range [][]string{{}, {"migrate"}, {"migrate", "status"}, mark, {"help"}, {"serve"}} {
 		reg, cleanup := database.NewTestRegistry("local", "shared")
 		app := gocore.New(
-			gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+			gocore.WithConfig(gocore.DefaultConfig()),
+			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 		app.Migrations(things)         // the primary connection
 		app.Migrations(things, Shared) // another one: a module can be installed On(Shared)
@@ -303,7 +305,8 @@ func ExampleApp_Consumers() {
 	reg, cleanup := database.NewTestRegistry("local")
 	defer func() { _ = cleanup() }()
 
-	app := gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+	app := gocore.New(gocore.WithConfig(gocore.DefaultConfig()),
+		gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 	assigned := event.Define[ticketAssigned]("tickets.assigned")
 
 	app.Events(
@@ -340,7 +343,8 @@ func ExampleApp_Command() {
 	for _, args := range [][]string{{"db:prune", "-dry-run"}, {"db:prune", "-h"}} {
 		reg, cleanup := database.NewTestRegistry("local")
 		app := gocore.New(
-			gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
+			gocore.WithConfig(gocore.DefaultConfig()),
+			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 
 		app.Command("db:prune", "delete rows past their retention window", dryRunPrune)
 

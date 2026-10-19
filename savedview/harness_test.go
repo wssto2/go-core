@@ -54,7 +54,8 @@ func newWorld(t *testing.T) *world {
 	w := &world{t: t, now: time.Date(2026, time.March, 4, 10, 0, 0, 123456789, time.FixedZone("CET", 3600))}
 
 	app := gocore.New(
-		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithConfig(gocore.DefaultConfig()),
+		gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signIn), gocore.WithAuthorizer(authztest.AllowAll()), gocore.WithPrefix(prefix),
 		gocore.WithClock(fixedClock{at: &w.now}))
 

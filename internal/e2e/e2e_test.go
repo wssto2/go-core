@@ -120,7 +120,8 @@ func TestIdentityAndAccessWorkTogether(t *testing.T) {
 		reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
 		reg.AddConnection("local", db)
 
-		opts := []gocore.Option{gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithPrefix("/api")}
+		opts := []gocore.Option{gocore.WithConfig(gocore.DefaultConfig()),
+			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithPrefix("/api")}
 		if db.Name() == "sqlite" {
 			opts = append(opts, gocore.WithAutoMigrate(t.Context())) // what gocoretest.New sets
 		}
@@ -294,7 +295,8 @@ func TestAPersonsActivity(t *testing.T) {
 		reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
 		reg.AddConnection("local", db)
 
-		opts := []gocore.Option{gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithPrefix("/api")}
+		opts := []gocore.Option{gocore.WithConfig(gocore.DefaultConfig()),
+			gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithPrefix("/api")}
 		if db.Name() == "sqlite" {
 			opts = append(opts, gocore.WithAutoMigrate(t.Context()))
 		}

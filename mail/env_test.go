@@ -101,6 +101,7 @@ func mailApp(t *testing.T, appEnv string) *gocore.App {
 	t.Helper()
 
 	setSMTPEnv(t, "relay.example.com:25")
+
 	cfg := gocore.DefaultConfig()
 	cfg.App.Env = appEnv
 
@@ -110,6 +111,7 @@ func mailApp(t *testing.T, appEnv string) *gocore.App {
 func TestMailOutsideProductionNeedsARedirectOrMAILLIVE(t *testing.T) {
 	for _, appEnv := range []string{"staging", "development", ""} {
 		app := mailApp(t, appEnv)
+
 		_, err := mail.SenderFromEnv(app, "App")
 		require.NoError(t, err)
 
@@ -121,13 +123,17 @@ func TestMailOutsideProductionNeedsARedirectOrMAILLIVE(t *testing.T) {
 
 func TestMailOutsideProductionPassesWithARedirectOrMAILLIVE(t *testing.T) {
 	app := mailApp(t, "staging")
+
 	t.Setenv("MAIL_REDIRECT_TO", "dev@example.com")
+
 	_, err := mail.SenderFromEnv(app, "App")
 	require.NoError(t, err)
 	require.NoError(t, app.Check())
 
 	app = mailApp(t, "staging")
+
 	t.Setenv("MAIL_LIVE", "true")
+
 	_, err = mail.SenderFromEnv(app, "App")
 	require.NoError(t, err)
 	require.NoError(t, app.Check())
@@ -135,6 +141,7 @@ func TestMailOutsideProductionPassesWithARedirectOrMAILLIVE(t *testing.T) {
 
 func TestMailInProductionNeedsNeither(t *testing.T) {
 	app := mailApp(t, "production")
+
 	_, err := mail.SenderFromEnv(app, "App")
 	require.NoError(t, err)
 	require.NoError(t, app.Check())
@@ -142,7 +149,9 @@ func TestMailInProductionNeedsNeither(t *testing.T) {
 
 func TestMailThatIsNotConfiguredIsNotAProblem(t *testing.T) {
 	app := mailApp(t, "staging")
+
 	t.Setenv("SMTP_HOST", "")
+
 	_, err := mail.SenderFromEnv(app, "App")
 	require.NoError(t, err)
 	require.NoError(t, app.Check())

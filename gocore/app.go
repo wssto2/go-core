@@ -323,21 +323,6 @@ func (a *App) Disks(disks ...storage.DiskSpec) {
 	}
 }
 
-func (a *App) serveDisk(spec storage.DiskSpec) {
-	files, _ := a.disks.Disk(spec.Name())
-
-	base := files.PublicPath()
-	if base == "" {
-		return
-	}
-
-	serve := func(ctx *gin.Context) { web.Serve(ctx, files, strings.TrimPrefix(ctx.Param("key"), "/"), "") }
-
-	for _, method := range []string{http.MethodGet, http.MethodHead} {
-		a.Root(route.Raw(method, base+"/*key").Name("disk." + spec.Name() + "." + strings.ToLower(method)).Public().To(serve))
-	}
-}
-
 // Disk returns the disk declared as name; storage.Use is the way features ask for one.
 func (a *App) Disk(name string) (*storage.Files, bool) {
 	if a.disks == nil {
@@ -563,6 +548,21 @@ func (a *App) handled() []route.Handled {
 	}
 
 	return out
+}
+
+func (a *App) serveDisk(spec storage.DiskSpec) {
+	files, _ := a.disks.Disk(spec.Name())
+
+	base := files.PublicPath()
+	if base == "" {
+		return
+	}
+
+	serve := func(ctx *gin.Context) { web.Serve(ctx, files, strings.TrimPrefix(ctx.Param("key"), "/"), "") }
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		a.Root(route.Raw(method, base+"/*key").Name("disk." + spec.Name() + "." + strings.ToLower(method)).Public().To(serve))
+	}
 }
 
 // found lists every problem so far: the ones features reported and the ones Env found.

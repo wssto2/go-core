@@ -24,7 +24,10 @@ type App interface {
 // SMTP_FROM_ADDRESS every send fails naming what to set (see SMTP).
 func SMTPFromEnv(app App, defaultFromName string) SMTPConfig {
 	vars := app.Env()
-	from := mail.Address{Name: vars.String("SMTP_FROM_NAME", defaultFromName), Address: vars.String("SMTP_FROM_ADDRESS", "")}
+	from := mail.Address{
+		Name:    vars.String("SMTP_FROM_NAME", defaultFromName),
+		Address: vars.String("SMTP_FROM_ADDRESS", ""),
+	}
 
 	//nolint:exhaustruct,exhaustruct_v5 // zero by design: STARTTLS when offered, the default timeout
 	return SMTPConfig{
@@ -39,8 +42,9 @@ func SMTPFromEnv(app App, defaultFromName string) SMTPConfig {
 // MAIL_REDIRECT_TO set, the same relay delivering every message to that one address (see Redirect). The redirection is
 // for development and staging, whose databases are copies of production with real people's addresses; production
 // leaves it unset. Outside production a configured relay (SMTP_HOST) therefore needs MAIL_REDIRECT_TO or an explicit
-// MAIL_LIVE=true, else start-up stops naming both; with no relay configured there is nothing to guard. A value that is not an e-mail address is an error naming the variable, so start-up stops instead
-// of every mail failing later; the sender returned with that error refuses every Send, it never reaches the relay.
+// MAIL_LIVE=true, else start-up stops naming both; with no relay configured there is nothing to guard. A value that
+// is not an e-mail address is an error naming the variable, so start-up stops instead of every mail failing later;
+// the sender returned with that error refuses every Send, it never reaches the relay.
 //
 //nolint:ireturn // Sender is the port every sender here implements
 func SenderFromEnv(app App, defaultFromName string) (Sender, error) {
@@ -51,7 +55,8 @@ func SenderFromEnv(app App, defaultFromName string) (Sender, error) {
 
 	if address == "" {
 		if app.Environment() != "production" && !live && app.Env().String("SMTP_HOST", "") != "" {
-			app.Fail("mail is on in "+app.Environment()+" with neither MAIL_REDIRECT_TO nor MAIL_LIVE=true: it would reach real people",
+			app.Fail(
+				"mail is on in "+app.Environment()+" with neither MAIL_REDIRECT_TO nor MAIL_LIVE=true: it would reach real people",
 				"set MAIL_REDIRECT_TO to one address that receives every mail, or MAIL_LIVE=true to send for real")
 		}
 

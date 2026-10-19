@@ -97,7 +97,8 @@ func newServer(t *testing.T, prefix string) *server {
 	require.NoError(t, err)
 
 	app := gocore.New(
-		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithPrefix(prefix), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+		gocore.WithConfig(gocore.DefaultConfig()),
+		gocore.WithPrefix(prefix), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(func(c *gin.Context) {
 			id, err := strconv.Atoi(c.GetHeader("X-User"))
 			if err != nil {

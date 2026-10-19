@@ -68,35 +68,39 @@ func TestAPublicPathDiskIsServedReadOnly(t *testing.T) {
 
 	app := newDisksApp()
 	root := t.TempDir()
-	app.Disks(storage.Disk("uploads").Local(root+"/uploads"), storage.Disk("public").Local(root+"/public").Public("/media"))
+	app.Disks(
+		storage.Disk("uploads").Local(root+"/uploads"),
+		storage.Disk("public").Local(root+"/public").Public("/media"),
+	)
 
 	photos := storage.Use(app, "public").Folder("vehicles")
-	require.NoError(t, photos.Put(context.Background(), "123/front.jpg", strings.NewReader("jpeg bytes"), 10, "image/jpeg"))
-	require.NoError(t, storage.Use(app, "uploads").Put(context.Background(), "secret.pdf", strings.NewReader("pdf"), 3, "application/pdf"))
+	ctx := context.Background()
+	require.NoError(t, photos.Put(ctx, "123/front.jpg", strings.NewReader("jpeg bytes"), 10, "image/jpeg"))
+	require.NoError(t, storage.Use(app, "uploads").Put(ctx, "secret.pdf", strings.NewReader("pdf"), 3, "application/pdf"))
 
 	handler, err := app.Handler()
 	require.NoError(t, err)
 
-	do := func(method, path string) *httptest.ResponseRecorder {
+	get := func(method, path string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), method, path, nil))
 
 		return rec
 	}
 
-	file := do(http.MethodGet, "/media/vehicles/123/front.jpg")
+	file := get(http.MethodGet, "/media/vehicles/123/front.jpg")
 	assert.Equal(t, http.StatusOK, file.Code)
 	assert.Equal(t, "jpeg bytes", file.Body.String())
 	assert.Equal(t, "image/jpeg", file.Header().Get("Content-Type"))
-	assert.Equal(t, http.StatusOK, do(http.MethodHead, "/media/vehicles/123/front.jpg").Code)
-	assert.Equal(t, http.StatusNotFound, do(http.MethodGet, "/media/vehicles/missing.jpg").Code)
-	assert.Equal(t, http.StatusNotFound, do(http.MethodPost, "/media/vehicles/123/front.jpg").Code)
+	assert.Equal(t, http.StatusOK, get(http.MethodHead, "/media/vehicles/123/front.jpg").Code)
+	assert.Equal(t, http.StatusNotFound, get(http.MethodGet, "/media/vehicles/missing.jpg").Code)
+	assert.Equal(t, http.StatusNotFound, get(http.MethodPost, "/media/vehicles/123/front.jpg").Code)
 
 	for _, path := range []string{
 		"/media/vehicles/123", "/media/vehicles/123/", "/media/", "/media/vehicles/../uploads/secret.pdf",
 		"/media/%2e%2e/uploads/secret.pdf", "/media//etc/passwd",
 	} {
-		rec := do(http.MethodGet, path)
+		rec := get(http.MethodGet, path)
 		assert.GreaterOrEqual(t, rec.Code, http.StatusBadRequest, path)
 		assert.NotContains(t, rec.Body.String(), "pdf", path)
 	}
@@ -107,7 +111,8 @@ func TestAnAbsoluteURLDiskIsNotMounted(t *testing.T) {
 
 	app := newDisksApp()
 	app.Disks(storage.Disk("public").Local(t.TempDir()).Public("https://cdn.example.com/media"))
-	require.NoError(t, storage.Use(app, "public").Put(context.Background(), "a.jpg", strings.NewReader("x"), 1, "image/jpeg"))
+	public := storage.Use(app, "public")
+	require.NoError(t, public.Put(context.Background(), "a.jpg", strings.NewReader("x"), 1, "image/jpeg"))
 
 	handler, err := app.Handler()
 	require.NoError(t, err)
