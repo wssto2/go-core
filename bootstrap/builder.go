@@ -19,6 +19,7 @@ import (
 	"github.com/wssto2/go-core/observability"
 	"github.com/wssto2/go-core/observability/metrics"
 	"github.com/wssto2/go-core/ratelimit"
+	"github.com/wssto2/go-core/web"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
@@ -237,6 +238,7 @@ func (b *AppBuilder) setupHTTPMiddlewares() {
 		metrics.InstrumentHTTP(tel.HTTP),
 		middlewares.PanicRecovery(log),
 		middlewares.ErrorHandler(log, translator, b.cfg.App.Development()),
+		web.BodyLimit(b.cfg.HTTP.BodyLimit()),
 		middlewares.Security(b.cfg.App.Development(), middlewares.SecurityConfig{TrustProxy: len(b.cfg.HTTP.TrustedProxies) > 0}),
 		middlewares.Cors(middlewares.CorsConfig{
 			AllowOrigins: b.cfg.CORS.AllowedOrigins,

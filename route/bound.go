@@ -167,6 +167,17 @@ type Security struct {
 
 // guard is the chain in front of a route's handler.
 func (s Security) guard(spec Spec) []gin.HandlerFunc {
+	var chain []gin.HandlerFunc
+
+	if spec.MaxBody > 0 {
+		chain = append(chain, web.BodyLimitFor(spec.MaxBody))
+	}
+
+	return append(chain, s.access(spec)...)
+}
+
+// access is the part of the chain that checks who may call the route.
+func (s Security) access(spec Spec) []gin.HandlerFunc {
 	if spec.Public {
 		return nil
 	}
@@ -284,6 +295,13 @@ func (r RawRoute) Requires(permission string) RawRoute {
 // RequiresAny gates the route on holding at least one of the permissions.
 func (r RawRoute) RequiresAny(permissions ...string) RawRoute {
 	r.d.spec.AnyOf = permissions
+
+	return r
+}
+
+// MaxBody sets the largest JSON body this route accepts; see Route.MaxBody.
+func (r RawRoute) MaxBody(bytes int64) RawRoute {
+	r.d.spec.MaxBody = checkMaxBody(bytes)
 
 	return r
 }

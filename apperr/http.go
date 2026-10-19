@@ -14,6 +14,7 @@ var codeToHTTP = map[Code]int{
 	CodeAlreadyExists:    http.StatusConflict,
 	CodeBadRequest:       http.StatusBadRequest,
 	CodeValidationError:  http.StatusUnprocessableEntity,
+	CodePayloadTooLarge:  http.StatusRequestEntityTooLarge,
 }
 
 // GetHTTPStatus extracts the HTTP status code from an error.

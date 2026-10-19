@@ -42,6 +42,8 @@ type Spec struct {
 	FreeFormQuery bool
 	// Untyped is true for routes declared with Raw: they have no In or Out.
 	Untyped bool
+	// MaxBody is the JSON body limit in bytes this route sets for itself (MaxBody); 0 keeps the application's.
+	MaxBody int64
 }
 
 // Declared is a route that can be listed in a Group: every Route and every
@@ -149,6 +151,23 @@ func (r Route[In, Out]) PersonOnly() Route[In, Out] {
 	r.d.spec.PersonOnly = true
 
 	return r
+}
+
+// MaxBody sets the largest JSON body, in bytes, this route accepts, instead of the application's limit
+// (HTTPConfig.MaxBodyBytes). Raise it for the one route that takes a big payload. Multipart uploads have their own limit.
+func (r Route[In, Out]) MaxBody(bytes int64) Route[In, Out] {
+	r.d.spec.MaxBody = checkMaxBody(bytes)
+
+	return r
+}
+
+// checkMaxBody refuses a limit that is not positive: a declaration mistake, found at start-up.
+func checkMaxBody(bytes int64) int64 {
+	if bytes <= 0 {
+		panic(fmt.Sprintf("route: MaxBody(%d): the limit must be positive", bytes))
+	}
+
+	return bytes
 }
 
 // Spec returns the declaration as data.

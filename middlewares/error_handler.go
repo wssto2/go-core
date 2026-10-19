@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/apperr"
@@ -23,8 +24,16 @@ func ErrorHandler(log *slog.Logger, translator *i18n.Translator, debug bool) gin
 		// We only handle the first error for simplicity
 		err := ctx.Errors.Last().Err
 
-		var appErr *apperr.AppError
-		if !errors.As(err, &appErr) {
+		var (
+			appErr   *apperr.AppError
+			tooLarge *http.MaxBytesError
+		)
+
+		switch {
+		case errors.As(err, &appErr):
+		case errors.As(err, &tooLarge):
+			appErr = apperr.PayloadTooLarge("request body too large")
+		default:
 			log.DebugContext(ctx, "Not an app error; wrapping as internal", "error", err)
 			// Wrap unknown errors as internal server errors
 			appErr = apperr.Internal(err)

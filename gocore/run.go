@@ -13,6 +13,7 @@ import (
 	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/middlewares"
 	"github.com/wssto2/go-core/route"
+	"github.com/wssto2/go-core/web"
 	"github.com/wssto2/go-core/worker"
 )
 
@@ -333,7 +334,7 @@ func (a *App) Handler() (http.Handler, error) {
 		return nil, fmt.Errorf("gocore: trusted proxies: %w", err)
 	}
 
-	engine.Use(middlewares.ErrorHandler(a.log, nil, a.cfg.App.Development()))
+	engine.Use(middlewares.ErrorHandler(a.log, nil, a.cfg.App.Development()), web.BodyLimit(a.cfg.HTTP.BodyLimit()))
 	engine.Use(a.middleware...)
 
 	for _, r := range a.routes {

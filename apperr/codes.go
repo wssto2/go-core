@@ -12,4 +12,5 @@ const (
 	CodeInvalidArgument  Code = "invalid_argument"
 	CodeAlreadyExists    Code = "already_exists"
 	CodeValidationError  Code = "validation_error"
+	CodePayloadTooLarge  Code = "payload_too_large"
 )

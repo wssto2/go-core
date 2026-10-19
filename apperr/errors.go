@@ -282,6 +282,11 @@ func BadRequest(message string) *AppError {
 	return New(nil, message, CodeBadRequest).WithLog(LevelWarn)
 }
 
+// PayloadTooLarge is a request body over the limit: 413.
+func PayloadTooLarge(message string) *AppError {
+	return New(nil, message, CodePayloadTooLarge).WithLog(LevelWarn)
+}
+
 func Internal(err error) *AppError {
 	return New(err, "internal server error", CodeInternal).WithLog(LevelError)
 }

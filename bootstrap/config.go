@@ -77,10 +77,27 @@ type HTTPConfig struct {
 	// attacks and improve overall performance.
 	ReadHeaderTimeout time.Duration
 
+	// MaxBodyBytes is the largest JSON (non-multipart) request body, in bytes. Zero means
+	// DefaultMaxBodyBytes; negative sets no limit. A route that needs more says so with
+	// Route.MaxBody; multipart uploads have their own limit (web/upload).
+	MaxBodyBytes int64
+
 	// TrustedProxies controls which reverse proxies are allowed to supply
 	// X-Forwarded-For / X-Forwarded-Proto headers. Safe default is nil, which
 	// disables proxy trust entirely.
 	TrustedProxies []string
+}
+
+// DefaultMaxBodyBytes is the JSON body limit when HTTPConfig.MaxBodyBytes is zero: 4 MiB.
+const DefaultMaxBodyBytes int64 = 4 << 20
+
+// BodyLimit is MaxBodyBytes with its default applied; 0 or less means no limit.
+func (c HTTPConfig) BodyLimit() int64 {
+	if c.MaxBodyBytes == 0 {
+		return DefaultMaxBodyBytes
+	}
+
+	return max(c.MaxBodyBytes, 0)
 }
 
 // Defaults applied when ShutdownTimeout / ShutdownGracePeriod are not set.
