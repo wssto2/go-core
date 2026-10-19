@@ -77,9 +77,9 @@ go-core-example/
 
 | Feature | Where |
 |---|---|
-| `gocore.New`, `gocore.WithPrefix`, `gocore.WithBuilder` (SPA, rate limit, idempotency) | `cmd/api/main.go` |
+| `gocore.New`, `gocore.WithPrefix`, `gocore.WithDatabase`, `gocore.WithSPA`, `gocore.WithRateLimit`, `gocore.WithIdempotency` | `cmd/api/main.go` |
 | `Install(app)` per feature, `main` reads top to bottom | `cmd/api/main.go` |
-| `bootstrap.EnvStr` / `EnvInt` — env-based config | `cmd/api/main.go` (`loadConfig`) |
+| `app.Env()` — explicit, validated settings; `gocore.New` reads `APP_*`, `LOCAL_DB_*`… itself | `cmd/api/main.go` |
 | `identity.Install` — sign-in, sessions, the app's authentication | `cmd/api/main.go` |
 | `access.Install` — roles, bindings, the app's authorizer | `cmd/api/main.go` |
 | `route.Get` / `Post` / `Raw` — routes declared as values, `.Requires` | `internal/domain/product/routes.go` |
@@ -173,7 +173,7 @@ not running.
 
 The example backend uses the builder-based SPA integration:
 
-- `bootstrap.WithSPA(...)` registers the SPA shell
+- `gocore.WithSPA(...)` registers the SPA shell
 - `/api/...` routes continue to return JSON
 - all other routes fall back to `frontend/templates/index.html`
 - `cmd/api/app_state.go` composes a full page shell model

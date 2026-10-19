@@ -14,7 +14,7 @@
 // it does not compile:
 //
 //	func main() {
-//	    app := gocore.New(config.FromEnv())
+//	    app := gocore.New(gocore.WithPrefix("/api"), gocore.WithDatabase("local"))
 //
 //	    users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecret(secret))
 //	    tickets.Install(app, users)
@@ -26,8 +26,10 @@
 // runs until Run, which first checks the whole application and reports every
 // problem with its fix, then boots, serves and, on a signal, drains and stops.
 //
-// What belongs to the whole site rather than to a feature is an option of New
-// or a call on the App: Root for routes outside the prefix, Disks for named storage
+// New reads the configuration from the environment (see App.Env for your own settings; WithConfig gives one for a
+// test). What belongs to the whole site rather than to a feature is an option of New
+// or a call on the App: WithDatabase for a named connection, WithSPA, WithRateLimit, WithIdempotency and
+// WithTrustedOrigins for the HTTP stack, Root for routes outside the prefix, Disks for named storage
 // disks (storage.Use takes them), Use for engine
 // middleware that runs before every route, WithCSP for Content-Security-Policy
 // sources, WithServiceWorker for /sw.js, and Telemetry for the metrics handle.
@@ -36,7 +38,7 @@
 // is opened (App.Database hands out handles that fail on use), nothing is served, started or migrated, and Run
 // returns an error. That is what a generator needs: App.Contracts and App.Catalogues are the installed ones.
 //
-//	app := gocore.New(cfg, gocore.Offline())
+//	app := gocore.New(gocore.Offline())
 //	identity.Install(app)
 //	tickets.Install(app, users)
 //	routes, permissions := app.Contracts(), app.Catalogues()
@@ -47,6 +49,6 @@
 // go-core's own modules are left out (Shipping).
 //
 // The command line is Run's: serve, migrate, help, ts:generate and the application's own commands, added with Command
-// (they run like migrate, each parsing its own flags). LoadEnv, called first in main, reads a .env into the
-// environment before the configuration is.
+// (they run like migrate, each declaring its flags on the *Cmd it is given). LoadEnv, called first in main, reads a .env into the
+// environment before New reads it.
 package gocore

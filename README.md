@@ -54,15 +54,13 @@ func Install(app *gocore.App) {
 }
 ```
 
-**2. `main` reads top to bottom.** Configuration is a `bootstrap.Config` (start from `bootstrap.DefaultConfig()` and fill it from the environment with `bootstrap.EnvStr`, `EnvInt`, `EnvBool`, `EnvDuration`); `APP_ENV` is `production`, `staging` (behaves as production) or `development` (also when empty), and any other value stops start-up with a message naming it.
+**2. `main` reads top to bottom.** `gocore.New` reads its configuration from the environment: `APP_NAME`, `APP_ENV`, `APP_PORT`, `READ_TIMEOUT_SEC`, `WRITE_TIMEOUT_SEC`, `IDLE_TIMEOUT_SEC`, `SHUTDOWN_TIMEOUT_SEC`, `HTTP_MAX_BODY_BYTES`, `TRUSTED_PROXIES` (a comma list of IPs or CIDRs who may set `X-Forwarded-For` and `X-Forwarded-Proto`), `LOG_DIR`, `LOG_LEVEL`, `LOG_MAX_SIZE_MB`, `LOG_MAX_BACKUPS`, `LOG_MAX_AGE_DAYS`, `DATABASE_LOG_LEVEL`, `DATABASE_LOG_PARAMETERS`, `I18N_DIR`, `I18N_FALLBACK_LANG`, `STATIC_PATH`, `STATIC_URL`, and, for each connection declared with `gocore.WithDatabase("local")`, `LOCAL_DB_HOST`, `_PORT`, `_DATABASE`, `_USERNAME`, `_PASSWORD`, `_DRIVER`, `_SQL_MODE`, `_CHARSET`, `_MAX_IDLE_CONNS`, `_MAX_OPEN_CONNS`, `_CONN_MAX_LIFETIME_MIN`. The first connection declared is the primary; there is no implicit `DB_*`. A malformed value (`APP_PORT=80a0`) stops start-up with a message naming the variable, instead of falling back to a default. `APP_ENV` is `production`, `staging` (behaves as production) or `development` (also when empty), and any other value stops start-up with a message naming it. `gocore.WithConfig(cfg)` replaces the environment, for tests.
 
 ```go
 func main() {
-    cfg := bootstrap.DefaultConfig()
-    cfg.App.Env = bootstrap.EnvStr("APP_ENV", "development")
-    cfg.HTTP.TrustedProxies = []string{"10.0.0.0/8"} // who may set X-Forwarded-For and X-Forwarded-Proto
+    _ = gocore.LoadEnv(".env") // optional; the real environment wins
 
-    app := gocore.New(cfg, gocore.WithPrefix("/api"))
+    app := gocore.New(gocore.WithPrefix("/api"), gocore.WithDatabase("local"))
 
     users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecret(secret))
     access.Install(app, permissions.All, users)
@@ -72,7 +70,16 @@ func main() {
 }
 ```
 
-`./myapp migrate` applies the migrations, `./myapp` checks the wiring, then serves. JSON request bodies are capped at 4 MiB (`cfg.HTTP.MaxBodyBytes`; a route that needs more says `.MaxBody(n)`; uploads have their own limit); an id in the path that is not a number answers 400.
+Your own settings are read the same way, with `app.Env()`: `Required(name)`, `String`, `Int`, `Bool`, `Duration` (each with a default) and `List`. A missing required value or a malformed one is a start-up problem naming the variable, listed with the others by `Run`, so nothing starts half-loaded. `env.New(os.LookupEnv)` gives the same reader outside an App.
+
+```go
+secret := app.Env().Required("EMBED_SECRET")
+batch := app.Env().Int("IMPORT_BATCH", 500) // IMPORT_BATCH=5o0 stops start-up instead of using 500
+```
+
+The site's HTTP options are options of `New`: `WithSPA(state)` (or `WithSPAConfig`), `WithRateLimit(perUser, perIP)`, `WithIdempotency(ttl)`, `WithTrustedOrigins(...)`, `WithCSP(...)`, `WithServiceWorker(...)`. `/health` (liveness) and `/ready` (a ping of the primary connection) are served by `Run` and by `Handler`.
+
+`./myapp migrate` applies the migrations, `./myapp` checks the wiring, then serves. JSON request bodies are capped at 4 MiB (`HTTP_MAX_BODY_BYTES`, or `Config.HTTP.MaxBodyBytes` with `WithConfig`; a route that needs more says `.MaxBody(n)`; uploads have their own limit); an id in the path that is not a number answers 400.
 
 **3. Test it with plain calls.** `gocoretest` gives an app on in-memory SQLite and a fixed clock; requests go through the real routes without a port.
 
@@ -95,7 +102,7 @@ ticket := gocoretest.Decode[Ticket](t, rec)
 * `gocore` → assembles an application from features: `New`, `Install`-style features, `Later`, `Run` (see "Installing features")
 * `route` → typed routes: `route.Get[In, Out](path).Requires(permission)`, binding, validation, permission check
 * `gocoretest` → a `gocore.App` for tests: in-memory SQLite, fixed clock, `Do` / `Decode` to call routes
-* `bootstrap` → application lifecycle, config, the HTTP engine (what `gocore` is built on)
+* `env` → settings read from the environment with explicit calls; a bad value is a start-up problem naming the variable
 * `web` → HTTP handling, response format, helpers
 * `auth` → authentication (`Provider`, `Authenticated`), the request user (`UserOf`, `UserFromContext`), rate limiting
 * `authz` → roles, bindings at a scope, per-record access, delegation, list filtering (see `authz/doc.go`; sub-packages `authzgorm`, `gormstore`, `authzhttp`, `authzts`, `authztest`, `storetest`)
@@ -183,7 +190,7 @@ func Install(app *gocore.App) {
 **Secure by default.** Every route needs an authenticated principal unless it is declared `.Public()`; `.Requires(perm)` adds a permission check on top. A route must say who may call it, or starting the application fails: `.Requires(perm)` (or `RequiresAny`), `.Public()`, `.PersonOnly()` (a person, not a service account) or `.Authenticated()` (any signed-in caller; the handler decides what they may do). The application sets authentication once, with the middleware go-core already has, and non-public routes are mounted behind it:
 
 ```go
-app := gocore.New(cfg,
+app := gocore.New(
     gocore.WithAuthentication(auth.Authenticated(provider), authzhttp.Principals(resolve)),
     gocore.WithAuthorizer(engine))
 
@@ -262,7 +269,7 @@ ticket := gocoretest.Decode[Ticket](t, rec)
 
 ### API prefix and versions
 
-`gocore.New(cfg, gocore.WithPrefix("/api"))` mounts every route under one app-wide prefix (`app.Prefix()` returns it, for cookie paths and the like). The prefix is only where the API lives; it carries no version. Routes declare their version themselves: a module's route is `route.Get[...]("/v1/iam/roles")`, served at `/api/v1/iam/roles`. Modules never take a prefix. A future v2 is new declarations next to v1 in the same module (`ListRolesV2 = route.Get[...]("/v2/iam/roles")`, `RoutesV2 = route.Group("accessv2", ...)`): both are served, and the TypeScript is generated into separate folders. `gocoretest` apps use the prefix too.
+`gocore.New(gocore.WithPrefix("/api"))` mounts every route under one app-wide prefix (`app.Prefix()` returns it, for cookie paths and the like). The prefix is only where the API lives; it carries no version. Routes declare their version themselves: a module's route is `route.Get[...]("/v1/iam/roles")`, served at `/api/v1/iam/roles`. Modules never take a prefix. A future v2 is new declarations next to v1 in the same module (`ListRolesV2 = route.Get[...]("/v2/iam/roles")`, `RoutesV2 = route.Group("accessv2", ...)`): both are served, and the TypeScript is generated into separate folders. `gocoretest` apps use the prefix too.
 
 ### Migrations
 
@@ -293,28 +300,26 @@ Commands never serve or boot modules; they use the database connections and clos
 The application's own commands (a prune, a repair, a one-off import) are added with `app.Command`, from `main` or from a feature's `Install`, so a command may use what the features installed (`gocore/example_test.go`, `go-core-example/cmd/tool`):
 
 ```go
-app.Command("db:prune", "delete rows past their retention window",
-    func(ctx context.Context, app *gocore.App, args []string, out io.Writer) error {
-        flags := flag.NewFlagSet("db:prune", flag.ContinueOnError)
-        flags.SetOutput(out)
-        dryRun := flags.Bool("dry-run", false, "count the rows without deleting them")
-        if err := flags.Parse(args); err != nil {
-            return err // -h prints the flags and exits 0
-        }
-        return prune(ctx, app.Database(), *dryRun, out)
-    })
+app.Command("db:prune", "delete rows past their retention window", func(ctx context.Context, cmd *gocore.Cmd) error {
+    dryRun := cmd.Bool("dry-run", false, "count the rows without deleting them")
+    only := cmd.List("only", "the rules to run, comma-separated")
+    if err := cmd.Parse(); err != nil {
+        return err // -h prints the flags and exits 0; a stray argument is an error
+    }
+    return prune(ctx, cmd.App.Database(), *dryRun, *only, cmd.Out)
+})
 ```
 
-`./myapp db:prune --dry-run` runs it like `migrate`: the databases are open (`app.Database()`), nothing is checked, served or booted, no worker or `OnStart` runs, and the databases close afterwards. The arguments after the name arrive unparsed; the command parses its own with the standard `flag` package. The error it returns is `Run`'s error, so the process exits non-zero. A name may contain `:` (`iam:check-placement`); an empty one, one with whitespace or a leading `-`, `migrate`, `help` or `ts:generate`, one registered twice and a nil function are App problems, listed by `Check` and `Run`, and a failed `Install` stops a command as it stops serving. `help` lists the built-ins, then the application's commands with their text, sorted; an unknown command's error names them all.
+`./myapp db:prune --dry-run` runs it like `migrate`: the databases are open (`app.Database()`), nothing is checked, served or booted, no worker or `OnStart` runs, and the databases close afterwards. `cmd` is a `flag.FlagSet` with the command's name, usage and output already set, plus `List`; `cmd.Parse(gocore.Args(1))` allows one argument after the flags (read with `cmd.Args()`). `ctx` is cancelled by Ctrl-C and is marked all-tenants (`tenancy.WithAllTenants`): a command acts for nobody, so tenant-scoped queries see every tenant, and acting for one narrows it with `tenancy.WithTenantID`. Worker bodies get the same context. The error it returns is `Run`'s error, so the process exits non-zero. A name may contain `:` (`iam:check-placement`); an empty one, one with whitespace or a leading `-`, `migrate`, `help` or `ts:generate`, one registered twice and a nil function are App problems, listed by `Check` and `Run`, and a failed `Install` stops a command as it stops serving. `help` lists the built-ins, then the application's commands with their text, sorted; an unknown command's error names them all.
 
-`gocore.LoadEnv(".env")` puts a file of `KEY=value` lines into the process environment, the way `godotenv.Load` does (a variable already set keeps its value; comments, `export`, quotes, `\n` in double quotes and `$NAME` from earlier lines are read). It is a call at the top of `main`, not an option, because the configuration `New` takes is read from the environment before `New` runs. A missing file is an error that is `fs.ErrNotExist`, so `if err := gocore.LoadEnv(".env"); err != nil && !errors.Is(err, fs.ErrNotExist)` makes the file optional and dropping the `errors.Is` makes it required.
+`gocore.LoadEnv(".env")` puts a file of `KEY=value` lines into the process environment, the way `godotenv.Load` does (a variable already set keeps its value; comments, `export`, quotes, `\n` in double quotes and `$NAME` from earlier lines are read). It is a call at the top of `main`, not an option, because `New` reads the environment as it is. A missing file is an error that is `fs.ErrNotExist`, so `if err := gocore.LoadEnv(".env"); err != nil && !errors.Is(err, fs.ErrNotExist)` makes the file optional and dropping the `errors.Is` makes it required.
 
 ### Generating TypeScript
 
 `gocore.WithTypeScript` adds the built-in command `ts:generate`, which writes the frontend's generated sources from the installed application: the route tables of its `route.Group`s, the permission union and metadata of its catalogue, and the entity and Zod schema files for the two lists of Go types the application hands over:
 
 ```go
-app := gocore.New(cfg, gocore.WithTypeScript(gocore.TS{
+app := gocore.New(gocore.WithTypeScript(gocore.TS{
     Entities: []any{go2ts.As(dto.TicketResponse{}, "Ticket"), dto.Settings{}}, // go2ts.GenerateTypes' list
     Inputs:   []any{tickets.CreateInput{}},                                     // go2ts.GenerateSchemas' list
     Dir:      "frontend/generated",                                             // the default
