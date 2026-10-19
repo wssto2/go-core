@@ -34,8 +34,8 @@
 // layer must not import); FieldWrites holds a field to the places that may assign
 // it, RequiresCall makes a file that calls one function call another, and
 // ContextRoots bans a root context outside its wrappers. RepositoryShape also
-// bans a nested .Transaction( with Repository.NoNestedTransaction. An application's own guards walk the same parsed files with Sources and
-// freeze their violations with Ratchet.
+// bans a nested .Transaction( with Repository.NoNestedTransaction. An application's
+// own guards walk the same parsed files with Sources and freeze their violations with Ratchet.
 //
 // Pre-existing violations are frozen in a ratchet: Config.Allowed lists, per
 // rule, the files (for ServiceRepositories "file|domain/path") that may still
