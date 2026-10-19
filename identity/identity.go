@@ -6,7 +6,8 @@
 //
 //	app := gocore.New(cfg)
 //
-//	users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sender, CodeSecret: secret})) // routes, tables, authentication
+//	mailing := identity.Mail{Sender: sender, CodeSecret: secret}
+//	users := identity.Install(app, identity.WithMail(mailing)) // routes, tables, authentication
 //	access.Install(app, permissions.All, users)    // roles and bindings, and the engine /auth/me reads
 //	tickets.Install(app, users)
 //
@@ -271,7 +272,9 @@ func WithImpersonation(i account.Impersonation) Option {
 
 // HoldersOf is the Impersonation of a permission: whoever holds it may sign in as anybody. The check goes through
 // the application's authorizer when the request comes, so the permission must be in the catalogue access.Install gets.
-func HoldersOf(permission string) account.Impersonation { return &permitted{permission: permission} }
+func HoldersOf(permission string) account.Impersonation {
+	return &permitted{app: nil, permission: permission}
+}
 
 // WithNotices hears the facts identity publishes (signing in as somebody,
 // sessions ended), to write an audit trail or send a notification.
@@ -626,7 +629,8 @@ func Install(app *gocore.App, opts ...Option) *Users {
 	if sender != nil {
 		codes, err = account.NewCodes(account.CodesDeps{Store: stores.Codes, Sender: sender, Clock: app.Clock(), Secret: s.codeSecret}, s.cfg.Codes)
 		if err != nil {
-			app.Fail("identity could not be installed: "+err.Error(), "check identity.Mail.CodeSecret and the options given to identity.Install")
+			app.Fail("identity could not be installed: "+err.Error(),
+				"check identity.Mail.CodeSecret and the options given to identity.Install")
 
 			return svc.Users
 		}
@@ -756,7 +760,8 @@ func (s settings) mailConfigured(app *gocore.App) bool {
 		return false
 	case s.mail == nil && !s.noMail:
 		app.Fail("identity needs a mail.Sender: a person's e-mail address changes only after a code mailed to the new address",
-			"pass identity.WithMail(identity.Mail{Sender: mail.SMTP(...), CodeSecret: secret}) (mail.NewSink() while developing), or identity.WithoutMail() to run without e-mail")
+			"pass identity.WithMail(identity.Mail{Sender: mail.SMTP(...), CodeSecret: secret}) (mail.NewSink() while developing),"+
+				" or identity.WithoutMail() to run without e-mail")
 
 		return false
 	case s.mail != nil && len(s.codeSecret) < account.MinCodeSecret:

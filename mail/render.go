@@ -56,7 +56,9 @@ var ErrNoTemplate = errors.New("mail: no template")
 // template for (ErrNoTemplate), asks fallback. An application's renderer that
 // writes only the mails it wants to change is made whole this way:
 //
-//	identity.WithMail(identity.Mail{Sender: s, CodeSecret: secret, Content: myRenderer}) // identity falls back to its English defaults for the rest
+//	identity.WithMail(identity.Mail{Sender: s, CodeSecret: secret, Content: myRenderer})
+//
+// identity falls back to its English defaults for the rest.
 func Fallback(primary, fallback Renderer) Renderer {
 	return RendererFunc(func(ctx context.Context, locale string, name Name, data any) (Content, error) {
 		c, err := primary.Render(ctx, locale, name, data)

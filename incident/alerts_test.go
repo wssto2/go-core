@@ -407,7 +407,7 @@ func TestInstallRegistersTheAlertCategory(t *testing.T) {
 	prefs, err := w.notices.Settings.Get(t.Context(), managerHr)
 	require.NoError(t, err)
 
-	var codes []string
+	codes := make([]string, 0, len(prefs.Categories))
 	for _, c := range prefs.Categories {
 		codes = append(codes, c.Category)
 	}

@@ -21,6 +21,15 @@ import (
 	"github.com/wssto2/go-core/route"
 )
 
+// configured is WithConfig over the zero Config with the fields a test sets.
+func configured(set func(*identity.Config)) identity.Option {
+	var cfg identity.Config
+
+	set(&cfg)
+
+	return identity.WithConfig(cfg)
+}
+
 const secret = "an-installation-secret-of-32-chars!"
 
 // Mail is the one collaborator identity cannot default: without a sender, or the
@@ -31,9 +40,9 @@ func TestInstallNeedsAMailSenderOrWithoutMail(t *testing.T) {
 		want string
 	}{
 		"nothing":                {nil, "identity needs a mail.Sender"},
-		"both":                   {[]identity.Option{identity.WithMail(identity.Mail{Sender: mail.NewSink()}), identity.WithoutMail()}, "both WithMail and WithoutMail"},
-		"a sender, no secret":    {[]identity.Option{identity.WithMail(identity.Mail{Sender: mail.NewSink()})}, "Mail.CodeSecret"},
-		"a sender, short secret": {[]identity.Option{identity.WithMail(identity.Mail{Sender: mail.NewSink(), CodeSecret: "short"})}, "Mail.CodeSecret"},
+		"both":                   {[]identity.Option{identity.WithMail(identity.Mail{Sender: mail.NewSink(), CodeSecret: "", Content: nil}), identity.WithoutMail()}, "both WithMail and WithoutMail"},
+		"a sender, no secret":    {[]identity.Option{identity.WithMail(identity.Mail{Sender: mail.NewSink(), CodeSecret: "", Content: nil})}, "Mail.CodeSecret"},
+		"a sender, short secret": {[]identity.Option{identity.WithMail(identity.Mail{Sender: mail.NewSink(), CodeSecret: "short", Content: nil})}, "Mail.CodeSecret"},
 	} {
 		app := newApp(t)
 		identity.Install(app, tc.opts...)
@@ -168,6 +177,8 @@ func TestAFailingNoticeMailDoesNotUndoThePasswordChange(t *testing.T) {
 
 // The application's own text wins for the mails it writes; identity's English fills the rest.
 func TestMailContentOverridesOnlyWhatItWrites(t *testing.T) {
+	t.Parallel()
+
 	app := newApp(t)
 	sink := mail.NewSink()
 
@@ -314,7 +325,7 @@ func TestConfigLocalesRefusesAnotherLanguage(t *testing.T) {
 	t.Parallel()
 
 	app := newApp(t)
-	identity.Install(app, identity.WithoutMail(), identity.WithConfig(identity.Config{Locales: []string{"hr", "ba", "si", "rs"}}))
+	identity.Install(app, identity.WithoutMail(), configured(func(c *identity.Config) { c.Locales = []string{"hr", "ba", "si", "rs"} }))
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 
 	web := newClient(t, app)
@@ -335,7 +346,7 @@ func TestConfigLocalesAlsoHoldsForTheAdmin(t *testing.T) {
 	t.Parallel()
 
 	app := newApp(t)
-	users := identity.Install(app, identity.WithoutMail(), identity.WithConfig(identity.Config{Locales: []string{"hr"}}))
+	users := identity.Install(app, identity.WithoutMail(), configured(func(c *identity.Config) { c.Locales = []string{"hr"} }))
 
 	_, err := users.Admin().Create(t.Context(), account.CreateAccount{ //nolint:exhaustruct,exhaustruct_v5 // no phone
 		Login: "root", Name: "Root", Email: "root@example.test", Locale: "en", Password: "a long password",
@@ -379,7 +390,7 @@ func TestConfigLimitsHoldOverInstall(t *testing.T) {
 
 	app := newApp(t)
 	identity.Install(app, identity.WithoutMail(),
-		identity.WithConfig(identity.Config{Limits: account.Limits{Login: 6, Name: 10, Email: 40, Phone: 8}}))
+		configured(func(c *identity.Config) { c.Limits = account.Limits{Login: 6, Name: 10, Email: 40, Phone: 8} }))
 	seed(t, app.Database(), identitytest.Account(7, "ana", "secret"))
 
 	web := newClient(t, app)
@@ -404,7 +415,7 @@ func TestConfigLimitsLargerThanGoCoresStopsInstall(t *testing.T) {
 
 	app := newApp(t)
 	tooWide := account.Limits{Login: 0, Name: account.NameMax + 1, Email: 0, Phone: 0}
-	identity.Install(app, identity.WithoutMail(), identity.WithConfig(identity.Config{Limits: tooWide}))
+	identity.Install(app, identity.WithoutMail(), configured(func(c *identity.Config) { c.Limits = tooWide }))
 
 	_, err := app.Handler()
 	assert.ErrorContains(t, err, "Limits")

@@ -193,7 +193,7 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 	})
 
 	//nolint:contextcheck // installing builds the routes; no request exists yet
-	users := identity.Install(app, identity.WithMail(identity.Mail{Sender: printed, CodeSecret: "devserver-secret-not-for-production!"}),
+	users := identity.Install(app, identity.WithMail(identity.Mail{Sender: printed, CodeSecret: "devserver-secret-not-for-production!", Content: nil}),
 		identity.WithImpersonation(identity.HoldersOf("iam.user:impersonate")),
 		identity.WithActivityAreas(identity.Area("crm").Types("customers")))
 	//nolint:contextcheck // installing builds the routes; no request exists yet

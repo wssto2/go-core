@@ -68,10 +68,7 @@ type Access struct {
 func Install(app *gocore.App, catalogue *authz.Catalogue, users admin.SubjectDirectory, opts ...Option) *Access {
 	defer app.Shipping()()
 
-	s := settings{scopes: admin.NoScopes()}
-	for _, opt := range opts {
-		opt(&s)
-	}
+	s := collect(opts)
 
 	if users == nil {
 		app.Fail("access needs a SubjectDirectory", "pass the users as the third argument: access.Install(app, catalogue, users)")
@@ -91,11 +88,7 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users admin.SubjectDir
 
 	app.Permissions(catalogue)
 
-	var conn []database.Connection
-	if s.connection != "" {
-		conn = append(conn, s.connection)
-	}
-
+	conn := s.connections()
 	db := app.Database(conn...)
 	store := gormstore.New(db, s.storeOptions()...)
 
@@ -130,6 +123,24 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users admin.SubjectDir
 	}
 
 	return &Access{Engine: engine, Roles: roles, Bindings: bindings, store: store}
+}
+
+// collect applies the options to the defaults: the organization is the only place.
+func collect(opts []Option) settings {
+	s := settings{scopes: admin.NoScopes()} //nolint:exhaustruct,exhaustruct_v5 // zero by design
+	for _, opt := range opts {
+		opt(&s)
+	}
+
+	return s
+}
+
+func (s settings) connections() []database.Connection {
+	if s.connection == "" {
+		return nil
+	}
+
+	return []database.Connection{s.connection}
 }
 
 // ACCESS-ADMIN-001: the first administrator is made outside delegation, by code, never over HTTP.

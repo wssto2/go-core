@@ -27,7 +27,7 @@ func NewNullDate(value time.Time) NullDate {
 // NewNullDatePtr creates a NullDate from a *time.Time. Nil pointer, or Go's zero time → SQL NULL.
 func NewNullDatePtr(value *time.Time) NullDate {
 	if value == nil {
-		return NullDate{}
+		return NullDate{value: nil}
 	}
 
 	return NewNullDate(*value)

@@ -284,21 +284,21 @@ func mailOf(users People) *account.Mail {
 // Register adds categories to the ones Install was given, for a module that brings its own (incident does). It
 // belongs to start-up, before Run; a code that is already registered is left as it is, so an application that still
 // passes the category to Install keeps working. A code that is not valid is a mistake in the module and panics.
-func (n *Notices) Register(kinds ...Kind) {
+func (n *Notices) Register(added ...Kind) {
 	if n.Settings == nil {
 		return // Install reported a problem; Run lists it
 	}
 
-	for _, k := range kinds {
-		if _, ok := n.kind(k); ok {
+	for _, kind := range added {
+		if _, ok := n.kind(kind); ok {
 			continue
 		}
 
-		if problems := kindProblems([]Kind{k}); len(problems) > 0 {
+		if problems := kindProblems([]Kind{kind}); len(problems) > 0 {
 			panic("notification: " + problems[0].What)
 		}
 
-		n.kinds = append(n.kinds, k)
+		n.kinds = append(n.kinds, kind)
 	}
 
 	n.Settings.kinds = n.kinds

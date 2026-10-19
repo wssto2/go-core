@@ -132,7 +132,9 @@ func ExampleWithNavigation() {
 	defer t.done()
 
 	app := newApp(t)
-	identity.Install(app, identity.WithoutMail(), identity.WithNavigation(identity.Menu(navigation.Node{I18n: "nav.home", Route: "home"})))
+	home := navigation.Node{I18n: "nav.home", Route: "home"} //nolint:exhaustruct,exhaustruct_v5 // an example
+
+	identity.Install(app, identity.WithoutMail(), identity.WithNavigation(identity.Menu(home)))
 	fmt.Println(app.Check())
 	// Output: <nil>
 }
@@ -142,7 +144,8 @@ func ExampleHoldersOf() {
 	defer t.done()
 
 	app := newApp(t)
-	identity.Install(app, identity.WithoutMail(), identity.WithImpersonation(identity.HoldersOf("identity.account:impersonate")))
+	identity.Install(app, identity.WithoutMail(),
+		identity.WithImpersonation(identity.HoldersOf("identity.account:impersonate")))
 	fmt.Println(app.Check())
 	// Output: <nil>
 }
@@ -220,7 +223,7 @@ func ExampleWithMail() {
 	sink := mail.NewSink()
 
 	app := newApp(t)
-	users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sink, CodeSecret: "an-installation-secret-of-32-chars!"}))
+	users := identity.Install(app, identity.WithMail(identity.Mail{Sender: sink, CodeSecret: "an-installation-secret-of-32-chars!", Content: nil}))
 
 	ctx := context.Background()
 
@@ -267,7 +270,9 @@ func ExampleMail_content() {
 	})
 
 	app := newApp(t)
-	identity.Install(app, identity.WithMail(identity.Mail{Sender: mail.NewSink(), CodeSecret: "an-installation-secret-of-32-chars!", Content: croatian}))
+	identity.Install(app, identity.WithMail(identity.Mail{
+		Sender: mail.NewSink(), CodeSecret: "an-installation-secret-of-32-chars!", Content: croatian,
+	}))
 	fmt.Println(app.Check())
 	// Output: <nil>
 }

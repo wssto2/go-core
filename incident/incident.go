@@ -76,7 +76,8 @@ func Install(app *gocore.App, people People, notices *notification.Notices, opts
 	defer app.Shipping()()
 
 	if people == nil {
-		app.Fail("incident needs the people to name", "pass the users as the second argument: incident.Install(app, users, notices)")
+		app.Fail("incident needs the people to name",
+			"pass the users as the second argument: incident.Install(app, users, notices)")
 
 		return new(Incidents)
 	}
@@ -125,7 +126,9 @@ func Install(app *gocore.App, people People, notices *notification.Notices, opts
 }
 
 // installAlerts starts the digest worker and returns the consumers of the alerts, none when they are off.
-func installAlerts(app *gocore.App, cfg *config, notices *notification.Notices, conn *gorm.DB, store core.Store) ([]event.Consumer, digestWorker) {
+func installAlerts(
+	app *gocore.App, cfg *config, notices *notification.Notices, conn *gorm.DB, store core.Store,
+) ([]event.Consumer, digestWorker) {
 	if !cfg.alerts.Enabled {
 		//nolint:exhaustruct,exhaustruct_v5 // zero by design
 		return nil, digestWorker{}
@@ -137,7 +140,8 @@ func installAlerts(app *gocore.App, cfg *config, notices *notification.Notices, 
 	}
 
 	alerts := &alerter{
-		cfg: cfg.alerts, notices: notices, store: store, clock: app.Clock(), log: app.Logger(), holders: holders, link: cfg.link,
+		cfg: cfg.alerts, notices: notices, store: store, clock: app.Clock(), log: app.Logger(), holders: holders,
+		link: cfg.link,
 	}
 
 	digest := digestWorker{
