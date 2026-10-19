@@ -420,7 +420,7 @@ func TestAnApplicationThatRegisteredTheCategoryItselfStillWorks(t *testing.T) {
 
 	t.Cleanup(func() { _ = cleanup() })
 
-	app := gocore.New(bootstrap.DefaultConfig(), gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()),
+	app := gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()),
 		gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signIn), gocore.WithAuthorizer(permissions))
 	catalogue := authz.NewCatalogue()
 	require.NoError(t, incident.DefinePermissions(catalogue))
