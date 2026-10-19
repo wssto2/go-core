@@ -13,57 +13,6 @@ import (
 	"unicode"
 )
 
-// ModuleData is passed to every module template.
-type ModuleData struct {
-	GoModule string // e.g. "go-core-example"
-	Package  string // e.g. "product"
-	Pascal   string // e.g. "Product"
-	Features Features
-}
-
-// Features controls which optional sections are rendered.
-type Features struct {
-	Events bool
-	Audit  bool
-	Worker bool
-}
-
-// GenerateModule writes all module files into outDir.
-func GenerateModule(outDir string, data ModuleData) ([]string, error) {
-	if err := os.MkdirAll(outDir, 0755); err != nil {
-		return nil, fmt.Errorf("mkdir: %w", err)
-	}
-
-	files := moduleFiles(data)
-	written := make([]string, 0, len(files))
-
-	for name, tplStr := range files {
-		path := filepath.Join(outDir, name)
-		if _, err := os.Stat(path); err == nil {
-			return written, fmt.Errorf("file already exists: %s", path)
-		}
-
-		content, err := render(name, tplStr, data)
-		if err != nil {
-			return written, fmt.Errorf("render %s: %w", name, err)
-		}
-
-		// gofmt the output
-		formatted, fmtErr := format.Source(content)
-		if fmtErr != nil {
-			// write raw so the user can see the problem
-			formatted = content
-		}
-
-		if err := os.WriteFile(path, formatted, 0644); err != nil {
-			return written, fmt.Errorf("write %s: %w", name, err)
-		}
-		written = append(written, path)
-	}
-
-	return written, nil
-}
-
 // GenerateMigration creates <outDir>/<yyyymmddhhmmss>_<name>.sql, an empty goose
 // migration for database/migrate (outDir is migrations/<connection name>).
 func GenerateMigration(outDir, name string, now time.Time) (string, error) {
@@ -129,25 +78,6 @@ func render(name, tplStr string, data any) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
-}
-
-// moduleFiles returns the map of filename → template string for a module.
-func moduleFiles(data ModuleData) map[string]string {
-	files := map[string]string{
-		"model.go":      modelTpl,
-		"repository.go": repositoryTpl,
-		"service.go":    serviceTpl,
-		"handler.go":    handlerTpl,
-		"requests.go":   requestsTpl,
-		"module.go":     moduleTpl,
-	}
-	if data.Features.Events {
-		files["events.go"] = eventsTpl
-	}
-	if data.Features.Worker {
-		files["worker.go"] = workerTpl
-	}
-	return files
 }
 
 // DetectGoModule reads the nearest go.mod and returns the module path.

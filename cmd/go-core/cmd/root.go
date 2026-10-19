@@ -33,7 +33,6 @@ func init() {
 type menuAction string
 
 const (
-	actionNewModule    menuAction = "new:module"
 	actionNewMigration menuAction = "new:migration"
 	actionNewEvent     menuAction = "new:event"
 	actionQuit         menuAction = "quit"
@@ -50,7 +49,6 @@ func runInteractiveMenu() error {
 			huh.NewSelect[menuAction]().
 				Title("What would you like to do?").
 				Options(
-					huh.NewOption("✦  New module      — scaffold a full domain module", actionNewModule),
 					huh.NewOption("✦  New migration   — generate a migration stub", actionNewMigration),
 					huh.NewOption("✦  New event       — generate a domain event", actionNewEvent),
 					huh.NewOption("✕  Quit", actionQuit),
@@ -66,8 +64,6 @@ func runInteractiveMenu() error {
 	fmt.Println()
 
 	switch action {
-	case actionNewModule:
-		return runModule(moduleCmd, nil)
 	case actionNewMigration:
 		return runMigration(migrationCmd, nil)
 	case actionNewEvent:
