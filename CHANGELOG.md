@@ -1,6 +1,38 @@
 # Changelog
 
-## v1.20.0 (unreleased)
+## v1.21.0 (unreleased)
+
+Clean-up and safe defaults. The container, the old auth and event layers and other dead API are removed, and the defaults of a new app are the safe ones. **Breaking**: an application upgrading from v1.20.0 follows "Removed" and "Changed".
+
+### Removed
+
+- The bootstrap container and `bootstrap.Module`, `gocore.FromContainer`, `App.Modules`, `LoadConfig` and the `env:` tags, `WithModules`, `WithJWTAuth`, `WithDBTokenAuth`, `WithAuthProvider`, `WithOutboxWorker`; `worker.Pool`.
+- `auth.Policy`, `Authorize*`, `AuthorizedWith`, `GeneratePolicy` and the JWT, OIDC, Multi and DB token providers, `IssueToken`, `ParseToken`, `Claims`, `TokenConfig`, `IdentityResolver`, `RotateRefreshToken`, `GenerateAPIKey`, `GenerateRefreshToken`; the gin `auth.GetUser`, `MustGetUser` and `GetIdentifiable` (use `UserOf` or `UserFromContext`); the dead `tenancy` functions.
+- `event.Bus`, `InMemoryBus`, `OutboxWorker`, `InsertOutboxEvent`, `IdempotentHandler`, `InMemoryProcessedStore`, `WrapEventWithMetadata`, `FetchPending`, `MarkProcessed` (use `event.Define` and `Queue`).
+- The packages `engine`, `utils` and `testhelpers`; `middlewares` `BindRequest`, `GetRequest`, `MustGetRequest`, `LoadShedding`, `GetRequestID`; `logger` `MustNew`, `GetFromContext`, `WithSource`, `WithUser`; `database.GetNextOrderNumber` and `GetNextDocumentNumberAndYear`; `route.FreeFormTag`; `go-core new module`.
+- `Route.RequiresAll` and `RawRoute.RequiresAll`: chain `Requires` instead.
+- `Route.MalformedPath` and `Contract.MalformedPath`: a malformed path id is always 400.
+
+### Changed
+
+- **Breaking:** `.Requires(a).Requires(b)` needs both permissions; before, the second call replaced the first and the check on `a` was silently lost. `Spec.AllOf` holds every `Requires` after the first.
+- **Breaking:** a path id that does not parse (an `int` id given text) answers 400 `invalid id` instead of 422. Query and body errors stay 422.
+- **Breaking:** `frontend.StateBuilder` (and `WithSPA`'s argument) is `func(*gin.Context) (any, error)`. An error answers the SPA shell with 503 and a plain page, and is reported like a handler error: logged, and an incident when incidents are installed. `middlewares.ErrorHandler` leaves a response a handler already wrote alone.
+- **Breaking:** `database.ConnectionConfig.ConnMaxLifetime` and the same field of the bootstrap database config are a `time.Duration` (they were minutes as an `int`).
+- **Breaking:** `APP_ENV` (`AppConfig.Env`) is `production`, `staging` or `development`; empty means development; any other value is a start-up problem naming it, and until fixed it gets the production behaviour. `staging` behaves exactly as `production`: the strict CSP, no debug error bodies, HSTS, log to file only. New: `AppConfig.Development()`, `AppConfig.Validate()` and the `Env*` constants.
+- `App.Handler()` builds the engine the way `Run` does: the configured trusted proxies decide `ClientIP`, error bodies follow `APP_ENV`, the body limit applies; it no longer sets gin's global mode. A test proves a configured trusted proxy decides `ClientIP` through both.
+- HSTS is sent behind a trusted proxy (`HTTP.TrustedProxies` set) that says `X-Forwarded-Proto: https`, not only when Go terminates TLS.
+- `Registry.CloseAll` joins its errors with `errors.Join` (they stay inspectable with `errors.Is`); the "unsupported driver" error lists the supported drivers.
+- `resilience` is internal to `httpclient`; `binders` is `internal/binders`; `audit.MaskJSON` and `observability.NewServiceMiddleware` are unexported; `event.ReserveKey` and `ConfirmKey` are unexported.
+- `bootstrap.Component` and `WithComponents` replace `Module` and `WithModules` (gocore's own lifecycle hook).
+- `go-core-example` uses `Install` with identity and access.
+- `ARCHITECTURE.md` is cut to the dependency rules `archtest` checks plus a package map (its sections are 1, 1.1, 1.2 and 2); `AGENT.md`, `PLAN.md` and `tmp.md` are deleted; the README starts with a "Getting started".
+
+### Added
+
+- A JSON request body limit: `HTTPConfig.MaxBodyBytes` (default 4 MiB, negative for none), `Route.MaxBody(n)` and `RawRoute.MaxBody(n)` for one route, `web.BodyLimit`. A body over it answers 413 (`apperr.PayloadTooLarge`, `CodePayloadTooLarge`). Multipart uploads are not limited by it (`web/upload` has its own). The fixed 10 MiB cap that only typed routes had in the binder is replaced by this one.
+
+## v1.20.0 (2026-10-19)
 
 Notification metrics. Opt-in by having telemetry (every `gocore.New` app has it); nothing else changes.
 
@@ -9,7 +41,32 @@ Notification metrics. Opt-in by having telemetry (every `gocore.New` app has it)
 - notification: Prometheus counters `go_core_notification_{created,held,sent,cancelled}_total` and `go_core_notification_failed_total{reason}` (`gone`, `rejected`, `permanent`, `expired`), by `category` and `channel` (`in_app`, `email`, `push`), on the app's telemetry (NOTIF-DELIVERY-001 rule 12); an app without telemetry counts nothing.
 - observability: `Telemetry.Registerer`, the app-labelled registerer, for features that register their own collectors.
 
-## v1.17.0 (unreleased)
+## v1.19.0 (2026-10-19)
+
+Locks, intervals and safe file names; the incident staff can read an incident's occurrences. All additions.
+
+### Added
+
+- lock: named leases with an owner and a time to live (`lock.Install(app)` returns a `*Locker`; `Hold` keeps a lease with a heartbeat); a GORM store and the `locks` migration, MariaDB 10.3 safe.
+- worker: `Every(name, interval, fn)`, a `Worker` that calls a function at an interval and logs its errors.
+- database: `CreateUnlessDuplicate(db, value)`, an insert that reports a unique-key refusal as "not created" instead of an error.
+- storage: `PutUnique` saves under a free name atomically (the name is numbered when taken), `PutNew`, and `SafeName`; a driver that cannot do it atomically is refused.
+- incident: an incident's occurrences for the staff, `GET /v1/incidents/:incidentID/occurrences`; secret path parameters and error fields are redacted at capture.
+- gocore: `App.Offline()` reports whether the app is offline. contract: a text-written int is a string in the route table.
+
+## v1.18.1 (2026-10-19)
+
+### Changed
+
+- incident: a client (browser) error carries its `source` (how the page caught it: `vue`, `unhandledrejection`, `window`, `handled`) and its detail in the occurrence's context.
+
+## v1.18.0 (2026-10-18)
+
+### Added
+
+- identity: `WithPreferences(identity.Preferences{})` keeps a JSON object of preferences per person (dark mode, the tips a person has dismissed): merged on update, answered whole, capped and validated, a route that needs a signed-in person, in `/auth/me` when installed. Table: `identity/preferences/migrations`.
+
+## v1.17.0 (2026-10-18)
 
 One binary: an application adds its own commands to the command line, loads its .env through go-core, and gets its TypeScript from the installed App instead of hand lists. Everything new is opt-in; an application that uses none of it starts, serves and prints help exactly as before.
 
@@ -25,7 +82,7 @@ One binary: an application adds its own commands to the command line, loads its 
 
 - `ts:generate` is a reserved command name for `App.Command`; `help` lists it only for an application that uses `WithTypeScript`.
 
-## v1.16.1 (unreleased)
+## v1.16.1 (2026-10-18)
 
 ### Fixed
 
@@ -36,7 +93,7 @@ One binary: an application adds its own commands to the command line, loads its 
 - route: `TextEnum(values...)` declares the values of such a type from its MarshalText; go2ts and contract accept it as an enumeration. `go2ts.WritesText(t)` is exported.
 - identity: its contract declares `Qualifier`, so the generated entities say `qualifier: Qualifier` ("own" | "own_location" | "all").
 
-## v1.16.0 (unreleased)
+## v1.16.0 (2026-10-18)
 
 The guards and generators an application kept to itself: SQL portability in Go sources, Logic-ID anchors, person-only route areas, a wire audit of the response types, the entity generator's column-type map and a rolled-back transaction for contract tests on an existing schema. Every new rule is opt-in.
 
@@ -54,13 +111,13 @@ The guards and generators an application kept to itself: SQL portability in Go s
 - dbtest: `RequirePortable` no longer reports "no .sql files" for an FS whose SQL is in subfolders (`local/*.sql`).
 - `cmd/go-core` is part of the root module, so `go run github.com/wssto2/go-core/cmd/go-core@vX` resolves with every go-core tag (only the nested `cmd/go-core/v1.10.0` was ever tagged). go-core's go.mod gains cobra, huh and lipgloss; an application's go.sum is unchanged.
 
-## v1.15.1 (unreleased)
+## v1.15.1 (2026-10-17)
 
 ### Fixed
 
 - resource: `WithAuthorLoader` reads an author or editor column of type `types.Int` or `*types.Int` (it read 0, so `meta.author` and `meta.editor` stayed null); `int`, `*int` and `types.NullInt` are unchanged.
 
-## v1.15.0 (unreleased)
+## v1.15.0 (2026-10-16)
 
 The last generic pieces an application kept to itself: hooks that let an app run its own user administration on identity's routes and screens, transaction and MySQL error helpers, env loaders for mail, incident alerts and push, and a go2ts that keeps a generated folder in sync.
 
@@ -83,7 +140,7 @@ The last generic pieces an application kept to itself: hooks that let an app run
 - go2ts: `json.RawMessage` is `unknown` / `z.unknown()` (it was an array of numbers).
 - `go-sql-driver/mysql` is a direct dependency.
 
-## v1.14.0 (unreleased)
+## v1.14.0 (2026-10-16)
 
 A development copy of production data must not mail real people.
 
@@ -91,7 +148,7 @@ A development copy of production data must not mail real people.
 
 - `mail.Redirect(next, to) Sender`: every message goes to the one address `to`, whatever its recipients were, and is sent once. `Message` has no Cc, Bcc or headers, so the original recipients are put in the subject, `[to a@x.hr, b@y.hr] Subject`. Text, HTML and Inline are untouched and an error from `next` is returned as it is (`ErrPermanent` stays detectable). An address that is not an e-mail address is reported by every `Send`, like an `SMTP` configuration that cannot work; the message is never sent to its own recipients.
 
-## v1.13.0 (unreleased)
+## v1.13.0 (2026-10-16)
 
 Backend pieces an application kept to itself become library parts: named storage disks and a file response, inline images and a branded frame for mail, paper-form PDF widgets, a retention runner, an opt-in check for legacy utf8mb3 text and a safe `Content-Disposition`.
 
@@ -112,7 +169,7 @@ Backend pieces an application kept to itself become library parts: named storage
 - `storage/local.Put` writes through a temporary file renamed into place: a failed write leaves no partial file and keeps the old one. A declared `size` is the exact length; a longer or shorter stream is a 400 instead of a silently cut file; 0 means unknown. The same for `storage/memory`, where `size=0` used to store an empty file.
 - `Delete` of a missing key is not an error in `storage/local` (it was a 404). `List("")` lists the whole root, keys use forward slashes, and `storage/memory.List` matches by directory.
 
-## v1.12.0 (unreleased)
+## v1.12.0 (2026-10-15)
 
 The saved views of a list become a module. A person keeps the filters and search of a list under a name and applies them again with one click.
 

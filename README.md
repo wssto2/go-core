@@ -31,6 +31,63 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 
 ---
 
+## Getting started
+
+go-core is a library: `go get github.com/wssto2/go-core`, then one `main` that reads the configuration, creates the `*gocore.App`, installs the features and runs it.
+
+**1. A feature is a package with an `Install` function.** Its routes are typed values; `.Requires` names the permission, and a route that says nothing about who may call it stops start-up.
+
+```go
+package tickets
+
+var (
+    Show   = route.Get[ShowInput, Ticket]("/v1/tickets/:id").Name("tickets.show").Requires(PermView)
+    Close  = route.Delete[ShowInput, route.Empty]("/v1/tickets/:id").Requires(PermView).Requires(PermManage) // both must hold
+    Routes = route.Group("tickets", Show, Close)
+)
+
+func Install(app *gocore.App) {
+    service := &Service{db: app.Database(), clock: app.Clock()}
+
+    app.Permissions(Permissions)
+    app.Routes(Show.To(service.Show), Close.To(service.Close))
+}
+```
+
+**2. `main` reads top to bottom.** Configuration is a `bootstrap.Config` (start from `bootstrap.DefaultConfig()` and fill it from the environment with `bootstrap.EnvStr`, `EnvInt`, `EnvBool`, `EnvDuration`); `APP_ENV` is `production`, `staging` (behaves as production) or `development` (also when empty), and any other value stops start-up with a message naming it.
+
+```go
+func main() {
+    cfg := bootstrap.DefaultConfig()
+    cfg.App.Env = bootstrap.EnvStr("APP_ENV", "development")
+    cfg.HTTP.TrustedProxies = []string{"10.0.0.0/8"} // who may set X-Forwarded-For and X-Forwarded-Proto
+
+    app := gocore.New(cfg, gocore.WithPrefix("/api"))
+
+    users := identity.Install(app, identity.WithMail(sender), identity.WithCodeSecret(secret))
+    access.Install(app, permissions.All, users)
+    tickets.Install(app)
+
+    if err := app.Run(); err != nil { log.Fatal(err) }
+}
+```
+
+`./myapp migrate` applies the migrations, `./myapp` checks the wiring, then serves. JSON request bodies are capped at 4 MiB (`cfg.HTTP.MaxBodyBytes`; a route that needs more says `.MaxBody(n)`; uploads have their own limit); an id in the path that is not a number answers 400.
+
+**3. Test it with plain calls.** `gocoretest` gives an app on in-memory SQLite and a fixed clock; requests go through the real routes without a port.
+
+```go
+app := gocoretest.New(t, gocoretest.SignedIn(authz.User(7, 0)))
+tickets.Install(app)
+
+rec := gocoretest.Do(t, app, http.MethodGet, "/v1/tickets/7", nil)
+ticket := gocoretest.Decode[Ticket](t, rec)
+```
+
+`go-core-example` is a complete application built this way (identity, access, a product catalogue, the SPA shell); "Installing features" below has the details.
+
+---
+
 ## Project Structure
 
 ### Core Packages
@@ -123,7 +180,7 @@ func Install(app *gocore.App) {
 }
 ```
 
-**Secure by default.** Every route needs an authenticated principal unless it is declared `.Public()`; `.Requires(perm)` adds a permission check on top. A route must say who may call it, or starting the application fails: `.Requires(perm)` (or `RequiresAny`, `RequiresAll`), `.Public()`, `.PersonOnly()` (a person, not a service account) or `.Authenticated()` (any signed-in caller; the handler decides what they may do). The application sets authentication once, with the middleware go-core already has, and non-public routes are mounted behind it:
+**Secure by default.** Every route needs an authenticated principal unless it is declared `.Public()`; `.Requires(perm)` adds a permission check on top. A route must say who may call it, or starting the application fails: `.Requires(perm)` (or `RequiresAny`), `.Public()`, `.PersonOnly()` (a person, not a service account) or `.Authenticated()` (any signed-in caller; the handler decides what they may do). The application sets authentication once, with the middleware go-core already has, and non-public routes are mounted behind it:
 
 ```go
 app := gocore.New(cfg,
@@ -176,12 +233,12 @@ Public routes stay public, `Requires` is checked, and an undefined permission st
 
 Checklist for one module:
 
-1. Declare typed routes and a `route.Group` with a request type of the transport: `type CreatePartRequest struct { ThingPath; apppkg.CreatePartInput }`, where `ThingPath` holds the typed ids (`ID int `path:"id"``) and the application's input stays free of HTTP. Embedded structs are bound and validated like `encoding/json` promotes them; the generated TypeScript has the path and query fields flat in the route input and only the body in the schema. No `json:"-"` or text ids needed. An `int` id that does not parse answers 422 `must_be_number`; a feature that answers 400 for a malformed URL says so once with `route.Group(...).MalformedPath(http.StatusBadRequest)` (or per route; the route wins; query and body errors stay 422).
+1. Declare typed routes and a `route.Group` with a request type of the transport: `type CreatePartRequest struct { ThingPath; apppkg.CreatePartInput }`, where `ThingPath` holds the typed ids (`ID int `path:"id"``) and the application's input stays free of HTTP. Embedded structs are bound and validated like `encoding/json` promotes them; the generated TypeScript has the path and query fields flat in the route input and only the body in the schema. No `json:"-"` or text ids needed. An `int` id that does not parse answers 400 (`invalid id`); query and body errors answer 422.
 2. Write `Install(app, deps)`: build the service from `deps`, collect `app.Routes` (or `app.RoutesWith` for the application's own chain), `app.Permissions`, `app.Background`.
 3. Build the collaborators from `app.Database()` and the other features' services, passed as arguments.
 4. `contract.Generate` the feature's TypeScript and compare it with the wire golden before removing the old handlers.
 5. For an application's own subject kind (service accounts), answer access screens with `accesshttp.BindingOf`, `RoleSummaryOf`, `RoleOf`, `ScopeOf` and `SubjectAccessOf`.
-6. Answer what the old handlers answered, typed: `.Status(http.StatusCreated)` for a create (204 for no body; only 2xx). A paged list is `route.Page[Row]` (byte-identical to `web.Paginated`, `Result.Meta` merged), any other data with a top-level meta is `route.WithMeta[T, M]` (as `web.JSON(c, status, data, meta)`); both combine with `.Status`. Datatable filters are a `Filters url.Values `query:"*" json:"-"`` field (at most one; it takes the parameters no other field declares), read with `datatable.ParamsFromValues`. Several permissions: `.RequiresAny(a, b)` or `.RequiresAll(a, b)` (all must be in the catalogue); the three combine and all must hold (`.Requires(a).RequiresAny(b, c)` is a and (b or c); a refusal names the first unmet `Requires`, else (any-of unmet) the last id of the set, as `RequiresAny` alone does, else the first unmet all-of). A response header (`Cache-Control`) is `route.ExchangeOf(ctx).SetHeader(name, value)` (returns an error for `Content-Type`/`Content-Length`; set on success and on error). The request id is `route.ExchangeOf(ctx).RequestID()`; the application's own user is `auth.UserOf[*User](ctx)`, provided its authentication calls `auth.SetUser`. `validation.CheckRules(Input{}, …)` in a test finds a `validation:` rule the validator does not know (`gte=0`); routes refuse one at start-up. None of status, rules or filters is in the generated TypeScript.
+6. Answer what the old handlers answered, typed: `.Status(http.StatusCreated)` for a create (204 for no body; only 2xx). A paged list is `route.Page[Row]` (byte-identical to `web.Paginated`, `Result.Meta` merged), any other data with a top-level meta is `route.WithMeta[T, M]` (as `web.JSON(c, status, data, meta)`); both combine with `.Status`. Datatable filters are a `Filters url.Values `query:"*" json:"-"`` field (at most one; it takes the parameters no other field declares), read with `datatable.ParamsFromValues`. Several permissions: `.Requires(a).Requires(b)` needs both, `.RequiresAny(a, b)` needs one (all must be in the catalogue); they combine and all must hold (`.Requires(a).RequiresAny(b, c)` is a and (b or c); a refusal names the first unmet `Requires`, else (any-of unmet) the last id of the set, as `RequiresAny` alone does). A response header (`Cache-Control`) is `route.ExchangeOf(ctx).SetHeader(name, value)` (returns an error for `Content-Type`/`Content-Length`; set on success and on error). The request id is `route.ExchangeOf(ctx).RequestID()`; the application's own user is `auth.UserOf[*User](ctx)`, provided its authentication calls `auth.SetUser`. `validation.CheckRules(Input{}, …)` in a test finds a `validation:` rule the validator does not know (`gte=0`); routes refuse one at start-up. None of status, rules or filters is in the generated TypeScript.
 
 **`Run` checks first and says what to fix.** Every problem is collected, each with its fix (`ExampleApp_Check`):
 
