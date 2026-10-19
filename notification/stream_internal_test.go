@@ -26,7 +26,7 @@ func TestAnOpenStreamEndsWhenItsSessionIsRevoked(t *testing.T) {
 	app.Authenticate(identityhttp.Authentication(kit.SignIn, identityhttp.Cookies{}, nil))
 
 	cat := authz.NewCatalogue()
-	require.NoError(t, DefinePermissions(cat))
+	require.NoError(t, definePermissions(cat))
 	app.Permissions(cat)
 
 	notices := Install(app, kit.Users)

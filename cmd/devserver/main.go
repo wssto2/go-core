@@ -176,10 +176,6 @@ func build(ctx context.Context, origins []string, log *slog.Logger, now func() t
 	permissions.MustDefine("crm.customer:view")
 	permissions.MustDefine("iam.user:impersonate", authz.Sensitive()) // the administrator may sign in as user: the playground's banner
 
-	if err := notification.DefinePermissions(permissions); err != nil { // the dead-letter routes; the webmaster holds them
-		return nil, err
-	}
-
 	sink := mail.NewSink()
 	printed := mail.SenderFunc(func(ctx context.Context, m mail.Message) error {
 		if err := sink.Send(ctx, m); err != nil {

@@ -105,7 +105,7 @@ func (a *App) routeProblems() []Problem {
 
 			problems = append(problems, Problem{
 				What: "route " + spec.String() + " requires " + permission + ", which no permission catalogue defines",
-				Fix:  "define it in the catalogue and pass the catalogue to app.Permissions (a module's routes: call its DefinePermissions, e.g. notification.DefinePermissions(catalogue)), or fix the id in Requires",
+				Fix:  "define it in the catalogue and pass the catalogue to app.Permissions (a module's routes: pass the catalogue to it, e.g. notification.WithCatalogue(catalogue)), or fix the id in Requires",
 			})
 		}
 	}

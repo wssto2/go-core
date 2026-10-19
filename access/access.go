@@ -296,6 +296,14 @@ func (s settings) storeOptions() []gormstore.Option {
 // the id is fixed.
 const viewActivity = "iam.user.activity:view"
 
+// The dead-letter permissions of the event queue's routes (notification.ViewDeadLetters and RetryDeadLetters), defined
+// here as well so that notification.Install may come before or after this module: a catalogue is frozen once the
+// engine is built. The ids are fixed.
+const (
+	viewDeadLetters  = "events.deadletter:view"
+	retryDeadLetters = "events.deadletter:retry"
+)
+
 // define adds the module's permissions the catalogue lacks. Managing needs
 // viewing, so a role that grants one grants the other.
 func (s settings) define(catalogue *authz.Catalogue, robots bool) error {
@@ -311,6 +319,8 @@ func (s settings) define(catalogue *authz.Catalogue, robots bool) error {
 		{admin.ViewAccess, nil},
 		{admin.ManageBindings, []authz.DefineOption{authz.Sensitive(), authz.Requires(admin.ViewAccess)}},
 		{viewActivity, []authz.DefineOption{authz.System()}},
+		{viewDeadLetters, nil},
+		{retryDeadLetters, []authz.DefineOption{authz.Sensitive(), authz.Requires(viewDeadLetters)}},
 	}
 
 	if robots { // access/accesshttp serves the routes these guard

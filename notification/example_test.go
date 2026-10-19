@@ -62,9 +62,8 @@ func newApp(t testing.TB, opts ...gocoretest.Option) *gocore.App {
 	t.Helper()
 
 	cat := authz.NewCatalogue()
-	if err := notification.DefinePermissions(cat); err != nil {
-		t.Fatal(err)
-	}
+	cat.MustDefine(notification.ViewDeadLetters)
+	cat.MustDefine(notification.RetryDeadLetters, authz.Sensitive(), authz.Requires(notification.ViewDeadLetters))
 
 	app := gocoretest.New(t, append([]gocoretest.Option{gocoretest.Authorizer(authztest.AllowAll())}, opts...)...)
 	app.Permissions(cat)
@@ -405,10 +404,14 @@ func ExampleDeclare() {
 	// Output: system.test Test notification
 }
 
-// The dead-letter permissions are defined on the application's catalogue, next to its own.
-func ExampleDefinePermissions() {
+// WithCatalogue makes Install define the dead-letter permissions on the application's catalogue, next to its own.
+func ExampleWithCatalogue() {
+	t := &exampleT{}
+	defer t.done()
+
+	app := gocoretest.New(t)
 	catalogue := authz.NewCatalogue()
-	_ = notification.DefinePermissions(catalogue)
+	notification.Install(app, identitytest.Users(t, identitytest.Account(1, "ana", "x")), notification.WithCatalogue(catalogue))
 
 	_, view := catalogue.Lookup(notification.ViewDeadLetters)
 	_, retry := catalogue.Lookup(notification.RetryDeadLetters)

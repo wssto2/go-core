@@ -36,13 +36,12 @@ func day(n int) time.Duration { return time.Duration(n) * 24 * time.Hour }
 func TestTheOwnerIsToldOnceOfEachCondition(t *testing.T) {
 	cat := authz.NewCatalogue()
 	require.NoError(t, identity.DefinePermissions(cat))
-	require.NoError(t, notification.DefinePermissions(cat))
 
 	app := gocoretest.New(t, gocoretest.Authorizer(authztest.AllowAll()))
 	app.Permissions(cat)
 
 	users := identity.Install(app, identity.WithoutMail(), identity.WithServiceAccounts(serviceaccount.Config{}))
-	notices := notification.Install(app, users, keynotice.Expiring, keynotice.Unused)
+	notices := notification.Install(app, users, notification.WithCatalogue(cat), keynotice.Expiring, keynotice.Unused)
 	keynotice.Install(app, notices, nil)
 
 	owner := identitytest.Account(7, "owner", "secret")
@@ -115,13 +114,12 @@ func TestTheOwnerIsToldOnceOfEachCondition(t *testing.T) {
 func TestTextIsTheApplications(t *testing.T) {
 	cat := authz.NewCatalogue()
 	require.NoError(t, identity.DefinePermissions(cat))
-	require.NoError(t, notification.DefinePermissions(cat))
 
 	app := gocoretest.New(t, gocoretest.Authorizer(authztest.AllowAll()))
 	app.Permissions(cat)
 
 	users := identity.Install(app, identity.WithoutMail(), identity.WithServiceAccounts(serviceaccount.Config{}))
-	notices := notification.Install(app, users, keynotice.Expiring, keynotice.Unused)
+	notices := notification.Install(app, users, notification.WithCatalogue(cat), keynotice.Expiring, keynotice.Unused)
 	keynotice.Install(app, notices, func(r notification.Recipient, n serviceaccount.KeyNotice) notification.Message {
 		return notification.Message{Title: r.Locale + ": " + n.Account, Link: "/keys"}
 	})

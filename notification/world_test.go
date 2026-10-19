@@ -210,10 +210,9 @@ func buildWorld(t *testing.T, db *gorm.DB, authorizer authz.Authorizer, sink *ma
 		}))
 
 	cat := authz.NewCatalogue()
-	require.NoError(t, notification.DefinePermissions(cat))
 	w.app.Permissions(cat)
 
-	w.notices = notification.Install(w.app, w.people, append([]notification.Option{TicketAssigned, TicketCommented}, opts...)...)
+	w.notices = notification.Install(w.app, w.people, append([]notification.Option{notification.WithCatalogue(cat), TicketAssigned, TicketCommented}, opts...)...)
 
 	return w
 }

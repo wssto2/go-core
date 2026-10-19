@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/notification/push"
 )
 
@@ -89,6 +90,14 @@ type optionFunc func(*config)
 func (f optionFunc) apply(c *config) { f(c) }
 
 func (k Kind) apply(c *config) { c.kinds = append(c.kinds, k) }
+
+// WithCatalogue gives Install the application's permission catalogue: it defines the dead-letter permissions
+// (ViewDeadLetters, RetryDeadLetters) there when the catalogue lacks them and hands the catalogue to app.Permissions,
+// so nothing else is called for them. Access.Install defines the same two, so it may be installed before or after.
+// Without it the application defines them itself, or the routes are a start-up problem.
+func WithCatalogue(catalogue *authz.Catalogue) Option {
+	return optionFunc(func(c *config) { c.catalogue = catalogue })
+}
 
 // Channel is a way a notification reaches a person besides the inbox, which is always on.
 type Channel string
@@ -237,6 +246,7 @@ func PushBundleText(text func(locale string, count int, titles []string) (title,
 
 // config is what Install collected from its options.
 type config struct {
+	catalogue  *authz.Catalogue
 	kinds      []Kind
 	appURL     string
 	appURLSet  bool

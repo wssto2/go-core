@@ -79,10 +79,9 @@ func newAlertWorld(t *testing.T, alerts incident.Alerts) *alertWorld {
 
 	catalogue := authz.NewCatalogue()
 	require.NoError(t, incident.DefinePermissions(catalogue))
-	require.NoError(t, notification.DefinePermissions(catalogue))
 	app.Permissions(catalogue)
 
-	w.notices = notification.Install(app, notified{})
+	w.notices = notification.Install(app, notified{}, notification.WithCatalogue(catalogue))
 
 	if alerts.Holders == nil {
 		alerts.Holders = func(context.Context, string) ([]int, error) {
@@ -340,7 +339,6 @@ func TestTheDefaultRecipientsAreTheHoldersOfManageInTheAccessRoles(t *testing.T)
 
 	catalogue := authz.NewCatalogue()
 	require.NoError(t, incident.DefinePermissions(catalogue))
-	require.NoError(t, notification.DefinePermissions(catalogue))
 
 	reading := authz.Grants(authz.QualifierAll, incident.ViewIncidents)
 	managing := authz.Grants(authz.QualifierAll, incident.ViewIncidents, incident.ManageIncidents)
@@ -350,7 +348,7 @@ func TestTheDefaultRecipientsAreTheHoldersOfManageInTheAccessRoles(t *testing.T)
 		authz.Role{Key: "reader", Name: "Reader", Grants: reading},
 	))
 
-	notices := notification.Install(app, notified{})
+	notices := notification.Install(app, notified{}, notification.WithCatalogue(catalogue))
 	inc := incident.Install(app, people(), notices, incident.Alerts{Enabled: true})
 
 	_, err := app.Handler()
@@ -424,10 +422,9 @@ func TestAnApplicationThatRegisteredTheCategoryItselfStillWorks(t *testing.T) {
 		gocore.WithLogger(slog.New(slog.DiscardHandler)), gocore.WithAuthentication(signIn), gocore.WithAuthorizer(permissions))
 	catalogue := authz.NewCatalogue()
 	require.NoError(t, incident.DefinePermissions(catalogue))
-	require.NoError(t, notification.DefinePermissions(catalogue))
 	app.Permissions(catalogue)
 
-	notices := notification.Install(app, notified{}, incident.AlertCategory)
+	notices := notification.Install(app, notified{}, notification.WithCatalogue(catalogue), incident.AlertCategory)
 	incident.Install(app, people(), notices, incident.Alerts{Enabled: true})
 
 	require.NoError(t, app.Check())

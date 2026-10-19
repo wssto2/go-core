@@ -64,14 +64,13 @@ func TestEndToEndAFeaturePublishesAndThePersonIsNotifiedAndMailedOutsideQuietHou
 
 	catalogue := authz.NewCatalogue()
 	require.NoError(t, identity.DefinePermissions(catalogue))
-	require.NoError(t, notification.DefinePermissions(catalogue))
 	app.Permissions(catalogue)
 
 	sink := mail.NewSink()
 	users := identity.Install(app, identity.WithMail(identity.Mail{
 		Sender: sink, CodeSecret: "an-installation-secret-of-32-chars!", Content: nil,
 	}))
-	notices := notification.Install(app, users, TicketAssigned, notification.AppURL("https://tickets.example.test"), notification.TimeZone(loc))
+	notices := notification.Install(app, users, notification.WithCatalogue(catalogue), TicketAssigned, notification.AppURL("https://tickets.example.test"), notification.TimeZone(loc))
 
 	app.Events(assigned.To("notifications.ticket-assigned", func(ctx context.Context, e assignedEvent) error {
 		return notices.Send(ctx, TicketAssigned, notification.To(e.To...).Except(e.Actor), func(r notification.Recipient) notification.Message {

@@ -22,10 +22,9 @@ const (
 	RetryDeadLetters = "events.deadletter:retry"
 )
 
-// DefinePermissions adds ViewDeadLetters and RetryDeadLetters to the catalogue when it lacks them.
-// Call it on the application's catalogue before access.Install builds the engine, so the administrator's
-// role holds them: start-up checks that every route's permission is defined.
-func DefinePermissions(c *authz.Catalogue) error {
+// definePermissions adds ViewDeadLetters and RetryDeadLetters to the catalogue when it lacks them (access.Install
+// defines the same two ids, so either module may come first). Install calls it for the catalogue it is given.
+func definePermissions(c *authz.Catalogue) error {
 	for _, def := range []struct {
 		id   string
 		opts []authz.DefineOption

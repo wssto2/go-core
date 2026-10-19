@@ -191,7 +191,7 @@ type Notices struct {
 // Install puts the in-app inbox into app: the notifications table (its
 // migration, which the application runs with "./app migrate"), the inbox
 // routes, the live stream and, for every consumer of the application, the dead-letter routes (they
-// need DefinePermissions on the permission catalogue). users names the people to notify. After them
+// need the permission catalogue: pass WithCatalogue). users names the people to notify. After them
 // come the application's categories (see Category) and the options AppURL, TimeZone and Enforce, in one
 // list; the module's test category is added by Install.
 //
@@ -215,6 +215,15 @@ func Install(app *gocore.App, users People, opts ...Option) *Notices {
 		}
 
 		return &Notices{}
+	}
+
+	if cfg.catalogue != nil {
+		if err := definePermissions(cfg.catalogue); err != nil {
+			app.Fail("notification cannot define the dead-letter permissions: "+err.Error(),
+				"install it before the module that builds the engine, or define events.deadletter:view and :retry in the catalogue first")
+		}
+
+		app.Permissions(cfg.catalogue)
 	}
 
 	db := app.Database()
