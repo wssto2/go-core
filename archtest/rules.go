@@ -112,7 +112,7 @@ func (p *project) routeRules(set *ruleSet) {
 		"name each segment of a route group, each dot-separated namespace of a permission and its verb as one "+
 			"lowercase word with no separators; action sub-paths on a route are exempt", p.routeIdentifiers)
 	set.add(true, RouteAccess, "every route declares who may call it",
-		"end the declaration chain with Requires, RequiresAny, RequiresAll, Public, PersonOnly or Authenticated; "+
+		"end the declaration chain with Requires, RequiresAny, Public, PersonOnly or Authenticated; "+
 			"an undeclared route is open to every signed-in caller", p.routeAccess)
 }
 

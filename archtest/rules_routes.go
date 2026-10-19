@@ -38,7 +38,7 @@ func isRouteMethod(name string) bool {
 
 func isAccessCall(name string) bool {
 	switch name {
-	case "Requires", "RequiresAny", "RequiresAll", "Public", "PersonOnly", "Authenticated":
+	case "Requires", "RequiresAny", "Public", "PersonOnly", "Authenticated":
 		return true
 	}
 
@@ -46,7 +46,7 @@ func isAccessCall(name string) bool {
 }
 
 func isPermissionCall(name string) bool {
-	return name == "Requires" || name == "RequiresAny" || name == "RequiresAll"
+	return name == "Requires" || name == "RequiresAny"
 }
 
 // declaredRoute is a route.<Method>[In, Out](path) or route.Raw(method, path)
@@ -265,7 +265,7 @@ func (p *project) routeAccess() []finding {
 		}
 
 		out = append(out, finding{key: route.src.Rel, text: route.src.At(route.call) + "  " + route.method + " " + full +
-			" declares no access: add Requires, RequiresAny, RequiresAll, Public, PersonOnly or Authenticated to its chain"})
+			" declares no access: add Requires, RequiresAny, Public, PersonOnly or Authenticated to its chain"})
 	}
 
 	return out
@@ -330,8 +330,8 @@ func areasOf(areas []string, full string) []string {
 // routeIdentifiers: the names that identify a feature are single lowercase
 // words: every segment of the literal prefix of a .Group("...") call (route.Group
 // anywhere, any other .Group in the handlers), and every dot-separated namespace
-// and the verb of a permission literal passed to Requires, RequiresAny or
-// RequiresAll. Action sub-paths of a route are not identifiers and are left to
+// and the verb of a permission literal passed to Requires or
+// RequiresAny. Action sub-paths of a route are not identifiers and are left to
 // RoutePaths.
 func (p *project) routeIdentifiers() []finding {
 	var out []finding

@@ -21,10 +21,10 @@ type Spec struct {
 	Path       string
 	Name       string
 	Permission string
-	// AnyOf (RequiresAny) is a set of permissions of which holding one is enough; AllOf (RequiresAll)
-	// a set of which every one is needed. They may be combined with Permission and each other: all must hold.
-	AnyOf []string
+	// AllOf holds the permissions of every further Requires after the first (which is Permission): all must hold.
+	// AnyOf (RequiresAny) is a set of which holding one is enough. They combine: all of them must be satisfied.
 	AllOf []string
+	AnyOf []string
 	// Public is true for a route anyone may call. Every other route needs an
 	// authenticated principal, and Permission, when set, on top of that.
 	Public bool
@@ -56,32 +56,6 @@ type Declared interface {
 type declaration struct {
 	spec   Spec
 	groups []*Contract
-	// malformedPath is the status for a path segment that cannot be parsed; 0 keeps 422.
-	malformedPath int
-}
-
-// malformedStatus is the route's own setting, else the first group's that has one, else 0.
-func (d *declaration) malformedStatus() int {
-	if d.malformedPath != 0 {
-		return d.malformedPath
-	}
-
-	for _, g := range d.groups {
-		if g.malformedPath != 0 {
-			return g.malformedPath
-		}
-	}
-
-	return 0
-}
-
-// checkMalformedStatus refuses anything but 400 and 422: a declaration mistake, found at start-up.
-func checkMalformedStatus(status int) int {
-	if status != http.StatusBadRequest && status != http.StatusUnprocessableEntity {
-		panic(fmt.Sprintf("route: MalformedPath(%d): only 400 and 422 (Unprocessable) are allowed", status))
-	}
-
-	return status
 }
 
 // Route is a declared route with input type In and output type Out.
@@ -125,9 +99,9 @@ func (r Route[In, Out]) Name(name string) Route[In, Out] {
 
 // Requires gates the route on a permission id from the application's
 // authz catalogue. Starting the application fails if the catalogue does not
-// define it.
+// define it. Chained, every one must hold: Requires(a).Requires(b) needs both.
 func (r Route[In, Out]) Requires(permission string) Route[In, Out] {
-	r.d.spec.Permission = permission
+	r.d.spec.require(permission)
 	return r
 }
 
@@ -151,13 +125,6 @@ func (r Route[In, Out]) RequiresAny(permissions ...string) Route[In, Out] {
 	return r
 }
 
-// RequiresAll gates the route on holding every one of the permissions.
-func (r Route[In, Out]) RequiresAll(permissions ...string) Route[In, Out] {
-	r.d.spec.AllOf = permissions
-
-	return r
-}
-
 // Public opens the route to anyone, signed in or not (a login form, a health
 // probe). Without it the route needs an authenticated principal. A public
 // route cannot also Requires a permission.
@@ -167,7 +134,7 @@ func (r Route[In, Out]) Public() Route[In, Out] {
 }
 
 // Authenticated declares that any authenticated principal may call the route and the handler decides the rest:
-// the access is declared, not forgotten. A route must declare one of Requires, RequiresAny, RequiresAll, Public,
+// the access is declared, not forgotten. A route must declare one of Requires, RequiresAny, Public,
 // PersonOnly or Authenticated, or starting the application fails. It cannot also be Public.
 func (r Route[In, Out]) Authenticated() Route[In, Out] {
 	r.d.spec.Authenticated = true
@@ -184,18 +151,21 @@ func (r Route[In, Out]) PersonOnly() Route[In, Out] {
 	return r
 }
 
-// MalformedPath sets the status for a path parameter that cannot be parsed (an id that is
-// not a number): 400 or 422, which is the default. It wins over the group's setting.
-func (r Route[In, Out]) MalformedPath(status int) Route[In, Out] {
-	r.d.malformedPath = checkMalformedStatus(status)
-
-	return r
-}
-
 // Spec returns the declaration as data.
 func (r Route[In, Out]) Spec() Spec { return r.d.spec }
 
 func (r Route[In, Out]) declaration() *declaration { return r.d }
+
+// require adds a permission every caller must hold: the first is Permission, the rest AllOf.
+func (s *Spec) require(permission string) {
+	if s.Permission == "" {
+		s.Permission = permission
+
+		return
+	}
+
+	s.AllOf = append(slices.Clone(s.AllOf), permission)
+}
 
 // Needs lists every permission the route names, whatever the rule.
 func (s Spec) Needs() []string {

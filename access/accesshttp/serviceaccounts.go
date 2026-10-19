@@ -25,16 +25,15 @@ const accounts = base + "/iam/service-accounts"
 //nolint:gochecknoglobals // a route is declared once, as a value
 var (
 	ServiceAccountBindableRoles = route.Get[BindableInput, BindableRoles](accounts + "/bindable-roles").
-					Name("serviceaccount.bindableroles").Requires(serviceaccount.Manage).MalformedPath(http.StatusBadRequest)
+					Name("serviceaccount.bindableroles").Requires(serviceaccount.Manage)
 	ServiceAccountAccess = route.Get[SubjectInput, SubjectAccess](accounts + "/:id/access").
-				Name("serviceaccount.access").Requires(serviceaccount.View).MalformedPath(http.StatusBadRequest)
+				Name("serviceaccount.access").Requires(serviceaccount.View)
 	ServiceAccountScopes = route.Get[SubjectInput, ScopeOptions](accounts + "/:id/scopes").
-				Name("serviceaccount.scopes").Requires(serviceaccount.Manage).MalformedPath(http.StatusBadRequest)
+				Name("serviceaccount.scopes").Requires(serviceaccount.Manage)
 	ServiceAccountBind = route.Post[BindInput, Binding](accounts + "/:id/bindings").
-				Name("serviceaccount.bind").Requires(serviceaccount.Manage).Status(http.StatusCreated).
-				MalformedPath(http.StatusBadRequest)
+				Name("serviceaccount.bind").Requires(serviceaccount.Manage).Status(http.StatusCreated)
 	ServiceAccountUnbind = route.Delete[UnbindInput, route.Empty](accounts + "/:id/bindings/:binding_id").
-				Name("serviceaccount.unbind").Requires(serviceaccount.Manage).MalformedPath(http.StatusBadRequest)
+				Name("serviceaccount.unbind").Requires(serviceaccount.Manage)
 )
 
 // ServiceAccountRoutes binds the service accounts' access routes to the bindings service; hand the result to

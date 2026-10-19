@@ -21,7 +21,7 @@ func TestDeclaresAccess(t *testing.T) {
 		"a raw nothing": {route.Raw("GET", "/x").Spec(), false},
 		"requires":      {route.Get[route.None, string]("/x").Requires("a.b:view").Spec(), true},
 		"requires any":  {route.Get[route.None, string]("/x").RequiresAny("a.b:view").Spec(), true},
-		"requires all":  {route.Get[route.None, string]("/x").RequiresAll("a.b:view").Spec(), true},
+		"requires all":  {route.Get[route.None, string]("/x").Requires("a.b:view").Requires("c.d:view").Spec(), true},
 		"public":        {route.Get[route.None, string]("/x").Public().Spec(), true},
 		"person only":   {route.Get[route.None, string]("/x").PersonOnly().Spec(), true},
 		"authenticated": {route.Get[route.None, string]("/x").Authenticated().Spec(), true},

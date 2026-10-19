@@ -1,7 +1,6 @@
 package note
 
 import (
-	"net/http"
 	"net/url"
 
 	appnote "example.com/shop/internal/application/crm/note"
@@ -12,7 +11,7 @@ import (
 // base is the feature's path under the API prefix. URL paths are kebab-case.
 const base = "/v1/crm/note"
 
-// NotePath names the record a request is about. A malformed id (not a number) answers 400 for the whole group.
+// NotePath names the record a request is about.
 type NotePath struct {
 	ID int `path:"id"`
 }
@@ -32,4 +31,4 @@ var (
 
 // Contract is what the feature offers the outside: the frontend's route table is generated from the contracts of the
 // routes the app installs.
-var Contract = route.Group("note", List, Show, Create).MalformedPath(http.StatusBadRequest)
+var Contract = route.Group("note", List, Show, Create)

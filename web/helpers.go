@@ -46,7 +46,7 @@ func PositivePathInt(key string, id int) error {
 }
 
 // PositiveID is GetPathIDNamed for a typed route: nil for a positive id, else 400 naming the parameter. A typed route
-// answers a path that is not a number itself (route.Group(...).MalformedPath).
+// answers a path that is not a number itself (400 for an id that is not a number).
 func PositiveID(name string, id int) error {
 	if id <= 0 {
 		return apperr.BadRequest("invalid " + name + ": must be a positive integer")

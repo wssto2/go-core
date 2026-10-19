@@ -39,11 +39,13 @@ func TestRequiresAnyPassesWithEitherAndRefusesWithNeither(t *testing.T) {
 	}
 }
 
-func TestRequiresAllNeedsEvery(t *testing.T) {
-	r := route.Get[route.None, string]("/x").RequiresAll("a:view", "b:view").To(serveOK)
+func TestChainedRequiresNeedsEvery(t *testing.T) {
+	r := route.Get[route.None, string]("/x").Requires("a:view").Requires("b:view").To(serveOK)
 
-	if got := statusWith(t, r, "a:view"); got != http.StatusForbidden {
-		t.Fatalf("one of two: %d", got)
+	for _, held := range []string{"a:view", "b:view"} {
+		if got := statusWith(t, r, held); got != http.StatusForbidden {
+			t.Fatalf("only %s of two: %d", held, got)
+		}
 	}
 
 	if got := statusWith(t, r, "a:view", "b:view"); got != http.StatusOK {
@@ -53,7 +55,7 @@ func TestRequiresAllNeedsEvery(t *testing.T) {
 
 //nolint:goconst // ids of one scenario
 func TestPermissionRulesCombine(t *testing.T) {
-	r := route.Get[route.None, string]("/x").Requires("c:view").RequiresAny("a:view", "b:view").RequiresAll("d:view", "e:view").To(serveOK)
+	r := route.Get[route.None, string]("/x").Requires("c:view").RequiresAny("a:view", "b:view").Requires("d:view").Requires("e:view").To(serveOK)
 
 	if got := r.Spec().Needs(); len(got) != 5 {
 		t.Fatalf("Needs: %v", got)
@@ -85,7 +87,7 @@ func TestPermissionRulesCombine(t *testing.T) {
 }
 
 func TestPublicCannotRequire(t *testing.T) {
-	public := route.Get[route.None, string]("/x").RequiresAll("a:view", "b:view").Public().To(serveOK)
+	public := route.Get[route.None, string]("/x").Requires("a:view").Requires("b:view").Public().To(serveOK)
 	if err := public.Mount(gin.New(), secured(authztest.AllowAll())); err == nil || !strings.Contains(err.Error(), "Public") {
 		t.Fatalf("got %v", err)
 	}

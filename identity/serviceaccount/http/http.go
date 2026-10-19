@@ -78,7 +78,7 @@ var (
 	// TypeScript. It lists the access routes of an account too, which access.Install serves.
 	Contract = route.Group("serviceaccount", Index, Show, Create, Update, Deactivate, Keys, CreateKey, RevokeKey,
 		accesshttp.ServiceAccountBindableRoles, accesshttp.ServiceAccountAccess, accesshttp.ServiceAccountScopes,
-		accesshttp.ServiceAccountBind, accesshttp.ServiceAccountUnbind).MalformedPath(nethttp.StatusBadRequest)
+		accesshttp.ServiceAccountBind, accesshttp.ServiceAccountUnbind)
 )
 
 // PersonRef is a person by name.

@@ -139,8 +139,7 @@ func Declare() *Declared {
 	declared.group = route.Group(
 		"incident", declared.List, declared.Show, declared.Comments, declared.Occurrences, declared.Report, declared.Comment,
 		declared.Update, declared.ClientError,
-	).
-		MalformedPath(http.StatusBadRequest)
+	)
 
 	return declared
 }

@@ -3,7 +3,6 @@ package savedview
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -118,8 +117,7 @@ func Declare() *Declared {
 		Delete: route.Delete[ViewPath, route.Empty](base + "/:id").Name("savedview.delete").PersonOnly(),
 	}
 
-	declared.group = route.Group("savedview", declared.Index, declared.Store, declared.Delete).
-		MalformedPath(http.StatusBadRequest)
+	declared.group = route.Group("savedview", declared.Index, declared.Store, declared.Delete)
 
 	return declared
 }

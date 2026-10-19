@@ -13,8 +13,6 @@ type Contract struct {
 	routes []Declared
 	types  []reflect.Type
 	enums  []Enumeration
-	// malformedPath: see Contract.MalformedPath.
-	malformedPath int
 }
 
 // Group collects a feature's routes into its Contract. The name is the
@@ -43,16 +41,6 @@ func (c *Contract) Types(values ...any) *Contract {
 
 		c.types = append(c.types, reflect.TypeOf(v))
 	}
-
-	return c
-}
-
-// MalformedPath sets, for every route of the group that does not set its own, the status
-// for a path parameter that cannot be parsed (an id that is not a number): 400 or 422,
-// which is the default. A malformed URL is not a validation failure of a body, so a
-// feature may answer 400; query and body errors stay 422.
-func (c *Contract) MalformedPath(status int) *Contract {
-	c.malformedPath = checkMalformedStatus(status)
 
 	return c
 }

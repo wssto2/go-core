@@ -70,7 +70,7 @@ func (r Route[In, Out]) To(handler func(ctx context.Context, in In) (Out, error)
 			var in In
 
 			if typed {
-				err := bindInput(c, &in, hasBody, r.d.malformedStatus())
+				err := bindInput(c, &in, hasBody)
 				if err != nil {
 					web.Fail(c, err)
 					return
@@ -103,7 +103,7 @@ func (r Route[In, Out]) To(handler func(ctx context.Context, in In) (Out, error)
 
 // bindInput fills in from the URL path, the query string and, when the method
 // has one, the body, then validates it.
-func bindInput[In any](c *gin.Context, input *In, hasBody bool, malformedPath int) error { //nolint:varnamelen // gin c
+func bindInput[In any](c *gin.Context, input *In, hasBody bool) error { //nolint:varnamelen // gin c
 	if hasBody {
 		err := binders.BindRequest(c, input)
 		if err != nil {
@@ -119,7 +119,7 @@ func bindInput[In any](c *gin.Context, input *In, hasBody bool, malformedPath in
 	err := binders.BindStrings(input, "path", params)
 	if err != nil {
 		var ve *validation.ValidationError
-		if malformedPath == http.StatusBadRequest && errors.As(err, &ve) {
+		if errors.As(err, &ve) {
 			return apperr.BadRequest("invalid " + strings.Join(slices.Sorted(maps.Keys(ve.Failures)), ", "))
 		}
 
@@ -275,22 +275,15 @@ func (r RawRoute) Name(name string) RawRoute {
 	return r
 }
 
-// Requires gates the route on a permission id from the authz catalogue.
+// Requires gates the route on a permission id from the authz catalogue; chained, every one must hold.
 func (r RawRoute) Requires(permission string) RawRoute {
-	r.d.spec.Permission = permission
+	r.d.spec.require(permission)
 	return r
 }
 
 // RequiresAny gates the route on holding at least one of the permissions.
 func (r RawRoute) RequiresAny(permissions ...string) RawRoute {
 	r.d.spec.AnyOf = permissions
-
-	return r
-}
-
-// RequiresAll gates the route on holding every one of the permissions.
-func (r RawRoute) RequiresAll(permissions ...string) RawRoute {
-	r.d.spec.AllOf = permissions
 
 	return r
 }

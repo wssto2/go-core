@@ -16,7 +16,7 @@
 //   - RoutePaths, RouteIdentifiers, ValidationRules: the names and validation
 //     rules a route declares;
 //   - RouteAccess: every route.Get/Post/Put/Patch/Delete/Raw chain names who may
-//     call it (Requires, RequiresAny, RequiresAll, Public, PersonOnly or
+//     call it (Requires, RequiresAny, Public, PersonOnly or
 //     Authenticated);
 //   - SQLPortability (opt-in, Config.SQL): no SQL literal or gorm locking clause in the
 //     Go sources that MariaDB 10.3 rejects;

@@ -391,7 +391,7 @@ func TestMyAccessStaysAndRoutesFollowThePrefix(t *testing.T) {
 }
 
 // R13: a path id that is not a number is refused by the typed route itself, before any handler
-// or permission check that needs the id, as the route package's input error (422, not 400).
+// or permission check that needs the id, as 400 (the default for a malformed path).
 func TestNonNumericPathIDsAreRefusedByTheRoute(t *testing.T) {
 	t.Parallel()
 
@@ -406,7 +406,7 @@ func TestNonNumericPathIDsAreRefusedByTheRoute(t *testing.T) {
 		{"DELETE", "/v1/iam/users/1/bindings/abc"},
 	} {
 		got := srv.do(1, route.method, route.path, map[string]any{"role_ref": "seller", "level": "organization"})
-		assert.Equal(t, http.StatusUnprocessableEntity, got.Status, route.method+" "+route.path)
+		assert.Equal(t, http.StatusBadRequest, got.Status, route.method+" "+route.path)
 	}
 }
 
