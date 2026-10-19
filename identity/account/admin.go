@@ -445,7 +445,7 @@ func (a *Admin) DeactivateWithExt(ctx context.Context, req DeactivateInput) (any
 	}
 
 	if !acc.Active {
-		return nil, apperr.New(nil, string(ReasonAlreadyInactive), apperr.CodeAlreadyExists).WithReason(ReasonAlreadyInactive)
+		return nil, apperr.Wrap(nil, string(ReasonAlreadyInactive), apperr.CodeAlreadyExists).WithReason(ReasonAlreadyInactive)
 	}
 
 	var (
@@ -497,7 +497,7 @@ func (a *Admin) Activate(ctx context.Context, in DeactivateInput) error {
 	}
 
 	if acc.Active {
-		return apperr.New(nil, string(ReasonAlreadyActive), apperr.CodeAlreadyExists).WithReason(ReasonAlreadyActive)
+		return apperr.Wrap(nil, string(ReasonAlreadyActive), apperr.CodeAlreadyExists).WithReason(ReasonAlreadyActive)
 	}
 
 	err = a.within(ctx, func(ctx context.Context) error {

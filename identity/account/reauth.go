@@ -198,7 +198,7 @@ func (r *Reauth) find(ctx context.Context, accountID int) (Attempts, bool, error
 func reauthLocked(a Attempts, now time.Time) error {
 	until := *a.LockedUntil
 
-	return apperr.New(nil, string(ReasonReauthLocked), apperr.CodeBadRequest).
+	return apperr.Wrap(nil, string(ReasonReauthLocked), apperr.CodeBadRequest).
 		WithReason(ReasonReauthLocked, map[string]any{
 			"retry_after":  max(int(math.Ceil(until.Sub(now).Seconds())), 1),
 			"locked_until": until.UTC().Format(time.RFC3339),

@@ -204,7 +204,7 @@ func (b base) role(ctx context.Context, ref string) (authz.Role, error) {
 	role, err := b.cfg.Store.Role(ctx, id)
 	if err != nil {
 		if errors.Is(err, authz.ErrRoleNotFound) {
-			return authz.Role{}, apperr.NotFoundErr(err)
+			return authz.Role{}, apperr.NotFoundFrom(err)
 		}
 
 		return authz.Role{}, apperr.Internal(fmt.Errorf("access: read role %d: %w", id, err))

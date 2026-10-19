@@ -167,7 +167,7 @@ func (s *Settings) SetPush(ctx context.Context, userID int, category string, on 
 // refused with ReasonQuietHoursInvalid.
 func (s *Settings) SetQuietHours(ctx context.Context, userID int, hours QuietHours) (QuietHours, error) {
 	if hours.Validate() != nil {
-		return QuietHours{}, apperr.New(ErrInvalidQuietHours, string(ReasonQuietHoursInvalid), apperr.CodeValidationError).
+		return QuietHours{}, apperr.Wrap(ErrInvalidQuietHours, string(ReasonQuietHoursInvalid), apperr.CodeValidationError).
 			WithReason(ReasonQuietHoursInvalid)
 	}
 
@@ -203,7 +203,7 @@ func (s *Settings) set(
 	if !s.available(channel) {
 		reason := channel.unavailable()
 
-		return CategorySettings{}, apperr.New(nil, string(reason), apperr.CodeInvalidArgument).WithReason(reason)
+		return CategorySettings{}, apperr.Wrap(nil, string(reason), apperr.CodeInvalidArgument).WithReason(reason)
 	}
 
 	current, err := s.resolve(ctx, k, userID, channel, map[string]bool{}) // only the enforcer matters here
@@ -212,7 +212,7 @@ func (s *Settings) set(
 	}
 
 	if current.Enforced() {
-		return CategorySettings{}, apperr.New(nil, string(ReasonEnforced), apperr.CodeInvalidArgument).WithReason(ReasonEnforced)
+		return CategorySettings{}, apperr.Wrap(nil, string(ReasonEnforced), apperr.CodeInvalidArgument).WithReason(ReasonEnforced)
 	}
 
 	if enabled == k.defaultOn(channel) {

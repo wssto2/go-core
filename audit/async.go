@@ -62,7 +62,7 @@ func (a *AsyncRepository) Write(ctx context.Context, entry Entry) error {
 	a.mu.Lock()
 	if a.closed {
 		a.mu.Unlock()
-		return apperr.New(nil, "audit repository is shut down", apperr.CodeInternal)
+		return apperr.Wrap(nil, "audit repository is shut down", apperr.CodeInternal)
 	}
 	a.wg.Add(1)
 	select {
@@ -72,7 +72,7 @@ func (a *AsyncRepository) Write(ctx context.Context, entry Entry) error {
 	default:
 		a.wg.Done()
 		a.mu.Unlock()
-		return apperr.New(nil, "audit queue full", apperr.CodeInternal)
+		return apperr.Wrap(nil, "audit queue full", apperr.CodeInternal)
 	}
 }
 

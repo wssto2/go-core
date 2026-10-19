@@ -53,18 +53,34 @@ func TestWrapAddsContext(t *testing.T) {
 }
 
 func TestGetHTTPStatus_WrappedAppError_Unwraps(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-inner := apperr.NotFound("resource not found")
-wrapped := fmt.Errorf("service layer: %w", inner)
+	inner := apperr.NotFound("resource not found")
+	wrapped := fmt.Errorf("service layer: %w", inner)
 
-status := apperr.GetHTTPStatus(wrapped)
-require.Equal(t, 404, status, "GetHTTPStatus must unwrap wrapped AppError")
+	status := apperr.GetHTTPStatus(wrapped)
+	require.Equal(t, 404, status, "GetHTTPStatus must unwrap wrapped AppError")
 }
 
 func TestGetHTTPStatus_PlainError_Returns500(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-status := apperr.GetHTTPStatus(errors.New("plain error"))
-require.Equal(t, 500, status)
+	status := apperr.GetHTTPStatus(errors.New("plain error"))
+	require.Equal(t, 500, status)
+}
+
+func TestEveryCodeHasAMessageAndAFromForm(t *testing.T) {
+	t.Parallel()
+
+	cause := errors.New("cause") //nolint:err113
+	for code, pair := range map[apperr.Code][2]*apperr.AppError{
+		apperr.CodeBadRequest:       {apperr.BadRequest("m"), apperr.BadRequestFrom(cause)},
+		apperr.CodeNotFound:         {apperr.NotFound("m"), apperr.NotFoundFrom(cause)},
+		apperr.CodePermissionDenied: {apperr.Forbidden("m"), apperr.ForbiddenFrom(cause)},
+		apperr.CodeAlreadyExists:    {apperr.Conflict("m"), apperr.ConflictFrom(cause)},
+	} {
+		require.Equal(t, code, pair[0].Code)
+		require.Equal(t, code, pair[1].Code)
+		require.ErrorIs(t, pair[1], cause)
+	}
 }

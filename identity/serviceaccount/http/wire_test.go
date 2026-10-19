@@ -59,7 +59,7 @@ func refuse(id int) error {
 	case 404:
 		return apperr.NotFound("service account not found")
 	case 409:
-		return apperr.ConflictErr(errors.New("already deactivated"))
+		return apperr.ConflictFrom(errors.New("already deactivated"))
 	}
 
 	return nil

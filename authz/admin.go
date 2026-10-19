@@ -146,12 +146,12 @@ func (a *Admin) Bind(ctx context.Context, b Binding) (Binding, error) {
 		return Binding{}, err
 	}
 	if !b.Subject.Valid() || !b.Role.Valid() {
-		return Binding{}, apperr.BadRequestErr(&ValidationError{Problems: []Problem{
+		return Binding{}, apperr.BadRequestFrom(&ValidationError{Problems: []Problem{
 			{Code: ProblemInvalidRole, Detail: "a binding needs a valid subject and exactly one of role ID and key"},
 		}})
 	}
 	if err := a.e.h.Check(b.Scope); err != nil {
-		return Binding{}, apperr.BadRequestErr(err)
+		return Binding{}, apperr.BadRequestFrom(err)
 	}
 	if b.Subject == actor.Subject {
 		return Binding{}, apperr.Wrap(ErrSelfAssignment, "you cannot assign a role to yourself", apperr.CodePermissionDenied).
@@ -214,9 +214,9 @@ func (a *Admin) Unbind(ctx context.Context, id int) error {
 func storeErr(err error) error {
 	switch {
 	case errors.Is(err, ErrRoleNotFound), errors.Is(err, ErrBindingNotFound):
-		return apperr.NotFoundErr(err)
+		return apperr.NotFoundFrom(err)
 	case errors.Is(err, ErrDuplicateBinding), errors.Is(err, ErrRoleInUse):
-		return apperr.ConflictErr(err)
+		return apperr.ConflictFrom(err)
 	default:
 		var ae *apperr.AppError
 		if errors.As(err, &ae) {

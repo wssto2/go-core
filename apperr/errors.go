@@ -9,6 +9,9 @@
 //	apperr.Internal(err)
 //	apperr.Wrap(err, "context message", apperr.CodeInternal)
 //
+// Every code has a message form (NotFound(msg)) and, where a domain error carries the reason, a From form
+// (NotFoundFrom(err)).
+//
 // The error carries a semantic Code (used to map to HTTP status), a
 // user-friendly Message, a LogLevel hint, and the source file/line for
 // diagnostics.
@@ -118,29 +121,11 @@ func newWithSkip(err error, message string, code Code) *AppError {
 	}
 }
 
-// New creates a generic AppError.
-func New(err error, message string, code Code) *AppError {
-	return newWithSkip(err, message, code)
-}
-
-// Wrap wraps err in a new AppError with the given message and code.
-// If err is already an AppError, it is preserved as the cause.
-// Unlike the old behavior, the new message and code are ALWAYS applied —
-// use this when you want to add context at a higher layer.
+// Wrap builds an AppError with the given message and code and keeps err (nil for none) as its cause, reachable with
+// errors.Is and errors.As. The message and code are always applied, even when err is already an AppError. It is the
+// one general constructor: prefer the named ones (NotFound, Conflict, ...) for a code you know.
 func Wrap(err error, message string, code Code) *AppError {
-	if err == nil {
-		return New(nil, message, code)
-	}
-	file, line, stack := captureStack()
-	return &AppError{
-		Err:      err, // preserve original as cause, accessible via errors.As/Is
-		Code:     code,
-		Message:  message,
-		LogLevel: LevelError,
-		File:     file,
-		Line:     line,
-		Stack:    stack,
-	}
+	return newWithSkip(err, message, code)
 }
 
 // WrapPreserve wraps err but preserves the original AppError's status code and log level.
@@ -161,7 +146,7 @@ func WrapPreserve(err error, message string) *AppError {
 			Stack:    stack,
 		}
 	}
-	return New(err, message, CodeInternal)
+	return newWithSkip(err, message, CodeInternal)
 }
 
 // WithLog sets the log level.
@@ -245,56 +230,61 @@ func fromErr(err error, code Code) *AppError {
 	return ae
 }
 
-// Typed-error constructors. Prefer these over the string constructors when the
+// The From constructors take the domain error itself. Prefer them over the string constructors when the
 // error case is a domain rule the frontend needs to identify/translate.
 
-// BadRequestErr wraps a domain error as CodeBadRequest, extracting
+// BadRequestFrom wraps a domain error as CodeBadRequest, extracting
 // Reason/Params if it implements Reasoner.
-func BadRequestErr(err error) *AppError {
+func BadRequestFrom(err error) *AppError {
 	return fromErr(err, CodeBadRequest).WithLog(LevelWarn)
 }
 
-// NotFoundErr wraps a domain error as CodeNotFound, extracting Reason/Params
+// NotFoundFrom wraps a domain error as CodeNotFound, extracting Reason/Params
 // if it implements Reasoner.
-func NotFoundErr(err error) *AppError {
+func NotFoundFrom(err error) *AppError {
 	return fromErr(err, CodeNotFound).WithLog(LevelInfo)
 }
 
-// ForbiddenErr wraps a domain error as CodePermissionDenied, extracting
+// ForbiddenFrom wraps a domain error as CodePermissionDenied, extracting
 // Reason/Params if it implements Reasoner.
-func ForbiddenErr(err error) *AppError {
+func ForbiddenFrom(err error) *AppError {
 	return fromErr(err, CodePermissionDenied).WithLog(LevelWarn)
 }
 
-// ConflictErr wraps a domain error as CodeAlreadyExists, extracting
+// ConflictFrom wraps a domain error as CodeAlreadyExists, extracting
 // Reason/Params if it implements Reasoner.
-func ConflictErr(err error) *AppError {
+func ConflictFrom(err error) *AppError {
 	return fromErr(err, CodeAlreadyExists).WithLog(LevelWarn)
 }
 
 // Common Constructors
 
 func NotFound(message string) *AppError {
-	return New(nil, message, CodeNotFound).WithLog(LevelInfo)
+	return newWithSkip(nil, message, CodeNotFound).WithLog(LevelInfo)
+}
+
+// Conflict is a request that clashes with the current state (a duplicate, a concurrent change): 409.
+func Conflict(message string) *AppError {
+	return newWithSkip(nil, message, CodeAlreadyExists).WithLog(LevelWarn)
 }
 
 func BadRequest(message string) *AppError {
-	return New(nil, message, CodeBadRequest).WithLog(LevelWarn)
+	return newWithSkip(nil, message, CodeBadRequest).WithLog(LevelWarn)
 }
 
 // PayloadTooLarge is a request body over the limit: 413.
 func PayloadTooLarge(message string) *AppError {
-	return New(nil, message, CodePayloadTooLarge).WithLog(LevelWarn)
+	return newWithSkip(nil, message, CodePayloadTooLarge).WithLog(LevelWarn)
 }
 
 func Internal(err error) *AppError {
-	return New(err, "internal server error", CodeInternal).WithLog(LevelError)
+	return newWithSkip(err, "internal server error", CodeInternal).WithLog(LevelError)
 }
 
 func Unauthorized(message string) *AppError {
-	return New(nil, message, CodeUnauthenticated).WithLog(LevelWarn)
+	return newWithSkip(nil, message, CodeUnauthenticated).WithLog(LevelWarn)
 }
 
 func Forbidden(message string) *AppError {
-	return New(nil, message, CodePermissionDenied).WithLog(LevelWarn)
+	return newWithSkip(nil, message, CodePermissionDenied).WithLog(LevelWarn)
 }

@@ -44,12 +44,12 @@ const (
 // client's translation of the reason, never a sentence from here.
 
 func signInFailed() error {
-	return apperr.New(nil, string(ReasonSignInFailed), apperr.CodeInvalidArgument).
+	return apperr.Wrap(nil, string(ReasonSignInFailed), apperr.CodeInvalidArgument).
 		WithLog(apperr.LevelInfo).WithReason(ReasonSignInFailed)
 }
 
 func signInLocked(until time.Time) error {
-	return apperr.New(nil, string(ReasonSignInLocked), apperr.CodeInvalidArgument).
+	return apperr.Wrap(nil, string(ReasonSignInLocked), apperr.CodeInvalidArgument).
 		WithLog(apperr.LevelInfo).
 		WithReason(ReasonSignInLocked, map[string]any{"locked_until": until.UTC().Format(time.RFC3339)})
 }

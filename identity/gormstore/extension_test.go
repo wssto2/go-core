@@ -55,7 +55,7 @@ func (s *scribbler) scribble(ctx context.Context, id int) error {
 	return s.refuse
 }
 
-var errRefused = apperr.New(nil, "dealer_bindings", apperr.CodeAlreadyExists).WithReason("shop.user.dealer_bindings")
+var errRefused = apperr.Wrap(nil, "dealer_bindings", apperr.CodeAlreadyExists).WithReason("shop.user.dealer_bindings")
 
 // extended builds the users module over real tables with the extension.
 func extended(t *testing.T, db *gorm.DB, x *scribbler) (*account.Admin, gormstore.Stores) {

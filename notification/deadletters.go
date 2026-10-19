@@ -193,7 +193,7 @@ func (h deadLetterHandlers) retry(ctx context.Context, in RetryInput) (Retried, 
 	case errors.Is(err, event.ErrDeadLetterNotFound):
 		return Retried{}, apperr.NotFound("dead letter not found")
 	case errors.Is(err, event.ErrDeadLetterEventGone):
-		return Retried{}, apperr.ConflictErr(err)
+		return Retried{}, apperr.ConflictFrom(err)
 	case err != nil:
 		return Retried{}, apperr.Internal(err)
 	}

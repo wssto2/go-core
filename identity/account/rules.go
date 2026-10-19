@@ -41,12 +41,12 @@ const (
 
 // invalid is a refused field: a validation error with the reason, naming the field.
 func invalid(field string, reason apperr.Reason, params ...map[string]any) error {
-	return apperr.New(nil, string(reason), apperr.CodeValidationError).
+	return apperr.Wrap(nil, string(reason), apperr.CodeValidationError).
 		WithReason(reason, params...).WithFields(map[string]string{field: string(reason)}).WithLog(apperr.LevelInfo)
 }
 
 func conflict(field string, reason apperr.Reason) error {
-	return apperr.New(nil, string(reason), apperr.CodeAlreadyExists).
+	return apperr.Wrap(nil, string(reason), apperr.CodeAlreadyExists).
 		WithReason(reason).WithFields(map[string]string{field: string(reason)}).WithLog(apperr.LevelInfo)
 }
 

@@ -303,7 +303,7 @@ func (p *Profile) ResendEmailChange(ctx context.Context, accountID int, ip strin
 	}
 
 	if !found {
-		return PendingCode{}, apperr.New(nil, string(ReasonCodeNoPending), apperr.CodeInvalidArgument).WithReason(ReasonCodeNoPending).WithLog(apperr.LevelInfo)
+		return PendingCode{}, apperr.Wrap(nil, string(ReasonCodeNoPending), apperr.CodeInvalidArgument).WithReason(ReasonCodeNoPending).WithLog(apperr.LevelInfo)
 	}
 
 	return p.issue(ctx, acc, pending.Target, ip)

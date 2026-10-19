@@ -579,7 +579,7 @@ func (s *Service) manager(ctx context.Context) (authz.Principal, error) {
 	}
 
 	if actor.Kind != authz.KindUser {
-		return authz.Principal{}, apperr.ForbiddenErr(errPersonOnly).
+		return authz.Principal{}, apperr.ForbiddenFrom(errPersonOnly).
 			WithReason(authz.ReasonForbidden, map[string]any{"why": "person_only"})
 	}
 

@@ -175,7 +175,7 @@ func TestCreateAndUpdateTakeAndAnswerExt(t *testing.T) {
 // A refusal by the extension is the answer, and a person is not changed by the account's own write either.
 func TestAnExtensionRefusalIsTheAnswer(t *testing.T) {
 	x := newDealers()
-	x.refuse = apperr.New(nil, "dealer_bindings", apperr.CodeAlreadyExists).WithReason("shop.user.dealer_bindings")
+	x.refuse = apperr.Wrap(nil, "dealer_bindings", apperr.CodeAlreadyExists).WithReason("shop.user.dealer_bindings")
 	h, ana := extHarness(t, x)
 
 	out := h.do(nethttp.MethodPut, "/v1/iam/users/2", map[string]any{

@@ -279,7 +279,7 @@ func (c *Codes) checkCanIssue(ctx context.Context, in IssueCode, now time.Time) 
 }
 
 func retryAfter(reason apperr.Reason, d time.Duration, level apperr.Level) error {
-	return apperr.New(nil, string(reason), apperr.CodeBadRequest).
+	return apperr.Wrap(nil, string(reason), apperr.CodeBadRequest).
 		WithReason(reason, map[string]any{"retry_after": max(int(math.Ceil(d.Seconds())), 1)}).WithLog(level)
 }
 
@@ -307,7 +307,7 @@ func (c *Codes) Verify(ctx context.Context, accountID int, p Purpose, plain stri
 func (c *Codes) verifyOnce(ctx context.Context, accountID int, p Purpose, hash string) (string, error) {
 	code, err := c.deps.Store.Latest(ctx, accountID, p)
 	if errors.Is(err, ErrCodeNotFound) {
-		return "", apperr.New(nil, string(ReasonCodeNoPending), apperr.CodeInvalidArgument).WithReason(ReasonCodeNoPending).WithLog(apperr.LevelInfo)
+		return "", apperr.Wrap(nil, string(ReasonCodeNoPending), apperr.CodeInvalidArgument).WithReason(ReasonCodeNoPending).WithLog(apperr.LevelInfo)
 	}
 
 	if err != nil {
@@ -315,13 +315,13 @@ func (c *Codes) verifyOnce(ctx context.Context, accountID int, p Purpose, hash s
 	}
 
 	if code.ConsumedAt != nil || code.InvalidatedAt != nil { // used or ended: nothing is waiting for a code
-		return "", apperr.New(nil, string(ReasonCodeNoPending), apperr.CodeInvalidArgument).
+		return "", apperr.Wrap(nil, string(ReasonCodeNoPending), apperr.CodeInvalidArgument).
 			WithReason(ReasonCodeNoPending).WithLog(apperr.LevelInfo)
 	}
 
 	now := c.deps.Clock.Now()
 	if !code.Live(now) {
-		return "", apperr.New(nil, string(ReasonCodeExpired), apperr.CodeInvalidArgument).WithReason(ReasonCodeExpired).WithLog(apperr.LevelInfo)
+		return "", apperr.Wrap(nil, string(ReasonCodeExpired), apperr.CodeInvalidArgument).WithReason(ReasonCodeExpired).WithLog(apperr.LevelInfo)
 	}
 
 	read := code.Attempts
@@ -336,9 +336,9 @@ func (c *Codes) verifyOnce(ctx context.Context, accountID int, p Purpose, hash s
 		code.Attempts++
 		if code.Attempts >= c.rules.Attempts {
 			code.InvalidatedAt = &now
-			refusal = apperr.New(nil, string(ReasonCodeTooManyAttempts), apperr.CodeInvalidArgument).WithReason(ReasonCodeTooManyAttempts).WithLog(apperr.LevelWarn)
+			refusal = apperr.Wrap(nil, string(ReasonCodeTooManyAttempts), apperr.CodeInvalidArgument).WithReason(ReasonCodeTooManyAttempts).WithLog(apperr.LevelWarn)
 		} else {
-			refusal = apperr.New(nil, string(ReasonCodeMismatch), apperr.CodeInvalidArgument).
+			refusal = apperr.Wrap(nil, string(ReasonCodeMismatch), apperr.CodeInvalidArgument).
 				WithReason(ReasonCodeMismatch, map[string]any{"attempts_left": c.rules.Attempts - code.Attempts}).WithLog(apperr.LevelInfo)
 		}
 	}

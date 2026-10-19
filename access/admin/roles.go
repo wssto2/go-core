@@ -157,11 +157,11 @@ func (r *Roles) save(ctx context.Context, role authz.Role) (RoleView, error) {
 
 	err = role.Validate(r.cfg.Engine.Catalogue())
 	if err != nil {
-		return RoleView{}, apperr.BadRequestErr(err)
+		return RoleView{}, apperr.BadRequestFrom(err)
 	}
 
 	if problems := r.cfg.RoleCheck(ctx, role); len(problems) > 0 {
-		return RoleView{}, apperr.BadRequestErr(&authz.ValidationError{Problems: problems})
+		return RoleView{}, apperr.BadRequestFrom(&authz.ValidationError{Problems: problems})
 	}
 
 	saved, err := r.delegation.SaveRole(ctx, role)
@@ -203,7 +203,7 @@ func (r *Roles) Delete(ctx context.Context, ref string) error {
 	if err := r.cfg.Store.DeleteRole(ctx, actor.Subject, role.ID); err != nil {
 		switch {
 		case errors.Is(err, authz.ErrRoleNotFound):
-			return apperr.NotFoundErr(err)
+			return apperr.NotFoundFrom(err)
 		case errors.Is(err, authz.ErrRoleInUse):
 			return apperr.Wrap(err, "the role is still bound", apperr.CodeAlreadyExists).WithReason(authz.ReasonRoleInUse)
 		}
@@ -373,7 +373,7 @@ func (r *Roles) custom(ctx context.Context, ref string) (authz.Role, error) {
 	}
 
 	if role.Predefined() {
-		return authz.Role{}, apperr.ForbiddenErr(errPredefined).
+		return authz.Role{}, apperr.ForbiddenFrom(errPredefined).
 			WithReason(authz.ReasonForbidden, map[string]any{"why": "predefined"})
 	}
 

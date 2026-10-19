@@ -208,7 +208,7 @@ var errPersonOnly = errors.New("this is for a person; a service account cannot u
 func refuseServiceAccount(ctx *gin.Context) {
 	if who, ok := authz.PrincipalFrom(ctx.Request.Context()); ok && who.Kind == authz.KindServiceAccount {
 		why := map[string]any{"why": "person_only"}
-		_ = ctx.Error(apperr.ForbiddenErr(errPersonOnly).WithReason(authz.ReasonForbidden, why))
+		_ = ctx.Error(apperr.ForbiddenFrom(errPersonOnly).WithReason(authz.ReasonForbidden, why))
 		ctx.Abort()
 
 		return

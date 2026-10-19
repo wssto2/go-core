@@ -107,7 +107,7 @@ func (s *service) Create(ctx context.Context, opts CreateProductOptions, actor a
 		return nil, apperr.Internal(err)
 	}
 	if exists {
-		return nil, apperr.New(nil, "a product with this SKU already exists", apperr.CodeAlreadyExists).
+		return nil, apperr.Wrap(nil, "a product with this SKU already exists", apperr.CodeAlreadyExists).
 			WithLog(apperr.LevelWarn)
 	}
 
@@ -173,7 +173,7 @@ func (s *service) Update(ctx context.Context, id int, opts UpdateProductOptions,
 			return nil, apperr.Internal(err)
 		}
 		if exists {
-			return nil, apperr.New(nil, "a product with this SKU already exists", apperr.CodeAlreadyExists).
+			return nil, apperr.Wrap(nil, "a product with this SKU already exists", apperr.CodeAlreadyExists).
 				WithLog(apperr.LevelWarn)
 		}
 		product.SKU = opts.SKU

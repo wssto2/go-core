@@ -257,14 +257,14 @@ func (b *Bindings) Unbind(ctx context.Context, subject authz.Subject, bindingID 
 	found, err := b.cfg.Store.Binding(ctx, bindingID)
 	if err != nil {
 		if errors.Is(err, authz.ErrBindingNotFound) {
-			return apperr.NotFoundErr(err)
+			return apperr.NotFoundFrom(err)
 		}
 
 		return apperr.Internal(fmt.Errorf("access: read binding %d: %w", bindingID, err))
 	}
 
 	if found.Subject != subject {
-		return apperr.NotFoundErr(authz.ErrBindingNotFound)
+		return apperr.NotFoundFrom(authz.ErrBindingNotFound)
 	}
 
 	err = b.cfg.BindingCheck(ctx, subject, found)
@@ -414,7 +414,7 @@ func (b *Bindings) requirePlace(ctx context.Context, scope authz.Scope) error {
 
 	err := levels.Check(scope)
 	if err != nil {
-		return apperr.BadRequestErr(err)
+		return apperr.BadRequestFrom(err)
 	}
 
 	if levels.IsRoot(scope) {

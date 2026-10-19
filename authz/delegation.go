@@ -18,12 +18,12 @@ import (
 // create a role for both. That errs on the side of no escalation.
 func (e *Engine) CanSaveRole(ctx context.Context, actor Principal, role Role) error {
 	if role.Computed != nil {
-		return apperr.BadRequestErr(&ValidationError{Problems: []Problem{
+		return apperr.BadRequestFrom(&ValidationError{Problems: []Problem{
 			{Code: ProblemInvalidRole, Detail: "a stored role cannot be computed"},
 		}})
 	}
 	if err := role.Validate(e.cat); err != nil {
-		return apperr.BadRequestErr(err)
+		return apperr.BadRequestFrom(err)
 	}
 	eff, err := e.Effective(ctx, actor.Subject)
 	if err != nil {
@@ -47,12 +47,12 @@ func (e *Engine) CanSaveRole(ctx context.Context, actor Principal, role Role) er
 // It does not forbid assigning to oneself: Admin does.
 func (e *Engine) CanBind(ctx context.Context, actor Principal, role Role, scope Scope, manageBindings string) error {
 	if err := role.Validate(e.cat); err != nil {
-		return apperr.BadRequestErr(err)
+		return apperr.BadRequestFrom(err)
 	}
 	chain, err := e.h.Chain(ctx, e.resolver, scope)
 	if err != nil {
 		if errors.Is(err, ErrScopeNotFound) || errors.Is(err, ErrInvalidScope) {
-			return apperr.BadRequestErr(err)
+			return apperr.BadRequestFrom(err)
 		}
 		return apperr.Internal(err)
 	}
@@ -66,7 +66,7 @@ func (e *Engine) CanBind(ctx context.Context, actor Principal, role Role, scope 
 			}
 		}
 		if err := asValidation(problems); err != nil {
-			return apperr.BadRequestErr(err)
+			return apperr.BadRequestFrom(err)
 		}
 	}
 	eff, err := e.Effective(ctx, actor.Subject)

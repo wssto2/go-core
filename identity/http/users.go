@@ -408,7 +408,7 @@ func pagingOf(page, perPage int) account.Paging { return account.Paging{Page: pa
 
 func (h *Handler) listUsers(ctx context.Context, in ListUsersInput) (datatable.DatatableResult[UserRow], error) {
 	if in.OrderDir != "" && in.OrderDir != "asc" && in.OrderDir != "desc" {
-		return datatable.DatatableResult[UserRow]{}, apperr.New(nil, "identity.list.dir_invalid", apperr.CodeValidationError).
+		return datatable.DatatableResult[UserRow]{}, apperr.Wrap(nil, "identity.list.dir_invalid", apperr.CodeValidationError).
 			WithReason("identity.list.dir_invalid").WithFields(map[string]string{"order_dir": "identity.list.dir_invalid"})
 	}
 
@@ -740,7 +740,7 @@ func dayOf(field, v string) (time.Time, error) {
 	if err != nil {
 		reason := account.ReasonActivityRangeInvalid
 
-		return time.Time{}, apperr.New(nil, string(reason), apperr.CodeValidationError).
+		return time.Time{}, apperr.Wrap(nil, string(reason), apperr.CodeValidationError).
 			WithReason(reason).WithFields(map[string]string{field: string(reason)})
 	}
 
