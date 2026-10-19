@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/wssto2/go-core/database"
-	"github.com/wssto2/go-core/utils"
 	"gorm.io/gorm"
 )
 
@@ -124,7 +124,7 @@ func (d *Datatable[T]) WithFilter(filter Filter) *Datatable[T] {
 
 // WithDateFilter registers a date-range filter for the given query parameter.
 // The URI parameter value must be in one of the formats accepted by
-// utils.GetDateRange (e.g. "2024-01-01,2024-12-31" or a named range like
+// dateRange (e.g. "2024-01-01,2024-12-31" or a named range like
 // "this_month"). An empty or unrecognised value is a no-op.
 //
 // The optional dbColumn parameter specifies the actual database column name to
@@ -139,7 +139,7 @@ func (d *Datatable[T]) WithDateFilter(param string, dbColumn ...string) *Datatab
 	}
 	quotedCol := quoteIdent(dialect, col)
 	dateFilter := NewFilter(param, func(query *gorm.DB, value string, tableName string) *gorm.DB {
-		fromDate, toDate := utils.GetDateRange(value)
+		fromDate, toDate := dateRange(value)
 
 		if fromDate == "" || toDate == "" {
 			return query
@@ -420,4 +420,53 @@ func (d *Datatable[T]) Get(ctx context.Context) (*DatatableResult[T], error) {
 		From:     from,
 		To:       to,
 	}, nil
+}
+
+// dateRange returns the date range based on the given value keyword.
+// Supported: "today", "yesterday", "this_week", "last_week", "this_month", "last_month", "this_year", "last_year".
+func dateRange(value string) (fromDate, toDate string) {
+	now := time.Now()
+
+	switch value {
+	case "today":
+		fromDate = now.Format("2006-01-02 00:00:00")
+		toDate = now.Format("2006-01-02") + " 23:59:59"
+	case "yesterday":
+		yesterday := now.AddDate(0, 0, -1)
+		fromDate = yesterday.Format("2006-01-02 00:00:00")
+		toDate = yesterday.Format("2006-01-02") + " 23:59:59"
+	case "this_week":
+		// Monday is 0, Sunday is 6
+		weekDay := int(now.Weekday())
+		if weekDay == 0 { // Sunday
+			weekDay = 6
+		} else {
+			weekDay--
+		}
+		fromDate = now.AddDate(0, 0, -weekDay).Format("2006-01-02 00:00:00")
+		toDate = now.AddDate(0, 0, 6-weekDay).Format("2006-01-02") + " 23:59:59"
+	case "last_week":
+		weekDay := int(now.Weekday())
+		if weekDay == 0 { // Sunday
+			weekDay = 6
+		} else {
+			weekDay--
+		}
+		fromDate = now.AddDate(0, 0, -weekDay-7).Format("2006-01-02 00:00:00")
+		toDate = now.AddDate(0, 0, -weekDay-1).Format("2006-01-02") + " 23:59:59"
+	case "this_month":
+		fromDate = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02 15:04:05")
+		toDate = now.AddDate(0, 1, -now.Day()).Format("2006-01-02") + " 23:59:59"
+	case "last_month":
+		fromDate = time.Date(now.Year(), now.Month()-1, 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02 15:04:05")
+		toDate = now.AddDate(0, 0, -now.Day()).Format("2006-01-02") + " 23:59:59"
+	case "this_year":
+		fromDate = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02 15:04:05")
+		toDate = time.Date(now.Year(), 12, 31, 23, 59, 59, 0, now.Location()).Format("2006-01-02 15:04:05")
+	case "last_year":
+		fromDate = time.Date(now.Year()-1, 1, 1, 0, 0, 0, 0, now.Location()).Format("2006-01-02 15:04:05")
+		toDate = time.Date(now.Year()-1, 12, 31, 23, 59, 59, 0, now.Location()).Format("2006-01-02 15:04:05")
+	}
+
+	return fromDate, toDate
 }

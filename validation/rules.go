@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/wssto2/go-core/apperr"
-	"github.com/wssto2/go-core/utils"
 )
 
 var (
@@ -84,7 +83,7 @@ func EmailRule(attribute string, value any, args string, required bool, fail fun
 		return
 	}
 
-	if !utils.IsValidEmail(valueStr) {
+	if !isValidEmail(valueStr) {
 		fail(Fail(CodeEmail))
 	}
 }
@@ -787,4 +786,10 @@ func lengthOf(value any) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+var validEmail = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+
+func isValidEmail(email string) bool {
+	return validEmail.MatchString(email)
 }
