@@ -1,8 +1,11 @@
 package database
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
+
+	"gorm.io/gorm"
 )
 
 // ErrUnsupportedDriver is wrapped by the error for a connection whose driver is neither mysql nor sqlite.
@@ -75,4 +78,20 @@ func validateConfig(cfg ConnectionConfig) error {
 		return ErrInvalidConfig{Name: cfg.Name, Reason: reason}
 	}
 	return nil
+}
+
+// NotFoundAs turns the "no row" error of a read (gorm.ErrRecordNotFound, or sql.ErrNoRows from a raw scan) into
+// sentinel, the domain's own not-found error, so a repository returns one line instead of an if:
+//
+//	if err := r.DB(ctx).First(&row, id).Error; err != nil {
+//		return ticket.Ticket{}, database.NotFoundAs(err, ticket.ErrNotFound)
+//	}
+//
+// nil stays nil and any other error passes through unchanged.
+func NotFoundAs(err, sentinel error) error {
+	if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, sql.ErrNoRows) {
+		return sentinel
+	}
+
+	return err
 }
