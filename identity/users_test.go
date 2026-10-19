@@ -45,7 +45,9 @@ func TestInstallNeedsAMailSenderOrWithoutMail(t *testing.T) {
 		want string
 	}{
 		"nothing":                {nil, "identity needs a mail.Sender"},
-		"both":                   {[]identity.Option{mailTo(mail.NewSink(), ""), identity.WithoutMail()}, "both WithMail and WithoutMail"},
+		"both": {
+			[]identity.Option{mailTo(mail.NewSink(), ""), identity.WithoutMail()}, "both WithMail and WithoutMail",
+		},
 		"a sender, no secret":    {[]identity.Option{mailTo(mail.NewSink(), "")}, "Mail.CodeSecret"},
 		"a sender, short secret": {[]identity.Option{mailTo(mail.NewSink(), "short")}, "Mail.CodeSecret"},
 	} {
