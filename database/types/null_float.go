@@ -22,6 +22,11 @@ func NewNullFloat(value float64) NullFloat {
 	return NullFloat{value: &value}
 }
 
+// NewNullFloatPtr creates a NullFloat from a *float64. Nil pointer → SQL NULL.
+func NewNullFloatPtr(value *float64) NullFloat {
+	return NullFloat{value: value}
+}
+
 func (f NullFloat) Value() (driver.Value, error) {
 	if f.value == nil {
 		return nil, nil

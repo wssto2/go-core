@@ -24,6 +24,15 @@ func NewNullDate(value time.Time) NullDate {
 	return NullDate{value: zeroDateValue(value)}
 }
 
+// NewNullDatePtr creates a NullDate from a *time.Time. Nil pointer, or Go's zero time → SQL NULL.
+func NewNullDatePtr(value *time.Time) NullDate {
+	if value == nil {
+		return NullDate{}
+	}
+
+	return NewNullDate(*value)
+}
+
 func (d NullDate) Value() (driver.Value, error) {
 	if d.value == nil || d.value.IsZero() {
 		return nil, nil

@@ -22,6 +22,11 @@ func NewNullInt(value int) NullInt {
 	return NullInt{value: &value}
 }
 
+// NewNullIntPtr creates a NullInt from a *int. Nil pointer → SQL NULL.
+func NewNullIntPtr(value *int) NullInt {
+	return NullInt{value: value}
+}
+
 func (i NullInt) Value() (driver.Value, error) {
 	if i.value == nil {
 		return nil, nil
