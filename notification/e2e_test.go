@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/identity"
@@ -52,7 +51,7 @@ func TestEndToEndAFeaturePublishesAndThePersonIsNotifiedAndMailedOutsideQuietHou
 	loc := zagreb(t)
 	clock := &fakeClock{now: time.Date(2026, 6, 10, 12, 0, 0, 0, loc)}
 
-	cfg := bootstrap.DefaultConfig()
+	cfg := gocore.DefaultConfig()
 	cfg.HTTP.Port = freePort(t)
 	cfg.HTTP.ShutdownTimeout = 5 * time.Second
 	cfg.Frontend.StaticPath = ""
@@ -60,7 +59,7 @@ func TestEndToEndAFeaturePublishesAndThePersonIsNotifiedAndMailedOutsideQuietHou
 	reg, cleanup := database.NewTestRegistry("local")
 	t.Cleanup(func() { _ = cleanup() })
 
-	app := gocore.New(cfg, gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
+	app := gocore.New(gocore.WithConfig(cfg), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithClock(clock), gocore.WithAutoMigrate(t.Context()), gocore.WithAuthorizer(authztest.AllowAll()))
 
 	catalogue := authz.NewCatalogue()
