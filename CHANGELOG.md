@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.22.0 (unreleased)
+
+One package to start an app. `gocore` is the whole entry point: `bootstrap` is gone, `gocore.New` reads the environment, settings are read with explicit calls that stop start-up on a bad value. **Breaking**: an application upgrading from v1.21.0 follows "Removed" and "Changed".
+
+### Removed
+
+- The `bootstrap` package: `bootstrap.Config` (now `gocore.Config`), `bootstrap.EnvInt`, `EnvBool`, `EnvDuration`, `EnvStr`, `Component` (internal), the app builder, `gocore.WithBuilder` and `WithIPRateLimit` (use the `gocore` options below), and the `cfg.Frontend.APIPrefix`, `cfg.Storage` and `cfg.JWT` settings (the one prefix is `WithPrefix`; `API_PREFIX` is no longer read).
+- `identity.WithTenant`, `tenancy.TenantOf`, `Tenant` and `HasTenant` (`TenantAware` is `GetTenantID` alone: the tenant follows the sign-in).
+- identity options that did one job twice: `AllowImpersonation` (use `WithImpersonation`), `WithNavigationProvider` (use `WithNavigation`), `WithLocales` and `WithFieldLimits` (use `WithConfig(identity.Config{Locales, Limits})`), `WithCodeSecret` and `WithMailContent` (use `WithMail(identity.Mail{Sender, CodeSecret, Content})`).
+- `incident.Alerts.Notices`: `incident.Install` takes the notices and registers `incident.AlertCategory` itself, so the application no longer installs notification with it.
+- The `access` aliases of `access/admin` types: import the type from `access/admin` (or `authz` / `auth`); `access` installs.
+
+### Changed
+
+- **Breaking:** `gocore.New(opts...)` takes no config; it reads `APP_NAME` (no default now), `APP_ENV`, `APP_PORT`, the HTTP timeouts, `HTTP_MAX_BODY_BYTES`, `TRUSTED_PROXIES`, `LOG_*`, `DATABASE_LOG_*`, `I18N_*`, `STATIC_*` and, for each `gocore.WithDatabase("local")`, `LOCAL_DB_*`. `gocore.WithConfig(cfg)` replaces the environment, for tests. The first connection declared is the primary; there is no implicit `DB_*`. A malformed value stops start-up naming the variable instead of using the default (`APP_PORT=80a0`).
+- **Breaking:** `gocore.DefaultConfig()` holds the values of a production app (timeouts 15/15/60/10 seconds, database log level `error`, templates `frontend/templates/*.html`).
+- **Breaking:** an app's command and worker bodies receive a context already marked all-tenants (`tenancy.WithAllTenants`); narrow it with `tenancy.WithTenantID`.
+- **Breaking:** `app.Command(name, short, func(ctx, cmd *gocore.Cmd) error)`: `cmd` is a `flag.FlagSet` with the name, usage and output set, plus `List`, `App` and `Out`. `-h` prints the flags and exits 0; a stray argument is an error unless `cmd.Parse(gocore.Args(n))`.
+- **Breaking:** `mail.SMTPFromEnv(app, defaultFromName)` and `mail.SenderFromEnv(app, defaultFromName)` take the app (`mail.App`, which `*gocore.App` satisfies) and read through `app.Env()`. Outside `APP_ENV=production`, a configured relay (`SMTP_HOST`) needs `MAIL_REDIRECT_TO` or an explicit `MAIL_LIVE=true`, else start-up stops with one problem naming both. Production and an unconfigured relay are unchanged.
+- **Breaking:** `incident.AlertsFromEnv(app)` reads through `app.Env()`: a malformed `INCIDENT_*` number or flag stops start-up instead of keeping the default.
+- `App.Handler()` mounts `/health` and `/ready` like `Run`.
+- Every `gocore.New` in go-core's own tests sets `WithConfig(DefaultConfig())`, so no test reads the machine's environment.
+- Docs: the README "Getting started" is start an app, read a setting, add a command; doc comments no longer name removed API.
+
+### Added
+
+- Package `env`: `env.New(lookup)` and `app.Env()` with `Required`, `String`, `Int`, `Bool`, `Duration` and `List`; problems name the variable and are listed with the other start-up problems by `Run` and `Check`.
+- `gocore` options `WithSPA`, `WithSPAConfig`, `WithRateLimit(perUser, perIP)`, `WithGlobalRateLimit`, `WithIdempotency(ttl)`, `WithTrustedOrigins(...)`, `WithPrefix`, `WithDatabase(name, DefaultMaxOpenConns(n))`; `gocore.Cmd`, `gocore.Args(n)`.
+- A disk declared with `Public("/media")` (a path) is served read-only by the app, on `Run` and `Handler`: `GET` and `HEAD`, the file with its content type, 404 for a missing one, no directory listing, no `..`. An absolute public URL is someone else's and nothing is mounted. `storage.Files.PublicPath()` and `storage.DiskSpec.Name()`.
+- `gocore.App.Environment()` ("production", "staging" or "development").
+- `notification.Notices.Register`, `identity.Mail`, `identity.HoldersOf`, `identity.Menu`, and `types.NewNullIntPtr`, `NewNullFloatPtr`, `NewNullDatePtr`.
+
 ## v1.21.0 (2026-10-19)
 
 Clean-up and safe defaults. The container, the old auth and event layers and other dead API are removed, and the defaults of a new app are the safe ones. **Breaking**: an application upgrading from v1.20.0 follows "Removed" and "Changed".
