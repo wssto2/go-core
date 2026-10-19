@@ -18,7 +18,6 @@ import (
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/authz/gormstore"
-	"github.com/wssto2/go-core/bootstrap"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/identity/serviceaccount"
@@ -97,7 +96,7 @@ func newServer(t *testing.T, prefix string) *server {
 	})
 	require.NoError(t, err)
 
-	app := gocore.New(bootstrap.DefaultConfig(),
+	app := gocore.New(
 		gocore.WithPrefix(prefix), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(func(c *gin.Context) {
 			id, err := strconv.Atoi(c.GetHeader("X-User"))
