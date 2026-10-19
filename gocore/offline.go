@@ -40,6 +40,10 @@ func Offline() Option {
 	return func(app *App) { app.offline = true }
 }
 
+// Offline reports whether the App is offline: made with the Offline option, or by New for a generator command. An
+// installation that must not touch a disk, a socket or a database while assembling asks it.
+func (a *App) Offline() bool { return a.offline }
+
 // Catalogues lists the permission catalogues the installed features handed to Permissions, each once, in the order
 // they were first added: what the TypeScript generator writes the permission union from. go-core's modules add none
 // of their own: access and notification define their permissions in the application's catalogue, which the

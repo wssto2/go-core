@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -101,51 +102,54 @@ const (
 // must have: 0 (or less) means unknown, and any other value makes a longer or shorter stream an error rather than a
 // silently truncated file.
 func (d *Driver) Put(_ context.Context, key string, body io.Reader, size int64, _ string) error {
-	abs, err := d.safePath(key)
+	abs, tmp, err := d.stage(key, body, size)
 	if err != nil {
 		return err
 	}
 
-	// Reject symlinks to prevent write-through attacks on pre-planted symlinks.
-	err = refuseSymlink(abs)
-	if err != nil {
-		return err
-	}
+	defer func() { _ = os.Remove(tmp) }() // best-effort: gone already once renamed
 
-	dir := filepath.Dir(abs)
-
-	err = os.MkdirAll(dir, dirMode)
+	err = os.Rename(tmp, abs)
 	if err != nil {
 		return apperr.Internal(err)
 	}
-
-	tmp, err := os.CreateTemp(dir, tempPrefix+"*")
-	if err != nil {
-		return apperr.Internal(err)
-	}
-
-	renamed := false
-
-	defer func() {
-		if !renamed {
-			_ = tmp.Close()           // best-effort: it is already closed once the write finished
-			_ = os.Remove(tmp.Name()) // best-effort cleanup of partial file
-		}
-	}()
-
-	err = writeAll(tmp, body, size)
-	if err != nil {
-		return err
-	}
-
-	err = os.Rename(tmp.Name(), abs)
-	if err != nil {
-		return apperr.Internal(err)
-	}
-
-	renamed = true
 
 	return nil
+}
+
+// PutNew writes r to key only when nothing is there, and reports whether it did. The bytes are staged like Put's and
+// then hard-linked into place: link fails with EEXIST instead of replacing, so of any number of callers racing for one
+// key exactly one wins, and the file is whole from the moment it appears. A filesystem without hard links (FAT) makes
+// it fail with an error rather than fall back to a racy check.
+func (d *Driver) PutNew(_ context.Context, key string, body io.Reader, size int64, _ string) (bool, error) {
+	abs, err := d.safePath(key)
+	if err != nil {
+		return false, err
+	}
+
+	// Taken already: do not even read the stream.
+	_, err = os.Lstat(abs)
+	if err == nil {
+		return false, nil
+	}
+
+	abs, tmp, err := d.stage(key, body, size)
+	if err != nil {
+		return false, err
+	}
+
+	defer func() { _ = os.Remove(tmp) }() // best-effort: the link, not the temp name, is the object
+
+	err = os.Link(tmp, abs)
+	if errors.Is(err, fs.ErrExist) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, apperr.Internal(err)
+	}
+
+	return true, nil
 }
 
 // writeAll copies the stream into f, checks its length against size when that is known, and closes f.
@@ -338,4 +342,42 @@ func (d *Driver) Exists(ctx context.Context, key string) (bool, error) {
 		return false, nil
 	}
 	return false, apperr.Internal(err)
+}
+
+// stage validates key, makes its directory and writes the stream to a closed temporary file beside it: the absolute
+// path of the key and the name of the file. The caller moves it into place and removes the name; a failure here has
+// removed it already.
+func (d *Driver) stage(key string, body io.Reader, size int64) (string, string, error) {
+	abs, err := d.safePath(key)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Reject symlinks to prevent write-through attacks on pre-planted symlinks.
+	err = refuseSymlink(abs)
+	if err != nil {
+		return "", "", err
+	}
+
+	dir := filepath.Dir(abs)
+
+	err = os.MkdirAll(dir, dirMode)
+	if err != nil {
+		return "", "", apperr.Internal(err)
+	}
+
+	tmp, err := os.CreateTemp(dir, tempPrefix+"*")
+	if err != nil {
+		return "", "", apperr.Internal(err)
+	}
+
+	err = writeAll(tmp, body, size)
+	if err != nil {
+		_ = tmp.Close()           // best-effort: it is already closed once the write finished
+		_ = os.Remove(tmp.Name()) // best-effort cleanup of partial file
+
+		return "", "", err
+	}
+
+	return abs, tmp.Name(), nil
 }

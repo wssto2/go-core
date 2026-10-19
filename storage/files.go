@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/wssto2/go-core/apperr"
 )
@@ -31,8 +33,9 @@ type Files struct {
 var errPrivate = errors.New("it is private: its files are served through the application and have no URL")
 
 var (
-	_ Driver = (*Files)(nil)
-	_ Opener = (*Files)(nil)
+	_ Driver  = (*Files)(nil)
+	_ Opener  = (*Files)(nil)
+	_ Creator = (*Files)(nil)
 )
 
 // Folder returns the files of this disk or folder under prefix, "vehicle-documents" or "vehicles/2024". Nothing
@@ -69,6 +72,102 @@ func (f *Files) Put(ctx context.Context, key string, body io.Reader, size int64,
 	}
 
 	return f.driver.Put(ctx, full, body, size, mime) //nolint:wrapcheck // a driver's own apperr error
+}
+
+// PutNew stores the stream at key only when nothing is there, atomically, and reports whether it did. A driver that
+// cannot do that atomically returns errors.ErrUnsupported (see Creator).
+func (f *Files) PutNew(ctx context.Context, key string, body io.Reader, size int64, mime string) (bool, error) {
+	full, err := f.resolve(key)
+	if err != nil {
+		return false, err
+	}
+
+	c, ok := f.driver.(Creator)
+	if !ok {
+		return false, errors.ErrUnsupported
+	}
+
+	return c.PutNew(ctx, full, body, size, mime) //nolint:wrapcheck // a driver's own apperr error
+}
+
+var errNoFreeName = errors.New("storage: no free name")
+
+// maxUniqueTries bounds the numbered names PutUnique tries before it gives up.
+const maxUniqueTries = 10000
+
+// PutUnique stores the stream under name, or under "base-1.ext", "base-2.ext", … when that is taken, and returns the
+// key it used, relative to the folder. Two callers saving the same name get different keys and both bodies survive:
+// the choice and the write are one atomic step in the driver (see Creator), where an Exists-then-Put loop races. The
+// body is read once, so a name that is taken costs a write for each try on a driver that has to consume the stream
+// first; pass a name through SafeName when it comes from a client. A driver without Creator returns
+// errors.ErrUnsupported.
+func (f *Files) PutUnique(ctx context.Context, name string, body io.Reader, size int64, mime string) (string, error) {
+	ext := path.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+
+	// The body can be offered to only one driver call, so it is buffered once for the retries.
+	seeker, ok := body.(io.ReadSeeker)
+	if !ok {
+		data, err := io.ReadAll(body)
+		if err != nil {
+			return "", apperr.Internal(err)
+		}
+
+		seeker = bytes.NewReader(data)
+	}
+
+	key := name
+
+	for try := 1; try <= maxUniqueTries; try++ {
+		created, err := f.PutNew(ctx, key, seeker, size, mime)
+		if err != nil {
+			return "", err
+		}
+
+		if created {
+			return key, nil
+		}
+
+		_, err = seeker.Seek(0, io.SeekStart)
+		if err != nil {
+			return "", apperr.Internal(err)
+		}
+
+		key = fmt.Sprintf("%s-%d%s", base, try, ext)
+	}
+
+	return "", apperr.Internal(fmt.Errorf("%w for %q after %d tries", errNoFreeName, name, maxUniqueTries))
+}
+
+// SafeName reduces a client's file name to a safe bare key: the directory part dropped (either slash), lower-cased,
+// every run of characters that are not letters, digits or dots folded to one "-", and "-" and "." trimmed from the
+// ends. A name with nothing left becomes "document".
+func SafeName(name string) string {
+	name = strings.ToLower(path.Base(strings.ReplaceAll(strings.TrimSpace(name), `\`, "/")))
+
+	var out strings.Builder
+
+	lastDash := false
+
+	for _, r := range name {
+		switch {
+		case r == '.' || unicode.IsLetter(r) || unicode.IsDigit(r):
+			out.WriteRune(r)
+
+			lastDash = false
+		case !lastDash:
+			out.WriteRune('-')
+
+			lastDash = true
+		}
+	}
+
+	clean := strings.Trim(out.String(), "-.")
+	if clean == "" {
+		return "document"
+	}
+
+	return clean
 }
 
 // Get opens the file for reading. A missing file is apperr.NotFound.

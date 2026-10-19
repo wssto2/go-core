@@ -26,3 +26,11 @@ type Driver interface {
 type Opener interface {
 	Open(ctx context.Context, key string) (io.ReadSeekCloser, fs.FileInfo, error)
 }
+
+// Creator is the capability of a driver (the local and memory ones have it) to store an object only when nothing is at
+// the key, in one atomic step: PutNew reports false, and writes nothing, when the key is taken, and never replaces an
+// object. It is what Files.PutUnique is built on; a driver that cannot promise the atomicity must not implement it,
+// because a check-then-write fallback loses a file when two callers pick the same name.
+type Creator interface {
+	PutNew(ctx context.Context, key string, r io.Reader, size int64, mime string) (created bool, err error)
+}

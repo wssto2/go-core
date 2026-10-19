@@ -64,29 +64,14 @@ func (d *Driver) Open(_ context.Context, key string) (io.ReadSeekCloser, fs.File
 // Put stores the whole stream at key, replacing what is there. size is the length the stream must have: 0 (or less)
 // means unknown; any other value makes a longer or shorter stream an error.
 func (d *Driver) Put(ctx context.Context, key string, r io.Reader, size int64, mime string) error {
-	if size > maxSize {
-		return apperr.BadRequest(fmt.Sprintf("storage: size %d exceeds maximum allowed (%d bytes)", size, maxSize))
-	}
+	_, err := d.put(key, r, size, true)
 
-	data, err := io.ReadAll(io.LimitReader(r, maxSize+1))
-	if err != nil {
-		return apperr.Internal(err)
-	}
+	return err
+}
 
-	if len(data) > maxSize {
-		return apperr.BadRequest(fmt.Sprintf("storage: the stream exceeds the maximum allowed (%d bytes)", maxSize))
-	}
-
-	if size > 0 && int64(len(data)) != size {
-		return apperr.BadRequest(fmt.Sprintf("storage: the stream is not the declared %d bytes", size))
-	}
-
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	d.data[key] = entry{data: data, mod: time.Now()}
-
-	return nil
+// PutNew stores the stream at key only when nothing is there, under the driver's lock, and reports whether it did.
+func (d *Driver) PutNew(_ context.Context, key string, r io.Reader, size int64, _ string) (bool, error) {
+	return d.put(key, r, size, false)
 }
 
 // Delete removes the object. A missing object is not an error.
@@ -144,3 +129,33 @@ func (i info) Mode() fs.FileMode  { return fileMode }
 func (i info) ModTime() time.Time { return i.mod }
 func (i info) IsDir() bool        { return false }
 func (i info) Sys() any           { return nil }
+
+func (d *Driver) put(key string, r io.Reader, size int64, replace bool) (bool, error) {
+	if size > maxSize {
+		return false, apperr.BadRequest(fmt.Sprintf("storage: size %d exceeds maximum allowed (%d bytes)", size, maxSize))
+	}
+
+	data, err := io.ReadAll(io.LimitReader(r, maxSize+1))
+	if err != nil {
+		return false, apperr.Internal(err)
+	}
+
+	if len(data) > maxSize {
+		return false, apperr.BadRequest(fmt.Sprintf("storage: the stream exceeds the maximum allowed (%d bytes)", maxSize))
+	}
+
+	if size > 0 && int64(len(data)) != size {
+		return false, apperr.BadRequest(fmt.Sprintf("storage: the stream is not the declared %d bytes", size))
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if _, taken := d.data[key]; taken && !replace {
+		return false, nil
+	}
+
+	d.data[key] = entry{data: data, mod: time.Now()}
+
+	return true, nil
+}

@@ -3,9 +3,12 @@ package storage_test
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -275,4 +278,111 @@ func TestLocalDiskRefusesASymlinkedFile(t *testing.T) {
 
 	_, err = files.Exists(ctx, "link.txt")
 	require.Error(t, err)
+}
+
+func TestPutUniqueNumbersATakenName(t *testing.T) {
+	t.Parallel()
+
+	for name, spec := range map[string]storage.DiskSpec{
+		"memory": storage.Disk("d").Memory(),
+		"local":  storage.Disk("d").Local(t.TempDir()),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			files, _ := newHost(t, spec).Disk("d")
+			ctx := context.Background()
+
+			for _, want := range []string{"doc.pdf", "doc-1.pdf", "doc-2.pdf"} {
+				key, err := files.PutUnique(ctx, "doc.pdf", bytes.NewBufferString("body "+want), 0, "")
+				require.NoError(t, err)
+				assert.Equal(t, want, key)
+				assert.Equal(t, "body "+want, string(read(t, files, key)))
+			}
+
+			key, err := files.Folder("sub").PutUnique(ctx, "noext", bytes.NewBufferString("x"), 0, "")
+			require.NoError(t, err)
+			assert.Equal(t, "noext", key, "the key is relative to the folder")
+
+			key, err = files.Folder("sub").PutUnique(ctx, "noext", bytes.NewBufferString("y"), 0, "")
+			require.NoError(t, err)
+			assert.Equal(t, "noext-1", key)
+		})
+	}
+}
+
+func TestPutUniqueLosesNothingUnderConcurrency(t *testing.T) {
+	t.Parallel()
+
+	for name, spec := range map[string]storage.DiskSpec{
+		"memory": storage.Disk("d").Memory(),
+		"local":  storage.Disk("d").Local(t.TempDir()),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			files, _ := newHost(t, spec).Disk("d")
+			ctx := context.Background()
+
+			const count = 40
+
+			keys := make([]string, count)
+
+			var group sync.WaitGroup
+
+			for i := range count {
+				group.Go(func() {
+					key, err := files.PutUnique(ctx, "same.txt", bytes.NewBufferString(fmt.Sprint("body", i)), 0, "")
+					assert.NoError(t, err)
+
+					keys[i] = key
+				})
+			}
+
+			group.Wait()
+
+			seen := map[string]bool{}
+
+			for i, key := range keys {
+				assert.False(t, seen[key], "key %q handed out twice", key)
+				seen[key] = true
+				assert.Equal(t, fmt.Sprint("body", i), string(read(t, files, key)), "the body of %q survived", key)
+			}
+
+			all, err := files.List(ctx, "")
+			require.NoError(t, err)
+			assert.Len(t, all, count, "no temporary file is left behind")
+		})
+	}
+}
+
+// bare is a driver with nothing but the Driver methods.
+type bare struct{ storage.Driver }
+
+func TestPutUniqueRefusesADriverThatCannotDoItAtomically(t *testing.T) {
+	t.Parallel()
+
+	reg := storage.NewRegistry()
+	// The embedded driver is nil: only the capability check runs.
+	require.NoError(t, reg.Add(storage.Disk("d").Driver(bare{Driver: nil})))
+
+	files, _ := reg.Disk("d")
+	_, err := files.PutUnique(context.Background(), "a.txt", bytes.NewBufferString("x"), 0, "")
+	require.ErrorIs(t, err, errors.ErrUnsupported)
+}
+
+func TestSafeName(t *testing.T) {
+	t.Parallel()
+
+	for input, want := range map[string]string{
+		"Report Final (2).PDF": "report-final-2-.pdf",
+		"../../etc/passwd":     "passwd",
+		`C:\dir\Račun 1.pdf`:   "račun-1.pdf",
+		"  ":                   "document",
+		".pdf":                 "pdf",
+		"a//b.txt":             "b.txt",
+		"--x--.txt":            "x-.txt",
+	} {
+		assert.Equal(t, want, storage.SafeName(input), input)
+	}
 }

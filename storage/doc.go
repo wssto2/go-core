@@ -21,6 +21,10 @@
 // is an error, Delete of a missing file is not, and Put writes the whole stream (size 0 means unknown, any other size
 // is the exact length) or leaves nothing behind.
 //
+// PutUnique saves under a name or, when it is taken, "base-1.ext", "base-2.ext", …, atomically, and returns the key;
+// SafeName cleans a client's file name first. Both need the driver to be a Creator (local and memory are), else
+// PutUnique returns errors.ErrUnsupported rather than race.
+//
 // Driver is what a store implements; storage/local and storage/memory are the two that ship. A driver that also has
 // Open (see Opener) lets web.Serve answer byte ranges and conditional requests.
 package storage

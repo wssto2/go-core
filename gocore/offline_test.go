@@ -271,3 +271,15 @@ func TestOfflineCreatesNoLogDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestOfflineReportsWhetherTheAppIsOffline(t *testing.T) {
+	t.Parallel()
+
+	if !offlineApp().Offline() {
+		t.Fatal("an App made with Offline must report it")
+	}
+
+	if New(bootstrap.DefaultConfig(), WithLogger(quietLogger())).Offline() {
+		t.Fatal("an ordinary App is not offline")
+	}
+}

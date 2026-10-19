@@ -172,3 +172,20 @@ func TestATextEnumNeedsATypeWrittenAsText(t *testing.T) {
 
 	require.Panics(t, func() { route.TextEnum(Rank(0), Rank(9)) }, "a value that does not marshal is a declaration bug")
 }
+
+// A route whose output is a text-written int (or a list of them) has the string type in the route table, as go2ts
+// gives it in entities.ts.
+func TestATextWrittenIntIsAStringInTheRouteTable(t *testing.T) {
+	t.Parallel()
+
+	one := route.Get[ShowInput, Rank]("/ranks/:id").Name("ranks.show")
+	many := route.Get[route.Empty, []Rank]("/ranks").Name("ranks.list")
+	json := route.Get[ShowInput, JSONRank]("/json-ranks/:id").Name("ranks.json")
+	routes := generated(t, route.Group("ranks", one, many, json), "routes.ts")
+
+	require.Contains(t, routes, "string[]")
+	require.NotContains(t, routes, "Rank[]")
+	require.NotContains(t, routes, "number[]")
+	require.Regexp(t, `show: route<ShowInput, string>`, routes)
+	require.Regexp(t, `json: route<ShowInput, number>`, routes, "MarshalJSON wins over MarshalText, as in encoding/json")
+}

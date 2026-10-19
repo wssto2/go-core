@@ -410,6 +410,11 @@ func checkNamed(spec route.Spec, t reflect.Type) error {
 
 // tsType renders t as a TypeScript type and lists the named structs it needs.
 func tsType(spec route.Spec, t reflect.Type, lists *bool) (string, []reflect.Type, error) {
+	// A type written as text (an int with MarshalText) is a string on the wire, as go2ts has it in entities.ts.
+	if go2ts.WritesText(t) {
+		t = reflect.TypeFor[string]()
+	}
+
 	switch t.Kind() {
 	case reflect.Pointer:
 		expr, st, err := tsType(spec, t.Elem(), lists)
