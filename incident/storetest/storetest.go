@@ -734,6 +734,7 @@ func digestPruned(t *testing.T, store core.Store) {
 	same(t, "a waiting item is never pruned", claimed(t, store, base().Add(pageOfTwo*time.Hour), wide), []int{pageOfTwo})
 }
 
+//nolint:exhaustruct,exhaustruct_v5,lll,mnd,varnamelen // zero by design
 func occurrencesPaged(t *testing.T, store core.Store) {
 	t.Helper()
 
@@ -746,8 +747,9 @@ func occurrencesPaged(t *testing.T, store core.Store) {
 	sighting := func(incidentID int, message string, at time.Time) {
 		//nolint:exhaustruct,exhaustruct_v5 // zero by design
 		occurrence := core.Occurrence{
-			IncidentID: incidentID, Fingerprint: mine.Fingerprint, Environment: testEnv, AffectedRoute: "/r", RequestMethod: "GET",
-			UserID: &userID, IPAddress: "10.0.0.1", RequestID: "req-1", ErrorClass: "*e", ErrorCode: "c", Message: message,
+			IncidentID: incidentID, Fingerprint: mine.Fingerprint, Environment: testEnv, AffectedRoute: "/r",
+			RequestMethod: "GET",
+			UserID:        &userID, IPAddress: "10.0.0.1", RequestID: "req-1", ErrorClass: "*e", ErrorCode: "c", Message: message,
 			Stacktrace: "a.go:1", ContextJSON: `{"k":"v"}`, RequestJSON: `{"path":"/r"}`, OccurredAt: at, CreatedAt: at,
 		}
 		check(t, store.CreateOccurrence(t.Context(), &occurrence))

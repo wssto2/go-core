@@ -218,6 +218,7 @@ func (s *Store) Occurrences(
 		return nil, err
 	}
 
+	//nolint:exhaustruct,exhaustruct_v5 // zero by design
 	params := datatable.QueryParams{Page: page.Number, PerPage: page.Size, OrderCol: "id", OrderDir: "desc"}
 
 	result, err := datatable.New[occurrenceModel](s.conn(ctx), params).

@@ -205,13 +205,14 @@ type OccurrenceResponse struct {
 	Request     any             `json:"request,omitempty"` // a JSON document (json.RawMessage)
 }
 
-func occurrenceOf(o core.Occurrence) OccurrenceResponse {
+func occurrenceOf(occ core.Occurrence) OccurrenceResponse {
 	return OccurrenceResponse{
-		ID: o.ID, IncidentID: o.IncidentID, OccurredAt: stamp(o.OccurredAt), Environment: o.Environment,
-		Module: o.AffectedModule, Route: o.AffectedRoute, Method: o.RequestMethod, UserID: o.UserID, User: personOf(o.User),
-		IPAddress: o.IPAddress, RequestID: o.RequestID, ErrorClass: o.ErrorClass, ErrorCode: o.ErrorCode,
-		Message: o.Message, Stacktrace: o.Stacktrace, Context: document([]byte(o.ContextJSON)),
-		Request: document([]byte(o.RequestJSON)),
+		ID: occ.ID, IncidentID: occ.IncidentID, OccurredAt: stamp(occ.OccurredAt), Environment: occ.Environment,
+		Module: occ.AffectedModule, Route: occ.AffectedRoute, Method: occ.RequestMethod,
+		UserID: occ.UserID, User: personOf(occ.User),
+		IPAddress: occ.IPAddress, RequestID: occ.RequestID, ErrorClass: occ.ErrorClass, ErrorCode: occ.ErrorCode,
+		Message: occ.Message, Stacktrace: occ.Stacktrace, Context: document([]byte(occ.ContextJSON)),
+		Request: document([]byte(occ.RequestJSON)),
 	}
 }
 

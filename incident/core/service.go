@@ -157,8 +157,8 @@ func (s *Service) Comments(ctx context.Context, incidentID int, viewer Viewer) (
 	return comments, nil
 }
 
-// Occurrences is a page of the sightings of an incident, newest first, with the people named. Only the staff reads them:
-// they hold the request and context of failures, which no reporter is shown.
+// Occurrences is a page of the sightings of an incident, newest first, with the people named. Only the staff reads
+// them: they hold the request and context of failures, which no reporter is shown.
 func (s *Service) Occurrences(
 	ctx context.Context, incidentID int, page pagination.Page, viewer Viewer,
 ) (*pagination.PageResult[Occurrence], error) {

@@ -1,8 +1,9 @@
-//nolint:exhaustruct,exhaustruct_v5,lll,paralleltest,varnamelen // tests in the style of the package's others
+//nolint:forcetypeassert,lll,paralleltest,varnamelen // tests in the style of the package's others
 package incident_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"testing"
@@ -20,8 +21,11 @@ func toString(id any) string {
 		return strconv.Itoa(n)
 	}
 
-	return id.(string)
+	return fmt.Sprint(id)
 }
+
+// idOf is the id of an incident row.
+func idOf(row map[string]any) int { return int(row["id"].(int64)) }
 
 func TestTheStaffReadsTheOccurrencesOfAnIncidentNewestFirst(t *testing.T) {
 	w := newWorld(t)
@@ -31,7 +35,7 @@ func TestTheStaffReadsTheOccurrencesOfAnIncidentNewestFirst(t *testing.T) {
 		w.as(ana, http.MethodGet, prefix+"/v1/test/boom?i="+strconv.Itoa(i), nil, "X-Request-ID", "req-"+strconv.Itoa(i))
 	}
 
-	id := int(w.rows("incidents")[0]["id"].(int64))
+	id := idOf(w.rows("incidents")[0])
 
 	res := w.as(staff, http.MethodGet, occurrencesOf(id)+"?per_page=2", nil)
 	require.Equal(t, http.StatusOK, res.Code, string(res.Body))
@@ -58,7 +62,7 @@ func TestTheStaffReadsTheOccurrencesOfAnIncidentNewestFirst(t *testing.T) {
 func TestOnlyManagersReadOccurrences(t *testing.T) {
 	w := newWorld(t)
 	w.as(ana, http.MethodGet, prefix+"/v1/test/boom", nil)
-	id := int(w.rows("incidents")[0]["id"].(int64))
+	id := idOf(w.rows("incidents")[0])
 
 	for _, who := range []int{ana, reader, -robot} {
 		assert.Equal(t, http.StatusForbidden, w.as(who, http.MethodGet, occurrencesOf(id), nil).Code, "person %d", who)
@@ -76,7 +80,7 @@ func TestOccurrencesOfAnotherIncidentAreNotMixedInAndAnUnknownOneIsNotFound(t *t
 	require.Len(t, rows, 2)
 
 	for _, row := range rows {
-		got := decode[[]incident.OccurrenceResponse](t, w.as(staff, http.MethodGet, occurrencesOf(int(row["id"].(int64))), nil).Data)
+		got := decode[[]incident.OccurrenceResponse](t, w.as(staff, http.MethodGet, occurrencesOf(idOf(row)), nil).Data)
 		require.Len(t, got, 1)
 		assert.EqualValues(t, row["id"], got[0].IncidentID)
 	}

@@ -1,9 +1,10 @@
-//nolint:exhaustruct,exhaustruct_v5,lll,paralleltest,varnamelen // tests in the style of the package's others
+//nolint:goconst,gochecknoglobals,lll,paralleltest,varnamelen // tests in the style of the package's others
 package incident_test
 
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,15 +16,15 @@ var secrets = []string{"hunter2-body", "hunter2-field", "tok-in-path", "Bearer a
 
 // storedText is every text column of every occurrence that a reader could see.
 func storedText(w *world) string {
-	text := ""
+	var text strings.Builder
 
 	for _, row := range w.rows("incident_occurrences") {
 		for _, column := range []string{"message", "stacktrace", "context_json", "request_json", "affected_route", "request_id"} {
-			text += fmt.Sprint(" ", row[column])
+			fmt.Fprint(&text, " ", row[column])
 		}
 	}
 
-	return text
+	return text.String()
 }
 
 func TestAServerErrorOccurrenceStoresNoSecret(t *testing.T) {

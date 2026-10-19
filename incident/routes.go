@@ -71,6 +71,7 @@ type ListQuery struct {
 // OccurrencesQuery is the incident and the page of its occurrences (page, per_page).
 type OccurrencesQuery struct {
 	ByID
+
 	Query url.Values `json:"-" query:"*"`
 }
 
@@ -150,8 +151,8 @@ func (d *Declared) Contract() *route.Contract { return d.group }
 // To binds a handler to every route; hand the result to app.Routes.
 func (d *Declared) To(h *Handlers) []route.Handled {
 	return []route.Handled{
-		d.List.To(h.list), d.Show.To(h.show), d.Comments.To(h.comments), d.Occurrences.To(h.occurrences), d.Report.To(h.report), d.Comment.To(h.comment),
-		d.Update.To(h.update), d.ClientError.To(h.clientError),
+		d.List.To(h.list), d.Show.To(h.show), d.Comments.To(h.comments), d.Occurrences.To(h.occurrences),
+		d.Report.To(h.report), d.Comment.To(h.comment), d.Update.To(h.update), d.ClientError.To(h.clientError),
 	}
 }
 
@@ -269,7 +270,9 @@ func (h *Handlers) comments(ctx context.Context, input ByID) ([]CommentResponse,
 	return out, nil
 }
 
-func (h *Handlers) occurrences(ctx context.Context, input OccurrencesQuery) (route.Page[OccurrenceResponse], error) {
+func (h *Handlers) occurrences(
+	ctx context.Context, input OccurrencesQuery,
+) (route.Page[OccurrenceResponse], error) {
 	err := web.PositiveID("incidentID", input.IncidentID)
 	if err != nil {
 		return route.Page[OccurrenceResponse]{}, err //nolint:wrapcheck // web's own answer
