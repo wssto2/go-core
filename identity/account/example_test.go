@@ -241,7 +241,7 @@ func ExampleNoNotices() {
 	// Output: ok
 }
 
-// *Users names people for access.SubjectDirectory, which asks for the display
+// *Users names people for admin.SubjectDirectory, which asks for the display
 // name of the subjects it is about to show.
 func ExampleUsers_SubjectNames() {
 	users := identitytest.Users(exampleT{}, identitytest.Account(1, "ana", "secret"))

@@ -63,7 +63,7 @@ The module owns no users or places. Names come through two ports: `SubjectDirect
 and `ScopeCatalog` (places below the root; it is also the engine's scope resolver). A subject missing from the
 directory is a 404 for reading its access, binding and unbinding, so an id that does not exist cannot be told
 apart from one the actor may not see. A place missing from the catalogue is shown without a name. An application
-without tenancy has the root, `organization`, as its only level and uses `access.NoScopes()`.
+without tenancy has the root, `organization`, as its only level and uses `admin.NoScopes()` (`access/admin`).
 
 `Seed` gives the first administrator a predefined role at the root outside the delegation rules (a seed or a
 command, never an HTTP route); it does nothing when they already hold it.

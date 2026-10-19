@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/wssto2/go-core/access"
+	"github.com/wssto2/go-core/access/admin"
 	"github.com/wssto2/go-core/audit"
 	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/authztest"
@@ -153,7 +154,7 @@ func ExampleOn() {
 
 // NoScopes is the default: the organization is the only place a role is given at.
 func ExampleNoScopes() {
-	options, _ := access.NoScopes().Options(context.Background())
+	options, _ := admin.NoScopes().Options(context.Background())
 	fmt.Println(len(options), "places below the organization")
 	// Output: 0 places below the organization
 }
@@ -171,7 +172,7 @@ func ExampleRoutes() {
 
 // The permission ids are fixed: iam.role:{view,manage,delete}, iam.user:{view,manage}.
 func ExampleManageBindings() {
-	fmt.Println(access.ManageBindings)
+	fmt.Println(admin.ManageBindings)
 	// Output: iam.user:manage
 }
 
@@ -180,4 +181,4 @@ type dealers struct{ *authztest.Places }
 
 func (dealers) Names(context.Context, []authz.Scope) (map[authz.Scope]string, error) { return nil, nil }
 
-func (dealers) Options(context.Context) ([]access.ScopeOption, error) { return nil, nil }
+func (dealers) Options(context.Context) ([]admin.ScopeOption, error) { return nil, nil }

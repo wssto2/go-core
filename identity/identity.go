@@ -16,7 +16,7 @@
 // application's authorizer when a request comes, so /auth/me carries the
 // person's access (authz.MyAccess) as soon as access.Install, or any
 // authorizer that has MyAccess, is part of the application, in either order.
-// *Users satisfies access.SubjectDirectory, so it is what access.Install takes.
+// *Users satisfies admin.SubjectDirectory, so it is what access.Install takes.
 //
 // The users module is installed with it: /v1/iam/users for administrators and
 // /v1/iam/profile for every signed-in person, with their permissions iam.user:view

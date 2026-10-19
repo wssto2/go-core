@@ -138,7 +138,7 @@ const (
 	personsPerAccount = 2
 )
 
-// Reach says whether the actor may see the service account at all (it answers access.SubjectReach for
+// Reach says whether the actor may see the service account at all (it answers admin.SubjectReach for
 // the accounts): false for one of another tenant, and for one that does not exist.
 func (s *Service) Reach(ctx context.Context, accountID int) (bool, error) {
 	_, err := s.find(ctx, accountID)
@@ -153,7 +153,7 @@ func (s *Service) Reach(ctx context.Context, accountID int) (bool, error) {
 	return true, nil
 }
 
-// Names returns the name of each service account among ids that exists (access.SubjectDirectory's).
+// Names returns the name of each service account among ids that exists (admin.SubjectDirectory's).
 func (s *Service) Names(ctx context.Context, ids []int) (map[int]string, error) {
 	out := make(map[int]string, len(ids))
 

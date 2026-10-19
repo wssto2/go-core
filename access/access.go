@@ -40,39 +40,10 @@ import (
 	"github.com/wssto2/go-core/identity/serviceaccount"
 )
 
-// The types an application names when it configures the module.
-type (
-	// ScopeCatalog names the places below the root a role can be given at.
-	ScopeCatalog = admin.ScopeCatalog
-	// ScopeOption is one such place.
-	ScopeOption = admin.ScopeOption
-	// SubjectDirectory names the people and service accounts that hold roles.
-	SubjectDirectory = admin.SubjectDirectory
-	// RoleCheck is the application's rule for a custom role (WithRoleCheck).
-	RoleCheck = admin.RoleCheck
-	// BindingCheck is the application's rule for a binding (WithBindingCheck).
-	BindingCheck = admin.BindingCheck
-	// SubjectReach is the application's rule for whom an actor sees (WithSubjectReach).
-	SubjectReach = admin.SubjectReach
-)
-
-// The permissions administration is guarded by: iam.role:{view,manage,delete}
-// and iam.user:{view,manage}. The ids are fixed.
-const (
-	ViewRoles      = admin.ViewRoles
-	ManageRoles    = admin.ManageRoles
-	DeleteRoles    = admin.DeleteRoles
-	ViewAccess     = admin.ViewAccess
-	ManageBindings = admin.ManageBindings
-)
-
 // Routes is the declared HTTP contract (paths under /v1, before the
 // application's gocore.WithPrefix): what the TypeScript generator reads, without
 // installing anything.
 var Routes = accesshttp.Declare().Contract()
-
-// NoScopes is the ScopeCatalog of an application without tenancy.
-func NoScopes() ScopeCatalog { return admin.NoScopes() }
 
 // Access is what Install built. After Install reported a problem to the
 // application (Run lists it) the value is empty.
@@ -94,10 +65,10 @@ type Access struct {
 //
 // Define the application's permissions before Install: building the engine
 // freezes the catalogue.
-func Install(app *gocore.App, catalogue *authz.Catalogue, users SubjectDirectory, opts ...Option) *Access {
+func Install(app *gocore.App, catalogue *authz.Catalogue, users admin.SubjectDirectory, opts ...Option) *Access {
 	defer app.Shipping()()
 
-	s := settings{scopes: NoScopes()}
+	s := settings{scopes: admin.NoScopes()}
 	for _, opt := range opts {
 		opt(&s)
 	}
@@ -193,16 +164,16 @@ type Option func(*settings)
 
 type settings struct {
 	roles      []authz.Role
-	scopes     ScopeCatalog
+	scopes     admin.ScopeCatalog
 	levels     *authz.Hierarchy
 	features   authz.FeatureResolver
 	audit      audit.Repository
 	connection database.Connection
 
 	cache        *authz.Cache
-	roleCheck    RoleCheck
-	bindingCheck BindingCheck
-	reach        SubjectReach
+	roleCheck    admin.RoleCheck
+	bindingCheck admin.BindingCheck
+	reach        admin.SubjectReach
 }
 
 // WithRoles declares the application's predefined roles: defined in code,
@@ -214,7 +185,7 @@ func WithRoles(roles ...authz.Role) Option {
 // WithScopes gives the application places below the root: a hierarchy such as
 // authz.NewHierarchy("organization", "dealer", "location") and the catalogue that
 // resolves and names them. Without it the root, organization, is the only place.
-func WithScopes(h *authz.Hierarchy, scopes ScopeCatalog) Option {
+func WithScopes(h *authz.Hierarchy, scopes admin.ScopeCatalog) Option {
 	return func(s *settings) { s.levels, s.scopes = h, scopes }
 }
 
@@ -230,17 +201,19 @@ func WithAudit(repo audit.Repository) Option { return func(s *settings) { s.audi
 
 // WithRoleCheck adds the application's rule for a custom role: its problems refuse
 // the save of a new or edited role as authz.invalid, after the catalogue's own
-// validation (see RoleCheck).
-func WithRoleCheck(check RoleCheck) Option { return func(s *settings) { s.roleCheck = check } }
+// validation (see admin.RoleCheck).
+func WithRoleCheck(check admin.RoleCheck) Option { return func(s *settings) { s.roleCheck = check } }
 
 // WithBindingCheck adds the application's rule for giving and taking away a role: it
 // is asked on bind, on unbind and for each holder of a role replacement (see
-// BindingCheck).
-func WithBindingCheck(check BindingCheck) Option { return func(s *settings) { s.bindingCheck = check } }
+// admin.BindingCheck).
+func WithBindingCheck(check admin.BindingCheck) Option {
+	return func(s *settings) { s.bindingCheck = check }
+}
 
 // WithSubjectReach limits whom the actor may see: a subject out of reach answers
-// not-found on a person's access, scopes, bind and unbind (see SubjectReach).
-func WithSubjectReach(reach SubjectReach) Option { return func(s *settings) { s.reach = reach } }
+// not-found on a person's access, scopes, bind and unbind (see admin.SubjectReach).
+func WithSubjectReach(reach admin.SubjectReach) Option { return func(s *settings) { s.reach = reach } }
 
 // WithCache sets the cache of effective access, to choose its time to live
 // (authz.NewCache(ttl); the default is authz.DefaultCacheTTL). Evict through
@@ -260,7 +233,7 @@ type serviceAccounts interface {
 
 // reachWith is the rule for whom the actor may see: the application's, and for a service account its own (an
 // administrator of a tenant sees the service accounts of that tenant).
-func (s settings) reachWith(robots serviceAccounts, hasRobots bool) SubjectReach {
+func (s settings) reachWith(robots serviceAccounts, hasRobots bool) admin.SubjectReach {
 	if !hasRobots {
 		return s.reach
 	}

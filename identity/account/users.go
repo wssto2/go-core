@@ -34,7 +34,7 @@ type Users struct {
 }
 
 // ServiceAccounts is what Users asks of the service accounts identity installs (identity.WithServiceAccounts): their
-// names, for access.SubjectDirectory, and whether the actor may see one at all.
+// names, for admin.SubjectDirectory, and whether the actor may see one at all.
 type ServiceAccounts interface {
 	// Names returns the name of each service account among ids that exists.
 	Names(ctx context.Context, ids []int) (map[int]string, error)
@@ -145,7 +145,7 @@ func (u *Users) Names(ctx context.Context, ids []int) (map[int]string, error) {
 }
 
 // SubjectNames returns the display name of each person among subjects that
-// exists, which is what access.SubjectDirectory asks: *Users satisfies it as it
+// exists, which is what admin.SubjectDirectory asks: *Users satisfies it as it
 // is. The name is the account's name, or its login when it has none. Service
 // accounts are named when identity has them (WithServiceAccounts), and left out otherwise.
 func (u *Users) SubjectNames(ctx context.Context, subjects []authz.Subject) (map[authz.Subject]string, error) {

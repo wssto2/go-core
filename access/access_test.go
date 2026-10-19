@@ -251,7 +251,7 @@ func TestInstallReportsWhatIsMissingAndHowToFixIt(t *testing.T) {
 
 	t.Run("a permission the catalogue cannot take", func(t *testing.T) {
 		cat := permissions()
-		_, err := authz.NewEngine(authz.Config{Catalogue: cat, Hierarchy: mustLevels(), Store: gormstore.New(nil), Resolver: access.NoScopes()})
+		_, err := authz.NewEngine(authz.Config{Catalogue: cat, Hierarchy: mustLevels(), Store: gormstore.New(nil), Resolver: admin.NoScopes()})
 		require.NoError(t, err) // freezes the catalogue
 
 		msg := problems(func(app *gocore.App) { access.Install(app, cat, team{}, access.On(local)) })
