@@ -59,6 +59,7 @@ The goal is to eliminate boilerplate and enforce **safe, predictable patterns** 
 * `mail` → the `Sender` port, SMTP over the standard library, inline images, a branded HTML frame (`Brand.Render`), a recording `Sink` for tests, `mail.Redirect` (every mail to one address on a dev copy of production data), per-locale `Renderer` (see "mail")
 * `notification` → the in-app inbox, e-mail and web push: categories, `Send` from an event consumer, preferences and quiet hours, the delivery workers, devices, the live stream, the inbox and dead-letter routes (see "Notifications"; migrations in `notification/migrations`, mail text in `notification/mailtext`, the Web Push protocol in `notification/push`, a fake push service for tests in `notification/push/pushtest`)
 * `incident` → the incident log: a server error or panic becomes an incident, repeats are counted on it, a person reports a bug, the browser reports its errors, the staff work the list, and the people who hold `incident:manage` are alerted (see "Incidents"; core `incident/core`, store `incident/gormstore`, conformance suite `incident/storetest`, migrations `incident/migrations`, alert wording `incident/mailtext`)
+* `lock` → named leases across processes and servers: `Acquire / Refresh / Release` and `Hold(ctx, key, ttl, fn)` with a heartbeat (see "Locks"; store `lock/gormstore`, conformance suite `lock/storetest`, migrations `lock/migrations`)
 * `savedview` → a person's saved list views: the filters and search of a list kept under a name and applied again with one click (see "Saved views"; core `savedview/core`, store `savedview/gormstore`, conformance suite `savedview/storetest`, migrations `savedview/migrations`)
 * `storage` → named disks of files, private or public, and `web.Serve` to stream one (see "Storage disks"; drivers `storage/local` and `storage/memory`)
 * `navigation` → the menu tree an application declares and the filter by held permissions
@@ -648,6 +649,25 @@ savedview.Install(app) // the table and three routes; no options, no permission
 * **The rule (SAVEDVIEW-001)**: a view is private to the person. The person comes from the session and never from the request, every read and write is keyed on it, and another person's view cannot be listed, replaced or deleted: deleting it is a 404, the same as a missing id. Saving under a name the person already uses on that list **replaces** that view's state. A person keeps **at most 20 views per list**: a new name beyond that is a 400 (`at most 20 saved views per list`); replacing one is still allowed. The state is opaque to the module but must be a **JSON object** (`state must be a JSON object`, 400), at most 4000 characters; `list_key` is required, at most 100, `name` required, at most 60, both trimmed. The limits are fixed.
 * **Table** (`savedview/migrations`): `saved_views` with `user_id`, `list_key`, `name`, `state`, `created_at`, `updated_at`, a unique index on `(user_id, list_key, name)` and one on `(user_id, list_key)`; there is no tenant column. The file is the DDL an application that grew the table as `saved_filters` has once it renames the table and its two indexes (`saved_views_user_list_name`, `saved_views_user_list`): it adopts it with `MarkApplied`. Tests: the store conformance suite `savedview/storetest` on SQLite, MySQL and MariaDB 10.3 (`dbtest.Run`), the service, and the routes' status, body and refusals.
 * The TypeScript contract is `savedview.Routes` (`cmd/modulets` writes `savedview/`).
+
+---
+
+## Locks
+
+`lock` is a **named lease with an owner and a time to live**: "only one of these runs at a time" across processes and servers, kept in the database they share.
+
+```go
+locker := lock.Install(app) // the table locks (a migration) and a Locker over app.Database()
+
+err := locker.Hold(ctx, "vega-import", 30*time.Minute, func(ctx context.Context) error {
+	return runImport(ctx) // ctx ends if the lease is lost
+})
+if errors.Is(err, lock.ErrHeld) { /* another run holds it: skip */ }
+```
+
+* **Calls:** `Acquire(ctx, key, owner, ttl)` takes a key that is free, expired or already the owner's; `Refresh` renews the owner's lease; `Release` gives it back, only for its owner. `Hold` does all three around a function: it refreshes every ttl/3 while the function runs, cancels its context when a refresh finds the lease taken (`ErrLost`, joined with the function's own error), stops the heartbeat and then releases, also on a panic or a cancelled context; `ErrHeld` (wrapped, naming the key) when someone else holds it. The time comes from `app.Clock()`; the heartbeat ticks in real time. Servers sharing a key should agree on the time to within a fraction of the ttl.
+* **Store and table:** `lock.Store` is the port; `lock/gormstore` is the SQL store on `locks (lock_key, owner, lease_until)` (`lock/migrations`), an `UPDATE ... WHERE owner = me OR lease_until < now` then an `INSERT` that reads a duplicate key as "not taken", so it runs on MariaDB 10.3 and MySQL; `lock/storetest` is the conformance suite for your own. `lock.Install(app, conn...)` registers the schema on the primary connection or the one named.
+* **Next to it:** `worker.Every(name, interval, fn)` is a `Worker` that calls `fn` at once and every interval until the context ends (an error is logged, never fatal) - `app.Background(worker.Every(...))`; wrap `fn` in `Hold` for a job that must run on one server only. `database.CreateUnlessDuplicate(db, value)` inserts and reports whether it did, a unique-key refusal being `false` and not an error.
 
 ---
 
