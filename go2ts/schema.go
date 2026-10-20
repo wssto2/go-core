@@ -74,7 +74,8 @@ func isCrossFieldRule(name string) bool {
 // zodRules are the validation rules the generator writes as Zod.
 func zodRules() []string {
 	return []string{
-		"between", "date", "date_time", "email", "in", "len", "max", "min", "month", "required", "trim", "url", "uuid", "year",
+		"between", "date", "date_time", "email", "in", "len", "max", "min", "month", "required", "trim", "url", "uuid",
+		"year",
 	}
 }
 
@@ -489,7 +490,8 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 				"with go2ts.ServerOnly", rt.Name(), field.Name, errNoZodForm, rule, strings.Join(zodRules(), ", "))
 		}
 
-		if err := checkTrim(rt.Name(), field, ctx); err != nil {
+		err = checkTrim(rt.Name(), field, ctx)
+		if err != nil {
 			return "", "", nil, err
 		}
 
