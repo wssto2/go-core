@@ -1,6 +1,8 @@
 # Changelog
 
-## v1.27.0 (2026-10-20)
+## v1.27.1 (2026-10-20)
+
+v1.27.0 was tagged on the v1.26.0 commit by mistake; it has no `money` package. Use v1.27.1.
 
 Money is integer cents, rounded once and exactly, and a guard keeps float64 money out.
 
