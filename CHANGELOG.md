@@ -10,6 +10,10 @@ Every change is audited and multi-step writes are atomic, as guards.
 - archtest: `Config.RequiresAudit` (rule `requires-audit`): an exported method of a service type that reaches a repository write, directly or through same-package helpers and closures (also inside `WithinTx`), must reach an audit write. `Exempt` is a list of `{Method: "pkg.Type.Method", Why}`; a `Why` is required and an exemption that no longer matches is an error, so the list only shrinks.
 - archtest: `Config.AtomicWrites` (rule `atomic-writes`): a method that writes through two or more distinct repository fields must do it inside a `WithinTx`/`WithinTransaction` closure. No exemptions; another service's write is not counted. Both rules detect a write as `s.field.Prefix...()` on a field typed `<pkg>.<Name>Repository` from configured domain trees (`ServiceWrites`), without type information.
 
+### Fixed
+
+- audit: `Diff` no longer panics on a missing state (nil, a nil pointer), a non-struct state or a struct with unexported fields; it reports no changed fields for the first two and skips unexported fields.
+
 ## v1.25.0 (2026-10-20)
 
 No lookup of "the transaction of any connection" is left: a store, `audit`, `sqlc` and `event.Publish` each join the transaction of their own connection. **Breaking**: three signatures and two removed functions.

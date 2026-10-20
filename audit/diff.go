@@ -15,33 +15,27 @@ import (
 func Diff(before, after any) []string {
 	var changed []string
 
-	bv := reflect.ValueOf(before)
-	av := reflect.ValueOf(after)
+	beforeVal, bok := structValue(before)
+	afterVal, aok := structValue(after)
 
-	if bv.Kind() == reflect.Ptr {
-		bv = bv.Elem()
+	// Nothing to compare: a missing state (nil, a nil pointer), a non-struct or two different types.
+	if !bok || !aok || beforeVal.Type() != afterVal.Type() {
+		return nil
 	}
 
-	if av.Kind() == reflect.Ptr {
-		av = av.Elem()
-	}
-
-	bt := bv.Type()
-
-	if bv.Type() != av.Type() {
-		return nil // or return an error variant
-	}
+	bt := beforeVal.Type()
 
 	for i := range bt.NumField() {
-		// Skip fields explicitly excluded from diffs.
-		if bt.Field(i).Tag.Get("audit") == "-" {
+		field := bt.Field(i)
+		// Skip fields explicitly excluded from diffs, and unexported ones (Interface would panic).
+		if field.Tag.Get("audit") == "-" || !field.IsExported() {
 			continue
 		}
 
-		if !reflect.DeepEqual(bv.Field(i).Interface(), av.Field(i).Interface()) {
-			tag := bt.Field(i).Tag.Get("json")
+		if !reflect.DeepEqual(beforeVal.Field(i).Interface(), afterVal.Field(i).Interface()) {
+			tag := field.Tag.Get("json")
 			if tag == "" || tag == "-" {
-				tag = bt.Field(i).Name
+				tag = field.Name
 			}
 			// strip omitempty etc
 			if idx := strings.Index(tag, ","); idx != -1 {
@@ -52,4 +46,18 @@ func Diff(before, after any) []string {
 	}
 
 	return changed
+}
+
+// structValue is v as a struct value, through one pointer; false for nil, a nil pointer or a non-struct.
+func structValue(v any) (reflect.Value, bool) {
+	value := reflect.ValueOf(v)
+	if value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return reflect.Value{}, false
+		}
+
+		value = value.Elem()
+	}
+
+	return value, value.Kind() == reflect.Struct
 }
