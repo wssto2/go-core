@@ -13,8 +13,8 @@ type CreateProductOptions struct {
 	CategoryID  int     `validation:""`
 }
 
-func (i CreateProductOptions) Validate() error {
-	return validation.ValidateInput(&i)
+func (i *CreateProductOptions) Validate() error {
+	return validation.ValidateInput(i)
 }
 
 type UpdateProductOptions struct {
@@ -26,6 +26,6 @@ type UpdateProductOptions struct {
 	CategoryID  int     `validation:""`
 }
 
-func (i UpdateProductOptions) Validate() error {
-	return validation.ValidateInput(&i)
+func (i *UpdateProductOptions) Validate() error {
+	return validation.ValidateInput(i)
 }

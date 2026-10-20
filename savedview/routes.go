@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/wssto2/go-core/apperr"
@@ -29,7 +28,7 @@ type ListRequest struct {
 
 // listInput is the list asked for.
 type listInput struct {
-	ListKey string `form:"list" validation:"required|max:100"`
+	ListKey string `form:"list" validation:"trim|required|max:100"`
 }
 
 // SaveInput saves the current list state under a name. Saving under a name the person already uses on that list
@@ -37,26 +36,18 @@ type listInput struct {
 //
 //nolint:tagliatelle // snake_case wire
 type SaveInput struct {
-	ListKey string `json:"list_key" validation:"required|max:100"`
-	Name    string `json:"name"     validation:"required|max:60"`
+	ListKey string `json:"list_key" validation:"trim|required|max:100"`
+	Name    string `json:"name"     validation:"trim|required|max:60"`
 	// State is the list state the screen applies back, as a JSON object.
 	State string `json:"state" validation:"required|max:4000"`
 }
 
-// clean trims the list key and name, checks the fields again, and requires State to be a JSON object, so the screen
-// never reads back something it cannot apply.
+// clean requires State to be a JSON object, so the screen never reads back something it cannot apply.
 func (in *SaveInput) clean() error {
-	in.ListKey, in.Name = strings.TrimSpace(in.ListKey), strings.TrimSpace(in.Name)
-
-	err := validation.ValidateInput(in)
-	if err != nil {
-		return err //nolint:wrapcheck // validation's own error
-	}
-
 	// JSON null unmarshals into a nil map without an error, so nil is refused too.
 	var object map[string]any
 
-	err = json.Unmarshal([]byte(in.State), &object)
+	err := json.Unmarshal([]byte(in.State), &object)
 	if err != nil || object == nil {
 		return apperr.BadRequest("state must be a JSON object")
 	}
@@ -140,7 +131,7 @@ func (h *handlers) index(ctx context.Context, input ListRequest) ([]ViewResponse
 		return nil, err
 	}
 
-	list := listInput{ListKey: strings.TrimSpace(input.Query.Get("list"))}
+	list := listInput{ListKey: input.Query.Get("list")}
 
 	err = validation.ValidateInput(&list)
 	if err != nil {

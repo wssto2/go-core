@@ -95,12 +95,12 @@ func (h handlers) serviceBind(ctx context.Context, input BindInput) (Binding, er
 		return Binding{}, err
 	}
 
-	scope := authz.Scope{Level: strings.ToLower(strings.TrimSpace(input.Level)), ID: 0}
+	scope := authz.Scope{Level: strings.ToLower(input.Level), ID: 0}
 	if input.ScopeID != nil {
 		scope.ID = *input.ScopeID
 	}
 
-	draft := admin.BindingDraft{Role: strings.TrimSpace(input.RoleRef), Scope: scope}
+	draft := admin.BindingDraft{Role: input.RoleRef, Scope: scope}
 
 	bound, err := h.bindings.Bind(ctx, service(input.ID), draft)
 	if err != nil {
@@ -131,7 +131,7 @@ func (h handlers) serviceUnbind(ctx context.Context, input UnbindInput) (route.E
 }
 
 func (h handlers) serviceBindable(ctx context.Context, input BindableInput) (BindableRoles, error) {
-	scope := authz.Scope{Level: strings.ToLower(strings.TrimSpace(input.Level)), ID: input.ScopeID}
+	scope := authz.Scope{Level: strings.ToLower(input.Level), ID: input.ScopeID}
 
 	views, err := h.bindings.BindableRolesFor(ctx, authz.KindServiceAccount, scope)
 	if err != nil {
