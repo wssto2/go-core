@@ -142,7 +142,7 @@ func (e Event[T]) To(consumer string, handler func(ctx context.Context, payload 
 	}
 }
 
-var errForeignTx = errors.New("Publish needs a transaction on the events' database; ctx only has one on another connection") //nolint:revive,staticcheck,lll // names the method
+var errForeignTx = errors.New("Publish needs a transaction on the events' database; ctx only has one on another connection") //nolint:lll // names the method
 
 // ErrMalformed marks an event that can never be handled, whatever the handler
 // does: its envelope or payload cannot be read. The queue does not retry it; it

@@ -1,4 +1,4 @@
-//nolint:exhaustruct,exhaustruct_v5,lll,nlreturn,noinlineerr,paralleltest,thelper,varnamelen,wsl_v5
+//nolint:lll,nlreturn,noinlineerr,paralleltest,varnamelen,wsl_v5
 package event
 
 import (

@@ -46,7 +46,7 @@ type transactorRepository struct {
 }
 
 // NewRepository constructs a Repository that writes on db.
-func NewRepository(db *gorm.DB) Repository { //nolint:ireturn,lll // the port
+func NewRepository(db *gorm.DB) Repository { //nolint:ireturn // the port
 	return &transactorRepository{db: db, tx: database.NewTransactor(db), execHook: nil}
 }
 
