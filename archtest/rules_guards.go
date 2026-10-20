@@ -18,6 +18,8 @@ func (p *project) guardRules(set *ruleSet) {
 	}{
 		{fieldWritesRule, len(p.cfg.FieldWrites) > 0, p.fieldWrites},
 		{requiresCallRule, len(p.cfg.RequiresCall) > 0, p.requiresCalls},
+		{requiresAuditRule, len(p.cfg.RequiresAudit) > 0, p.requiresAudit},
+		{atomicWritesRule, len(p.cfg.AtomicWrites) > 0, p.atomicWrites},
 		{contextRootsRule, len(p.cfg.ContextRoots) > 0, p.contextRoots},
 	} {
 		if one.used && !slices.Contains(p.cfg.Skip, one.name) {

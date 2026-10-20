@@ -41,9 +41,11 @@ const bannedRule = "banned"
 // The names of the Config.FieldWrites, RequiresCall and ContextRoots checks in a Result; like
 // Banned, they have no ratchet.
 const (
-	fieldWritesRule  = "field-writes"
-	requiresCallRule = "requires-call"
-	contextRootsRule = "context-roots"
+	fieldWritesRule   = "field-writes"
+	requiresCallRule  = "requires-call"
+	requiresAuditRule = "requires-audit"
+	atomicWritesRule  = "atomic-writes"
+	contextRootsRule  = "context-roots"
 )
 
 // ruleNames lists every rule Allowed and Skip may name.
@@ -53,7 +55,7 @@ func ruleNames() []string {
 		DomainPurity, ApplicationPurity, NoTimeNowDomain, NoTimeNowApplication, CrossAggregate, DomainContextFirst,
 		ServiceContextFirst, BoundedStrings, RoutePaths, RouteIdentifiers, ValidationRules, RouteAccess,
 		ServiceRepositories, RepositoryShape, SQLPortability, RoutePersonOnly, bannedRule,
-		fieldWritesRule, requiresCallRule, contextRootsRule,
+		fieldWritesRule, requiresCallRule, contextRootsRule, requiresAuditRule, atomicWritesRule,
 	}
 }
 
@@ -130,6 +132,12 @@ type Config struct {
 
 	// RequiresCall holds a file that calls one function to calling another too.
 	RequiresCall []RequiresCall
+
+	// RequiresAudit holds service methods that write to an audit write too.
+	RequiresAudit []RequiresAudit
+
+	// AtomicWrites holds service methods that write through several repositories to a transaction.
+	AtomicWrites []AtomicWrites
 
 	// ContextRoots bans context.Background() and context.TODO() as a root context in
 	// directories of the application's own, with the wrappers that make one acceptable.
@@ -323,4 +331,55 @@ type ContextRoots struct {
 	Why string
 	// Tests also covers _test.go files and test-support packages.
 	Tests bool
+}
+
+// ServiceWrites says which exported service methods write and through what. Without type
+// information a "write" is a call s.field.Method(...) where the field of the service struct has a
+// type named <pkg>.<Name> with pkg imported from Repositories and Name ending in RepositoryNames,
+// and Method starts with one of Prefixes. A repository reached through a local variable, a
+// parameter or another service is not seen. Same-package helpers and closures are followed.
+type ServiceWrites struct {
+	// Dirs are the packages that hold the services, relative to the root (a file, "dir" or "dir/...").
+	Dirs []string
+	// Types are the type-name suffixes of a service. Default {"Service"} (which includes "AppService").
+	Types []string
+	// Repositories are the trees of the root whose interfaces are repositories ("internal/domain").
+	Repositories []string
+	// RepositoryNames are the type-name suffixes of a repository interface. Default {"Repository"}.
+	RepositoryNames []string
+	// Prefixes are the method-name prefixes of a write. Default Create, Update, Save, Delete,
+	// Archive, Insert, Upsert, Set, Add, Remove, Mark.
+	Prefixes []string
+}
+
+// AuditExemption lets one service method write without an audit entry. It names the method as
+// "package.Type.Method" and must say why; an exemption that matches no offending method is an error,
+// so the list only shrinks.
+type AuditExemption struct {
+	Method, Why string
+}
+
+// RequiresAudit holds every exported service method that reaches a repository write to also reach
+// an audit write. There is no comment marker: the only way out is Exempt, in the config.
+type RequiresAudit struct {
+	Writes ServiceWrites
+	// Audit are the calls that count as an audit write: "import/path.Func" for a package function,
+	// ".Method" for a method of any value. Default: Write or Record on a field of the
+	// service whose type is declared in go-core's audit package (audit.Repository, *audit.Recorder).
+	Audit  []string
+	Exempt []AuditExemption
+	// Why is the sentence a failure ends with. Default says to call audit.Record or add an exemption.
+	Why string
+}
+
+// AtomicWrites holds every exported service method that reaches writes on two or more distinct
+// repository fields to run them all inside a transaction closure. The other service's write method
+// is not counted: only distinct repositories of the service itself. There are no exemptions.
+type AtomicWrites struct {
+	Writes ServiceWrites
+	// Tx are the method names whose function-literal arguments are the transaction body.
+	// Default {"WithinTx", "WithinTransaction"}.
+	Tx []string
+	// Why is the sentence a failure ends with.
+	Why string
 }

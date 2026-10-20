@@ -33,7 +33,10 @@
 // application itself (a removed API or method, a composite literal, a package one
 // layer must not import); FieldWrites holds a field to the places that may assign
 // it, RequiresCall makes a file that calls one function call another, and
-// ContextRoots bans a root context outside its wrappers. RepositoryShape also
+// ContextRoots bans a root context outside its wrappers. RequiresAudit holds an exported
+// service method that reaches a repository write to reach an audit write too (exemptions are a
+// named list, each with a reason, never a comment), and AtomicWrites holds one that writes through
+// two or more repositories to a WithinTx/WithinTransaction closure. RepositoryShape also
 // bans a nested .Transaction( with Repository.NoNestedTransaction. An application's
 // own guards walk the same parsed files with Sources and freeze their violations with Ratchet.
 //
@@ -64,6 +67,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -240,6 +244,19 @@ func (p *project) validateGuards() error {
 		for _, call := range []string{req.Call, req.Also} {
 			if pkg, _ := splitMember(call); pkg == "" {
 				return fmt.Errorf("%w: RequiresCall.Call and Also are \"import/path.Member\", not %q", errConfig, call)
+			}
+		}
+	}
+
+	return p.validateAudit()
+}
+
+// validateAudit refuses an exemption that does not say why.
+func (p *project) validateAudit() error {
+	for _, req := range p.cfg.RequiresAudit {
+		for _, ex := range req.Exempt {
+			if ex.Method == "" || strings.TrimSpace(ex.Why) == "" {
+				return fmt.Errorf("%w: RequiresAudit.Exempt %q needs a Method and a Why", errConfig, ex.Method)
 			}
 		}
 	}
