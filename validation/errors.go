@@ -16,7 +16,7 @@ type ErrUnknownRule struct {
 
 func (e ErrUnknownRule) Error() string {
 	return fmt.Sprintf(
-		"validator: unknown rule %q on field %q — did you forget to call validator.Register(%q, ...)?",
+		"validator: unknown rule %q on field %q — register it at start-up with validation.Register(%q, rule)",
 		e.Name, e.Field, e.Name,
 	)
 }

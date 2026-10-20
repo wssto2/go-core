@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.24.0 (unreleased)
+
+Input hygiene. **Breaking**: `required` on a `*string` (see "Changed").
+
+### Added
+
+- validation: the `trim` rule. A pass before every other rule writes `strings.TrimSpace` back into a `string` or non-nil `*string` field, in nested structs, pointers to them and slices or arrays of them, so `required`, `max:` and cross-field rules (`same`, `confirmed`, `different`) see the trimmed value. An input must be passed by pointer (route binding and `ValidateInput(&in)` do); a trim field that cannot be written is an error, never a silent trim of a copy.
+- validation: `validation.Register(name, rule)` adds a rule to the app-wide set that `ValidateInput`, `CheckRules` and `New` read, so a custom rule reaches typed routes. Register at start-up, before routes are declared. `(*Validator).Register` still adds a rule to one validator.
+
+### Changed
+
+- **Breaking**: `required` on a `*string` treats a non-nil pointer to `""` or spaces as absent, as it does for a `string` and as the generated Zod does. Every other rule that skips an absent optional value now skips such a pointer too.
+- validation: `CheckRules` (so route declaration) rejects `trim` on a field that is not a `string` or `*string`, and `trim` together with `in:`; the message names the type and field. Its comment no longer says an unknown rule fails with 500 (it is 400). The unknown-rule error points at `validation.Register`.
+- savedview, access HTTP, service accounts and notification devices trim their input with the `trim` tag instead of by hand.
+- go-core-example: `CreateProductOptions.Validate` and `UpdateProductOptions.Validate` have pointer receivers.
+
 ## v1.23.0 (2026-10-20)
 
 Errors and guards. **Breaking**: an application upgrading from v1.22.0 follows "Removed" and "Changed".

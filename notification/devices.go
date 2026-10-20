@@ -65,9 +65,9 @@ type DeviceList struct {
 
 // Subscription is the browser's Web Push subscription as the Push API reports it.
 type Subscription struct {
-	Endpoint string `json:"endpoint" validation:"required|max:1024"`
-	P256DH   string `json:"p256dh"   validation:"required|max:128"`
-	Auth     string `json:"auth"     validation:"required|max:64"`
+	Endpoint string `json:"endpoint" validation:"trim|required|max:1024"`
+	P256DH   string `json:"p256dh"   validation:"trim|required|max:128"`
+	Auth     string `json:"auth"     validation:"trim|required|max:64"`
 }
 
 // Devices is what a person does with their own push devices (NOTIF-DEVICE-001): register this browser, list, rename,
@@ -117,9 +117,9 @@ func (d *Devices) Register(
 	}
 
 	sub := push.Subscription{
-		Endpoint: strings.TrimSpace(subscription.Endpoint),
-		P256DH:   strings.TrimSpace(subscription.P256DH),
-		Auth:     strings.TrimSpace(subscription.Auth),
+		Endpoint: subscription.Endpoint,
+		P256DH:   subscription.P256DH,
+		Auth:     subscription.Auth,
 	}
 
 	err := sub.Validate()

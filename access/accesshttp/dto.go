@@ -13,7 +13,7 @@ import (
 // attribute, for example the vehicle kind to used. An attribute without a
 // constraint is unrestricted.
 type Constraint struct {
-	Attribute string   `json:"attribute" validation:"required|max:64"`
+	Attribute string   `json:"attribute" validation:"trim|required|max:64"`
 	Values    []string `json:"values"`
 }
 

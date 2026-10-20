@@ -24,30 +24,30 @@ type RoleInput struct {
 
 // CompareInput names the custom role and the predefined one to compare it with.
 type CompareInput struct {
-	Ref  string `path:"ref" validation:"required|max:64"`
+	Ref  string `path:"ref"   validation:"required|max:64"`
 	With string `query:"with" validation:"required|max:64"`
 }
 
 // GrantInput is one permission of a custom role. The qualifier only means
 // something for an ownable permission; every other permission is all.
 type GrantInput struct {
-	Permission string `json:"permission" validation:"required|max:100"`
-	Qualifier  string `json:"qualifier" validation:"required|max:16"`
+	Permission string `json:"permission" validation:"trim|required|max:100"`
+	Qualifier  string `json:"qualifier"  validation:"trim|required|max:16"`
 }
 
 // CreateRoleInput builds a custom role.
 type CreateRoleInput struct {
-	Name        string       `json:"name" validation:"required|max:100"`
-	Description string       `json:"description" validation:"max:255"`
+	Name        string       `json:"name"        validation:"trim|required|max:100"`
+	Description string       `json:"description" validation:"trim|max:255"`
 	Grants      []GrantInput `json:"grants"`
 	Attrs       []Constraint `json:"attrs"`
 }
 
 // UpdateRoleInput replaces a custom role.
 type UpdateRoleInput struct {
-	Ref         string       `path:"ref" validation:"required|max:64"`
-	Name        string       `json:"name" validation:"required|max:100"`
-	Description string       `json:"description" validation:"max:255"`
+	Ref         string       `path:"ref"         validation:"required|max:64"`
+	Name        string       `json:"name"        validation:"trim|required|max:100"`
+	Description string       `json:"description" validation:"trim|max:255"`
 	Grants      []GrantInput `json:"grants"`
 	Attrs       []Constraint `json:"attrs"`
 }
@@ -55,8 +55,8 @@ type UpdateRoleInput struct {
 // ReplaceRoleInput names the predefined role that takes the place of a custom
 // one for every holder.
 type ReplaceRoleInput struct {
-	Ref  string `path:"ref" validation:"required|max:64"`
-	With string `json:"with" validation:"required|max:64"`
+	Ref  string `path:"ref"  validation:"required|max:64"`
+	With string `json:"with" validation:"trim|required|max:64"`
 }
 
 // SubjectInput addresses a person.
@@ -66,10 +66,12 @@ type SubjectInput struct {
 
 // BindInput gives a person a role at a place: RoleRef is a role's Ref, Level the
 // hierarchy level, ScopeID the place's ID (absent for the root).
+//
+//nolint:tagliatelle // snake_case wire
 type BindInput struct {
 	ID      int    `path:"id"`
-	RoleRef string `json:"role_ref" validation:"required|max:64"`
-	Level   string `json:"level" validation:"required|max:32"`
+	RoleRef string `json:"role_ref" validation:"trim|required|max:64"`
+	Level   string `json:"level"    validation:"trim|required|max:32"`
 	ScopeID *int   `json:"scope_id"`
 }
 
@@ -81,7 +83,7 @@ type UnbindInput struct {
 
 // BindableInput names the place the roles are wanted for.
 type BindableInput struct {
-	Level   string `query:"level" validation:"required|max:32"`
+	Level   string `query:"level"    validation:"trim|required|max:32"`
 	ScopeID int    `query:"scope_id"`
 }
 
@@ -249,7 +251,7 @@ func (h handlers) deleteRole(ctx context.Context, in RoleInput) (route.Empty, er
 }
 
 func (h handlers) replaceRole(ctx context.Context, in ReplaceRoleInput) (Replaced, error) {
-	n, err := h.roles.Replace(ctx, in.Ref, strings.TrimSpace(in.With))
+	n, err := h.roles.Replace(ctx, in.Ref, in.With)
 	if err != nil {
 		return Replaced{}, err
 	}
@@ -258,7 +260,7 @@ func (h handlers) replaceRole(ctx context.Context, in ReplaceRoleInput) (Replace
 }
 
 func (h handlers) bindableRoles(ctx context.Context, in BindableInput) (BindableRoles, error) {
-	views, err := h.bindings.BindableRoles(ctx, authz.Scope{Level: strings.ToLower(strings.TrimSpace(in.Level)), ID: in.ScopeID})
+	views, err := h.bindings.BindableRoles(ctx, authz.Scope{Level: strings.ToLower(in.Level), ID: in.ScopeID})
 	if err != nil {
 		return BindableRoles{}, err
 	}
@@ -292,12 +294,12 @@ func (h handlers) subjectScopes(ctx context.Context, in SubjectInput) (ScopeOpti
 }
 
 func (h handlers) bind(ctx context.Context, in BindInput) (Binding, error) {
-	scope := authz.Scope{Level: strings.ToLower(strings.TrimSpace(in.Level))}
+	scope := authz.Scope{Level: strings.ToLower(in.Level), ID: 0}
 	if in.ScopeID != nil {
 		scope.ID = *in.ScopeID
 	}
 
-	b, err := h.bindings.Bind(ctx, person(in.ID), admin.BindingDraft{Role: strings.TrimSpace(in.RoleRef), Scope: scope})
+	b, err := h.bindings.Bind(ctx, person(in.ID), admin.BindingDraft{Role: in.RoleRef, Scope: scope})
 	if err != nil {
 		return Binding{}, err
 	}
@@ -310,23 +312,23 @@ func (h handlers) unbind(ctx context.Context, in UnbindInput) (route.Empty, erro
 }
 
 func draftOf(name, description string, grants []GrantInput, attrs []Constraint) (admin.RoleDraft, error) {
-	out := admin.RoleDraft{Name: strings.TrimSpace(name), Description: strings.TrimSpace(description)}
+	out := admin.RoleDraft{Name: name, Description: description, Grants: nil, Attrs: nil}
 
 	for _, c := range attrs {
 		if out.Attrs == nil {
 			out.Attrs = map[string][]string{}
 		}
 
-		out.Attrs[strings.TrimSpace(c.Attribute)] = c.Values
+		out.Attrs[c.Attribute] = c.Values
 	}
 
 	for _, g := range grants {
-		q, err := authz.ParseQualifier(strings.ToLower(strings.TrimSpace(g.Qualifier)))
+		q, err := authz.ParseQualifier(strings.ToLower(g.Qualifier))
 		if err != nil {
 			return admin.RoleDraft{}, apperr.BadRequest("qualifier must be own, own_location or all")
 		}
 
-		out.Grants = append(out.Grants, authz.Grant{Permission: strings.TrimSpace(g.Permission), Qualifier: q})
+		out.Grants = append(out.Grants, authz.Grant{Permission: g.Permission, Qualifier: q})
 	}
 
 	return out, nil

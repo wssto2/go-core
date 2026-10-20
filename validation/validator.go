@@ -15,12 +15,13 @@
 //	    // err is *ValidationError with per-field failures
 //	}
 //
-// Custom rules can be registered per-validator instance via Register or
-// globally shared via NewWithRules.
+// Custom rules are registered app-wide with the package-level Register (read by ValidateInput,
+// CheckRules and New), or on one Validator with its Register method or NewWithRules.
 package validation
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"strings"
 	"sync"
@@ -54,6 +55,34 @@ var defaultRegistry = map[string]Rule{
 	"different":   DifferentRule,
 	"url":         URLRule,
 	"uuid":        UUIDRule,
+	"trim":        TrimRule,
+}
+
+// appRules is the app-wide rule set added with Register; every Validator starts with it.
+var (
+	appRulesMu sync.RWMutex        //nolint:gochecknoglobals // the app-wide rule set is one registry by design
+	appRules   = map[string]Rule{} //nolint:gochecknoglobals // guarded by appRulesMu
+)
+
+// Register adds a rule to the app-wide set that ValidateInput, CheckRules and New read. Call it at
+// start-up, before routes are declared: a route checks its input types when it is declared, so a
+// rule registered later is an unknown rule there. It returns an error for a name already taken
+// by a built-in or an earlier Register. For a rule in one test only, use (*Validator).Register.
+func Register(name string, rule Rule) error {
+	appRulesMu.Lock()
+	defer appRulesMu.Unlock()
+
+	if _, exists := defaultRegistry[name]; exists {
+		return fmt.Errorf("validation: rule %q is a built-in rule", name) //nolint:err113 // names it
+	}
+
+	if _, exists := appRules[name]; exists {
+		return fmt.Errorf("validation: rule %q is already registered", name) //nolint:err113 // names it
+	}
+
+	appRules[name] = rule
+
+	return nil
 }
 
 func New() *Validator {
@@ -66,6 +95,11 @@ func NewWithRules(extra map[string]Rule) *Validator {
 	for k, v := range defaultRegistry {
 		r[k] = v
 	}
+
+	appRulesMu.RLock()
+	maps.Copy(r, appRules)
+	appRulesMu.RUnlock()
+
 	for k, v := range extra {
 		r[k] = v
 	}
@@ -122,6 +156,12 @@ func (v *Validator) Validate(subject any) error {
 		registry[name] = rule
 	}
 	v.mu.RUnlock()
+
+	// The trim pass runs first so every rule, cross-field ones included, sees trimmed values.
+	err := trimStruct(rv, "")
+	if err != nil {
+		return apperr.BadRequest(err.Error())
+	}
 
 	errorsMap := make(map[string][]Failure)
 	debugErrorsMap := make(map[string][]string)
@@ -324,7 +364,6 @@ func isRequiredIfConditionMet(rules []parsedRule, attribute string, subject any)
 	}
 	return false
 }
-
 
 func cloneFailuresMap(src map[string][]Failure) map[string][]Failure {
 	dst := make(map[string][]Failure, len(src))
