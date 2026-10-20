@@ -14,6 +14,16 @@ const (
 	decimalBase  = 10
 )
 
+// mustInt64 is v as an int64; a value outside the range is an impossible amount (about 9.2e16 of the
+// major unit) and panics with an error wrapping ErrOverflow rather than wrap silently.
+func mustInt64(v *big.Int) int64 {
+	if !v.IsInt64() {
+		panic(fmt.Errorf("%w: %s does not fit in int64 cents", ErrOverflow, v))
+	}
+
+	return v.Int64()
+}
+
 // Errors returned by the package.
 var (
 	ErrCurrency = errors.New("money: currency mismatch")
@@ -22,8 +32,10 @@ var (
 )
 
 // Money is an amount in cents of one currency. The zero value is 0 with no currency, which combines
-// with any currency. It is comparable. A result that does not fit int64 cents (about 9.2e16 of the
-// major unit) is not representable; the package does not check for it except in Add and Sub.
+// with any currency. It is comparable. Add and Sub return ErrOverflow past int64; every other
+// operation (rounding, FromDecimal, FromFloat, Allocate, PercentOf) panics with an error wrapping
+// ErrOverflow when the result does not fit int64 cents (about 9.2e16 of the major unit, like an
+// impossible amount).
 type Money struct {
 	cents    int64
 	currency string
@@ -95,7 +107,8 @@ func (m Money) Abs() Money {
 	return m
 }
 
-// Cmp compares the amounts (-1, 0, 1). It does not look at the currency.
+// Cmp compares the amounts (-1, 0, 1). It ignores the currency: comparing EUR with BAM compares
+// the numbers only.
 func (m Money) Cmp(other Money) int {
 	switch {
 	case m.cents < other.cents:
@@ -159,13 +172,14 @@ func (m Money) MulRate(r Rate) Money { return FromMoney(m).MulRate(r).Round() }
 // AddRate is m x (1 + r/100), rounded once: a gross amount from a net one.
 func (m Money) AddRate(r Rate) Money { return FromMoney(m).AddRate(r).Round() }
 
-// RemoveRate is m / (1 + r/100), rounded once: the net amount of a VAT-inclusive one.
+// RemoveRate is m / (1 + r/100), rounded once: the net amount of a VAT-inclusive one. A rate of -100%
+// panics (division by zero).
 func (m Money) RemoveRate(r Rate) Money { return FromMoney(m).RemoveRate(r).Round() }
 
-// MulRatio is m x num / den, rounded once. A zero den gives 0.
+// MulRatio is m x num / den, rounded once. A zero den panics, like Go's integer division.
 func (m Money) MulRatio(num, den int64) Money { return FromMoney(m).MulRatio(num, den).Round() }
 
-// DivInt is m / n, rounded once. A zero n gives 0.
+// DivInt is m / n, rounded once. A zero n panics, like Go's integer division.
 func (m Money) DivInt(n int64) Money { return m.MulRatio(1, n) }
 
 // RoundMode is how RoundTo rounds to a step.
@@ -173,9 +187,9 @@ type RoundMode int
 
 // The rounding modes of RoundTo. They mean math.Round, math.Ceil and math.Floor of amount/step, times step.
 const (
-	Nearest RoundMode = iota // to the nearest multiple, a tie away from zero: -250 to 500 is -500
-	Up                       //nolint:varnamelen // the API name; towards +infinity: 101 to 200 is 200, -101 to 100 is -100
-	Down                     // towards -infinity: 199 to 100 is 100, -101 to 200 is -200
+	RoundNearest RoundMode = iota // to the nearest multiple, a tie away from zero: -250 to 500 is -500
+	RoundUp                       // towards +infinity: 101 to 200 is 200, -101 to 100 is -100
+	RoundDown                     // towards -infinity: 199 to 100 is 100, -101 to 200 is -200
 )
 
 // RoundTo rounds to a multiple of step cents. A step of 0 or less returns m.
@@ -187,9 +201,9 @@ func (m Money) RoundTo(step int64, mode RoundMode) Money {
 	quo, rem := m.cents/step, m.cents%step
 
 	switch {
-	case mode == Up && rem > 0, mode == Nearest && rem > 0 && rem >= step-rem:
+	case mode == RoundUp && rem > 0, mode == RoundNearest && rem > 0 && rem >= step-rem:
 		quo++
-	case mode == Down && rem < 0, mode == Nearest && rem < 0 && -rem >= step+rem:
+	case mode == RoundDown && rem < 0, mode == RoundNearest && rem < 0 && -rem >= step+rem:
 		quo--
 	}
 
@@ -217,11 +231,11 @@ func Allocate(amount Money, weights ...int64) []Money {
 	abs := new(big.Int).Abs(big.NewInt(amount.cents))
 	parts := make([]int64, len(weights))
 	rems := make([]*big.Int, len(weights))
-	left := abs.Int64()
+	left := mustInt64(abs)
 
 	for i, w := range weights {
 		quo, rem := new(big.Int).QuoRem(new(big.Int).Mul(abs, big.NewInt(w)), total, new(big.Int))
-		parts[i], rems[i] = quo.Int64(), rem
+		parts[i], rems[i] = mustInt64(quo), rem
 		left -= parts[i]
 	}
 
@@ -273,7 +287,7 @@ func pow10(n int) *big.Int {
 
 // roundScaled is round(val x scale) half away from zero, as an int64.
 func roundScaled(val *big.Rat, scale *big.Int) int64 {
-	return roundRat(new(big.Rat).Mul(val, new(big.Rat).SetInt(scale))).Int64()
+	return mustInt64(roundRat(new(big.Rat).Mul(val, new(big.Rat).SetInt(scale))))
 }
 
 // roundRat rounds half away from zero.

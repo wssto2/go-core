@@ -20,20 +20,20 @@ func (e Exact) AddRate(r Rate) Exact {
 	return e.with(new(big.Rat).Mul(e.val(), new(big.Rat).Add(big.NewRat(1, 1), r.ratio())))
 }
 
-// RemoveRate is e / (1 + r/100). A rate of -100% gives 0.
+// RemoveRate is e / (1 + r/100). A rate of -100% panics (division by zero).
 func (e Exact) RemoveRate(r Rate) Exact {
 	gross := new(big.Rat).Add(big.NewRat(1, 1), r.ratio())
 	if gross.Sign() == 0 {
-		return e.with(new(big.Rat))
+		panic("money: RemoveRate of -100% divides by zero")
 	}
 
 	return e.with(new(big.Rat).Quo(e.val(), gross))
 }
 
-// MulRatio is e x num / den. A zero den gives 0.
+// MulRatio is e x num / den. A zero den panics, like Go's integer division.
 func (e Exact) MulRatio(num, den int64) Exact {
 	if den == 0 {
-		return e.with(new(big.Rat))
+		panic("money: MulRatio with a zero denominator divides by zero")
 	}
 
 	return e.with(new(big.Rat).Mul(e.val(), big.NewRat(num, den)))
@@ -59,9 +59,10 @@ func (e Exact) Add(other Exact) (Exact, error) {
 	return Exact{r: new(big.Rat).Add(e.val(), other.val()), currency: cur}, nil
 }
 
-// Round is the one rounding, half away from zero, to cents.
+// Round is the one rounding, half away from zero, to cents. It panics with an error wrapping
+// ErrOverflow when the value does not fit int64 cents (about 9.2e16 of the major unit).
 func (e Exact) Round() Money {
-	return Money{cents: roundRat(e.val()).Int64(), currency: e.currency}
+	return Money{cents: mustInt64(roundRat(e.val())), currency: e.currency}
 }
 
 func (e Exact) val() *big.Rat {

@@ -2,6 +2,7 @@
 package money_test
 
 import (
+	"math"
 	"math/big"
 	"math/rand/v2"
 	"testing"
@@ -56,7 +57,6 @@ func TestAddRemoveRate(t *testing.T) {
 
 	require.Equal(t, eur(t, "1170.00"), eur(t, "1000").AddRate(money.Percent(17)))
 	require.Equal(t, eur(t, "1000.00"), eur(t, "1170").RemoveRate(money.Percent(17)))
-	require.Equal(t, eur(t, "0.00"), eur(t, "5").RemoveRate(money.Percent(-100)))
 }
 
 func TestRatioAndDiv(t *testing.T) {
@@ -65,7 +65,6 @@ func TestRatioAndDiv(t *testing.T) {
 	require.Equal(t, eur(t, "0.03"), eur(t, "0.05").MulRatio(1, 2))
 	require.Equal(t, eur(t, "-0.03"), eur(t, "-0.05").MulRatio(1, 2))
 	require.Equal(t, eur(t, "0.03"), eur(t, "0.10").DivInt(3))
-	require.Equal(t, eur(t, "0.00"), eur(t, "1").DivInt(0))
 }
 
 func TestFromDecimal(t *testing.T) {
@@ -212,20 +211,20 @@ func TestRoundTo(t *testing.T) {
 		mode        money.RoundMode
 		want        int64
 	}{
-		{250, 500, money.Nearest, 500},
-		{249, 500, money.Nearest, 0},
-		{-250, 500, money.Nearest, -500},
-		{-249, 500, money.Nearest, 0},
-		{1234, 100, money.Nearest, 1200},
-		{1250, 100, money.Nearest, 1300},
-		{-1250, 100, money.Nearest, -1300},
-		{101, 100, money.Up, 200},
-		{100, 100, money.Up, 100},
-		{-101, 100, money.Up, -100},
-		{199, 100, money.Down, 100},
-		{-101, 100, money.Down, -200},
-		{-100, 100, money.Down, -100},
-		{777, 0, money.Up, 777},
+		{250, 500, money.RoundNearest, 500},
+		{249, 500, money.RoundNearest, 0},
+		{-250, 500, money.RoundNearest, -500},
+		{-249, 500, money.RoundNearest, 0},
+		{1234, 100, money.RoundNearest, 1200},
+		{1250, 100, money.RoundNearest, 1300},
+		{-1250, 100, money.RoundNearest, -1300},
+		{101, 100, money.RoundUp, 200},
+		{100, 100, money.RoundUp, 100},
+		{-101, 100, money.RoundUp, -100},
+		{199, 100, money.RoundDown, 100},
+		{-101, 100, money.RoundDown, -200},
+		{-100, 100, money.RoundDown, -100},
+		{777, 0, money.RoundUp, 777},
 	} {
 		require.Equal(t, row.want, money.New(row.cents, "").RoundTo(row.step, row.mode).Cents(), "%+v", row)
 	}
@@ -343,4 +342,40 @@ func TestMulRateMatchesReference(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, reference(cents, units), money.New(cents, "").MulRate(rate).Cents(), "%d x %d", cents, units)
 	}
+}
+
+func TestPanicsOnOverflow(t *testing.T) {
+	t.Parallel()
+
+	huge := money.New(math.MaxInt64, "")
+
+	require.PanicsWithError(t, "money: overflow: 9223372036854775807000 does not fit in int64 cents",
+		func() { huge.MulRate(money.Percent(100000)) })
+	require.Panics(t, func() { huge.AddRate(money.Percent(100)) })
+	require.Panics(t, func() { _, _ = money.FromDecimal("99999999999999999999", "") })
+	require.Panics(t, func() { money.FromFloat(1e300, "") })
+	require.Panics(t, func() { money.PercentOf(huge, money.New(1, ""), 2) })
+	require.Panics(t, func() { money.Allocate(money.New(math.MinInt64, ""), 1, 1) })
+
+	var err error
+
+	func() {
+		defer func() { err, _ = recover().(error) }()
+
+		huge.MulRate(money.Percent(100000))
+	}()
+	require.ErrorIs(t, err, money.ErrOverflow)
+}
+
+func TestPanicsOnZeroDivisor(t *testing.T) {
+	t.Parallel()
+
+	one := money.New(100, "")
+
+	require.PanicsWithValue(t, "money: MulRatio with a zero denominator divides by zero",
+		func() { one.MulRatio(1, 0) })
+	require.Panics(t, func() { one.DivInt(0) })
+	require.Panics(t, func() { one.RemoveRate(money.Percent(-100)) })
+	require.Panics(t, func() { money.FromMoney(one).RemoveRate(money.Percent(-100)) })
+	require.Panics(t, func() { money.FromMoney(one).MulRatio(1, 0) })
 }
