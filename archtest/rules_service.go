@@ -130,32 +130,36 @@ func (p *project) indexTypes(pkg *servicePackage, src Source, decl *ast.GenDecl)
 			continue
 		}
 
-		one := &serviceType{repos: map[string]bool{}, audits: map[string]bool{}, embeds: nil}
-
+		one := &serviceType{repos: map[string]bool{}, audits: map[string]bool{}, fields: nil, embeds: nil}
 		for _, field := range structType.Fields.List {
-			ftype := field.Type
-			if star, isStar := ftype.(*ast.StarExpr); isStar {
-				ftype = star.X
-			}
-
-			switch typed := ftype.(type) {
-			case *ast.SelectorExpr:
-				imported := importOfAlias(src.File, typed.X)
-				for _, name := range field.Names {
-					one.fields = append(one.fields, fieldInfo{name: name.Name, imported: imported, typeName: typed.Sel.Name})
-				}
-			case *ast.Ident:
-				if len(field.Names) == 0 {
-					one.embeds = append(one.embeds, typed.Name)
-				}
-
-				for _, name := range field.Names {
-					one.fields = append(one.fields, fieldInfo{name: name.Name, imported: "", typeName: typed.Name})
-				}
-			}
+			one.addField(src, field)
 		}
 
 		pkg.types[typeSpec.Name.Name] = one
+	}
+}
+
+// addField records a field: a selector type with its import, a package type, or an embedded one.
+func (one *serviceType) addField(src Source, field *ast.Field) {
+	ftype := field.Type
+	if star, isStar := ftype.(*ast.StarExpr); isStar {
+		ftype = star.X
+	}
+
+	imported, typeName := "", ""
+
+	switch typed := ftype.(type) {
+	case *ast.SelectorExpr:
+		imported, typeName = importOfAlias(src.File, typed.X), typed.Sel.Name
+	case *ast.Ident:
+		typeName = typed.Name
+		if len(field.Names) == 0 {
+			one.embeds = append(one.embeds, typed.Name)
+		}
+	}
+
+	for _, name := range field.Names {
+		one.fields = append(one.fields, fieldInfo{name: name.Name, imported: imported, typeName: typeName})
 	}
 }
 
@@ -256,7 +260,7 @@ func (p *project) serviceMethods(writes ServiceWrites, audit []string, txCalls [
 
 	for _, pkg := range p.indexPackages(writes) {
 		for _, target := range pkg.funcs {
-			if target.typ == "" || !target.decl.Name.IsExported() || !hasSuffixIn(target.typ, writes.Types) || pkg.types[target.typ] == nil || target.decl.Body == nil {
+			if !isServiceMethod(pkg, writes, target) {
 				continue
 			}
 
@@ -488,4 +492,10 @@ func (p *project) atomicWrites() []string {
 	}
 
 	return out
+}
+
+// isServiceMethod is an exported method with a body of a struct whose name ends in one of writes.Types.
+func isServiceMethod(pkg *servicePackage, writes ServiceWrites, target serviceFunc) bool {
+	return target.typ != "" && target.decl.Name.IsExported() && target.decl.Body != nil &&
+		hasSuffixIn(target.typ, writes.Types) && pkg.types[target.typ] != nil
 }
