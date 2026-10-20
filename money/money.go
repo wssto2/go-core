@@ -192,22 +192,9 @@ const (
 	RoundDown                     // towards -infinity: 199 to 100 is 100, -101 to 200 is -200
 )
 
-// RoundTo rounds to a multiple of step cents. A step of 0 or less returns m.
+// RoundTo rounds to a multiple of step cents; see Exact.RoundTo. A step of 0 or less panics.
 func (m Money) RoundTo(step int64, mode RoundMode) Money {
-	if step <= 0 {
-		return m
-	}
-
-	quo, rem := m.cents/step, m.cents%step
-
-	switch {
-	case mode == RoundUp && rem > 0, mode == RoundNearest && rem > 0 && rem >= step-rem:
-		quo++
-	case mode == RoundDown && rem < 0, mode == RoundNearest && rem < 0 && -rem >= step+rem:
-		quo--
-	}
-
-	return Money{cents: quo * step, currency: m.currency}
+	return FromMoney(m).RoundTo(step, mode)
 }
 
 // Allocate splits amount by weights so the parts sum to m exactly: each part is its share rounded down and

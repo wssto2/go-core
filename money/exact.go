@@ -59,6 +59,34 @@ func (e Exact) Add(other Exact) (Exact, error) {
 	return Exact{r: new(big.Rat).Add(e.val(), other.val()), currency: cur}, nil
 }
 
+// RoundTo is the one rounding, to a multiple of step cents instead of to cents, with no rounding to
+// cents first: RoundNearest is math.Round(x/step)*step (half away from zero), RoundUp math.Ceil
+// (towards +infinity) and RoundDown math.Floor (towards -infinity), all exact. A step of 0 or less
+// panics, like a zero divisor; a result outside int64 cents panics with an error wrapping ErrOverflow.
+func (e Exact) RoundTo(step int64, mode RoundMode) Money {
+	if step <= 0 {
+		panic("money: RoundTo with a step of 0 or less")
+	}
+
+	quo := new(big.Rat).Quo(e.val(), big.NewRat(step, 1))
+
+	var whole *big.Int
+
+	switch mode {
+	case RoundUp:
+		whole = new(big.Int).Neg(floorRat(new(big.Rat).Neg(quo)))
+	case RoundDown:
+		whole = floorRat(quo)
+	case RoundNearest:
+		whole = roundRat(quo)
+	}
+
+	return Money{cents: mustInt64(whole.Mul(whole, big.NewInt(step))), currency: e.currency}
+}
+
+// floorRat is the largest integer not above rat.
+func floorRat(rat *big.Rat) *big.Int { return new(big.Int).Div(rat.Num(), rat.Denom()) }
+
 // Round is the one rounding, half away from zero, to cents. It panics with an error wrapping
 // ErrOverflow when the value does not fit int64 cents (about 9.2e16 of the major unit).
 func (e Exact) Round() Money {

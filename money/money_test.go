@@ -224,7 +224,6 @@ func TestRoundTo(t *testing.T) {
 		{199, 100, money.RoundDown, 100},
 		{-101, 100, money.RoundDown, -200},
 		{-100, 100, money.RoundDown, -100},
-		{777, 0, money.RoundUp, 777},
 	} {
 		require.Equal(t, row.want, money.New(row.cents, "").RoundTo(row.step, row.mode).Cents(), "%+v", row)
 	}
@@ -378,4 +377,30 @@ func TestPanicsOnZeroDivisor(t *testing.T) {
 	require.Panics(t, func() { one.RemoveRate(money.Percent(-100)) })
 	require.Panics(t, func() { money.FromMoney(one).RemoveRate(money.Percent(-100)) })
 	require.Panics(t, func() { money.FromMoney(one).MulRatio(1, 0) })
+}
+
+func TestExactRoundToRoundsTheExactValueOnce(t *testing.T) {
+	t.Parallel()
+
+	// 3914499.6 cents: rounding to cents first (3914500) would make the tie go to 39150.
+	exact := money.FromMoney(money.New(39144996, "EUR")).MulRatio(1, 10)
+	require.Equal(t, money.New(3914000, "EUR"), exact.RoundTo(1000, money.RoundNearest))
+	require.Equal(t, money.New(3915000, "EUR"), exact.RoundTo(1000, money.RoundUp))
+	require.Equal(t, money.New(3914000, "EUR"), exact.RoundTo(1000, money.RoundDown))
+
+	// 1e-9 cent above a multiple of 100 still rounds up to the next one.
+	above := money.FromMoney(money.New(200_000_000_001, "")).MulRatio(1, 1_000_000_000) // 200.000000001
+	require.EqualValues(t, 300, above.RoundTo(100, money.RoundUp).Cents())
+	require.EqualValues(t, 200, above.RoundTo(100, money.RoundDown).Cents())
+
+	neg := money.FromMoney(money.New(-250, "")).MulRatio(1, 1)
+	require.EqualValues(t, -500, neg.RoundTo(500, money.RoundNearest).Cents())
+	require.EqualValues(t, 0, neg.RoundTo(500, money.RoundUp).Cents())
+	require.EqualValues(t, -500, neg.RoundTo(500, money.RoundDown).Cents())
+	require.EqualValues(t, -100, money.New(-101, "").RoundTo(100, money.RoundUp).Cents())
+
+	require.Panics(t, func() { exact.RoundTo(0, money.RoundUp) })
+	require.Panics(t, func() { money.New(1, "").RoundTo(-5, money.RoundNearest) })
+	require.PanicsWithError(t, "money: overflow: 9223372036854775810 does not fit in int64 cents",
+		func() { money.New(math.MaxInt64, "").RoundTo(10, money.RoundUp) })
 }
