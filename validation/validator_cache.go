@@ -16,6 +16,8 @@ type cachedFieldMeta struct {
 	FieldIndex []int        // reflect field index path for rv.FieldByIndex
 	Rules      []parsedRule // nil if the field has no "validation" tag
 	ElemType   reflect.Type // innermost struct type reachable via ptr/slice; nil if none
+	Type       reflect.Type // the field's declared type
+	Trim       bool         // the field carries the trim rule
 }
 
 // cachedStructMeta holds pre-computed validation metadata for a struct type.
@@ -130,6 +132,8 @@ func buildStructMeta(t reflect.Type) *cachedStructMeta {
 			FieldIndex: fi.Index,
 			Rules:      rules,
 			ElemType:   elemType,
+			Type:       fi.Type,
+			Trim:       hasRule(rules, "trim"),
 		})
 
 		// Register all valid lookup names so cross-field rules can find this

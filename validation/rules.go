@@ -319,11 +319,20 @@ func isPresent(value any) bool {
 	case reflect.Slice, reflect.Map, reflect.Array:
 		return v.Len() > 0
 	case reflect.Ptr, reflect.Interface:
+		// A *string holding "" or spaces is absent, like a string (the generated Zod agrees).
+		if !v.IsNil() && v.Elem().Kind() == reflect.String {
+			return isPresent(v.Elem().Interface())
+		}
+
 		return !v.IsNil()
 	default:
 		return true
 	}
 }
+
+// TrimRule is the marker for the trim pass (see trimStruct): the pass strips surrounding
+// whitespace from the field before any rule runs, so the rule itself checks nothing.
+func TrimRule(string, any, string, bool, func(Failure), any) {}
 
 func MinRule(attribute string, value any, args string, required bool, fail func(Failure), subject any) {
 	if !isPresent(value) && !required {
