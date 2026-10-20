@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.25.0 (unreleased)
+## v1.25.0 (2026-10-20)
 
 No lookup of "the transaction of any connection" is left: a store, `audit`, `sqlc` and `event.Publish` each join the transaction of their own connection. **Breaking**: three signatures and two removed functions.
 
