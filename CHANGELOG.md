@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.24.0 (unreleased)
+
+### Added
+
+- go2ts: the `trim` validation rule writes `.trim()` as the first call of a string schema, whatever the tag order (`required|max:100|trim` is `z.string().trim().min(1).max(100)`), before the format calls and the `.or(z.literal(''))`. On a non-string field, a slice, or together with `in:` (or an enum type) generation fails naming the struct and field.
+
 ## v1.23.0 (2026-10-20)
 
 Errors and guards. **Breaking**: an application upgrading from v1.22.0 follows "Removed" and "Changed".

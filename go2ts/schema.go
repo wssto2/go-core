@@ -74,7 +74,7 @@ func isCrossFieldRule(name string) bool {
 // zodRules are the validation rules the generator writes as Zod.
 func zodRules() []string {
 	return []string{
-		"between", "date", "date_time", "email", "in", "len", "max", "min", "month", "required", "url", "uuid", "year",
+		"between", "date", "date_time", "email", "in", "len", "max", "min", "month", "required", "trim", "url", "uuid", "year",
 	}
 }
 
@@ -318,6 +318,11 @@ func fieldToZodExprScoped(
 	base, isNullable := mapGoTypeToZodBaseScoped(ft, parentName, ctx, children)
 	expr = base
 
+	// trim is the schema's first call whatever the tag order; structToZod has refused it where it has no meaning.
+	if hasValRule(rules, "trim") {
+		expr += ".trim()"
+	}
+
 	// An enum is already as narrow as it can be: no string rule applies to it.
 	if _, isEnum := ctx.enumOf(derefType(ft)); isEnum {
 		rules = nil
@@ -423,6 +428,26 @@ func fieldToZodExprScoped(
 	return expr, hasCrossField
 }
 
+// errTrimTarget is the cause of a trim rule on a field that is not a free string.
+var errTrimTarget = errors.New("trim applies to a plain string field")
+
+// checkTrim refuses trim on a field it cannot apply to: a non-string, a slice (go2ts writes no per-element
+// string rules), or a string that is an enum (an `in` rule or an enum type), where trimming would hide a client bug.
+func checkTrim(structName string, field reflect.StructField, ctx *GenContext) error {
+	rules := parseValidationTag(field.Tag.Get("validation"))
+	if !hasValRule(rules, "trim") {
+		return nil
+	}
+
+	_, isEnum := ctx.enumOf(derefType(field.Type))
+	if !isStringBase(field.Type) || isEnum || hasValRule(rules, "in") {
+		return fmt.Errorf("%s.%s: %w, not an enum, a number or a slice: remove trim or the field's `in` rule",
+			structName, field.Name, errTrimTarget)
+	}
+
+	return nil
+}
+
 // structToZod generates a Zod schema string and the inferred TS type for s.
 // Returns the type name, the file content, nested child structs to process,
 // and any error.
@@ -462,6 +487,10 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 		if rule, unknown := unknownRule(validationTag); unknown {
 			return "", "", nil, fmt.Errorf("%s.%s: %w %q: go2ts writes %s; declare a rule only the server can check "+
 				"with go2ts.ServerOnly", rt.Name(), field.Name, errNoZodForm, rule, strings.Join(zodRules(), ", "))
+		}
+
+		if err := checkTrim(rt.Name(), field, ctx); err != nil {
+			return "", "", nil, err
 		}
 
 		zodExpr, hasCrossField := fieldToZodExprScoped(field.Type, validationTag, typeName, ctx, children)
