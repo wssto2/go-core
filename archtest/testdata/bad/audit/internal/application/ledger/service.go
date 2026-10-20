@@ -14,6 +14,7 @@ type Service struct {
 	audit    audit.Repository
 	rec      *audit.Recorder
 	tx       database.Transactor
+	deps
 }
 
 func (s *Service) Read(ctx context.Context) error {
@@ -125,3 +126,19 @@ func (s *Service) both(ctx context.Context) error {
 func (s *Service) record(ctx context.Context) error {
 	return s.rec.Record(ctx, "Entry", 1, "x", nil, nil)
 }
+
+// Store is a port of the package itself.
+type Store interface {
+	Save(ctx context.Context) error
+}
+
+type deps struct {
+	local Store
+	extra ledger.Repository
+}
+
+func (s *Service) EmbeddedNoAudit(ctx context.Context) error {
+	return s.extra.Create(ctx, &ledger.Entry{})
+}
+
+func (s *Service) LocalNoAudit(ctx context.Context) error { return s.local.Save(ctx) }

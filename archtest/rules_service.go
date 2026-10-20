@@ -20,7 +20,11 @@ func defaultTxCalls() []string { return []string{"WithinTx", "WithinTransaction"
 type serviceType struct {
 	repos  map[string]bool // fields typed as a repository interface
 	audits map[string]bool // fields typed from go-core's audit package
+	fields []fieldInfo
+	embeds []string // embedded structs of the package
 }
+
+type fieldInfo struct{ name, imported, typeName string }
 
 // serviceFunc is a function or method of a package, found by "Type.Name" or ".Name".
 type serviceFunc struct {
@@ -51,8 +55,9 @@ type serviceMethod struct {
 
 // servicePackage indexes one directory.
 type servicePackage struct {
-	funcs map[string]serviceFunc
-	types map[string]*serviceType
+	funcs  map[string]serviceFunc
+	types  map[string]*serviceType
+	ifaces map[string]bool
 }
 
 func (writes ServiceWrites) withDefaults() ServiceWrites {
@@ -84,7 +89,7 @@ func (p *project) indexPackages(writes ServiceWrites) map[string]*servicePackage
 
 		pkg := pkgs[dir]
 		if pkg == nil {
-			pkg = &servicePackage{funcs: map[string]serviceFunc{}, types: map[string]*serviceType{}}
+			pkg = &servicePackage{funcs: map[string]serviceFunc{}, types: map[string]*serviceType{}, ifaces: map[string]bool{}}
 			pkgs[dir] = pkg
 		}
 
@@ -94,18 +99,29 @@ func (p *project) indexPackages(writes ServiceWrites) map[string]*servicePackage
 				typ, recv := receiverOf(typed)
 				pkg.funcs[typ+"."+typed.Name.Name] = serviceFunc{src: src, decl: typed, typ: typ, recv: recv}
 			case *ast.GenDecl:
-				p.indexTypes(pkg, src, typed, writes)
+				p.indexTypes(pkg, src, typed)
 			}
 		}
+	}
+
+	for _, pkg := range pkgs {
+		p.resolve(pkg, writes)
 	}
 
 	return pkgs
 }
 
-func (p *project) indexTypes(pkg *servicePackage, src Source, decl *ast.GenDecl, writes ServiceWrites) {
+// indexTypes records the structs (fields and embedded structs) and the interface names of a declaration.
+func (p *project) indexTypes(pkg *servicePackage, src Source, decl *ast.GenDecl) {
 	for _, spec := range decl.Specs {
 		typeSpec, isType := spec.(*ast.TypeSpec)
-		if !isType || !hasSuffixIn(typeSpec.Name.Name, writes.Types) {
+		if !isType {
+			continue
+		}
+
+		if _, isIface := typeSpec.Type.(*ast.InterfaceType); isIface {
+			pkg.ifaces[typeSpec.Name.Name] = true
+
 			continue
 		}
 
@@ -114,7 +130,7 @@ func (p *project) indexTypes(pkg *servicePackage, src Source, decl *ast.GenDecl,
 			continue
 		}
 
-		one := &serviceType{repos: map[string]bool{}, audits: map[string]bool{}}
+		one := &serviceType{repos: map[string]bool{}, audits: map[string]bool{}, embeds: nil}
 
 		for _, field := range structType.Fields.List {
 			ftype := field.Type
@@ -122,20 +138,57 @@ func (p *project) indexTypes(pkg *servicePackage, src Source, decl *ast.GenDecl,
 				ftype = star.X
 			}
 
-			sel, isSel := ftype.(*ast.SelectorExpr)
-			if !isSel {
-				continue
-			}
+			switch typed := ftype.(type) {
+			case *ast.SelectorExpr:
+				imported := importOfAlias(src.File, typed.X)
+				for _, name := range field.Names {
+					one.fields = append(one.fields, fieldInfo{name: name.Name, imported: imported, typeName: typed.Sel.Name})
+				}
+			case *ast.Ident:
+				if len(field.Names) == 0 {
+					one.embeds = append(one.embeds, typed.Name)
+				}
 
-			imported := importOfAlias(src.File, sel.X)
-			for _, name := range field.Names {
-				one.repos[name.Name] = p.isRepositoryImport(imported, writes) && hasSuffixIn(sel.Sel.Name, writes.RepositoryNames)
-				one.audits[name.Name] = imported == auditPackage
+				for _, name := range field.Names {
+					one.fields = append(one.fields, fieldInfo{name: name.Name, imported: "", typeName: typed.Name})
+				}
 			}
 		}
 
 		pkg.types[typeSpec.Name.Name] = one
 	}
+}
+
+// resolve settles which fields are repositories and audit writers, own and embedded: a field typed
+// <pkg>.<Name>Repository from the repository trees, or a <Name>Repository interface of the package itself.
+func (p *project) resolve(pkg *servicePackage, writes ServiceWrites) {
+	for name := range pkg.types {
+		one := pkg.types[name]
+		for _, field := range pkg.flatten(name, map[string]bool{}) {
+			named := hasSuffixIn(field.typeName, writes.RepositoryNames)
+			local := field.imported == "" && pkg.ifaces[field.typeName]
+
+			one.repos[field.name] = named && (local || p.isRepositoryImport(field.imported, writes))
+			one.audits[field.name] = field.imported == auditPackage
+		}
+	}
+}
+
+// flatten is the fields of a struct and of the structs of the package it embeds.
+func (pkg *servicePackage) flatten(name string, seen map[string]bool) []fieldInfo {
+	one := pkg.types[name]
+	if one == nil || seen[name] {
+		return nil
+	}
+
+	seen[name] = true
+	out := slices.Clone(one.fields)
+
+	for _, embedded := range one.embeds {
+		out = append(out, pkg.flatten(embedded, seen)...)
+	}
+
+	return out
 }
 
 // isRepositoryImport reports whether an import path is under one of writes.Repositories.
@@ -203,7 +256,7 @@ func (p *project) serviceMethods(writes ServiceWrites, audit []string, txCalls [
 
 	for _, pkg := range p.indexPackages(writes) {
 		for _, target := range pkg.funcs {
-			if target.typ == "" || !target.decl.Name.IsExported() || pkg.types[target.typ] == nil || target.decl.Body == nil {
+			if target.typ == "" || !target.decl.Name.IsExported() || !hasSuffixIn(target.typ, writes.Types) || pkg.types[target.typ] == nil || target.decl.Body == nil {
 				continue
 			}
 

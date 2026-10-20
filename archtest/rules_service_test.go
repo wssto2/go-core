@@ -95,3 +95,14 @@ func TestAtomicWritesNeedsATransactionForTwoRepositories(t *testing.T) {
 	cfg.AtomicWrites[0].Tx = []string{"Elsewhere"}
 	require.Contains(t, problems(t, cfg, "atomic-writes"), "ledger.Service.TwoReposInTx")
 }
+
+func TestServiceRulesSeeEmbeddedFieldsAndLocalRepositories(t *testing.T) {
+	t.Parallel()
+
+	cfg := auditConfig(t)
+	cfg.RequiresAudit[0].Writes.RepositoryNames = []string{"Repository", "Store"}
+
+	got := problems(t, cfg, "requires-audit")
+	require.Contains(t, got, "ledger.Service.EmbeddedNoAudit", "a field of an embedded struct")
+	require.Contains(t, got, "ledger.Service.LocalNoAudit", "an interface of the package itself")
+}
