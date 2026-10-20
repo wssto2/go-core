@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.23.0 (unreleased)
+## v1.23.0 (2026-10-20)
 
 Errors and guards. **Breaking**: an application upgrading from v1.22.0 follows "Removed" and "Changed".
 
