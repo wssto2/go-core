@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.27.0 (unreleased)
+## v1.27.0 (2026-10-20)
 
 Money is integer cents, rounded once and exactly, and a guard keeps float64 money out.
 
