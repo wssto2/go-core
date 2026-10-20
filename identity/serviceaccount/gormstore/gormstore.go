@@ -393,7 +393,7 @@ func (s *Store) ClaimNotice(
 // conn is the transaction in ctx (database.Transactor puts it there), else the store's own connection, so an
 // account's change and its audit row commit together.
 func (s *Store) conn(ctx context.Context) *gorm.DB {
-	if tx, ok := database.TxFromContext(ctx); ok {
+	if tx, ok := database.TxFor(ctx, s.db); ok {
 		return tx
 	}
 

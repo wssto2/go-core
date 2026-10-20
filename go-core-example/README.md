@@ -87,7 +87,7 @@ go-core-example/
 | `authz` — catalogue, hierarchy, roles, `authzgorm.Filter` | `internal/domain/access/` |
 | `database.Registry` — named connection pools | `cmd/api/main.go` (`app.Database()`) |
 | `database.Transactor` — unit-of-work wrapping service calls | `internal/domain/product/service.go` |
-| `database.TxFromContext` — transaction propagation | `internal/domain/product/repository.go` |
+| `database.TxFor` — transaction propagation | `internal/domain/product/repository.go` |
 | `database/types` — NullString, NullInt, Float, Bool | `internal/domain/product/entity.go` |
 | `apperr` — typed errors with HTTP codes and log levels | `internal/domain/product/service.go` |
 | `audit.Repository` — structured audit log writes | `internal/domain/product/service.go` |
@@ -336,7 +336,7 @@ picks it up automatically:
 
 ```go
 func (r *gormRepository) db(ctx context.Context) *gorm.DB {
-    if tx, ok := database.TxFromContext(ctx); ok {
+    if tx, ok := database.TxFor(ctx, r.conn); ok {
         return tx.WithContext(ctx)
     }
     return r.conn.WithContext(ctx)

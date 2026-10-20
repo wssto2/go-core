@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.25.0 (unreleased)
+
+Stores join only their own connection's transaction. Partly done: see "Open".
+
+### Added
+
+- database: `InTransaction(ctx) bool`, true when a transaction on any connection is open.
+
+### Changed
+
+- authz, identity (accounts, preferences, service accounts), incident, notification inbox, savedview and the example app's repository join the transaction of their own connection (`database.TxFor(ctx, db)`), no longer the innermost one of any connection. A transaction on another database in ctx is ignored. **Breaking** for a caller that relied on a store joining a foreign transaction.
+- notification: `Send` refuses to run inside a transaction through `database.InTransaction`, same behaviour.
+
 ## v1.24.0 (2026-10-20)
 
 Input hygiene. **Breaking**: `required` on a `*string` (see "Changed").

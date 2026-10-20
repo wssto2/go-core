@@ -22,7 +22,7 @@ var (
 )
 
 // Store keeps incidents. The gormstore package is the SQL implementation and storetest the suite every store passes.
-// A method joins the transaction in ctx when it carries one (database.TxFromContext).
+// A method joins the transaction in ctx when it carries one (database.TxFor).
 type Store interface {
 	Reader
 	Writer

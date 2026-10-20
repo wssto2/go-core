@@ -221,7 +221,7 @@ type store struct {
 
 // conn is the connection to use: the transaction in ctx, or the store's own.
 func (s *store) conn(ctx context.Context) *gorm.DB {
-	if tx, ok := database.TxFromContext(ctx); ok {
+	if tx, ok := database.TxFor(ctx, s.db); ok {
 		return tx.WithContext(ctx)
 	}
 

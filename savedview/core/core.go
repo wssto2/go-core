@@ -33,7 +33,7 @@ type View struct {
 
 // Store keeps views. The gormstore package is the SQL implementation and storetest the suite every store passes. Every
 // method is scoped to one person: a row of somebody else is indistinguishable from a missing one. A method joins the
-// transaction in ctx when it carries one (database.TxFromContext).
+// transaction in ctx when it carries one (database.TxFor).
 type Store interface {
 	// List returns the person's views of one list, by name.
 	List(ctx context.Context, userID int, listKey string) ([]View, error)

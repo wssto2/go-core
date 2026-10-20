@@ -62,7 +62,7 @@ func New(db *gorm.DB, opts ...Option) *Store {
 // carries one (so a read sees what the transaction wrote, and on a single
 // connection does not wait for it), the database otherwise.
 func (s *Store) reader(ctx context.Context) *gorm.DB {
-	if tx, ok := database.TxFromContext(ctx); ok {
+	if tx, ok := database.TxFor(ctx, s.db); ok {
 		return tx.WithContext(ctx)
 	}
 	return s.db.WithContext(ctx)
@@ -114,7 +114,7 @@ func (s *Store) ListRoles(ctx context.Context) ([]authz.Role, error) {
 func (s *Store) SaveRole(ctx context.Context, actor authz.Subject, role authz.Role) (authz.Role, error) {
 	var saved authz.Role
 	err := s.tx.WithinTransaction(ctx, func(ctx context.Context) error {
-		tx, err := txFrom(ctx)
+		tx, err := txFrom(ctx, s.db) //nolint:varnamelen // tx is the transaction, as everywhere in this file
 		if err != nil {
 			return err
 		}
@@ -195,7 +195,7 @@ func insertGrants(tx *gorm.DB, roleID int, grants []authz.Grant) error {
 // DeleteRole implements authz.Store.
 func (s *Store) DeleteRole(ctx context.Context, actor authz.Subject, id int) error {
 	return s.tx.WithinTransaction(ctx, func(ctx context.Context) error {
-		tx, err := txFrom(ctx)
+		tx, err := txFrom(ctx, s.db) //nolint:varnamelen // tx is the transaction, as everywhere in this file
 		if err != nil {
 			return err
 		}
@@ -276,7 +276,7 @@ func (s *Store) HoldersOf(ctx context.Context, ref authz.RoleRef) ([]authz.Bindi
 func (s *Store) Bind(ctx context.Context, actor authz.Subject, b authz.Binding) (authz.Binding, error) {
 	var saved authz.Binding
 	err := s.tx.WithinTransaction(ctx, func(ctx context.Context) error {
-		tx, err := txFrom(ctx)
+		tx, err := txFrom(ctx, s.db) //nolint:varnamelen // tx is the transaction, as everywhere in this file
 		if err != nil {
 			return err
 		}
@@ -316,7 +316,7 @@ func (s *Store) Bind(ctx context.Context, actor authz.Subject, b authz.Binding) 
 // Unbind implements authz.Store.
 func (s *Store) Unbind(ctx context.Context, actor authz.Subject, id int) error {
 	return s.tx.WithinTransaction(ctx, func(ctx context.Context) error {
-		tx, err := txFrom(ctx)
+		tx, err := txFrom(ctx, s.db) //nolint:varnamelen // tx is the transaction, as everywhere in this file
 		if err != nil {
 			return err
 		}
@@ -349,8 +349,8 @@ func (s *Store) record(ctx context.Context, actor authz.Subject, entity string, 
 	return nil
 }
 
-func txFrom(ctx context.Context) (*gorm.DB, error) {
-	tx, ok := database.TxFromContext(ctx)
+func txFrom(ctx context.Context, db *gorm.DB) (*gorm.DB, error) {
+	tx, ok := database.TxFor(ctx, db)
 	if !ok {
 		return nil, apperr.Internal(errors.New("authz/gormstore: no transaction in context"))
 	}

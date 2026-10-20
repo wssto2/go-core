@@ -42,7 +42,7 @@ func NewRepository(conn *gorm.DB) Repository {
 // db returns the appropriate *gorm.DB for the given context. If a transaction
 // is present in the context (via Transactor), that transaction is used.
 func (r *gormRepository) db(ctx context.Context) *gorm.DB {
-	if tx, ok := database.TxFromContext(ctx); ok {
+	if tx, ok := database.TxFor(ctx, r.conn); ok {
 		return tx.WithContext(ctx)
 	}
 	return r.conn.WithContext(ctx)

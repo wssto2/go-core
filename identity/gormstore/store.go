@@ -99,7 +99,7 @@ func (h sha256Hasher) Compare(token, hash string) bool {
 // (database.Transactor puts it there), else the store's own connection. This is
 // what lets a hook's writes, an account's change and its history commit together.
 func dbOf(db *gorm.DB, ctx context.Context) *gorm.DB { //nolint:revive // the receiver reads better first
-	if tx, ok := database.TxFromContext(ctx); ok {
+	if tx, ok := database.TxFor(ctx, db); ok {
 		return tx
 	}
 

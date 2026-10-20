@@ -73,7 +73,7 @@ func (s *Store) Set(ctx context.Context, accountID int, prefs json.RawMessage) e
 
 // conn is the connection of the request's transaction, when it has one.
 func (s *Store) conn(ctx context.Context) *gorm.DB {
-	if tx, ok := database.TxFromContext(ctx); ok {
+	if tx, ok := database.TxFor(ctx, s.db); ok {
 		return tx
 	}
 

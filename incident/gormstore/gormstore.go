@@ -490,7 +490,7 @@ func (s *Store) PruneOccurrences(ctx context.Context, before time.Time, limit in
 
 // conn is the connection to use: the transaction in ctx when there is one, else the database.
 func (s *Store) conn(ctx context.Context) *gorm.DB {
-	if tx, ok := database.TxFromContext(ctx); ok {
+	if tx, ok := database.TxFor(ctx, s.db); ok {
 		return tx.WithContext(ctx)
 	}
 

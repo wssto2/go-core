@@ -157,7 +157,7 @@ func (s *Store) requireRow(ctx context.Context, viewID, userID int) error {
 }
 
 func (s *Store) conn(ctx context.Context) *gorm.DB {
-	if tx, ok := database.TxFromContext(ctx); ok {
+	if tx, ok := database.TxFor(ctx, s.db); ok {
 		return tx.WithContext(ctx)
 	}
 

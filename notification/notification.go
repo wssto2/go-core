@@ -403,7 +403,7 @@ func (n *Notices) checkSend(ctx context.Context, category Kind, render func(Reci
 			"app.Events(MyEvent.To(\"notifications.my-event\", func(ctx, e) error { return notices.Send(ctx, ...) }))", ErrNotInConsumer)
 	}
 
-	if _, inTx := database.TxFromContext(ctx); inTx {
+	if database.InTransaction(ctx) {
 		return 0, Kind{}, fmt.Errorf(
 			"%w: Send commits its own transaction, so it cannot run inside another",
 			ErrNotInConsumer,

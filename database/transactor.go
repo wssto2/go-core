@@ -79,6 +79,11 @@ func TxFromContext(ctx context.Context) (*gorm.DB, bool) {
 	return nil, false
 }
 
+// InTransaction reports whether ctx carries an open transaction on any connection.
+func InTransaction(ctx context.Context) bool {
+	return entryFromContext(ctx) != nil
+}
+
 // TxFor retrieves the transaction in the context that belongs to conn, if there is one.
 func TxFor(ctx context.Context, conn *gorm.DB) (*gorm.DB, bool) {
 	if e := entryFromContext(ctx).find(poolOf(conn)); e != nil {

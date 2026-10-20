@@ -214,3 +214,29 @@ func TestWithinTransaction_RollsBack(t *testing.T) {
 		t.Fatalf("expected 0 rows, got %d", count)
 	}
 }
+
+func TestInTransaction_AnyConnection(t *testing.T) {
+	t.Parallel()
+
+	first, second := openTestDB(t), openTestDB(t)
+	ctx := context.Background()
+
+	if InTransaction(ctx) {
+		t.Fatal("no transaction is open")
+	}
+
+	err := NewTransactor(first).WithinTransaction(ctx, func(ctx context.Context) error {
+		if !InTransaction(ctx) {
+			t.Error("a transaction on the first connection is open")
+		}
+
+		if _, ok := TxFor(ctx, second); ok {
+			t.Error("the second connection has no transaction of its own in ctx")
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
