@@ -43,6 +43,7 @@ const bannedRule = "banned"
 const (
 	fieldWritesRule   = "field-writes"
 	requiresCallRule  = "requires-call"
+	noFloatMoneyRule  = "no-float-money"
 	requiresAuditRule = "requires-audit"
 	atomicWritesRule  = "atomic-writes"
 	contextRootsRule  = "context-roots"
@@ -56,6 +57,7 @@ func ruleNames() []string {
 		ServiceContextFirst, BoundedStrings, RoutePaths, RouteIdentifiers, ValidationRules, RouteAccess,
 		ServiceRepositories, RepositoryShape, SQLPortability, RoutePersonOnly, bannedRule,
 		fieldWritesRule, requiresCallRule, contextRootsRule, requiresAuditRule, atomicWritesRule,
+		noFloatMoneyRule,
 	}
 }
 
@@ -138,6 +140,9 @@ type Config struct {
 
 	// AtomicWrites holds service methods that write through several repositories to a transaction.
 	AtomicWrites []AtomicWrites
+
+	// NoFloatMoney bans a float64 field, parameter or result with a money name in some directories.
+	NoFloatMoney []NoFloatMoney
 
 	// ContextRoots bans context.Background() and context.TODO() as a root context in
 	// directories of the application's own, with the wrappers that make one acceptable.
@@ -381,5 +386,30 @@ type AtomicWrites struct {
 	// Default {"WithinTx", "WithinTransaction"}.
 	Tx []string
 	// Why is the sentence a failure ends with.
+	Why string
+}
+
+// FloatMoneyExemption lets one float64 stay. Field is "pkg.Type.Field" for a struct field,
+// "pkg.Func.param" for a function parameter or result, and "pkg.Type.Method.param" for a method's; it
+// must say why. An exemption that matches nothing is an error, so the list only shrinks.
+type FloatMoneyExemption struct {
+	Field, Why string
+}
+
+// NoFloatMoney bans a float64, *float64 or []float64 struct field, function or method parameter, or
+// named result whose name is money-like, in Dirs (non-test files). Unnamed results are not checked, and
+// neither is a rate or a percent unless its name also matches a money name.
+//
+// A name matches when one of its camelCase (or snake_case) words is a money name or its plural, case-
+// insensitively: NetPrice, unitPrice, VATAmount and Totals match; Network, Valuer, Netto and
+// Discounted do not.
+type NoFloatMoney struct {
+	// Dirs are the directories checked, relative to the root (a file, "dir" or "dir/...").
+	Dirs []string
+	// Names are the money words. Default Price, Amount, Cost, Total, Discount, Margin, Fee, Vat, Tax,
+	// Deposit, Value, Cents, Net, Gross.
+	Names  []string
+	Exempt []FloatMoneyExemption
+	// Why is the sentence a failure ends with. Default says to use money.Money and convert at the mapper.
 	Why string
 }

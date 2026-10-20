@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.27.0 (unreleased)
+
+Money is integer cents, rounded once and exactly, and a guard keeps float64 money out.
+
+### Added
+
+- money: new package. `Money` (cents and a currency; comparable, the zero value is 0 and combines with any currency) with `New(cents, currency)`, `FromDecimal(s, currency)` (exact decimal text, more than 2 decimals round half away from zero), `FromFloat(f, currency)` (the database edge only: exact for every `decimal(p,2)` value, through the shortest decimal text, not `f*100`), `Cents`, `Currency`, `Float` (to write back only), `String` ("32726.50 EUR"), `IsZero`, `Neg`, `Abs`, `Cmp`, `Add`, `Sub` and `Sum` (`ErrCurrency` on different currencies, `ErrOverflow`).
+- money: `Rate`, a percent in 1/100,000 of a percent (a `decimal(10,5)` column; 17% is 1700000) with `Percent(whole)`, `RateFromDecimal(s)`, `RateFromFloat(f)` (database edge), `Units`, `Float`.
+- money: `Money.MulRate`, `AddRate` (net to gross), `RemoveRate` (gross to net), `MulRatio(num, den)`, `DivInt(n)`: exact integer maths with one rounding half away from zero (`math.Round`, PHP `round()`) at the end, so 32726.50 x 17% is 5563.51.
+- money: `Money.RoundTo(step, mode)` with `Nearest`, `Up`, `Down` (`math.Round`, `Ceil`, `Floor` of amount/step, times step, negatives included), `Allocate(m, weights...)` (parts sum to m exactly, largest remainder) and `PercentOf(part, whole, decimals)` (the percent as a scaled integer: 96.65% to 1 decimal is 967).
+- money: `Exact` for a chain of steps with one rounding: `FromMoney`, `MulRate`, `AddRate`, `RemoveRate`, `MulRatio`, `MulDecimal` (an exchange rate such as "1.95583"), `Add`, `Round`.
+- archtest: `Config.NoFloatMoney` (rule `no-float-money`): in `Dirs`, a struct field, parameter or named result of type `float64`, `*float64` or `[]float64` whose name has a money word (`Names`, default Price, Amount, Cost, Total, Discount, Margin, Fee, Vat, Tax, Deposit, Value, Cents, Net, Gross; matched per camelCase word, so `NetPrice` and `Totals` match, `Network` and `Valuer` do not) fails with file:line and the advice to use `money.Money` and convert at the mapper. `Exempt` is a list of `{Field: "pkg.Type.Field" | "pkg.Func.param" | "pkg.Type.Method.param", Why}`; a `Why` is required and an exemption that matches nothing is an error.
+
 ## v1.26.0 (2026-10-20)
 
 Every change is audited and multi-step writes are atomic, as guards.

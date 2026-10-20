@@ -106,3 +106,78 @@ func TestServiceRulesSeeEmbeddedFieldsAndLocalRepositories(t *testing.T) {
 	require.Contains(t, got, "ledger.Service.EmbeddedNoAudit", "a field of an embedded struct")
 	require.Contains(t, got, "ledger.Service.LocalNoAudit", "an interface of the package itself")
 }
+
+const legacyFee = "pricing.Offer.LegacyFee"
+
+func floatMoneyConfig(t *testing.T) archtest.Config {
+	t.Helper()
+
+	cfg := testConfig(fixture(t, "floatmoney"))
+	cfg.NoFloatMoney = []archtest.NoFloatMoney{{Dirs: []string{"internal/application/pricing"}}}
+
+	return cfg
+}
+
+func TestNoFloatMoneyNamesTheFloatsWithAMoneyName(t *testing.T) {
+	t.Parallel()
+
+	got := problems(t, floatMoneyConfig(t), "no-float-money")
+	for _, want := range []string{
+		"pricing.go:4  pricing.Offer.NetPrice is a float64 field",
+		"pricing.Offer.UnitPrice", "pricing.Offer.Totals", "pricing.Offer.VATAmount", legacyFee,
+		"pricing.Calculator.Quote.basePrice is a float64 parameter",
+		"pricing.Calculator.Quote.grossTotal is a float64 result",
+		"pricing.Round.amount", "pricing.Offer.Apply.discount", "pricing.Mean.values",
+		"use money.Money", "money.Rate",
+	} {
+		require.Contains(t, got, want)
+	}
+
+	for _, fine := range []string{
+		"Network", "Valuer", "Percent", "NetworkID", "Offer.Cents", "Discounted", "Round.step", "Apply.rate",
+	} {
+		require.NotContains(t, got, fine)
+	}
+}
+
+func TestNoFloatMoneyExemptions(t *testing.T) {
+	t.Parallel()
+
+	cfg := floatMoneyConfig(t)
+	cfg.NoFloatMoney[0].Exempt = []archtest.FloatMoneyExemption{{Field: legacyFee, Why: "a wire format"}}
+
+	got := problems(t, cfg, "no-float-money")
+	require.NotContains(t, got, "Offer.LegacyFee")
+	require.NotContains(t, got, "STALE")
+
+	cfg.NoFloatMoney[0].Exempt = append(cfg.NoFloatMoney[0].Exempt,
+		archtest.FloatMoneyExemption{Field: "pricing.Offer.Network", Why: "not money"})
+
+	got = problems(t, cfg, "no-float-money")
+	require.Contains(t, got, "STALE FLOAT MONEY EXEMPTION:\n  pricing.Offer.Network")
+}
+
+func TestNoFloatMoneyExemptionNeedsAWhy(t *testing.T) {
+	t.Parallel()
+
+	cfg := floatMoneyConfig(t)
+	cfg.NoFloatMoney[0].Exempt = []archtest.FloatMoneyExemption{{Field: legacyFee, Why: " "}}
+
+	_, err := archtest.Check(cfg)
+	require.ErrorContains(t, err, "needs a Field and a Why")
+}
+
+func TestNoFloatMoneyCustomNamesAndDirs(t *testing.T) {
+	t.Parallel()
+
+	cfg := floatMoneyConfig(t)
+	cfg.NoFloatMoney[0].Names = []string{"Network"}
+
+	got := problems(t, cfg, "no-float-money")
+	require.Contains(t, got, "pricing.Offer.Network")
+	require.NotContains(t, got, "NetPrice")
+
+	cfg.NoFloatMoney[0].Dirs = []string{"internal/infrastructure"}
+	got = problems(t, cfg, "no-float-money")
+	require.Empty(t, got)
+}

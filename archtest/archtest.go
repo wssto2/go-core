@@ -36,7 +36,8 @@
 // ContextRoots bans a root context outside its wrappers. RequiresAudit holds an exported
 // service method that reaches a repository write to reach an audit write too (exemptions are a
 // named list, each with a reason, never a comment), and AtomicWrites holds one that writes through
-// two or more repositories to a WithinTx/WithinTransaction closure. RepositoryShape also
+// two or more repositories to a WithinTx/WithinTransaction closure. NoFloatMoney bans a float64
+// field, parameter or result with a money name (use the money package). RepositoryShape also
 // bans a nested .Transaction( with Repository.NoNestedTransaction. An application's
 // own guards walk the same parsed files with Sources and freeze their violations with Ratchet.
 //
@@ -248,7 +249,12 @@ func (p *project) validateGuards() error {
 		}
 	}
 
-	return p.validateAudit()
+	err := p.validateAudit()
+	if err != nil {
+		return err
+	}
+
+	return p.validateFloatMoney()
 }
 
 // validateAudit refuses an exemption that does not say why.
