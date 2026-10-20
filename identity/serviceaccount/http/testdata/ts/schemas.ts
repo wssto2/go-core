@@ -8,15 +8,15 @@ export type AccountPath = z.infer<typeof AccountPathSchema>;
 
 export const BindInputSchema = z.object({
   id: z.number().int(),
-  role_ref: z.string().min(1).max(64),
-  level: z.string().min(1).max(32),
+  role_ref: z.string().trim().min(1).max(64),
+  level: z.string().trim().min(1).max(32),
   scope_id: z.number().int().nullable().optional(),
 });
 
 export type BindInput = z.infer<typeof BindInputSchema>;
 
 export const BindableInputSchema = z.object({
-  level: z.string().min(1).max(32),
+  level: z.string().trim().min(1).max(32),
   scope_id: z.number().int(),
 });
 
