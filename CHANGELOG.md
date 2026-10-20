@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.26.0 (unreleased)
+## v1.26.0 (2026-10-20)
 
 Every change is audited and multi-step writes are atomic, as guards.
 
