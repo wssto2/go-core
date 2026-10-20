@@ -206,7 +206,7 @@ func WithFeatures(f authz.FeatureResolver) Option { return func(s *settings) { s
 
 // WithAudit writes an audit row for every role and binding change, in the
 // transaction of the change. Build the repository on the module's database:
-// audit.NewRepository(database.NewTransactor(db)); the audit_logs table is the
+// audit.NewRepository(db); the audit_logs table is the
 // application's (audit.Migrate).
 func WithAudit(repo audit.Repository) Option { return func(s *settings) { s.audit = repo } }
 

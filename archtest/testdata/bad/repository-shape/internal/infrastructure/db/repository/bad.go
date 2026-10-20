@@ -6,6 +6,6 @@ import (
 )
 
 func misuse() {
-	_ = db.TxFromContext
+	_ = db.TxFor
 	_ = tenancy.ScopeByTenant
 }

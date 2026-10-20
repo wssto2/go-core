@@ -25,7 +25,7 @@ func installTickets(app *App) *ticketsFeature {
 
 func (f *ticketsFeature) Assign(ctx context.Context, ticket, user int) error {
 	return f.transactor.WithinTransaction(ctx, func(ctx context.Context) error {
-		tx, _ := database.TxFromContext(ctx)
+		tx, _ := database.TxFor(ctx, f.db)
 		if err := tx.Exec("INSERT INTO assignments (ticket_id, user_id) VALUES (?, ?)", ticket, user).Error; err != nil {
 			return err
 		}

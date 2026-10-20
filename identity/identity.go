@@ -736,7 +736,7 @@ func (s settings) installServiceAccounts(
 	app.Events() // the notices to owners are events: the queue's tables, whether or not a consumer is installed
 
 	store := sagormstore.New(db)
-	trail := audit.NewRepository(transact)
+	trail := audit.NewRepository(db)
 
 	service := serviceaccount.New(serviceaccount.Deps{
 		Store: store, Transact: transact, Trail: trail, Clock: app.Clock(), People: users, Authorizer: app.Authorizer,

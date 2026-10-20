@@ -16,7 +16,7 @@ func TestTransactor_ProvidesSQLCQuerier(t *testing.T) {
 	}
 
 	trans := database.NewTransactor(db)
-	repo := NewSQLCRepository(nil, trans)
+	repo := NewSQLCRepository(nil, trans, db)
 	called := false
 	if err := repo.WithinTransaction(context.Background(), func(ctx context.Context, q Querier) error {
 		if q == nil {

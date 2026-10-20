@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	"github.com/wssto2/go-core/audit"
-	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/identity/account"
 	"gorm.io/gorm"
 )
@@ -43,7 +42,7 @@ func AuditRecord(entityType string, actions map[account.ChangeAction]string) Cha
 // audit/migrations'; identity.Install registers it.
 func NewChangeLog(db *gorm.DB, opts ...ChangeLogOption) *ChangeLog {
 	changes := &ChangeLog{
-		db: db, audit: audit.NewRepository(database.NewTransactor(db)), entity: account.AccountRecord,
+		db: db, audit: audit.NewRepository(db), entity: account.AccountRecord,
 		written: nil, read: nil,
 	}
 

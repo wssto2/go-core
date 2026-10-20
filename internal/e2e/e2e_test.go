@@ -341,7 +341,7 @@ func TestAPersonsActivity(t *testing.T) {
 		status, data := admin.do(nethttp.MethodPost, "/api/v1/iam/users", newUser)
 		require.Equal(t, nethttp.StatusOK, status, string(data))
 
-		trail := audit.NewRepository(database.NewTransactor(db))
+		trail := audit.NewRepository(db)
 		require.NoError(t, trail.Write(t.Context(), audit.NewEntry("contracts.line", 5, 1, "update")))
 		require.NoError(t, trail.Write(t.Context(), audit.NewEntry("settings", 9, 1, "delete")))
 

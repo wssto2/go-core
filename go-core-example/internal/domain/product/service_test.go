@@ -25,6 +25,7 @@ func TestService_Create_WritesAuditAndOutboxEvent(t *testing.T) {
 		t.Fatalf("open db: %v", err)
 	}
 
+	event.UseOutbox(db)
 	if err := db.AutoMigrate(&Product{}, &event.OutboxEvent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -37,7 +38,7 @@ func TestService_Create_WritesAuditAndOutboxEvent(t *testing.T) {
 		wrote = append(wrote, log)
 		return nil
 	}
-	auditRepo := audit.NewRepositoryWithHook(transactor, hook)
+	auditRepo := audit.NewRepositoryWithHook(db, hook)
 
 	memStore, _ := storememory.New()
 	svc := NewService(repo, transactor, auditRepo, memStore, slog.Default())
@@ -70,6 +71,7 @@ func TestService_Create_RollsBackOnAuditFailure(t *testing.T) {
 		t.Fatalf("open db: %v", err)
 	}
 
+	event.UseOutbox(db)
 	if err := db.AutoMigrate(&Product{}, &event.OutboxEvent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -80,7 +82,7 @@ func TestService_Create_RollsBackOnAuditFailure(t *testing.T) {
 	hook := func(ctx context.Context, log audit.AuditLog) error {
 		return fmt.Errorf("forced failure")
 	}
-	auditRepo := audit.NewRepositoryWithHook(transactor, hook)
+	auditRepo := audit.NewRepositoryWithHook(db, hook)
 
 	memStore2, _ := storememory.New()
 	svc := NewService(repo, transactor, auditRepo, memStore2, slog.Default())
@@ -105,13 +107,14 @@ func TestService_Update_ChangesFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	event.UseOutbox(db)
 	if err := db.AutoMigrate(&Product{}, &event.OutboxEvent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	repo := NewRepository(db)
 	transactor := database.NewTransactor(db)
-	auditRepo := audit.NewRepositoryWithHook(transactor, func(ctx context.Context, log audit.AuditLog) error { return nil })
+	auditRepo := audit.NewRepositoryWithHook(db, func(ctx context.Context, log audit.AuditLog) error { return nil })
 	memStore, _ := storememory.New()
 	svc := NewService(repo, transactor, auditRepo, memStore, slog.Default())
 	actor := testActor(1)
@@ -142,13 +145,14 @@ func TestService_Delete_SoftDeletes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	event.UseOutbox(db)
 	if err := db.AutoMigrate(&Product{}, &event.OutboxEvent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	repo := NewRepository(db)
 	transactor := database.NewTransactor(db)
-	auditRepo := audit.NewRepositoryWithHook(transactor, func(ctx context.Context, log audit.AuditLog) error { return nil })
+	auditRepo := audit.NewRepositoryWithHook(db, func(ctx context.Context, log audit.AuditLog) error { return nil })
 	memStore, _ := storememory.New()
 	svc := NewService(repo, transactor, auditRepo, memStore, slog.Default())
 	actor := testActor(1)

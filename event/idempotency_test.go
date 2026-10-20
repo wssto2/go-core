@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,lll,nlreturn,noinlineerr,paralleltest,thelper,varnamelen,wsl_v5
 package event
 
 import (
@@ -38,7 +39,7 @@ func TestIdempotency_ReserveWithinTransaction(t *testing.T) {
 
 	// Reserve within transaction and commit
 	if err := trans.WithinTransaction(context.Background(), func(ctx context.Context) error {
-		tx, ok := database.TxFromContext(ctx)
+		tx, ok := database.TxFor(ctx, db)
 		if !ok {
 			return errors.New("no tx")
 		}
@@ -75,7 +76,7 @@ func TestIdempotency_ReserveRollback(t *testing.T) {
 	key := "rollback-key"
 
 	err := trans.WithinTransaction(context.Background(), func(ctx context.Context) error {
-		tx, ok := database.TxFromContext(ctx)
+		tx, ok := database.TxFor(ctx, db)
 		if !ok {
 			return errors.New("no tx")
 		}
@@ -162,7 +163,7 @@ func TestDBProcessedStore_WithinTransaction(t *testing.T) {
 	ctx := context.Background()
 
 	err := trans.WithinTransaction(ctx, func(ctx context.Context) error {
-		tx, ok := database.TxFromContext(ctx)
+		tx, ok := database.TxFor(ctx, db)
 		if !ok {
 			return errors.New("no tx in context")
 		}

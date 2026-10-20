@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,lll,nlreturn,noinlineerr,paralleltest,thelper,varnamelen,wsl_v5
 package gormstore_test
 
 import (
@@ -13,7 +14,6 @@ import (
 	"github.com/wssto2/go-core/authz/authztest"
 	"github.com/wssto2/go-core/authz/gormstore"
 	"github.com/wssto2/go-core/authz/storetest"
-	"github.com/wssto2/go-core/database"
 	"gorm.io/gorm"
 )
 
@@ -51,7 +51,7 @@ func TestMariaDBStoreConforms(t *testing.T) {
 				storetest.Run(t, func(t *testing.T) authz.Store {
 					freshTables(t, db, viaSQL)
 					if audited {
-						return gormstore.New(db, gormstore.WithAudit(audit.NewRepository(database.NewTransactor(db))))
+						return gormstore.New(db, gormstore.WithAudit(audit.NewRepository(db)))
 					}
 					return gormstore.New(db)
 				})
@@ -87,7 +87,7 @@ func TestMariaDBRoleLockUnderContention(t *testing.T) {
 		t.Skip(authztest.MariaDBEnv + " is not set")
 	}
 	freshTables(t, db, true)
-	s := gormstore.New(db, gormstore.WithAudit(audit.NewRepository(database.NewTransactor(db))))
+	s := gormstore.New(db, gormstore.WithAudit(audit.NewRepository(db)))
 	ctx := context.Background()
 	actor := authz.Subject{Kind: authz.KindUser, ID: 1}
 	role, err := s.SaveRole(ctx, actor, authz.Role{Name: "r", Grants: authz.Grants(authz.QualifierAll, "a.b:view")})

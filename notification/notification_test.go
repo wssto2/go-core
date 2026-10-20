@@ -395,7 +395,7 @@ func TestAFeaturePublishesItsConsumerSendsAndThePersonReadsItOverHTTP(t *testing
 
 		assign := func(ticket, user, actor int, commit bool) error {
 			return database.NewTransactor(db).WithinTransaction(t.Context(), func(ctx context.Context) error {
-				tx, _ := database.TxFromContext(ctx)
+				tx, _ := database.TxFor(ctx, db)
 				if err := tx.Exec("INSERT INTO assignments VALUES (?, ?)", ticket, user).Error; err != nil {
 					return err
 				}

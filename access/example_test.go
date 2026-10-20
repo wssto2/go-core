@@ -129,7 +129,7 @@ func ExampleWithAudit() {
 		gocore.WithAuthentication(signedIn))
 	acc := access.Install(app, catalogue(), team{},
 		access.WithRoles(authz.Role{Key: "viewer", Name: "Viewer", Grants: authz.Grants(authz.QualifierAll, "tickets.ticket:view")}),
-		access.WithAudit(audit.NewRepository(database.NewTransactor(db))))
+		access.WithAudit(audit.NewRepository(db)))
 
 	_ = acc.Seed(context.Background(), authz.Subject{Kind: authz.KindUser, ID: 1}, "viewer")
 

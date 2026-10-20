@@ -15,7 +15,7 @@ const (
 // transactionAPI is go-core's transaction plumbing: a repository reaches the
 // caller's transaction through one file of its package, not by calling it.
 func transactionAPI() []string {
-	return []string{"TxFromContext", "TxFor", "SQLTxFromContext", "SQLTxFor", "NewTransactor", "NewTransactorFromRegistry"}
+	return []string{"TxFor", "TxOn", "SQLTxFor", "NewTransactor", "NewTransactorFromRegistry"}
 }
 
 // banned checks Config.Banned. It has no ratchet: a ban is not debt.

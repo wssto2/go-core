@@ -159,8 +159,8 @@ type Repository struct {
 	// Dir is the repository package, relative to the root; the rule checks the
 	// production files of that package only.
 	Dir string
-	// TxFile is the only file that may call database.TxFromContext, TxFor,
-	// SQLTxFromContext, SQLTxFor, NewTransactor and NewTransactorFromRegistry.
+	// TxFile is the only file that may call database.TxFor, TxOn,
+	// SQLTxFor, NewTransactor and NewTransactorFromRegistry.
 	TxFile string
 	// ScopeFile is the only file that may call tenancy.ScopeByTenant.
 	ScopeFile string

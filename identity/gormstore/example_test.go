@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/wssto2/go-core/audit"
-	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/dbtest"
 	"github.com/wssto2/go-core/identity/account"
 	"github.com/wssto2/go-core/identity/gormstore"
@@ -38,7 +37,7 @@ func ExampleNewActivityLog() {
 	_ = gormstore.Migrate(db)
 	_ = audit.Migrate(db)
 
-	trail, ctx := audit.NewRepository(database.NewTransactor(db)), context.Background()
+	trail, ctx := audit.NewRepository(db), context.Background()
 	_ = trail.Write(ctx, audit.NewEntry("offers", 12, 7, "create"))
 	_ = trail.Write(ctx, audit.NewEntry("offers", 12, 7, "update"))
 

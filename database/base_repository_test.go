@@ -86,7 +86,7 @@ func TestPlainRepository_IgnoresTheTransactionInContext(t *testing.T) {
 		plain := &database.PlainRepository{Conn: db}
 
 		err := base.WithinTx(t.Context(), func(ctx context.Context) error {
-			tx, ok := database.TxFromContext(ctx)
+			tx, ok := database.TxFor(ctx, db)
 			require.True(t, ok)
 
 			assert.Same(t, tx.Statement.ConnPool, base.DB(ctx).Statement.ConnPool, "the base repository uses the transaction")

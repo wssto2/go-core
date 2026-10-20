@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,lll,nlreturn,noinlineerr,paralleltest,thelper,varnamelen,wsl_v5
 package database
 
 import (
@@ -29,7 +30,7 @@ func TestWithinTransaction_Commits(t *testing.T) {
 	trans := NewTransactor(db)
 
 	err := trans.WithinTransaction(context.Background(), func(ctx context.Context) error {
-		tx, ok := TxFromContext(ctx)
+		tx, ok := TxFor(ctx, db)
 		if !ok {
 			return errors.New("tx not found in context")
 		}
@@ -89,7 +90,7 @@ func TestWithinTransaction_RollsBackOnPanic(t *testing.T) {
 	}()
 
 	_ = trans.WithinTransaction(context.Background(), func(ctx context.Context) error {
-		tx, ok := TxFromContext(ctx)
+		tx, ok := TxFor(ctx, db)
 		if !ok {
 			return errors.New("tx not found in context")
 		}
@@ -117,7 +118,7 @@ func TestWithinTransaction_NestedCallJoinsAmbientTransaction(t *testing.T) {
 	var outerTx, innerTx *gorm.DB
 
 	err := outer.WithinTransaction(context.Background(), func(ctx context.Context) error {
-		tx, ok := TxFromContext(ctx)
+		tx, ok := TxFor(ctx, db)
 		if !ok {
 			return errors.New("outer tx not found in context")
 		}
@@ -128,7 +129,7 @@ func TestWithinTransaction_NestedCallJoinsAmbientTransaction(t *testing.T) {
 		}
 
 		return inner.WithinTransaction(ctx, func(innerCtx context.Context) error {
-			innerTxFromCtx, ok := TxFromContext(innerCtx)
+			innerTxFromCtx, ok := TxFor(innerCtx, db)
 			if !ok {
 				return errors.New("inner tx not found in context")
 			}
@@ -162,7 +163,7 @@ func TestWithinTransaction_NestedCallErrorRollsBackOuter(t *testing.T) {
 	inner := NewTransactor(db)
 
 	err := outer.WithinTransaction(context.Background(), func(ctx context.Context) error {
-		tx, ok := TxFromContext(ctx)
+		tx, ok := TxFor(ctx, db)
 		if !ok {
 			return errors.New("outer tx not found in context")
 		}
@@ -192,7 +193,7 @@ func TestWithinTransaction_RollsBack(t *testing.T) {
 	trans := NewTransactor(db)
 
 	err := trans.WithinTransaction(context.Background(), func(ctx context.Context) error {
-		tx, ok := TxFromContext(ctx)
+		tx, ok := TxFor(ctx, db)
 		if !ok {
 			return errors.New("tx not found in context")
 		}

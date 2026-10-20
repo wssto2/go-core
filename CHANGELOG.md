@@ -2,16 +2,24 @@
 
 ## v1.25.0 (unreleased)
 
-Stores join only their own connection's transaction. Partly done: see "Open".
+No lookup of "the transaction of any connection" is left: a store, `audit`, `sqlc` and `event.Publish` each join the transaction of their own connection. **Breaking**: three signatures and two removed functions.
 
 ### Added
 
-- database: `InTransaction(ctx) bool`, true when a transaction on any connection is open.
+- database: `InTransaction(ctx) bool`, true when a transaction on any connection is open. `Pool(conn)` and `TxOn(ctx, match)` give the innermost transaction whose connection satisfies a predicate (what `event.Publish` uses).
+- event: `UseOutbox(db)` marks a connection as one the outbox lives on. `EnsureOutboxSchema`, `Migrate`, `NewQueue` and `app.Events` call it, so a caller needs nothing new.
 
 ### Changed
 
-- authz, identity (accounts, preferences, service accounts), incident, notification inbox, savedview and the example app's repository join the transaction of their own connection (`database.TxFor(ctx, db)`), no longer the innermost one of any connection. A transaction on another database in ctx is ignored. **Breaking** for a caller that relied on a store joining a foreign transaction.
+- **Breaking** `audit.NewRepository(db *gorm.DB)` and `audit.NewRepositoryWithHook(db, hook)` take the connection (they were given a `database.Transactor`) and write in a transaction on it, ignoring one on another connection.
+- **Breaking** `sqlc.QuerierFromContext(ctx, conn)` and `sqlc.NewSQLCRepository(q, t, conn)` take the connection; the `*sql.Tx` they use is the one of `conn`.
+- event: `Publish(ctx, payload)` joins the innermost transaction on an outbox connection. With a transaction in ctx on another connection only, it fails with "Publish needs a transaction on the events' database; ctx only has one on another connection"; with none, it fails as before.
+- authz, identity (accounts, preferences, service accounts), incident, notification inbox, savedview and the example app's repository join the transaction of their own connection (`database.TxFor(ctx, db)`). A transaction on another database in ctx is ignored.
 - notification: `Send` refuses to run inside a transaction through `database.InTransaction`, same behaviour.
+
+### Removed
+
+- **Breaking** `database.TxFromContext` and `database.SQLTxFromContext`, which returned the innermost transaction of any connection. Use `database.TxFor(ctx, conn)` / `database.SQLTxFor(ctx, conn)`, or `database.InTransaction(ctx)` to ask whether one is open.
 
 ## v1.24.0 (2026-10-20)
 

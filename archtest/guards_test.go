@@ -112,7 +112,7 @@ func TestGuardCatchesData(t *testing.T) {
 		},
 		{
 			archtest.RepositoryShape, "repository-shape",
-			[]string{"bad.go:9  uses db.TxFromContext", "bad.go:10  uses tenancy.ScopeByTenant"},
+			[]string{"bad.go:9  uses db.TxFor", "bad.go:10  uses tenancy.ScopeByTenant"},
 			[]string{"base.go", "scopes.go"},
 		},
 	})

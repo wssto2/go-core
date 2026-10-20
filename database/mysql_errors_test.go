@@ -109,7 +109,7 @@ func TestIsDeadlock_AgainstTheServers(t *testing.T) {
 			defer wg.Done()
 
 			errs <- database.NewTransactor(db).WithinTransaction(t.Context(), func(ctx context.Context) error {
-				tx, _ := database.TxFromContext(ctx)
+				tx, _ := database.TxFor(ctx, db)
 				if err := tx.Exec("UPDATE lock_rows SET n = n + 1 WHERE id = ?", first).Error; err != nil {
 					return err
 				}

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/wssto2/go-core/database"
+	"gorm.io/gorm"
 )
 
 // SQLCRepository is a minimal base repository for sqlc-generated Querier implementations.
@@ -11,11 +12,12 @@ import (
 type SQLCRepository struct {
 	Queries    Querier
 	Transactor database.Transactor
+	Conn       *gorm.DB // the connection Queries and Transactor work on
 }
 
 // NewSQLCRepository constructs a new SQLCRepository.
-func NewSQLCRepository(q Querier, t database.Transactor) *SQLCRepository {
-	return &SQLCRepository{Queries: q, Transactor: t}
+func NewSQLCRepository(q Querier, t database.Transactor, conn *gorm.DB) *SQLCRepository {
+	return &SQLCRepository{Queries: q, Transactor: t, Conn: conn}
 }
 
 // WithinTransaction executes fn within a transaction if a Transactor is provided.
@@ -26,7 +28,7 @@ func (r *SQLCRepository) WithinTransaction(ctx context.Context, fn func(ctx cont
 		return fn(ctx, r.Queries)
 	}
 	return r.Transactor.WithinTransaction(ctx, func(txCtx context.Context) error {
-		if q, ok := QuerierFromContext(txCtx); ok && q != nil {
+		if q, ok := QuerierFromContext(txCtx, r.Conn); ok && q != nil {
 			return fn(txCtx, q)
 		}
 		return fn(txCtx, r.Queries)

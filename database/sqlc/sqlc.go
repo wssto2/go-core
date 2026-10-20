@@ -17,6 +17,7 @@ import (
 	"database/sql"
 
 	"github.com/wssto2/go-core/database"
+	"gorm.io/gorm"
 )
 
 // Package sqlc provides minimal interfaces and stubs for sqlc-generated code.
@@ -38,15 +39,15 @@ func WithQuerier(ctx context.Context, q Querier) context.Context {
 }
 
 // QuerierFromContext retrieves a Querier from the context if present. If a
-// Querier is not directly present, this will attempt to retrieve a *sql.Tx from
-// the context (stored by database.Transactor) and construct a Querier using
+// Querier is not directly present, this will attempt to retrieve the *sql.Tx of
+// conn from the context (stored by database.Transactor) and construct a Querier using
 // NewFromTx.
-func QuerierFromContext(ctx context.Context) (Querier, bool) {
+func QuerierFromContext(ctx context.Context, conn *gorm.DB) (Querier, bool) { //nolint:ireturn,lll // the placeholder port
 	if q, ok := ctx.Value(querierCtxKey{}).(Querier); ok {
 		return q, true
 	}
 
-	if tx, ok := database.SQLTxFromContext(ctx); ok && tx != nil {
+	if tx, ok := database.SQLTxFor(ctx, conn); ok && tx != nil {
 		return NewFromTx(tx), true
 	}
 

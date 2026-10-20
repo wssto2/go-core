@@ -64,7 +64,11 @@ func (e Event[T]) Name() string { return e.name }
 // event published outside the write it reports could be lost or announced for a
 // write that rolled back.
 func (e Event[T]) Publish(ctx context.Context, payload T) error {
-	tx, ok := database.TxFromContext(ctx)
+	tx, ok := database.TxOn(ctx, isOutbox) //nolint:varnamelen // tx is the transaction
+	if !ok && database.InTransaction(ctx) {
+		return fmt.Errorf("event %q: %w", e.name, errForeignTx)
+	}
+
 	if !ok {
 		return fmt.Errorf("event %q: Publish needs the transaction of the write it reports in ctx: "+
 			"call it inside database.Transactor.WithinTransaction", e.name)
@@ -137,6 +141,8 @@ func (e Event[T]) To(consumer string, handler func(ctx context.Context, payload 
 		},
 	}
 }
+
+var errForeignTx = errors.New("Publish needs a transaction on the events' database; ctx only has one on another connection") //nolint:revive,staticcheck,lll // names the method
 
 // ErrMalformed marks an event that can never be handled, whatever the handler
 // does: its envelope or payload cannot be read. The queue does not retry it; it

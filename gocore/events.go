@@ -31,6 +31,7 @@ func (a *App) Events(consumers ...event.Consumer) {
 
 	a.Schema(Schema{Files: migrations.Files, Models: event.Migrate})
 
+	event.UseOutbox(a.Database())
 	a.eventsUsed = true
 	a.consumers = append(a.consumers, consumers...)
 }

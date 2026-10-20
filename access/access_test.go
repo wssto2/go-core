@@ -302,7 +302,7 @@ func TestChangesAreAuditedWhenAskedFor(t *testing.T) {
 
 	app, acc := newApp(db, func(app *gocore.App) *access.Access {
 		return access.Install(app, permissions(), team{}, access.On(local), access.WithRoles(roles()...),
-			access.WithAudit(audit.NewRepository(database.NewTransactor(db))))
+			access.WithAudit(audit.NewRepository(db)))
 	})
 	require.NoError(t, acc.Seed(t.Context(), authz.Subject{Kind: authz.KindUser, ID: 1}, "webmaster"))
 

@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,lll,nlreturn,noinlineerr,paralleltest,thelper,varnamelen,wsl_v5
 package gormstore_test
 
 import (
@@ -38,13 +39,13 @@ func TestStoreConformsWithoutAudit(t *testing.T) {
 func TestStoreConformsWithAudit(t *testing.T) {
 	storetest.Run(t, func(t *testing.T) authz.Store {
 		db := newDB(t)
-		return gormstore.New(db, gormstore.WithAudit(audit.NewRepository(database.NewTransactor(db))))
+		return gormstore.New(db, gormstore.WithAudit(audit.NewRepository(db)))
 	})
 }
 
 func TestAuditRowsCarryBeforeAndAfter(t *testing.T) {
 	db := newDB(t)
-	s := gormstore.New(db, gormstore.WithAudit(audit.NewRepository(database.NewTransactor(db))))
+	s := gormstore.New(db, gormstore.WithAudit(audit.NewRepository(db)))
 	ctx := context.Background()
 	actor := authz.Subject{Kind: authz.KindUser, ID: 42}
 
@@ -126,7 +127,7 @@ func TestEngineOverGormStore(t *testing.T) { engineOverGormStore(t, newDB(t)) }
 
 func engineOverGormStore(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	store := gormstore.New(db, gormstore.WithAudit(audit.NewRepository(database.NewTransactor(db))))
+	store := gormstore.New(db, gormstore.WithAudit(audit.NewRepository(db)))
 
 	cat := authz.NewCatalogue()
 	require.NoError(t, cat.Define("iam.role:manage"))

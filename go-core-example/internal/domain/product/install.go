@@ -30,7 +30,7 @@ func Install(app *gocore.App, storageDir string) Service {
 	}
 
 	repo := NewRepository(db)
-	svc := NewInstrumentedService(NewService(repo, tx, audit.NewRepository(tx), store, app.Logger()), app.Telemetry().Service)
+	svc := NewInstrumentedService(NewService(repo, tx, audit.NewRepository(db), store, app.Logger()), app.Telemetry().Service)
 
 	// Demo only: a real app creates these tables with migrations (app.Schema or app.Migrations) and seeds nothing.
 	app.OnStart(func(ctx context.Context) error {

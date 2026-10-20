@@ -135,7 +135,7 @@ func TestANewIncidentIsAnnouncedInItsTransaction(t *testing.T) {
 		service := core.New(core.Config{
 			Store: store, Transactor: database.NewTransactor(db), People: nobody{}, Clock: clock{},
 			Opened: func(ctx context.Context, o core.Opened) error {
-				_, inTx := database.TxFromContext(ctx)
+				_, inTx := database.TxFor(ctx, db)
 				assert.True(t, inTx, "the hook runs in the transaction that creates the incident")
 
 				opened = append(opened, o)

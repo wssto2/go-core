@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,lll,nlreturn,noinlineerr,paralleltest,thelper,varnamelen,wsl_v5
 package event_test
 
 import (
@@ -5,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/dbtest"
 	"github.com/wssto2/go-core/event"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -94,4 +97,30 @@ func TestProblems(t *testing.T) {
 	}
 
 	require.Empty(t, event.Problems([]event.Consumer{Assigned.To("notifications.assignee", ok), Assigned.To("audit-trail", ok)}))
+}
+
+func TestPublishJoinsOnlyTheOutboxConnectionsTransaction(t *testing.T) {
+	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+		require.NoError(t, event.EnsureOutboxSchema(db))
+
+		other, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "other.db")), &gorm.Config{})
+		require.NoError(t, err)
+
+		// Only a transaction on another connection: refused, and the message says why.
+		foreign, _ := dbtest.TxContext(t, other)
+		err = Assigned.Publish(foreign, TicketAssigned{TicketID: 1})
+		require.ErrorContains(t, err, "ctx only has one on another connection")
+
+		// The outbox connection's transaction opened inside a foreign one is the one Publish joins.
+		require.NoError(t, database.NewTransactor(db).WithinTransaction(foreign, func(ctx context.Context) error {
+			return database.NewTransactor(other).WithinTransaction(ctx, func(ctx context.Context) error {
+				return Assigned.Publish(ctx, TicketAssigned{TicketID: 2})
+			})
+		}))
+
+		var rows []event.OutboxEvent
+
+		require.NoError(t, db.Find(&rows).Error)
+		require.Len(t, rows, 1)
+	}, dbtest.SQLite)
 }

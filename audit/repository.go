@@ -9,6 +9,7 @@ import (
 
 	"github.com/wssto2/go-core/apperr"
 	"github.com/wssto2/go-core/database"
+	"gorm.io/gorm"
 )
 
 // Repository defines the minimal audit persistence API.
@@ -36,21 +37,22 @@ func (e Entry) WithBefore(v any) Entry         { e.BeforeState = v; return e }
 func (e Entry) WithAfter(v any) Entry          { e.AfterState = v; return e }
 func (e Entry) WithDiff(fields []string) Entry { e.ChangedFields = fields; return e }
 
-// transactorRepository persists audit entries using the provided Transactor.
-// It deliberately does not import GORM so runtime code in this package remains gorm-free.
+// transactorRepository persists audit entries in a transaction on its own connection db: it joins the one ctx
+// carries for db, else opens one, and ignores a transaction on another connection.
 type transactorRepository struct {
+	db       *gorm.DB
 	tx       database.Transactor
 	execHook func(ctx context.Context, log AuditLog) error // optional testing hook
 }
 
-// NewRepository constructs a Repository using the provided Transactor.
-func NewRepository(t database.Transactor) Repository {
-	return &transactorRepository{tx: t}
+// NewRepository constructs a Repository that writes on db.
+func NewRepository(db *gorm.DB) Repository { //nolint:ireturn,lll // the port
+	return &transactorRepository{db: db, tx: database.NewTransactor(db), execHook: nil}
 }
 
 // NewRepositoryWithHook constructs a Repository and installs a test hook used in unit tests.
-func NewRepositoryWithHook(t database.Transactor, hook func(ctx context.Context, log AuditLog) error) Repository {
-	return &transactorRepository{tx: t, execHook: hook}
+func NewRepositoryWithHook(db *gorm.DB, hook func(ctx context.Context, log AuditLog) error) Repository { //nolint:ireturn,lll // the port
+	return &transactorRepository{db: db, tx: database.NewTransactor(db), execHook: hook}
 }
 
 func (r *transactorRepository) Write(ctx context.Context, entry Entry) error {
@@ -88,7 +90,7 @@ func (r *transactorRepository) Write(ctx context.Context, entry Entry) error {
 		}
 
 		// Prefer a *sql.Tx if the transactor stored one in the context
-		if sqlTx, ok := database.SQLTxFromContext(txCtx); ok && sqlTx != nil {
+		if sqlTx, ok := database.SQLTxFor(txCtx, r.db); ok && sqlTx != nil {
 			const insertSQL = `INSERT INTO audit_logs (entity_type, entity_id, action, actor_id, metadata, before_state, after_state, changed_fields, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 			if _, err := sqlTx.Exec(insertSQL,
 				log.EntityType,

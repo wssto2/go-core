@@ -19,7 +19,7 @@ func (f *fakeTransactor) WithinTransaction(ctx context.Context, fn func(ctx cont
 
 func TestSQLCRepository_WithinTransaction_CallsTransactor(t *testing.T) {
 	f := &fakeTransactor{}
-	repo := NewSQLCRepository(&Queries{}, database.Transactor(f))
+	repo := NewSQLCRepository(&Queries{}, database.Transactor(f), nil)
 	err := repo.WithinTransaction(context.Background(), func(ctx context.Context, q Querier) error {
 		if q == nil {
 			t.Fatal("querier is nil")
@@ -35,7 +35,7 @@ func TestSQLCRepository_WithinTransaction_CallsTransactor(t *testing.T) {
 }
 
 func TestSQLCRepository_NoTransactor_ExecutesDirectly(t *testing.T) {
-	repo := NewSQLCRepository(&Queries{}, nil)
+	repo := NewSQLCRepository(&Queries{}, nil, nil)
 	called := false
 	err := repo.WithinTransaction(context.Background(), func(ctx context.Context, q Querier) error {
 		called = true

@@ -38,6 +38,8 @@ type Queue struct {
 // NewQueue returns the queue of consumers over db. A nil clock is the system
 // clock, a nil log slog.Default.
 func NewQueue(db *gorm.DB, clock Clock, log *slog.Logger, consumers ...Consumer) *Queue {
+	UseOutbox(db)
+
 	if clock == nil {
 		clock = systemClock{}
 	}

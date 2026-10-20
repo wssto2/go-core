@@ -69,19 +69,25 @@ func ContextWithTx(ctx context.Context, conn, tx *gorm.DB) context.Context {
 	return context.WithValue(ctx, txKey{}, entry)
 }
 
-// TxFromContext retrieves the innermost transaction in the context, whatever connection it belongs to. A repository
-// uses TxFor with its own connection instead, so a transaction on another database is never mistaken for its own.
-func TxFromContext(ctx context.Context) (*gorm.DB, bool) {
-	if e := entryFromContext(ctx); e != nil {
-		return e.tx, true
-	}
-
-	return nil, false
-}
-
 // InTransaction reports whether ctx carries an open transaction on any connection.
 func InTransaction(ctx context.Context) bool {
 	return entryFromContext(ctx) != nil
+}
+
+// Pool identifies the connection conn belongs to: the *sql.DB under it, the key transactions in a context are kept by.
+// It is nil for a connection that exposes none.
+func Pool(conn *gorm.DB) *sql.DB { return poolOf(conn) }
+
+// TxOn retrieves the innermost transaction in the context whose connection's pool satisfies match, for code that
+// serves a set of connections (the event outbox) rather than one.
+func TxOn(ctx context.Context, match func(*sql.DB) bool) (*gorm.DB, bool) {
+	for e := entryFromContext(ctx); e != nil; e = e.parent {
+		if e.pool != nil && match(e.pool) {
+			return e.tx, true
+		}
+	}
+
+	return nil, false
 }
 
 // TxFor retrieves the transaction in the context that belongs to conn, if there is one.
@@ -93,16 +99,7 @@ func TxFor(ctx context.Context, conn *gorm.DB) (*gorm.DB, bool) {
 	return nil, false
 }
 
-// SQLTxFromContext retrieves the *sql.Tx of the innermost transaction the Transactor stored in the context.
-func SQLTxFromContext(ctx context.Context) (*sql.Tx, bool) {
-	if e := entryFromContext(ctx); e != nil && e.sqlTx != nil {
-		return e.sqlTx, true
-	}
-
-	return nil, false
-}
-
-// SQLTxFor is SQLTxFromContext for the transaction that belongs to conn.
+// SQLTxFor retrieves the *sql.Tx of the transaction in the context that belongs to conn, if there is one.
 func SQLTxFor(ctx context.Context, conn *gorm.DB) (*sql.Tx, bool) {
 	if e := entryFromContext(ctx).find(poolOf(conn)); e != nil && e.sqlTx != nil {
 		return e.sqlTx, true
