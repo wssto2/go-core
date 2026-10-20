@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.24.0 (unreleased)
+## v1.24.0 (2026-10-20)
 
 Input hygiene. **Breaking**: `required` on a `*string` (see "Changed").
 
