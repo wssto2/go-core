@@ -9,18 +9,100 @@ import (
 )
 
 type txKey struct{}
-type sqlTxKey struct{}
 
-// TxFromContext retrieves the transaction from the context if it exists.
-func TxFromContext(ctx context.Context) (*gorm.DB, bool) {
-	tx, ok := ctx.Value(txKey{}).(*gorm.DB)
-	return tx, ok
+// txEntry is one open transaction in a context, with the connection (its *sql.DB) it was begun on. Entries chain, so
+// a transaction on connection B opened inside one on A leaves A's reachable for the callers that use A.
+type txEntry struct {
+	pool   *sql.DB
+	tx     *gorm.DB
+	sqlTx  *sql.Tx
+	parent *txEntry
 }
 
-// SQLTxFromContext retrieves the underlying *sql.Tx stored in the context by the Transactor.
+func entryFromContext(ctx context.Context) *txEntry {
+	e, _ := ctx.Value(txKey{}).(*txEntry)
+	return e
+}
+
+// find returns the innermost entry on pool. A nil pool (a connection that exposes no *sql.DB) matches nothing.
+func (e *txEntry) find(pool *sql.DB) *txEntry {
+	for ; e != nil; e = e.parent {
+		if pool != nil && e.pool == pool {
+			return e
+		}
+	}
+
+	return nil
+}
+
+// poolOf identifies a connection: the *sql.DB under it. A *gorm.DB value is not an identity (WithContext and Session
+// return new ones), the registry name is not on the handle, and the *sql.DB is the one thing every handle of a
+// connection shares, including the sqlc *sql.Tx's origin.
+func poolOf(conn *gorm.DB) *sql.DB {
+	if conn == nil {
+		return nil
+	}
+
+	pool, err := conn.DB()
+	if err != nil {
+		return nil
+	}
+
+	return pool
+}
+
+// ContextWithTx returns ctx carrying tx as the open transaction of conn, which tx must have been begun on. Repositories
+// on conn join it (WithinTx, BaseRepository.DB); repositories on another connection do not. WithinTransaction uses it;
+// a test uses it through dbtest.TxContext.
+func ContextWithTx(ctx context.Context, conn, tx *gorm.DB) context.Context {
+	e := &txEntry{pool: poolOf(conn), tx: tx, parent: entryFromContext(ctx)}
+
+	// With PrepareStmt: true (default for MySQL), the ConnPool is a *gorm.PreparedStmtTX that wraps *sql.Tx.
+	switch v := tx.Statement.ConnPool.(type) {
+	case *sql.Tx:
+		e.sqlTx = v
+	case *gorm.PreparedStmtTX:
+		e.sqlTx, _ = v.Tx.(*sql.Tx)
+	}
+
+	return context.WithValue(ctx, txKey{}, e)
+}
+
+// TxFromContext retrieves the innermost transaction in the context, whatever connection it belongs to. A repository
+// uses TxFor with its own connection instead, so a transaction on another database is never mistaken for its own.
+func TxFromContext(ctx context.Context) (*gorm.DB, bool) {
+	if e := entryFromContext(ctx); e != nil {
+		return e.tx, true
+	}
+
+	return nil, false
+}
+
+// TxFor retrieves the transaction in the context that belongs to conn, if there is one.
+func TxFor(ctx context.Context, conn *gorm.DB) (*gorm.DB, bool) {
+	if e := entryFromContext(ctx).find(poolOf(conn)); e != nil {
+		return e.tx, true
+	}
+
+	return nil, false
+}
+
+// SQLTxFromContext retrieves the underlying *sql.Tx of the innermost transaction stored in the context by the Transactor.
 func SQLTxFromContext(ctx context.Context) (*sql.Tx, bool) {
-	tx, ok := ctx.Value(sqlTxKey{}).(*sql.Tx)
-	return tx, ok
+	if e := entryFromContext(ctx); e != nil && e.sqlTx != nil {
+		return e.sqlTx, true
+	}
+
+	return nil, false
+}
+
+// SQLTxFor is SQLTxFromContext for the transaction that belongs to conn.
+func SQLTxFor(ctx context.Context, conn *gorm.DB) (*sql.Tx, bool) {
+	if e := entryFromContext(ctx).find(poolOf(conn)); e != nil && e.sqlTx != nil {
+		return e.sqlTx, true
+	}
+
+	return nil, false
 }
 
 // Transactor defines the interface for executing operations within a transaction.
@@ -45,14 +127,16 @@ func NewTransactor(conn *gorm.DB) Transactor {
 // Additionally, when possible this stores the underlying *sql.Tx in the
 // context so sqlc-based repositories can construct a Querier bound to that tx.
 //
-// If ctx already carries a transaction (started by an outer WithinTransaction
-// call, possibly on a different Transactor instance over the same database),
-// fn runs directly against it instead of starting a nested transaction —
+// If ctx already carries a transaction on this connection (started by an outer
+// WithinTransaction call, possibly on a different Transactor instance over the same
+// database), fn runs directly against it instead of starting a nested transaction —
 // nested Begin() calls don't compose into one atomic unit, they'd silently
 // open a second, independent transaction on another pooled connection. The
-// outermost caller owns commit/rollback.
+// outermost caller owns commit/rollback. A transaction on another connection is not
+// joined: a Transactor on connection B opens its own on B, and the caller's on A stays
+// in ctx for the code that uses A.
 func (t *gormTransactor) WithinTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	if _, ok := TxFromContext(ctx); ok {
+	if _, ok := TxFor(ctx, t.conn); ok {
 		return fn(ctx)
 	}
 
@@ -61,22 +145,7 @@ func (t *gormTransactor) WithinTransaction(ctx context.Context, fn func(ctx cont
 		return fmt.Errorf("begin transaction: %w", tx.Error)
 	}
 
-	txCtx := context.WithValue(ctx, txKey{}, tx)
-
-	// Attempt to extract the underlying *sql.Tx from GORM's connection pool and
-	// store it in the context for consumers (sqlc package, audit repo) to use.
-	// With PrepareStmt: true (default for MySQL), the ConnPool is a
-	// *gorm.PreparedStmtTX that wraps *sql.Tx — handle both.
-	if cp := tx.Statement.ConnPool; cp != nil {
-		switch v := cp.(type) {
-		case *sql.Tx:
-			txCtx = context.WithValue(txCtx, sqlTxKey{}, v)
-		case *gorm.PreparedStmtTX:
-			if sqlTx, ok := v.Tx.(*sql.Tx); ok {
-				txCtx = context.WithValue(txCtx, sqlTxKey{}, sqlTx)
-			}
-		}
-	}
+	txCtx := ContextWithTx(ctx, t.conn, tx)
 
 	defer func() {
 		if p := recover(); p != nil {

@@ -24,6 +24,9 @@ Errors and guards. **Breaking**: an application upgrading from v1.22.0 follows "
 - archtest: `InTree`, `StringLit` and `SelectorCall` are exported, so an application's own guards stop copying them.
 - go2ts: `ServerOnly(rules...)` declares validation rules only the server can check (an application's own, such as `exists`).
 - go2ts: `Drift(dir, gen)` lists the files `Sync` would write or delete, writing nothing.
+- database: `TxFor(ctx, conn)` and `SQLTxFor(ctx, conn)` return the transaction (the `*sql.Tx`) that belongs to `conn`; `ContextWithTx(ctx, conn, tx)` puts one in ctx.
+- dbtest: `TxContext(t, conn)` begins a transaction on `conn`, rolled back when the test ends, and returns it with a ctx the repositories on `conn` join (`Tx`'s bare handle is invisible to `WithinTx`).
+- archtest: `TxFor` and `SQLTxFor` are transaction plumbing, confined to `Repository.TxFile` like `TxFromContext`.
 - gocore: `ts:generate --check [part]` writes nothing, lists the generated files that are missing, edited or stale, and exits non-zero when there are any.
 
 ### Changed
@@ -32,6 +35,7 @@ Errors and guards. **Breaking**: an application upgrading from v1.22.0 follows "
 - `access.Install` also defines `events.deadletter:view` and `events.deadletter:retry`, so either install order works.
 - **Breaking:** the archtest rule `no-context-background` also bans `context.TODO()`.
 - **Breaking:** go2ts fails generation on a `validation:` rule it neither writes as Zod nor knows as server-only, naming the struct, field and rule; it used to drop the rule silently. The server-only rules are the validator's `required_if`, `same`, `confirmed`, `different` and `password`; `password` is no longer noted as a cross-field rule in the generated file.
+- **Breaking (behaviour):** a transaction belongs to the connection it was begun on. `Transactor.WithinTransaction` joins only a transaction of its own connection (else it opens one and keeps the caller's in ctx for the caller's connection), and `BaseRepository.DB`, `InTx` and `WithinTx` use only their own connection's transaction. Before, a repository on a second database inside a transaction on the first ran on the first. Single-connection code is unchanged. A connection is identified by its `*sql.DB`. `TxFromContext` and `SQLTxFromContext` still return the innermost transaction of any connection; a repository uses `TxFor`.
 - go2ts writes `year` as `.regex(/^\d{4}$/)` and `month` as `.regex(/^(0?[1-9]|1[0-2])$/)` (empty allowed when not required), and `in:a,b` on a string field as `z.enum(["a", "b"])` (a number keeps `z.literal` / `z.union`).
 
 ## v1.22.0 (2026-10-19)

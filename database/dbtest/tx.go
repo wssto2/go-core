@@ -1,11 +1,14 @@
 package dbtest
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
 
 	"gorm.io/gorm"
+
+	"github.com/wssto2/go-core/database"
 )
 
 // Tx returns a transaction on the existing MySQL or MariaDB schema the DSN in
@@ -54,6 +57,30 @@ func Tx(tb testing.TB, dsnEnv string) *gorm.DB {
 	tb.Cleanup(func() { _ = transaction.Rollback().Error })
 
 	return transaction
+}
+
+// TxContext begins a transaction on conn, rolled back when the test ends, and returns it with a context that carries it
+// as conn's transaction: a repository built on conn joins it (WithinTx, BaseRepository.DB(ctx)), where Tx's bare
+// handle is invisible to WithinTx. The handle is the same transaction, for direct queries in the test. A repository
+// on another connection does not join it.
+//
+//	conn := openMySQL(t)
+//	ctx, tx := dbtest.TxContext(t, conn)
+//	repo := NewDealerRepository(conn)
+//	err := repo.Save(ctx, dealer) // inside the test transaction
+//
+// conn needs a second pooled connection if the test also reads through conn outside ctx. Like Tx, only DML is rolled back.
+func TxContext(tb testing.TB, conn *gorm.DB) (context.Context, *gorm.DB) {
+	tb.Helper()
+
+	tx := conn.Begin()
+	if tx.Error != nil {
+		tb.Fatalf("dbtest: begin: %v", tx.Error)
+	}
+
+	tb.Cleanup(func() { _ = tx.Rollback().Error })
+
+	return database.ContextWithTx(context.Background(), conn, tx), tx
 }
 
 // withClientFoundRows adds clientFoundRows=true to a DSN that does not mention
