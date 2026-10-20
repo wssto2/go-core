@@ -56,17 +56,17 @@ func poolOf(conn *gorm.DB) *sql.DB {
 // on conn join it (WithinTx, BaseRepository.DB); repositories on another connection do not. WithinTransaction uses it;
 // a test uses it through dbtest.TxContext.
 func ContextWithTx(ctx context.Context, conn, tx *gorm.DB) context.Context {
-	e := &txEntry{pool: poolOf(conn), tx: tx, sqlTx: nil, parent: entryFromContext(ctx)}
+	entry := &txEntry{pool: poolOf(conn), tx: tx, sqlTx: nil, parent: entryFromContext(ctx)}
 
 	// With PrepareStmt: true (default for MySQL), the ConnPool is a *gorm.PreparedStmtTX that wraps *sql.Tx.
 	switch v := tx.Statement.ConnPool.(type) {
 	case *sql.Tx:
-		e.sqlTx = v
+		entry.sqlTx = v
 	case *gorm.PreparedStmtTX:
-		e.sqlTx, _ = v.Tx.(*sql.Tx)
+		entry.sqlTx, _ = v.Tx.(*sql.Tx)
 	}
 
-	return context.WithValue(ctx, txKey{}, e)
+	return context.WithValue(ctx, txKey{}, entry)
 }
 
 // TxFromContext retrieves the innermost transaction in the context, whatever connection it belongs to. A repository

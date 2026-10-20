@@ -33,10 +33,10 @@ func (b *BaseRepository) InTx(ctx context.Context) bool {
 	return ok
 }
 
-// WithinTx runs fn in a transaction: the caller's when ctx carries one on Conn (fn joins it; the caller commits or rolls
-// back), otherwise a new one opened on Conn, committed when fn returns nil and rolled back when it returns an error. Inside
-// fn, DB(ctx) is that transaction. It is for a method that must be atomic on its own, such as a locked read and the
-// write it decides, whether or not its caller holds a transaction.
+// WithinTx runs fn in a transaction: the caller's when ctx carries one on Conn (fn joins it; the caller commits or
+// rolls back), otherwise a new one opened on Conn, committed when fn returns nil and rolled back when it returns an
+// error. Inside fn, DB(ctx) is that transaction. It is for a method that must be atomic on its own, such as a locked
+// read and the write it decides, whether or not its caller holds a transaction.
 func (b *BaseRepository) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error {
 	return NewTransactor(b.Conn).WithinTransaction(ctx, fn) //nolint:wrapcheck // fn's error comes back as it is
 }
