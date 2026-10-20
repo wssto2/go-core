@@ -1,4 +1,4 @@
-//nolint:paralleltest,testpackage,varnamelen,noinlineerr// internal test like transactor_tx_test.go
+//nolint:paralleltest,testpackage,varnamelen,noinlineerr // internal test like transactor_tx_test.go
 package database
 
 import (
