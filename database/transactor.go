@@ -21,6 +21,7 @@ type txEntry struct {
 
 func entryFromContext(ctx context.Context) *txEntry {
 	e, _ := ctx.Value(txKey{}).(*txEntry)
+
 	return e
 }
 
@@ -55,7 +56,7 @@ func poolOf(conn *gorm.DB) *sql.DB {
 // on conn join it (WithinTx, BaseRepository.DB); repositories on another connection do not. WithinTransaction uses it;
 // a test uses it through dbtest.TxContext.
 func ContextWithTx(ctx context.Context, conn, tx *gorm.DB) context.Context {
-	e := &txEntry{pool: poolOf(conn), tx: tx, parent: entryFromContext(ctx)}
+	e := &txEntry{pool: poolOf(conn), tx: tx, sqlTx: nil, parent: entryFromContext(ctx)}
 
 	// With PrepareStmt: true (default for MySQL), the ConnPool is a *gorm.PreparedStmtTX that wraps *sql.Tx.
 	switch v := tx.Statement.ConnPool.(type) {
@@ -87,7 +88,7 @@ func TxFor(ctx context.Context, conn *gorm.DB) (*gorm.DB, bool) {
 	return nil, false
 }
 
-// SQLTxFromContext retrieves the underlying *sql.Tx of the innermost transaction stored in the context by the Transactor.
+// SQLTxFromContext retrieves the *sql.Tx of the innermost transaction the Transactor stored in the context.
 func SQLTxFromContext(ctx context.Context) (*sql.Tx, bool) {
 	if e := entryFromContext(ctx); e != nil && e.sqlTx != nil {
 		return e.sqlTx, true

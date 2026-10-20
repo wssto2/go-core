@@ -1,3 +1,4 @@
+//nolint:paralleltest,varnamelen // like the tests of this package
 package dbtest_test
 
 import (

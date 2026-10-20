@@ -69,18 +69,18 @@ func Tx(tb testing.TB, dsnEnv string) *gorm.DB {
 //	repo := NewDealerRepository(conn)
 //	err := repo.Save(ctx, dealer) // inside the test transaction
 //
-// conn needs a second pooled connection if the test also reads through conn outside ctx. Like Tx, only DML is rolled back.
+// A read through conn outside ctx needs a second pooled connection. Like Tx, only DML is rolled back.
 func TxContext(tb testing.TB, conn *gorm.DB) (context.Context, *gorm.DB) {
 	tb.Helper()
 
-	tx := conn.Begin()
-	if tx.Error != nil {
-		tb.Fatalf("dbtest: begin: %v", tx.Error)
+	transaction := conn.Begin()
+	if transaction.Error != nil {
+		tb.Fatalf("dbtest: begin: %v", transaction.Error)
 	}
 
-	tb.Cleanup(func() { _ = tx.Rollback().Error })
+	tb.Cleanup(func() { _ = transaction.Rollback().Error })
 
-	return database.ContextWithTx(context.Background(), conn, tx), tx
+	return database.ContextWithTx(context.Background(), conn, transaction), transaction
 }
 
 // withClientFoundRows adds clientFoundRows=true to a DSN that does not mention
