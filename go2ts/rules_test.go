@@ -85,3 +85,57 @@ func TestGenerateSchemas_InIsAnEnumForStringsAndYearAndMonthAreRegexes(t *testin
 		assert.Contains(t, string(got), want)
 	}
 }
+
+type trimInput struct {
+	Name  string  `json:"name"  validation:"required|max:100|trim"`
+	Order string  `json:"order" validation:"trim|max:100|required"`
+	Mail  string  `json:"mail"  validation:"email|trim"`
+	Note  *string `json:"note"  validation:"max:50|trim"`
+	Need  *string `json:"need"  validation:"required|trim|max:50"`
+	Bare  string  `json:"bare"  validation:"trim"`
+}
+
+type trimInInput struct {
+	Kind string `json:"kind" validation:"in:a,b|trim"`
+}
+
+type trimIntInput struct {
+	Count int `json:"count" validation:"trim"`
+}
+
+func TestGenerateSchemas_TrimIsTheFirstCallWhateverTheTagOrder(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, go2ts.GenerateSchemas([]any{trimInput{}}, dir))
+
+	got, err := os.ReadFile(filepath.Join(dir, "trimInput.ts")) //nolint:gosec // a file of the test's temp dir
+	require.NoError(t, err)
+
+	for _, want := range []string{
+		`name: z.string().trim().min(1).max(100),`,
+		`order: z.string().trim().max(100).min(1),`,
+		`mail: z.string().trim().email().or(z.literal('')),`,
+		`note: z.string().trim().max(50).nullable().optional(),`,
+		`need: z.string().trim().min(1).max(50).nullable(),`,
+		`bare: z.string().trim(),`,
+	} {
+		assert.Contains(t, string(got), want)
+	}
+}
+
+func TestGenerateSchemas_TrimOnAnEnumOrANumberFailsNamingStructAndField(t *testing.T) {
+	t.Parallel()
+
+	for input, want := range map[any][]string{
+		trimInInput{}:  {"trimInInput", "Kind"},
+		trimIntInput{}: {"trimIntInput", "Count"},
+	} {
+		err := go2ts.GenerateSchemas([]any{input}, t.TempDir())
+		require.Error(t, err)
+
+		for _, w := range want {
+			assert.Contains(t, err.Error(), w)
+		}
+	}
+}

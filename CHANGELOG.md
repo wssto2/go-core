@@ -7,6 +7,7 @@ Input hygiene. **Breaking**: `required` on a `*string` (see "Changed").
 ### Added
 
 - validation: the `trim` rule. A pass before every other rule writes `strings.TrimSpace` back into a `string` or non-nil `*string` field, in nested structs, pointers to them and slices or arrays of them, so `required`, `max:` and cross-field rules (`same`, `confirmed`, `different`) see the trimmed value. An input must be passed by pointer (route binding and `ValidateInput(&in)` do); a trim field that cannot be written is an error, never a silent trim of a copy.
+- go2ts: the `trim` validation rule writes `.trim()` as the first call of a string schema, whatever the tag order (`required|max:100|trim` is `z.string().trim().min(1).max(100)`), before the format calls and the `.or(z.literal(''))`. On a non-string field, a slice, or together with `in:` (or an enum type) generation fails naming the struct and field.
 - validation: `validation.Register(name, rule)` adds a rule to the app-wide set that `ValidateInput`, `CheckRules` and `New` read, so a custom rule reaches typed routes. Register at start-up, before routes are declared. `(*Validator).Register` still adds a rule to one validator.
 
 ### Changed
