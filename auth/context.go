@@ -33,3 +33,14 @@ func UserOf[T any](ctx context.Context) (T, bool) {
 
 	return user, ok
 }
+
+// ActorID is the id of the authenticated user in ctx, false when there is none: the actor function
+// audit.NewRecorder takes.
+func ActorID(ctx context.Context) (int, bool) {
+	user, ok := UserFromContext(ctx)
+	if !ok || user == nil {
+		return 0, false
+	}
+
+	return user.GetID(), true
+}

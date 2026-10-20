@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.26.0 (unreleased)
+
+Every change is audited and multi-step writes are atomic, as guards.
+
+### Added
+
+- audit: `NewRecorder(repo, actor)` and `Recorder.Record(ctx, entityType, id, action, before, after, opts...)`, one line per change. It writes through the repository (so in the caller's transaction on the repository's connection) for the actor in ctx: the person `actor` returns (`auth.ActorID` is the usual function; audit does not import auth), else the system (`audit.AsSystem(ctx, job)`, or an all-tenants context such as a worker's or command's, which writes actor 0 with metadata `{"actor":"system","job":...}`), else it fails with `audit.ErrNoActor` rather than write actor 0 silently. `ChangedFields` come from `Diff`; `WithMetadata` adds metadata. `auth.ActorID(ctx)`.
+- archtest: `Config.RequiresAudit` (rule `requires-audit`): an exported method of a service type that reaches a repository write, directly or through same-package helpers and closures (also inside `WithinTx`), must reach an audit write. `Exempt` is a list of `{Method: "pkg.Type.Method", Why}`; a `Why` is required and an exemption that no longer matches is an error, so the list only shrinks.
+- archtest: `Config.AtomicWrites` (rule `atomic-writes`): a method that writes through two or more distinct repository fields must do it inside a `WithinTx`/`WithinTransaction` closure. No exemptions; another service's write is not counted. Both rules detect a write as `s.field.Prefix...()` on a field typed `<pkg>.<Name>Repository` from configured domain trees (`ServiceWrites`), without type information.
+
 ## v1.25.0 (2026-10-20)
 
 No lookup of "the transaction of any connection" is left: a store, `audit`, `sqlc` and `event.Publish` each join the transaction of their own connection. **Breaking**: three signatures and two removed functions.
