@@ -13,14 +13,42 @@ import (
 // an entry is never written for actor 0 by accident.
 var ErrNoActor = errors.New("audit: ctx has no signed-in person and is not marked as a system actor")
 
-type systemKey struct{}
+type (
+	systemKey   struct{}
+	metadataKey struct{}
+)
+
+// systemMark is how a context acts for the system: the job's name, and whether it does so even with a person signed in.
+type systemMark struct {
+	job    string
+	always bool
+}
 
 // AsSystem marks ctx as acting for the system (a job, a command, a worker) under the given name; Record
 // then writes actor 0 with metadata {"actor": "system", "job": job}. A signed-in person in ctx wins.
 // A context marked tenancy.WithAllTenants without a person (workers and commands get one) counts as
 // the system too, with no job name.
 func AsSystem(ctx context.Context, job string) context.Context {
-	return context.WithValue(ctx, systemKey{}, job)
+	return context.WithValue(ctx, systemKey{}, systemMark{job: job, always: false})
+}
+
+// AsSystemEvenSignedIn is AsSystem for work the system does inside a person's request, such as seeding defaults on a
+// first read: the entry is the system's even though a person is signed in.
+func AsSystemEvenSignedIn(ctx context.Context, job string) context.Context {
+	return context.WithValue(ctx, systemKey{}, systemMark{job: job, always: true})
+}
+
+// WithContextMetadata adds metadata to every entry recorded under ctx (an entry's own WithMetadata wins on a shared
+// key): a job states once, for instance, who queued it.
+func WithContextMetadata(ctx context.Context, meta map[string]any) context.Context {
+	merged := map[string]any{}
+	if outer, ok := ctx.Value(metadataKey{}).(map[string]any); ok {
+		maps.Copy(merged, outer)
+	}
+
+	maps.Copy(merged, meta)
+
+	return context.WithValue(ctx, metadataKey{}, merged)
 }
 
 // RecordOption adjusts the entry Record writes.
@@ -66,6 +94,10 @@ func (r *Recorder) Record(
 		entry = entry.WithDiff(Diff(before, after))
 	}
 
+	if ctxMeta, ok := ctx.Value(metadataKey{}).(map[string]any); ok {
+		WithMetadata(ctxMeta)(&entry)
+	}
+
 	WithMetadata(meta)(&entry)
 
 	for _, opt := range opts {
@@ -77,18 +109,19 @@ func (r *Recorder) Record(
 
 // actorOf is the actor id and the metadata that mark a system actor.
 func (r *Recorder) actorOf(ctx context.Context) (int, map[string]any, error) {
-	if id, ok := r.actor(ctx); ok && id > 0 {
+	mark, marked := ctx.Value(systemKey{}).(systemMark)
+
+	if id, ok := r.actor(ctx); ok && id > 0 && !mark.always {
 		return id, nil, nil
 	}
 
-	job, marked := ctx.Value(systemKey{}).(string)
 	if !marked && !tenancy.AllTenantsFromContext(ctx) {
 		return 0, nil, apperr.Wrap(ErrNoActor, "cannot record an audit entry", apperr.CodeInternal)
 	}
 
 	meta := map[string]any{"actor": "system"}
-	if job != "" {
-		meta["job"] = job
+	if mark.job != "" {
+		meta["job"] = mark.job
 	}
 
 	return 0, meta, nil

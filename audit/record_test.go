@@ -1,4 +1,4 @@
-//nolint:exhaustruct,exhaustruct_v5,lll,err113,wrapcheck,nlreturn,noinlineerr,paralleltest,varnamelen,wsl_v5
+//nolint:goconst,exhaustruct,exhaustruct_v5,lll,err113,wrapcheck,nlreturn,noinlineerr,paralleltest,varnamelen,wsl_v5
 package audit_test
 
 import (
@@ -125,5 +125,36 @@ func TestRecordJoinsTheCallersTransactionAndRollsBackWithIt(t *testing.T) {
 	})
 	if err != nil || count() != 1 {
 		t.Fatalf("a committed change keeps its entry: err=%v n=%d", err, count())
+	}
+}
+
+func TestRecordSystemEvenSignedIn(t *testing.T) {
+	repo := &fakeRepo{}
+	if err := rec(repo).Record(audit.AsSystemEvenSignedIn(personCtx(4), "seed"), "Doc", 1, "seed", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	e := repo.entries[0]
+	if e.ActorID != 0 || e.Metadata["actor"] != "system" || e.Metadata["job"] != "seed" {
+		t.Fatalf("entry: %+v", e)
+	}
+}
+
+func TestRecordContextMetadataOnEveryEntry(t *testing.T) {
+	repo := &fakeRepo{}
+	ctx := audit.WithContextMetadata(audit.AsSystem(context.Background(), "lead_import"), map[string]any{"queued_by": 12, "run": 1})
+	r := rec(repo)
+	if err := r.Record(ctx, "Lead", 1, "create", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Record(ctx, "Customer", 2, "create", nil, nil, audit.WithMetadata(map[string]any{"run": 2})); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range repo.entries {
+		if e.Metadata["queued_by"] != 12 || e.Metadata["job"] != "lead_import" {
+			t.Fatalf("entry: %+v", e)
+		}
+	}
+	if repo.entries[1].Metadata["run"] != 2 {
+		t.Fatalf("the entry's own metadata wins: %+v", repo.entries[1])
 	}
 }
