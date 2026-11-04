@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.28.0 (unreleased)
+## v1.28.0 (2026-11-04)
 
 What an app wired by hand: an operator's switch for a noisy category, the prune and VAPID commands, tracing from the environment, the record guard that hides what a person may not see, and four architecture rules an app configures instead of writing.
 
