@@ -155,7 +155,7 @@ func parseSource(fset *token.FileSet, root, full string) (Source, error) {
 
 	rel = filepath.ToSlash(rel)
 
-	file, err := parser.ParseFile(fset, full, nil, parser.SkipObjectResolution)
+	file, err := parser.ParseFile(fset, full, nil, parser.SkipObjectResolution|parser.ParseComments)
 	if err != nil {
 		return Source{}, fmt.Errorf("parsing %s: %w", rel, err)
 	}

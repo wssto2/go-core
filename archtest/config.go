@@ -44,8 +44,11 @@ const (
 	fieldWritesRule   = "field-writes"
 	requiresCallRule  = "requires-call"
 	noFloatMoneyRule  = "no-float-money"
+	scopedQueriesRule = "scoped-queries"
 	requiresAuditRule = "requires-audit"
 	atomicWritesRule  = "atomic-writes"
+	writeOnlyRule     = "write-only"
+	permissionsRule   = "permission-catalogue"
 	contextRootsRule  = "context-roots"
 )
 
@@ -57,7 +60,7 @@ func ruleNames() []string {
 		ServiceContextFirst, BoundedStrings, RoutePaths, RouteIdentifiers, ValidationRules, RouteAccess,
 		ServiceRepositories, RepositoryShape, SQLPortability, RoutePersonOnly, bannedRule,
 		fieldWritesRule, requiresCallRule, contextRootsRule, requiresAuditRule, atomicWritesRule,
-		noFloatMoneyRule,
+		noFloatMoneyRule, scopedQueriesRule, writeOnlyRule, permissionsRule,
 	}
 }
 
@@ -147,6 +150,15 @@ type Config struct {
 	// ContextRoots bans context.Background() and context.TODO() as a root context in
 	// directories of the application's own, with the wrappers that make one acceptable.
 	ContextRoots []ContextRoots
+
+	// ScopedQueries holds a query on one model to the scoped handle.
+	ScopedQueries []ScopedQueries
+
+	// WriteOnly holds fields that may be written but never read.
+	WriteOnly []WriteOnly
+
+	// PermissionCatalogue holds every permission the code names to the application's catalogue.
+	PermissionCatalogue PermissionCatalogue
 }
 
 // PersonOnly names the areas of the API that only make sense for a person (a
@@ -182,6 +194,12 @@ type Repository struct {
 	// savepoint and leaves tx out of the context, so a helper called inside it
 	// uses the outer connection.
 	NoNestedTransaction bool
+	// HandleFile is the only file of Dir that may declare a method named db or DB: every
+	// repository reaches its handle through the embedded BaseRepository, not a hand-written one.
+	HandleFile string
+	// NoNilNil bans a //nolint comment that names nilnil in the production files of Dir:
+	// not found is the domain's error, not (nil, nil).
+	NoNilNil bool
 }
 
 // Banned is a rule of the application's own: an import, or one symbol of a
@@ -412,4 +430,73 @@ type NoFloatMoney struct {
 	Exempt []FloatMoneyExemption
 	// Why is the sentence a failure ends with. Default says to use money.Money and convert at the mapper.
 	Why string
+}
+
+// ScopedQueries holds every Call(&Arg{}) in Files to a chain that starts from one of the Via methods:
+// the query on a tenant's model (db.Model(&gen.Vehicle{})) must begin at the handle that adds the
+// tenant scope (r.scopedDB(ctx)), or at the one that opts out of it by name (r.crossTenantDB(ctx, why)),
+// never at the raw handle. A chain that starts from a local variable or any other call fails too: the
+// rule cannot see where it came from.
+type ScopedQueries struct {
+	// Files are the places that are checked (a file, a package directory, "dir/..." for a tree),
+	// relative to the root. A place that holds no production Go file is a configuration error.
+	Files []string
+	// Call is the method name that takes the model ("Model").
+	Call string
+	// Arg is the model written as the file spells it, ("gen.Vehicle" matches Call(&gen.Vehicle{})).
+	Arg string
+	// Via are the method names the chain must start from ("scopedDB", "crossTenantDB"); a plain
+	// function of that name starts a chain too.
+	Via []string
+	// Why is the sentence a failure ends with: what to do instead.
+	Why string
+}
+
+// WriteOnly holds fields to being written and never read: a stored value the code keeps in step
+// but must not decide anything from (an account type that authorization replaced). A selector on
+// one of Fields passes only as the target of an assignment or on the path to one
+// (u.AccountRole.VehicleTypes = nil writes), as a key of a composite literal, or on the name of an
+// imported package (domainaccounttype.AccountType is a type, not a read). Everything else, a
+// comparison, a switch, an argument, an increment, a read through a method, is a finding.
+//
+// Without type information a selector is matched by its field name alone, whatever it is selected from.
+type WriteOnly struct {
+	// Type names the struct the fields belong to; it only titles the failure.
+	Type string
+	// Fields are the field names (AccountTypeID).
+	Fields []string
+	// Only are the places that may read them (a file, a package directory, "dir/..." for a tree):
+	// the tool that migrates the old model, say.
+	Only []string
+	// Why is the sentence a failure ends with: what to do instead.
+	Why string
+	// In, Except and Tests as Banned's: where the rule applies (default the whole module,
+	// production code only).
+	In, Except []string
+	Tests      bool
+}
+
+// PermissionCatalogue holds every place that names a permission to the catalogue. Two things must
+// name an entry of IDs():
+//
+//   - a string literal shaped like a permission identifier, module[.resource[.section]]:verb, whose
+//     module is one the catalogue knows (other colon-shaped strings, such as validation rules or
+//     struct tags, never start with one);
+//   - a call of one of Constructors, whose arguments are the namespace and the verb, when the
+//     namespace is a literal or a string constant of the same package or of another package of
+//     the module (an argument the rule cannot resolve is left alone).
+type PermissionCatalogue struct {
+	// IDs returns the catalogue's identifiers ("crm.lead:view"). Nil leaves the rule off.
+	IDs func() []string
+	// Constructors are the calls that build a permission from a namespace and a verb: "alias.Func",
+	// the package as the file names it (domainpermission.Of), or "import/path.Func".
+	Constructors []string
+	// Package is the directory of the catalogue itself, relative to the root; it is exempt.
+	Package string
+	// Why is the sentence a failure ends with: what to do instead.
+	Why string
+	// In, Except and Tests as Banned's: where the rule applies (default the whole module,
+	// production code only).
+	In, Except []string
+	Tests      bool
 }

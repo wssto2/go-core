@@ -22,6 +22,9 @@ func (p *project) guardRules(set *ruleSet) {
 		{atomicWritesRule, len(p.cfg.AtomicWrites) > 0, p.atomicWrites},
 		{noFloatMoneyRule, len(p.cfg.NoFloatMoney) > 0, p.noFloatMoney},
 		{contextRootsRule, len(p.cfg.ContextRoots) > 0, p.contextRoots},
+		{permissionsRule, p.cfg.PermissionCatalogue.IDs != nil, p.permissionCatalogue},
+		{writeOnlyRule, len(p.cfg.WriteOnly) > 0, p.writeOnly},
+		{scopedQueriesRule, len(p.cfg.ScopedQueries) > 0, p.scopedQueries},
 	} {
 		if one.used && !slices.Contains(p.cfg.Skip, one.name) {
 			set.rules = append(set.rules, rule{name: one.name, check: one.finish})

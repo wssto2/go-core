@@ -38,7 +38,11 @@
 // named list, each with a reason, never a comment), and AtomicWrites holds one that writes through
 // two or more repositories to a WithinTx/WithinTransaction closure. NoFloatMoney bans a float64
 // field, parameter or result with a money name (use the money package). RepositoryShape also
-// bans a nested .Transaction( with Repository.NoNestedTransaction. An application's
+// bans a nested .Transaction( with Repository.NoNestedTransaction, a hand-written db/DB method outside
+// Repository.HandleFile and a //nolint:nilnil with Repository.NoNilNil. ScopedQueries holds a query on a model
+// to a chain that starts from the scoped handle, WriteOnly holds fields to being written and never read,
+// and PermissionCatalogue holds every permission literal and constructor call to the application's catalogue.
+// An application's
 // own guards walk the same parsed files with Sources and freeze their violations with Ratchet.
 //
 // Pre-existing violations are frozen in a ratchet: Config.Allowed lists, per
@@ -254,7 +258,22 @@ func (p *project) validateGuards() error {
 		return err
 	}
 
-	return p.validateFloatMoney()
+	err = p.validateFloatMoney()
+	if err != nil {
+		return err
+	}
+
+	err = p.validateScopedQueries()
+	if err != nil {
+		return err
+	}
+
+	if cat := p.cfg.PermissionCatalogue; cat.IDs != nil && len(cat.IDs()) == 0 {
+		return fmt.Errorf("%w: PermissionCatalogue.IDs returned no identifier (a guard that knows nothing rejects all)",
+			errConfig)
+	}
+
+	return nil
 }
 
 // validateAudit refuses an exemption that does not say why.

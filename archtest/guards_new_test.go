@@ -2,6 +2,8 @@
 package archtest_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -131,4 +133,163 @@ func TestRepositoryBansANestedTransaction(t *testing.T) {
 	require.Contains(t, got, "repository/tx.go:8")
 	require.Contains(t, got, "WithinTx")
 	require.NotContains(t, got, "tx.go:12", "WithinTx is the way")
+}
+
+func TestRepositoryHandleFileAndNoNilNil(t *testing.T) {
+	t.Parallel()
+
+	root := fixture(t, "repository-handle")
+	cfg := testConfig(root)
+	require.Empty(t, problems(t, cfg, archtest.RepositoryShape), "off unless asked")
+
+	cfg.Repository.HandleFile = "handle_base.go"
+	cfg.Repository.NoNilNil = true
+
+	got := problems(t, cfg, archtest.RepositoryShape)
+	require.Contains(t, got, "repository/handle_bad.go:5  hand-written db method")
+	require.Contains(t, got, "repository/handle_bad.go:8  nilnil suppressed")
+	require.NotContains(t, got, "handle_base.go:", "the handle file declares DB")
+	require.NotContains(t, got, "handle_bad.go:12", "another linter's nolint")
+
+	cfg.Repository.NoNilNil = false
+	require.NotContains(t, problems(t, cfg, archtest.RepositoryShape), "nilnil suppressed", "each part is its own switch")
+
+	require.NoError(t, os.Remove(filepath.Join(root, "internal/infrastructure/db/repository/handle_bad.go")))
+
+	cfg.Repository.NoNilNil = true
+	require.Empty(t, problems(t, cfg, archtest.RepositoryShape), "without the planted file the rule holds")
+}
+
+func TestScopedQueriesStartFromTheScopedHandle(t *testing.T) {
+	t.Parallel()
+
+	root := fixture(t, "scoped-queries")
+	cfg := testConfig(root)
+	cfg.ScopedQueries = []archtest.ScopedQueries{{
+		Files: []string{"internal/infrastructure/db/repository/vehicle_read.go"},
+		Call:  "Model", Arg: "gen.Vehicle", Via: []string{"scopedDB", "crossTenantDB"}, Why: "start from scopedDB",
+	}}
+
+	got := problems(t, cfg, "scoped-queries")
+	require.Contains(t, got, "SCOPED QUERIES (Model(&gen.Vehicle{}))")
+	require.Contains(t, got, "vehicle_read.go:14  Model(&gen.Vehicle{}) starts from db, not scopedDB or crossTenantDB")
+	require.Contains(t, got, "vehicle_read.go:15", "a longer chain")
+	require.Contains(t, got, "vehicle_read.go:20  Model(&gen.Vehicle{}) starts from something that is not a call")
+	require.NotContains(t, got, "vehicle_read.go:8", "scopedDB")
+	require.NotContains(t, got, "vehicle_read.go:9", "crossTenantDB")
+	require.NotContains(t, got, "vehicle_read.go:10", "another model")
+	require.NotContains(t, got, "other.go", "a file that is not listed")
+	require.Contains(t, got, "-> start from scopedDB")
+
+	cfg.ScopedQueries[0].Files = []string{"internal/infrastructure/db/repository/nowhere.go"}
+	_, err := archtest.Check(cfg)
+	require.ErrorContains(t, err, "ScopedQueries.Files")
+
+	require.NoError(t, os.Remove(filepath.Join(root, "internal/infrastructure/db/repository/vehicle_read.go")))
+
+	cfg.ScopedQueries[0].Files = []string{"internal/infrastructure/db/repository/other.go"}
+	require.Contains(t, problems(t, cfg, "scoped-queries"), "other.go:5")
+
+	cfg.ScopedQueries[0].Via = append(cfg.ScopedQueries[0].Via, "db")
+	require.Empty(t, problems(t, cfg, "scoped-queries"), "with the handle allowed the rule holds")
+}
+
+func TestWriteOnlyFieldsAreWrittenNeverRead(t *testing.T) {
+	t.Parallel()
+
+	root := fixture(t, "write-only")
+	cfg := testConfig(root)
+	cfg.WriteOnly = []archtest.WriteOnly{{
+		Type: "User", Fields: []string{"AccountTypeID", "AccountRole"}, Why: "decide on a permission",
+		Only: []string{"internal/tool"},
+	}}
+
+	got := problems(t, cfg, "write-only")
+	require.Contains(t, got, "WRITE ONLY (User)")
+
+	for _, line := range []string{"11", "13", "15", "16"} {
+		require.Contains(t, got, "application/user.go:"+line+"  reads", "line "+line)
+	}
+
+	require.Contains(t, got, "user.go:16  reads AccountRole", "a read through the group")
+	require.NotContains(t, got, "user.go:17", "an assignment target")
+	require.NotContains(t, got, "user.go:18", "on the path to an assignment target")
+	require.NotContains(t, got, "user.go:19", "a literal key")
+	require.NotContains(t, got, "user.go:21", "a package's name")
+	require.NotContains(t, got, "tool/migrate.go", "Only may read")
+	require.Contains(t, got, "-> decide on a permission")
+
+	cfg.WriteOnly[0].Only = nil
+	require.Contains(t, problems(t, cfg, "write-only"), "tool/migrate.go:3  reads AccountTypeID")
+
+	require.NoError(t, os.Remove(filepath.Join(root, "internal/application/user.go")))
+	require.NoError(t, os.Remove(filepath.Join(root, "internal/tool/migrate.go")))
+	require.Empty(t, problems(t, cfg, "write-only"), "without the planted reads the rule holds")
+}
+
+// A removed helper is a Banned Method when it is called on a value, but a bare function name has no
+// package to find it by: Banned cannot ban it.
+func TestBannedNamesARemovedPredicateOnAValueOnly(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	write(t, root, "go.mod", "module example.com/app\n\ngo 1.26\n")
+	write(t, root, "a/a.go",
+		"package a\n\nimport \"fmt\"\n\nfunc f(u fmt.Stringer) { _ = u.IsWebmaster(); isStaff() }\n\nfunc isStaff() {}\n")
+
+	cfg := testConfig(root)
+	cfg.Layers = archtest.Layers{}
+	cfg.Repository = archtest.Repository{}
+	cfg.Banned = []archtest.Banned{
+		{Import: "fmt", Method: "IsWebmaster", Why: "gone"},
+		{Import: "fmt", Method: "isStaff", Why: "gone"},
+	}
+
+	got := problems(t, cfg, "banned")
+	require.Contains(t, got, "a/a.go:5  uses .IsWebmaster")
+	require.NotContains(t, got, "isStaff", "a bare function is not a method")
+}
+
+func TestPermissionCatalogueIsTheOnlySource(t *testing.T) {
+	t.Parallel()
+
+	root := fixture(t, "permission-catalogue")
+	cfg := testConfig(root)
+	cfg.PermissionCatalogue = archtest.PermissionCatalogue{
+		IDs:          func() []string { return []string{"crm.lead:view", "crm.lead:manage"} },
+		Constructors: []string{"domainpermission.Of"},
+		Package:      "internal/iam/permission",
+		Why:          "add it to the catalogue",
+	}
+
+	got := problems(t, cfg, "permission-catalogue")
+	require.Contains(t, got, "PERMISSION CATALOGUE")
+	require.Contains(t, got, `application/use.go:14  "crm.lead:erase" is not in`)
+	require.Contains(t, got, `application/use.go:15  "crm.ghost:view" is not in`)
+	require.NotContains(t, got, "use.go:13", "a catalogue entry")
+	require.NotContains(t, got, "use.go:16", "a colon-shaped string of no module the catalogue knows")
+	require.NotContains(t, got, "use.go:17")
+	require.NotContains(t, got, "use.go:18", "Of with an entry")
+	require.Contains(t, got, `use.go:19  "crm.lead:erase" (built by a constructor)`, "a constant of the same package")
+	require.Contains(t, got, `use.go:20  "crm.lead:export" (built by a constructor)`, "a constant of an imported package")
+	require.NotContains(t, got, "use.go:21", "a constant defined from another package's constant, and in the catalogue")
+	require.NotContains(t, got, "use.go:22", "an argument that is not a constant")
+	require.NotContains(t, got, "iam/permission/permission.go", "the catalogue's own package is exempt")
+	require.Contains(t, got, "-> add it to the catalogue")
+
+	cfg.PermissionCatalogue.Constructors = []string{"example.com/app/internal/iam/permission.Of"}
+	require.Contains(t, problems(t, cfg, "permission-catalogue"), "use.go:19", "a constructor by import path")
+
+	cfg.PermissionCatalogue.Package = ""
+	require.Contains(t, problems(t, cfg, "permission-catalogue"), "permission.go:8", "the exemption is configurable")
+
+	cfg.PermissionCatalogue.IDs = func() []string { return nil }
+	_, err := archtest.Check(cfg)
+	require.ErrorContains(t, err, "PermissionCatalogue.IDs")
+
+	cfg.PermissionCatalogue.IDs = func() []string {
+		return []string{"crm.lead:view", "crm.lead:manage", "crm.lead:erase", "crm.lead:export", "crm.ghost:view"}
+	}
+	cfg.PermissionCatalogue.Package = "internal/iam/permission"
+	require.Empty(t, problems(t, cfg, "permission-catalogue"), "with every name in the catalogue the rule holds")
 }

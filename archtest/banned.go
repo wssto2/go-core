@@ -251,6 +251,56 @@ func (p *project) repositoryShape() []finding {
 		out = append(out, p.bannedUses(ban)...)
 	}
 
+	return append(out, p.repositoryFiles(shape)...)
+}
+
+// repositoryFiles checks the production files of the repository package against HandleFile and NoNilNil.
+func (p *project) repositoryFiles(shape Repository) []finding {
+	var out []finding
+
+	for _, src := range p.productionIn(shape.Dir) {
+		if path.Dir(src.Rel) != shape.Dir {
+			continue
+		}
+
+		if shape.HandleFile != "" && src.Rel != shape.Dir+"/"+shape.HandleFile {
+			out = append(out, handWrittenHandles(src, shape.HandleFile)...)
+		}
+
+		if shape.NoNilNil {
+			out = append(out, nilnilSuppressions(src)...)
+		}
+	}
+
+	return out
+}
+
+func handWrittenHandles(src Source, handleFile string) []finding {
+	var out []finding
+
+	for _, decl := range src.File.Decls {
+		fn, isFunc := decl.(*ast.FuncDecl)
+		if isFunc && fn.Recv != nil && (fn.Name.Name == "db" || fn.Name.Name == "DB") {
+			out = append(out, finding{key: src.Rel, text: src.At(fn) + "  hand-written " + fn.Name.Name +
+				" method: embed the BaseRepository, whose handle is in " + handleFile})
+		}
+	}
+
+	return out
+}
+
+func nilnilSuppressions(src Source) []finding {
+	var out []finding
+
+	for _, group := range src.File.Comments {
+		for _, one := range group.List {
+			if strings.Contains(one.Text, "nolint") && strings.Contains(one.Text, "nilnil") {
+				out = append(out, finding{key: src.Rel, text: src.At(one) +
+					"  nilnil suppressed: return the domain's not-found error"})
+			}
+		}
+	}
+
 	return out
 }
 

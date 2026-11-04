@@ -94,11 +94,13 @@ func (p *project) dataRules(set *ruleSet) {
 	set.add(layers.Domain != "" && layers.Application != "", ServiceRepositories,
 		"services inject only their own aggregate's repositories",
 		"obtain that domain's data through its Service, not its Repository", p.serviceRepositories)
-	set.add(shape.Dir != "" && (shape.TxFile != "" || shape.ScopeFile != "" || shape.NoNestedTransaction),
+	set.add(shape.Dir != "" && (shape.TxFile != "" || shape.ScopeFile != "" || shape.NoNestedTransaction ||
+		shape.HandleFile != "" || shape.NoNilNil),
 		RepositoryShape, "repository shape",
 		"a repository reaches the caller's transaction and tenant scope through the one file of the package "+
 			"that owns them, and opens a transaction with the BaseRepository's WithinTx: a nested .Transaction( opens a "+
-			"savepoint and leaves tx out of the context, so a helper called inside it uses the outer connection",
+			"savepoint and leaves tx out of the context, so a helper called inside it uses the outer connection; "+
+			"a hand-written db/DB method and a //nolint:nilnil stay out of the package",
 		p.repositoryShape)
 }
 
