@@ -192,3 +192,58 @@ func TestScopedQueriesStartFromTheScopedHandle(t *testing.T) {
 	cfg.ScopedQueries[0].Via = append(cfg.ScopedQueries[0].Via, "db")
 	require.Empty(t, problems(t, cfg, "scoped-queries"), "with the handle allowed the rule holds")
 }
+
+func TestWriteOnlyFieldsAreWrittenNeverRead(t *testing.T) {
+	t.Parallel()
+
+	root := fixture(t, "write-only")
+	cfg := testConfig(root)
+	cfg.WriteOnly = []archtest.WriteOnly{{
+		Type: "User", Fields: []string{"AccountTypeID", "AccountRole"}, Why: "decide on a permission",
+		Only: []string{"internal/tool"},
+	}}
+
+	got := problems(t, cfg, "write-only")
+	require.Contains(t, got, "WRITE ONLY (User)")
+
+	for _, line := range []string{"11", "13", "15", "16"} {
+		require.Contains(t, got, "application/user.go:"+line+"  reads", "line "+line)
+	}
+
+	require.Contains(t, got, "user.go:16  reads AccountRole", "a read through the group")
+	require.NotContains(t, got, "user.go:17", "an assignment target")
+	require.NotContains(t, got, "user.go:18", "on the path to an assignment target")
+	require.NotContains(t, got, "user.go:19", "a literal key")
+	require.NotContains(t, got, "user.go:21", "a package's name")
+	require.NotContains(t, got, "tool/migrate.go", "Only may read")
+	require.Contains(t, got, "-> decide on a permission")
+
+	cfg.WriteOnly[0].Only = nil
+	require.Contains(t, problems(t, cfg, "write-only"), "tool/migrate.go:3  reads AccountTypeID")
+
+	require.NoError(t, os.Remove(filepath.Join(root, "internal/application/user.go")))
+	require.NoError(t, os.Remove(filepath.Join(root, "internal/tool/migrate.go")))
+	require.Empty(t, problems(t, cfg, "write-only"), "without the planted reads the rule holds")
+}
+
+// A removed helper is a Banned Method when it is called on a value, but a bare function name has no
+// package to find it by: Banned cannot ban it.
+func TestBannedNamesARemovedPredicateOnAValueOnly(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	write(t, root, "go.mod", "module example.com/app\n\ngo 1.26\n")
+	write(t, root, "a/a.go", "package a\n\nimport \"fmt\"\n\nfunc f(u fmt.Stringer) { _ = u.IsWebmaster(); isStaff() }\n\nfunc isStaff() {}\n")
+
+	cfg := testConfig(root)
+	cfg.Layers = archtest.Layers{}
+	cfg.Repository = archtest.Repository{}
+	cfg.Banned = []archtest.Banned{
+		{Import: "fmt", Method: "IsWebmaster", Why: "gone"},
+		{Import: "fmt", Method: "isStaff", Why: "gone"},
+	}
+
+	got := problems(t, cfg, "banned")
+	require.Contains(t, got, "a/a.go:5  uses .IsWebmaster")
+	require.NotContains(t, got, "isStaff", "a bare function is not a method")
+}

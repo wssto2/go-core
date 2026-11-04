@@ -47,6 +47,7 @@ const (
 	scopedQueriesRule = "scoped-queries"
 	requiresAuditRule = "requires-audit"
 	atomicWritesRule  = "atomic-writes"
+	writeOnlyRule     = "write-only"
 	contextRootsRule  = "context-roots"
 )
 
@@ -58,7 +59,7 @@ func ruleNames() []string {
 		ServiceContextFirst, BoundedStrings, RoutePaths, RouteIdentifiers, ValidationRules, RouteAccess,
 		ServiceRepositories, RepositoryShape, SQLPortability, RoutePersonOnly, bannedRule,
 		fieldWritesRule, requiresCallRule, contextRootsRule, requiresAuditRule, atomicWritesRule,
-		noFloatMoneyRule, scopedQueriesRule,
+		noFloatMoneyRule, scopedQueriesRule, writeOnlyRule,
 	}
 }
 
@@ -151,6 +152,9 @@ type Config struct {
 
 	// ScopedQueries holds a query on one model to the scoped handle.
 	ScopedQueries []ScopedQueries
+
+	// WriteOnly holds fields that may be written but never read.
+	WriteOnly []WriteOnly
 }
 
 // PersonOnly names the areas of the API that only make sense for a person (a
@@ -442,4 +446,28 @@ type ScopedQueries struct {
 	Via []string
 	// Why is the sentence a failure ends with: what to do instead.
 	Why string
+}
+
+// WriteOnly holds fields to being written and never read: a stored value the code keeps in step
+// but must not decide anything from (an account type that authorization replaced). A selector on
+// one of Fields passes only as the target of an assignment or on the path to one
+// (u.AccountRole.VehicleTypes = nil writes), as a key of a composite literal, or on the name of an
+// imported package (domainaccounttype.AccountType is a type, not a read). Everything else, a
+// comparison, a switch, an argument, an increment, a read through a method, is a finding.
+//
+// Without type information a selector is matched by its field name alone, whatever it is selected from.
+type WriteOnly struct {
+	// Type names the struct the fields belong to; it only titles the failure.
+	Type string
+	// Fields are the field names (AccountTypeID).
+	Fields []string
+	// Only are the places that may read them (a file, a package directory, "dir/..." for a tree):
+	// the tool that migrates the old model, say.
+	Only []string
+	// Why is the sentence a failure ends with: what to do instead.
+	Why string
+	// In, Except and Tests as Banned's: where the rule applies (default the whole module,
+	// production code only).
+	In, Except []string
+	Tests      bool
 }
