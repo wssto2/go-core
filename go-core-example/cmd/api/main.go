@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io/fs"
 	"log"
-	"os"
 	"time"
 
 	"go-core-example/internal/domain/access"
@@ -18,7 +17,6 @@ import (
 	"github.com/wssto2/go-core/gocore"
 	corei18n "github.com/wssto2/go-core/i18n"
 	"github.com/wssto2/go-core/identity"
-	"github.com/wssto2/go-core/observability/tracing"
 	"github.com/wssto2/go-core/ratelimit"
 )
 
@@ -30,8 +28,6 @@ func main() {
 	if err := gocore.LoadEnv(".env"); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		log.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	// The SPA shell is built from the catalogue service, which exists once product is installed: the builder
 	// the App runs with reads it through this variable.
@@ -47,6 +43,9 @@ func main() {
 		gocore.WithRateLimit(ratelimit.NewInMemoryLimiter(300, time.Minute), nil),
 		// Deduplicates a retried POST that carries an Idempotency-Key header, for 24 hours.
 		gocore.WithIdempotency(24*time.Hour),
+		// OpenTelemetry from the environment: OTEL_EXPORTER=stdout (default) | otlp | noop, DISABLE_OTEL=1 for none,
+		// OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 for the OTLP collector.
+		gocore.WithTracing(),
 	)
 	cfg := app.Config()
 
@@ -56,29 +55,6 @@ func main() {
 	})
 	if err != nil {
 		log.Fatal(err)
-	}
-
-	// Initialize OpenTelemetry.
-	// Control via environment variables:
-	//   OTEL_EXPORTER=stdout   → pretty-print spans (default in dev)
-	//   OTEL_EXPORTER=otlp     → send to Grafana Tempo / Jaeger / any OTLP backend
-	//   OTEL_EXPORTER=noop     → discard all spans (or set DISABLE_OTEL=1)
-	//   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318  → OTLP collector URL
-	if os.Getenv("DISABLE_OTEL") == "" {
-		exporter := tracing.ExporterType(os.Getenv("OTEL_EXPORTER"))
-		if exporter == "" {
-			exporter = tracing.ExporterStdout
-		}
-		otelCfg := tracing.OTelConfig{
-			ServiceName: cfg.App.Name,
-			Exporter:    exporter,
-			Endpoint:    os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
-		}
-		if _, shutdown, err := tracing.InitOpenTelemetry(ctx, otelCfg); err != nil {
-			log.Printf("tracing init failed: %v (continuing with noop tracer)", err)
-		} else {
-			defer func() { _ = shutdown(context.Background()) }()
-		}
 	}
 
 	// Generate TypeScript types for all domain models into /tmp/go-core-example/types.

@@ -111,6 +111,9 @@ type App struct {
 	// autoMigrate, when set, applies migrations as they are collected.
 	autoMigrate context.Context //nolint:containedctx // test option: the context of the test
 
+	// tracing is WithTracing.
+	tracing bool
+
 	// offline is set by Offline, or by New for ts:generate: no database, no serving.
 	offline   bool
 	offlineDB *gorm.DB
