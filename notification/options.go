@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/wssto2/go-core/authz"
+	"github.com/wssto2/go-core/env"
 	"github.com/wssto2/go-core/notification/push"
 )
 
@@ -196,6 +198,23 @@ func Enforce(e Enforcer) Option {
 	})
 }
 
+// WithOff silences categories for everyone (NOTIF-OFF-001): e-mail and push are "off, enforced" for them, ahead of
+// Enforce, and the inbox entry is still written, because it is not a channel Enforce governs. It is the operator's
+// kill switch for a noisy category. Install refuses a code that is not a registered category, naming it, so a typo
+// cannot leave a category on. It may be given more than once.
+func WithOff(codes ...string) Option { //nolint:ireturn // Option is the type of every option of Install
+	return optionFunc(func(c *config) { c.off = append(c.off, codes...) })
+}
+
+// OffEnv is the setting OffFromEnv reads.
+const OffEnv = "NOTIFICATIONS_OFF"
+
+// OffFromEnv is WithOff over the comma-separated list in NOTIFICATIONS_OFF, read through the application's reader
+// (app.Env()). Unset silences nothing.
+func OffFromEnv(vars *env.Reader) Option { //nolint:ireturn // Option is the type of every option of Install
+	return WithOff(vars.List(OffEnv)...)
+}
+
 // WithPush turns on web push (NOTIF-DEVICE-001): people register their browsers as devices, and a notification is
 // pushed to the devices of a person whose push setting for its category is on, held in their quiet hours, retried, and
 // bundled in a burst. Without it the device routes answer that push is not configured and no push is made. The key pair
@@ -252,6 +271,7 @@ type config struct {
 	appURLSet  bool
 	location   *time.Location
 	enforce    Enforcer
+	off        []string
 	push       *push.Sender
 	bundleText func(locale string, count int, titles []string) (title, body string)
 	testText   func(Recipient) Message
@@ -277,8 +297,49 @@ func collect(opts []Option) *config {
 	}
 
 	c.problems = append(c.problems, kindProblems(c.kinds)...)
+	c.problems = append(c.problems, offProblems(c.off, c.kinds)...)
+	c.enforce = withOff(c.off, c.enforce)
 
 	return c
+}
+
+// offProblems names each silenced code that is not a registered category.
+func offProblems(off []string, kinds []Kind) []problem {
+	var out []problem
+
+	known := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		known = append(known, k.code)
+	}
+
+	for _, code := range off {
+		if !slices.Contains(known, code) {
+			what := fmt.Sprintf("%s %q is not a notification category (known: %s)", OffEnv, code, strings.Join(known, ", "))
+			out = append(out, problem{what, "name a category given to notification.Install, or remove it from the list"})
+		}
+	}
+
+	return out
+}
+
+// withOff answers "off, enforced" on e-mail and push for a silenced category and leaves every other question to next,
+// which may be nil.
+func withOff(off []string, next Enforcer) Enforcer {
+	if len(off) == 0 {
+		return next
+	}
+
+	return func(ctx context.Context, userID int, kind Kind, channel Channel) (bool, bool, error) {
+		if slices.Contains(off, kind.code) {
+			return false, true, nil
+		}
+
+		if next == nil {
+			return false, false, nil
+		}
+
+		return next(ctx, userID, kind, channel)
+	}
 }
 
 // kindProblems says what is wrong with the categories given to Install.

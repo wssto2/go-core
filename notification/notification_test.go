@@ -362,6 +362,7 @@ func TestInstallListsWhatIsWrongWithTheOptionsAndTheFix(t *testing.T) {
 		{"url twice", []notification.Option{notification.AppURL("https://a.example.com"), notification.AppURL("https://b.example.com")}, "AppURL was given twice"},
 		{"nil zone", []notification.Option{notification.TimeZone(nil)}, "TimeZone was given no location"},
 		{"zone twice", []notification.Option{notification.TimeZone(time.UTC), notification.TimeZone(time.UTC)}, "TimeZone was given twice"},
+		{"off unknown", []notification.Option{notification.WithOff("nope")}, `"nope" is not a notification category`},
 		{"nil enforcer", []notification.Option{notification.Enforce(nil)}, "Enforce was given no function"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
