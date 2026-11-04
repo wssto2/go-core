@@ -35,3 +35,17 @@ func Value[T any](record *T) (T, error) { //nolint:ireturn // a generic accessor
 
 	return *record, nil
 }
+
+// MapPtr maps an optional record: nil stays nil, else a pointer to the record through from. It is for an optional
+// part of an output, such as a nullable DTO field:
+//
+//	Customer: web.MapPtr(lead.Customer, dto.FromCustomer)
+func MapPtr[T, R any](src *T, from func(T) R) *R {
+	if src == nil {
+		return nil
+	}
+
+	out := from(*src)
+
+	return &out
+}
