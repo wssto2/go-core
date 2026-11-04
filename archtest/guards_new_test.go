@@ -247,3 +247,47 @@ func TestBannedNamesARemovedPredicateOnAValueOnly(t *testing.T) {
 	require.Contains(t, got, "a/a.go:5  uses .IsWebmaster")
 	require.NotContains(t, got, "isStaff", "a bare function is not a method")
 }
+
+func TestPermissionCatalogueIsTheOnlySource(t *testing.T) {
+	t.Parallel()
+
+	root := fixture(t, "permission-catalogue")
+	cfg := testConfig(root)
+	cfg.PermissionCatalogue = archtest.PermissionCatalogue{
+		IDs:          func() []string { return []string{"crm.lead:view", "crm.lead:manage"} },
+		Constructors: []string{"domainpermission.Of"},
+		Package:      "internal/iam/permission",
+		Why:          "add it to the catalogue",
+	}
+
+	got := problems(t, cfg, "permission-catalogue")
+	require.Contains(t, got, "PERMISSION CATALOGUE")
+	require.Contains(t, got, `application/use.go:14  "crm.lead:erase" is not in`)
+	require.Contains(t, got, `application/use.go:15  "crm.ghost:view" is not in`)
+	require.NotContains(t, got, "use.go:13", "a catalogue entry")
+	require.NotContains(t, got, "use.go:16", "a colon-shaped string of no module the catalogue knows")
+	require.NotContains(t, got, "use.go:17")
+	require.NotContains(t, got, "use.go:18", "Of with an entry")
+	require.Contains(t, got, `use.go:19  "crm.lead:erase" (built by a constructor)`, "a constant of the same package")
+	require.Contains(t, got, `use.go:20  "crm.lead:export" (built by a constructor)`, "a constant of an imported package")
+	require.NotContains(t, got, "use.go:21", "a constant defined from another package's constant, and in the catalogue")
+	require.NotContains(t, got, "use.go:22", "an argument that is not a constant")
+	require.NotContains(t, got, "iam/permission/permission.go", "the catalogue's own package is exempt")
+	require.Contains(t, got, "-> add it to the catalogue")
+
+	cfg.PermissionCatalogue.Constructors = []string{"example.com/app/internal/iam/permission.Of"}
+	require.Contains(t, problems(t, cfg, "permission-catalogue"), "use.go:19", "a constructor by import path")
+
+	cfg.PermissionCatalogue.Package = ""
+	require.Contains(t, problems(t, cfg, "permission-catalogue"), "permission.go:8", "the exemption is configurable")
+
+	cfg.PermissionCatalogue.IDs = func() []string { return nil }
+	_, err := archtest.Check(cfg)
+	require.ErrorContains(t, err, "PermissionCatalogue.IDs")
+
+	cfg.PermissionCatalogue.IDs = func() []string {
+		return []string{"crm.lead:view", "crm.lead:manage", "crm.lead:erase", "crm.lead:export", "crm.ghost:view"}
+	}
+	cfg.PermissionCatalogue.Package = "internal/iam/permission"
+	require.Empty(t, problems(t, cfg, "permission-catalogue"), "with every name in the catalogue the rule holds")
+}

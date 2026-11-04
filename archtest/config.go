@@ -48,6 +48,7 @@ const (
 	requiresAuditRule = "requires-audit"
 	atomicWritesRule  = "atomic-writes"
 	writeOnlyRule     = "write-only"
+	permissionsRule   = "permission-catalogue"
 	contextRootsRule  = "context-roots"
 )
 
@@ -59,7 +60,7 @@ func ruleNames() []string {
 		ServiceContextFirst, BoundedStrings, RoutePaths, RouteIdentifiers, ValidationRules, RouteAccess,
 		ServiceRepositories, RepositoryShape, SQLPortability, RoutePersonOnly, bannedRule,
 		fieldWritesRule, requiresCallRule, contextRootsRule, requiresAuditRule, atomicWritesRule,
-		noFloatMoneyRule, scopedQueriesRule, writeOnlyRule,
+		noFloatMoneyRule, scopedQueriesRule, writeOnlyRule, permissionsRule,
 	}
 }
 
@@ -155,6 +156,9 @@ type Config struct {
 
 	// WriteOnly holds fields that may be written but never read.
 	WriteOnly []WriteOnly
+
+	// PermissionCatalogue holds every permission the code names to the application's catalogue.
+	PermissionCatalogue PermissionCatalogue
 }
 
 // PersonOnly names the areas of the API that only make sense for a person (a
@@ -464,6 +468,31 @@ type WriteOnly struct {
 	// Only are the places that may read them (a file, a package directory, "dir/..." for a tree):
 	// the tool that migrates the old model, say.
 	Only []string
+	// Why is the sentence a failure ends with: what to do instead.
+	Why string
+	// In, Except and Tests as Banned's: where the rule applies (default the whole module,
+	// production code only).
+	In, Except []string
+	Tests      bool
+}
+
+// PermissionCatalogue holds every place that names a permission to the catalogue. Two things must
+// name an entry of IDs():
+//
+//   - a string literal shaped like a permission identifier, module[.resource[.section]]:verb, whose
+//     module is one the catalogue knows (other colon-shaped strings, such as validation rules or
+//     struct tags, never start with one);
+//   - a call of one of Constructors, whose arguments are the namespace and the verb, when the
+//     namespace is a literal or a string constant of the same package or of another package of
+//     the module (an argument the rule cannot resolve is left alone).
+type PermissionCatalogue struct {
+	// IDs returns the catalogue's identifiers ("crm.lead:view"). Nil leaves the rule off.
+	IDs func() []string
+	// Constructors are the calls that build a permission from a namespace and a verb: "alias.Func",
+	// the package as the file names it (domainpermission.Of), or "import/path.Func".
+	Constructors []string
+	// Package is the directory of the catalogue itself, relative to the root; it is exempt.
+	Package string
 	// Why is the sentence a failure ends with: what to do instead.
 	Why string
 	// In, Except and Tests as Banned's: where the rule applies (default the whole module,
