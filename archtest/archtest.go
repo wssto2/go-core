@@ -40,8 +40,9 @@
 // field, parameter or result with a money name (use the money package). RepositoryShape also
 // bans a nested .Transaction( with Repository.NoNestedTransaction, a hand-written db/DB method outside
 // Repository.HandleFile and a //nolint:nilnil with Repository.NoNilNil. ScopedQueries holds a query on a model
-// to a chain that starts from the scoped handle, WriteOnly holds fields to being written and never read, and
-// PermissionCatalogue holds every permission literal and constructor call to the application's catalogue. An application's
+// to a chain that starts from the scoped handle, WriteOnly holds fields to being written and never read,
+// and PermissionCatalogue holds every permission literal and constructor call to the application's catalogue.
+// An application's
 // own guards walk the same parsed files with Sources and freeze their violations with Ratchet.
 //
 // Pre-existing violations are frozen in a ratchet: Config.Allowed lists, per
@@ -268,7 +269,8 @@ func (p *project) validateGuards() error {
 	}
 
 	if cat := p.cfg.PermissionCatalogue; cat.IDs != nil && len(cat.IDs()) == 0 {
-		return fmt.Errorf("%w: PermissionCatalogue.IDs returned no identifier (a guard that knows nothing rejects everything)", errConfig)
+		return fmt.Errorf("%w: PermissionCatalogue.IDs returned no identifier (a guard that knows nothing rejects all)",
+			errConfig)
 	}
 
 	return nil

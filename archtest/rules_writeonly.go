@@ -29,37 +29,8 @@ func (p *project) writeOnly() []string {
 
 // writeOnlyReads lists the selectors on one of the fields that are not a write nor a package's name.
 func writeOnlyReads(src Source, one WriteOnly) []finding {
-	imports := map[string]bool{}
-
-	for _, imp := range src.File.Imports {
-		if imp.Name != nil {
-			imports[imp.Name.Name] = true
-		} else {
-			imports[lastSegment(importPath(imp))] = true
-		}
-	}
-
-	// every expression on the left of an assignment, and each one on the path down to its root
-	written := map[ast.Expr]bool{}
-
-	ast.Inspect(src.File, func(node ast.Node) bool {
-		if assign, isAssign := node.(*ast.AssignStmt); isAssign {
-			for _, lhs := range assign.Lhs {
-				for expr := lhs; expr != nil; {
-					written[expr] = true
-
-					sel, isSel := expr.(*ast.SelectorExpr)
-					if !isSel {
-						break
-					}
-
-					expr = sel.X
-				}
-			}
-		}
-
-		return true
-	})
+	imports := importNames(src.File)
+	written := writtenExprs(src.File)
 
 	var out []finding
 
@@ -83,4 +54,45 @@ func writeOnlyReads(src Source, one WriteOnly) []finding {
 	})
 
 	return out
+}
+
+// importNames are the names a file gives its imports.
+func importNames(file *ast.File) map[string]bool {
+	out := map[string]bool{}
+
+	for _, imp := range file.Imports {
+		if imp.Name != nil {
+			out[imp.Name.Name] = true
+		} else {
+			out[lastSegment(importPath(imp))] = true
+		}
+	}
+
+	return out
+}
+
+// writtenExprs holds every expression on the left of an assignment and each one on the path down to its root.
+func writtenExprs(file *ast.File) map[ast.Expr]bool {
+	written := map[ast.Expr]bool{}
+
+	ast.Inspect(file, func(node ast.Node) bool {
+		if assign, isAssign := node.(*ast.AssignStmt); isAssign {
+			for _, lhs := range assign.Lhs {
+				for expr := lhs; expr != nil; {
+					written[expr] = true
+
+					sel, isSel := expr.(*ast.SelectorExpr)
+					if !isSel {
+						break
+					}
+
+					expr = sel.X
+				}
+			}
+		}
+
+		return true
+	})
+
+	return written
 }

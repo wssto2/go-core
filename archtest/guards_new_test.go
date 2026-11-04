@@ -186,6 +186,7 @@ func TestScopedQueriesStartFromTheScopedHandle(t *testing.T) {
 	require.ErrorContains(t, err, "ScopedQueries.Files")
 
 	require.NoError(t, os.Remove(filepath.Join(root, "internal/infrastructure/db/repository/vehicle_read.go")))
+
 	cfg.ScopedQueries[0].Files = []string{"internal/infrastructure/db/repository/other.go"}
 	require.Contains(t, problems(t, cfg, "scoped-queries"), "other.go:5")
 
@@ -233,7 +234,8 @@ func TestBannedNamesARemovedPredicateOnAValueOnly(t *testing.T) {
 
 	root := t.TempDir()
 	write(t, root, "go.mod", "module example.com/app\n\ngo 1.26\n")
-	write(t, root, "a/a.go", "package a\n\nimport \"fmt\"\n\nfunc f(u fmt.Stringer) { _ = u.IsWebmaster(); isStaff() }\n\nfunc isStaff() {}\n")
+	write(t, root, "a/a.go",
+		"package a\n\nimport \"fmt\"\n\nfunc f(u fmt.Stringer) { _ = u.IsWebmaster(); isStaff() }\n\nfunc isStaff() {}\n")
 
 	cfg := testConfig(root)
 	cfg.Layers = archtest.Layers{}
