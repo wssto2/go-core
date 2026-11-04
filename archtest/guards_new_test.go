@@ -159,3 +159,36 @@ func TestRepositoryHandleFileAndNoNilNil(t *testing.T) {
 	cfg.Repository.NoNilNil = true
 	require.Empty(t, problems(t, cfg, archtest.RepositoryShape), "without the planted file the rule holds")
 }
+
+func TestScopedQueriesStartFromTheScopedHandle(t *testing.T) {
+	t.Parallel()
+
+	root := fixture(t, "scoped-queries")
+	cfg := testConfig(root)
+	cfg.ScopedQueries = []archtest.ScopedQueries{{
+		Files: []string{"internal/infrastructure/db/repository/vehicle_read.go"},
+		Call:  "Model", Arg: "gen.Vehicle", Via: []string{"scopedDB", "crossTenantDB"}, Why: "start from scopedDB",
+	}}
+
+	got := problems(t, cfg, "scoped-queries")
+	require.Contains(t, got, "SCOPED QUERIES (Model(&gen.Vehicle{}))")
+	require.Contains(t, got, "vehicle_read.go:14  Model(&gen.Vehicle{}) starts from db, not scopedDB or crossTenantDB")
+	require.Contains(t, got, "vehicle_read.go:15", "a longer chain")
+	require.Contains(t, got, "vehicle_read.go:20  Model(&gen.Vehicle{}) starts from something that is not a call")
+	require.NotContains(t, got, "vehicle_read.go:8", "scopedDB")
+	require.NotContains(t, got, "vehicle_read.go:9", "crossTenantDB")
+	require.NotContains(t, got, "vehicle_read.go:10", "another model")
+	require.NotContains(t, got, "other.go", "a file that is not listed")
+	require.Contains(t, got, "-> start from scopedDB")
+
+	cfg.ScopedQueries[0].Files = []string{"internal/infrastructure/db/repository/nowhere.go"}
+	_, err := archtest.Check(cfg)
+	require.ErrorContains(t, err, "ScopedQueries.Files")
+
+	require.NoError(t, os.Remove(filepath.Join(root, "internal/infrastructure/db/repository/vehicle_read.go")))
+	cfg.ScopedQueries[0].Files = []string{"internal/infrastructure/db/repository/other.go"}
+	require.Contains(t, problems(t, cfg, "scoped-queries"), "other.go:5")
+
+	cfg.ScopedQueries[0].Via = append(cfg.ScopedQueries[0].Via, "db")
+	require.Empty(t, problems(t, cfg, "scoped-queries"), "with the handle allowed the rule holds")
+}

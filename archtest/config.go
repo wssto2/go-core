@@ -44,6 +44,7 @@ const (
 	fieldWritesRule   = "field-writes"
 	requiresCallRule  = "requires-call"
 	noFloatMoneyRule  = "no-float-money"
+	scopedQueriesRule = "scoped-queries"
 	requiresAuditRule = "requires-audit"
 	atomicWritesRule  = "atomic-writes"
 	contextRootsRule  = "context-roots"
@@ -57,7 +58,7 @@ func ruleNames() []string {
 		ServiceContextFirst, BoundedStrings, RoutePaths, RouteIdentifiers, ValidationRules, RouteAccess,
 		ServiceRepositories, RepositoryShape, SQLPortability, RoutePersonOnly, bannedRule,
 		fieldWritesRule, requiresCallRule, contextRootsRule, requiresAuditRule, atomicWritesRule,
-		noFloatMoneyRule,
+		noFloatMoneyRule, scopedQueriesRule,
 	}
 }
 
@@ -147,6 +148,9 @@ type Config struct {
 	// ContextRoots bans context.Background() and context.TODO() as a root context in
 	// directories of the application's own, with the wrappers that make one acceptable.
 	ContextRoots []ContextRoots
+
+	// ScopedQueries holds a query on one model to the scoped handle.
+	ScopedQueries []ScopedQueries
 }
 
 // PersonOnly names the areas of the API that only make sense for a person (a
@@ -417,5 +421,25 @@ type NoFloatMoney struct {
 	Names  []string
 	Exempt []FloatMoneyExemption
 	// Why is the sentence a failure ends with. Default says to use money.Money and convert at the mapper.
+	Why string
+}
+
+// ScopedQueries holds every Call(&Arg{}) in Files to a chain that starts from one of the Via methods:
+// the query on a tenant's model (db.Model(&gen.Vehicle{})) must begin at the handle that adds the
+// tenant scope (r.scopedDB(ctx)), or at the one that opts out of it by name (r.crossTenantDB(ctx, why)),
+// never at the raw handle. A chain that starts from a local variable or any other call fails too: the
+// rule cannot see where it came from.
+type ScopedQueries struct {
+	// Files are the places that are checked (a file, a package directory, "dir/..." for a tree),
+	// relative to the root. A place that holds no production Go file is a configuration error.
+	Files []string
+	// Call is the method name that takes the model ("Model").
+	Call string
+	// Arg is the model written as the file spells it, ("gen.Vehicle" matches Call(&gen.Vehicle{})).
+	Arg string
+	// Via are the method names the chain must start from ("scopedDB", "crossTenantDB"); a plain
+	// function of that name starts a chain too.
+	Via []string
+	// Why is the sentence a failure ends with: what to do instead.
 	Why string
 }

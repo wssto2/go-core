@@ -254,7 +254,12 @@ func (p *project) validateGuards() error {
 		return err
 	}
 
-	return p.validateFloatMoney()
+	err = p.validateFloatMoney()
+	if err != nil {
+		return err
+	}
+
+	return p.validateScopedQueries()
 }
 
 // validateAudit refuses an exemption that does not say why.
