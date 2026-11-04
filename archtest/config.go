@@ -182,6 +182,12 @@ type Repository struct {
 	// savepoint and leaves tx out of the context, so a helper called inside it
 	// uses the outer connection.
 	NoNestedTransaction bool
+	// HandleFile is the only file of Dir that may declare a method named db or DB: every
+	// repository reaches its handle through the embedded BaseRepository, not a hand-written one.
+	HandleFile string
+	// NoNilNil bans a //nolint comment that names nilnil in the production files of Dir:
+	// not found is the domain's error, not (nil, nil).
+	NoNilNil bool
 }
 
 // Banned is a rule of the application's own: an import, or one symbol of a

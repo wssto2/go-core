@@ -2,6 +2,8 @@
 package archtest_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -131,4 +133,29 @@ func TestRepositoryBansANestedTransaction(t *testing.T) {
 	require.Contains(t, got, "repository/tx.go:8")
 	require.Contains(t, got, "WithinTx")
 	require.NotContains(t, got, "tx.go:12", "WithinTx is the way")
+}
+
+func TestRepositoryHandleFileAndNoNilNil(t *testing.T) {
+	t.Parallel()
+
+	root := fixture(t, "repository-handle")
+	cfg := testConfig(root)
+	require.Empty(t, problems(t, cfg, archtest.RepositoryShape), "off unless asked")
+
+	cfg.Repository.HandleFile = "handle_base.go"
+	cfg.Repository.NoNilNil = true
+
+	got := problems(t, cfg, archtest.RepositoryShape)
+	require.Contains(t, got, "repository/handle_bad.go:5  hand-written db method")
+	require.Contains(t, got, "repository/handle_bad.go:8  nilnil suppressed")
+	require.NotContains(t, got, "handle_base.go:", "the handle file declares DB")
+	require.NotContains(t, got, "handle_bad.go:12", "another linter's nolint")
+
+	cfg.Repository.NoNilNil = false
+	require.NotContains(t, problems(t, cfg, archtest.RepositoryShape), "nilnil suppressed", "each part is its own switch")
+
+	require.NoError(t, os.Remove(filepath.Join(root, "internal/infrastructure/db/repository/handle_bad.go")))
+
+	cfg.Repository.NoNilNil = true
+	require.Empty(t, problems(t, cfg, archtest.RepositoryShape), "without the planted file the rule holds")
 }
