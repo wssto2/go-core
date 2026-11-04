@@ -8,8 +8,8 @@ What an app wired by hand: an operator's switch for a noisy category, the prune 
 
 - notification: `WithOff(codes...)` and `OffFromEnv(env)` (`NOTIFICATIONS_OFF`, a comma list; the name is `OffEnv`). E-mail and push are off and enforced for those categories, ahead of `Enforce`; the inbox entry is still written. `Install` refuses an unknown code by name. Given more than once, the codes add up.
 - notification: `VapidKeysCommand(app, subjectExample)` registers `notification:vapid-keys`, which prints a new VAPID key pair as env lines.
-- retention: `Command(app, conn, rules, help)` registers `db:prune` with `-dry-run` and `-only`, and prints the report.
-- gocore: `WithTracing()` starts OpenTelemetry from `DISABLE_OTEL`, `OTEL_EXPORTER` (default stdout) and `OTEL_EXPORTER_OTLP_ENDPOINT` through the app's environment reader, is not started for an offline command (`ts:generate`), logs a failed start and goes on without a tracer, and flushes when `Run` returns. The example app uses it.
+- retention: `Command(app, conn, rules, short, help)` registers `db:prune` with `-dry-run` and `-only` (short is its line in `help`), and prints the report.
+- gocore: `WithTracing()` starts OpenTelemetry from `DISABLE_OTEL`, `OTEL_EXPORTER` (default stdout) and `OTEL_EXPORTER_OTLP_ENDPOINT` through the app's environment reader, names the service by `APP_NAME` (else `WithName`), is not started for an offline command (`ts:generate`), logs a failed start and goes on without a tracer, and flushes when `Run` returns. The example app uses it.
 - web: `MapPtr(src, from)` maps an optional record (nil stays nil), beside `Mapped`.
 - authz: `RequireRecord(ctx, az, res, view, action, notFound)`: a view refused with `ErrForbidden` answers `notFound` (nothing tells the person the record exists); an action refused after the view stays `ErrForbidden`; other errors pass through unchanged.
 - authz: `Resource.CoOwner`: the Own qualifier passes for the owner or the co-owner. An unowned record is still judged by `Owner` alone.

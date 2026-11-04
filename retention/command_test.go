@@ -65,7 +65,7 @@ func commandApp(t *testing.T) *gocore.App {
 	app := gocore.New(gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithLogger(slog.New(slog.DiscardHandler)))
 	Command(app, "local", func() []Rule {
 		return []Rule{{Name: "sessions", Table: "sessions", Keep: 7 * testDay, Where: "created_at < @cutoff"}}
-	}, "Delete old rows.")
+	}, "delete rows past their window", "Delete old rows.")
 
 	return app
 }

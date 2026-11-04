@@ -33,7 +33,7 @@ func (a *App) startTracing(ctx context.Context) func() {
 	exporter := tracing.ExporterType(a.env.String("OTEL_EXPORTER", string(tracing.ExporterStdout)))
 
 	_, shutdown, err := tracing.InitOpenTelemetry(ctx, tracing.OTelConfig{
-		ServiceName: a.name,
+		ServiceName: a.cfg.App.Name, // APP_NAME, else WithName
 		Exporter:    exporter,
 		Endpoint:    a.env.String("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 	})

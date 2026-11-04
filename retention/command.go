@@ -11,12 +11,13 @@ import (
 
 // Command registers db:prune on app: db:prune [-dry-run] [-only a,b] applies rules to the database registered as
 // conn and prints what each rule matched, deleted or redacted. rules is called when the command runs, so the windows
-// are read then; help is the long text of -h (an empty one leaves just the flags).
+// are read then; short is the line `help` lists, help the long text of -h (an empty one leaves just the flags).
 //
-//	retention.Command(app, "local", func() []retention.Rule { return pruneRules }, "Delete rows past their window.")
+//	retention.Command(app, "local", func() []retention.Rule { return pruneRules },
+//		"delete rows past their retention window", "Delete rows past their window.")
 //
 // Ctrl-C or SIGTERM stops between batches; what was pruned stays pruned.
-func Command(app *gocore.App, conn database.Connection, rules func() []Rule, help string) {
+func Command(app *gocore.App, conn database.Connection, rules func() []Rule, short, help string) {
 	run := func(ctx context.Context, cmd *gocore.Cmd) error {
 		dryRun := cmd.Bool("dry-run", false, "Count the rows past each window without changing them")
 		only := cmd.List("only", "Run only these targets (comma-separated)")
@@ -42,7 +43,7 @@ func Command(app *gocore.App, conn database.Connection, rules func() []Rule, hel
 		return nil
 	}
 
-	app.Command("db:prune", "delete or redact rows past their retention window", run, gocore.Long(help))
+	app.Command("db:prune", short, run, gocore.Long(help))
 }
 
 // hoursPerDay turns a window into the days the report shows it in.
