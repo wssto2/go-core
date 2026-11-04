@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,lll // tests in the style of the package's others
 package authz_test
 
 import (
@@ -99,6 +100,13 @@ func TestRequireOnQualifiers(t *testing.T) {
 		{"own location: user without a location", "manager", "crm.lead:view", authz.User(me, 0), authz.Resource{OwnerLocation: 0}, false, ""},
 		{"own location: record without a location", "manager", "crm.lead:view", authz.User(me, 10), authz.Resource{}, false, ""},
 		{"all: any owner, any location", "dealerlead", "crm.lead:view", authz.User(me, 0), authz.Resource{Owner: other, OwnerLocation: 99}, true, ""},
+		{"co-owner: I am the second owner", "seller", "crm.lead:update", authz.User(me, 0), authz.Resource{Owner: other, CoOwner: me}, true, ""},
+		{"co-owner: someone else is", "seller", "crm.lead:update", authz.User(me, 0), authz.Resource{Owner: other, CoOwner: 7}, false, ""},
+		{"co-owner: none, same as before", "seller", "crm.lead:update", authz.User(me, 0), authz.Resource{Owner: other, CoOwner: 0}, false, ""},
+		{"co-owner: the same as the owner", "seller", "crm.lead:update", authz.User(me, 0), authz.Resource{Owner: other, CoOwner: other}, false, ""},
+		{"co-owner: unowned stays the pool for leads", "seller", "crm.lead:view", authz.User(me, 0), authz.Resource{Owner: 0, CoOwner: 7}, true, ""},
+		{"co-owner: unowned is still not mine for offers", "seller", "crm.offer:update", authz.User(me, 0), authz.Resource{Owner: 0, CoOwner: 7}, false, ""},
+		{"co-owner: does not open another location", "manager", "crm.lead:view", authz.User(me, 10), authz.Resource{OwnerLocation: 11, CoOwner: me}, false, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

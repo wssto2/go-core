@@ -20,6 +20,9 @@ type Resource struct {
 	Ancestors []Scope
 	// Owner is the ID of the user owning the record; zero means unowned.
 	Owner int
+	// CoOwner is the ID of a second user owning the record; zero means none. The Own qualifier passes for Owner or
+	// CoOwner. It changes nothing else: an unowned record is judged by Owner alone.
+	CoOwner int
 	// OwnerLocation is the ID, at the hierarchy's leaf level, of the record's
 	// location, for the OwnLocation qualifier.
 	OwnerLocation int
@@ -157,7 +160,8 @@ func matchRecord(c Clause, p Principal, perm Permission, res Resource) bool {
 		if p.Kind != KindUser {
 			return false
 		}
-		if res.Owner == p.ID {
+
+		if res.Owner == p.ID || (res.CoOwner != 0 && res.CoOwner == p.ID) {
 			break
 		}
 		if !perm.UnownedIsOwn || res.Owner != 0 {
@@ -173,6 +177,31 @@ func matchRecord(c Clause, p Principal, perm Permission, res Resource) bool {
 		}
 	}
 	return true
+}
+
+// RequireRecord is the guard of one record that a person may be told does not exist: it passes when the principal may
+// view it and do action to it. A view refused with ErrForbidden answers notFound, because nothing may tell them the
+// record is there; an action refused after a passed view stays ErrForbidden. When action is view it is checked once.
+// Any other error passes through unchanged.
+//
+//nolint:wrapcheck // the authorizer's errors pass through unchanged, by contract
+func RequireRecord(
+	ctx context.Context, authorizer Authorizer, res Resource, view, action string, notFound error,
+) error {
+	err := authorizer.RequireOn(ctx, view, res)
+	if err != nil {
+		if errors.Is(err, ErrForbidden) {
+			return notFound
+		}
+
+		return err
+	}
+
+	if action == view {
+		return nil
+	}
+
+	return authorizer.RequireOn(ctx, action, res)
 }
 
 // Access returns the clauses through which the principal holds the permission,

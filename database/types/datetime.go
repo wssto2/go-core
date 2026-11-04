@@ -26,9 +26,13 @@ func NewDateTimeFromString(value string) DateTime {
 	if value == "" {
 		return DateTime{}
 	}
-	// Naive format — treat as local time.
-	if t, err := time.ParseInLocation("2006-01-02 15:04:05", value, time.Local); err == nil {
-		return NewDateTime(t)
+	// Naive formats (the database's, and what a browser's datetime-local input sends) — treat as local time.
+	local := time.Local //nolint:gosmopolitan // the database's wall clock is local by contract
+	for _, f := range []string{"2006-01-02 15:04:05", "2006-01-02T15:04:05", "2006-01-02T15:04", "2006-01-02 15:04"} {
+		t, err := time.ParseInLocation(f, value, local)
+		if err == nil {
+			return NewDateTime(t)
+		}
 	}
 	// Timezone-aware formats — preserve the explicit offset.
 	for _, f := range []string{time.RFC3339, "2006-01-02T15:04:05Z"} {
