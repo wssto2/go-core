@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.28.0 (unreleased)
+
+What an app wired by hand: an operator's switch for a noisy category, the prune and VAPID commands, tracing from the environment, the record guard that hides what a person may not see, and four architecture rules an app configures instead of writing.
+
+### Added
+
+- notification: `WithOff(codes...)` and `OffFromEnv(env)` (`NOTIFICATIONS_OFF`, a comma list; the name is `OffEnv`). E-mail and push are off and enforced for those categories, ahead of `Enforce`; the inbox entry is still written. `Install` refuses an unknown code by name. Given more than once, the codes add up.
+- notification: `VapidKeysCommand(app, subjectExample)` registers `notification:vapid-keys`, which prints a new VAPID key pair as env lines.
+- retention: `Command(app, conn, rules, help)` registers `db:prune` with `-dry-run` and `-only`, and prints the report.
+- gocore: `WithTracing()` starts OpenTelemetry from `DISABLE_OTEL`, `OTEL_EXPORTER` (default stdout) and `OTEL_EXPORTER_OTLP_ENDPOINT` through the app's environment reader, is not started for an offline command (`ts:generate`), logs a failed start and goes on without a tracer, and flushes when `Run` returns. The example app uses it.
+- web: `MapPtr(src, from)` maps an optional record (nil stays nil), beside `Mapped`.
+- authz: `RequireRecord(ctx, az, res, view, action, notFound)`: a view refused with `ErrForbidden` answers `notFound` (nothing tells the person the record exists); an action refused after the view stays `ErrForbidden`; other errors pass through unchanged.
+- authz: `Resource.CoOwner`: the Own qualifier passes for the owner or the co-owner. An unowned record is still judged by `Owner` alone.
+- archtest: `Repository.HandleFile` (no hand-written `db`/`DB` method outside that file) and `Repository.NoNilNil` (no `//nolint:nilnil` in the package), in rule `repository-shape`.
+- archtest: `Config.ScopedQueries` (rule `scoped-queries`): every `Call(&Arg{})` in `Files` chains off one of the `Via` methods. A chain started from a local variable counts as unscoped.
+- archtest: `Config.WriteOnly` (rule `write-only`): the fields may be assigned, never read, outside `Only`.
+- archtest: `Config.PermissionCatalogue` (rule `permission-catalogue`): every literal shaped like a permission of a known module, and every call of a configured constructor (`"alias.Func"` or `"import/path.Func"`, a package constant resolved), names an id of `IDs()`. The catalogue package is exempt; an empty `IDs()` is a config error.
+- identity, savedview: tests hold every route of a person area to `PersonOnly` or public.
+
+### Changed
+
+- database/types: `NewDateTimeFromString` also reads `2006-01-02T15:04:05`, `2006-01-02T15:04` and `2006-01-02 15:04` as local time (the browser's date-time fields).
+- archtest: sources are parsed with comments.
+
 ## v1.27.1 (2026-10-20)
 
 v1.27.0 was tagged on the v1.26.0 commit by mistake; it has no `money` package. Use v1.27.1.
