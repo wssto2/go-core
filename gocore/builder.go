@@ -46,6 +46,7 @@ type appBuilder struct {
 	telemetry           *observability.Telemetry // supplied with WithTelemetry, else built from cfg
 	engineMiddleware    []gin.HandlerFunc        // supplied with Use, applied by Build
 	csp                 []gin.HandlerFunc        // supplied with WithCSP, applied by Build
+	unmatched           http.Handler             // supplied with WithFallthrough, answers what no route does
 }
 
 // New creates a new appBuilder with the given config.
@@ -408,7 +409,7 @@ func (b *appBuilder) Build() (*lifecycle, error) {
 	// Idempotency runs ahead of the rate limiters so a replayed response
 	// short-circuits before consuming any request budget.
 	if b.idempotencyStore != nil {
-		b.engine.Use(middlewares.Idempotency(b.idempotencyStore))
+		b.engine.Use(b.unlessProxied(middlewares.Idempotency(b.idempotencyStore)))
 	}
 
 	// Apply rate limiters after all With* calls so callers can chain them in
@@ -430,15 +431,31 @@ func (b *appBuilder) Build() (*lifecycle, error) {
 	// Security's ctx.Next() call, so headers are updated before the handler
 	// writes the response body.
 	if len(b.trustedOrigins) > 0 {
-		b.engine.Use(middlewares.TrustedOriginsMiddleware(b.trustedOrigins...))
+		b.engine.Use(b.unlessProxied(middlewares.TrustedOriginsMiddleware(b.trustedOrigins...)))
 	}
 
-	if len(b.csp) > 0 {
-		b.engine.Use(b.csp...)
+	for _, csp := range b.csp {
+		b.engine.Use(b.unlessProxied(csp))
 	}
 
 	if len(b.engineMiddleware) > 0 {
 		b.engine.Use(b.engineMiddleware...)
+	}
+
+	if b.unmatched != nil {
+		h, err := b.fallthroughHandler()
+		if err != nil {
+			return nil, fmt.Errorf("fallthrough: %w", err)
+		}
+
+		switch {
+		case b.spaConfig == nil:
+			b.engine.NoRoute(h)
+		case b.spaConfig.BasePath == "":
+			return nil, errors.New("fallthrough with the SPA needs SPAConfig.BasePath (WithSPAConfig): the shell would answer every path")
+		default:
+			b.spaConfig.Fallthrough = h
+		}
 	}
 
 	if b.spaConfig != nil {
@@ -519,11 +536,11 @@ func (b *appBuilder) setupHTTPMiddlewares() {
 		middlewares.PanicRecovery(log),
 		middlewares.ErrorHandler(log, translator, b.cfg.App.Development()),
 		web.BodyLimit(b.cfg.HTTP.BodyLimit()),
-		middlewares.Security(b.cfg.App.Development(), securityConfig(b.cfg)),
-		middlewares.Cors(middlewares.CorsConfig{
+		b.unlessProxied(middlewares.Security(b.cfg.App.Development(), securityConfig(b.cfg))),
+		b.unlessProxied(middlewares.Cors(middlewares.CorsConfig{
 			AllowOrigins: b.cfg.CORS.AllowedOrigins,
 			AllowMethods: b.cfg.CORS.AllowedMethods,
 			AllowHeaders: b.cfg.CORS.AllowedHeaders,
-		}),
+		})),
 	)
 }

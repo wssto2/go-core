@@ -266,6 +266,7 @@ func (a *App) build() (*lifecycle, error) {
 		builder.WithGlobalRateLimit(a.globalLimit)
 	}
 
+	builder.unmatched = a.unmatched
 	builder.trustedOrigins = append(builder.trustedOrigins, a.trustedOrigins...)
 	builder.csp = append(builder.csp, a.csp...)
 

@@ -93,6 +93,7 @@ type App struct {
 	idempotencyTTL time.Duration
 	trustedOrigins []string
 	csp            []gin.HandlerFunc
+	unmatched      http.Handler
 
 	disks      *storage.Registry
 	routes     []mounted

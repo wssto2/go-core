@@ -43,6 +43,13 @@ type SPAConfig struct {
 	// Defaults to "/api".
 	APIPrefix string
 
+	// BasePath, when set, limits the shell to that path and what is under it ("/app"); any other path that is
+	// not under APIPrefix goes to Fallthrough. Empty: the shell answers every path outside APIPrefix.
+	BasePath string
+
+	// Fallthrough answers the paths outside BasePath; nil answers them 404 like the API prefix.
+	Fallthrough gin.HandlerFunc
+
 	// StateBuilder is optional. If provided, its return value is exposed to the
 	// template as appState.
 	StateBuilder StateBuilder
@@ -54,6 +61,12 @@ type SPAConfig struct {
 	// DevMode resolves assets on every request instead of once at startup.
 	// In development this should usually be true.
 	DevMode bool
+}
+
+// Owns says whether the shell side answers path: the API prefix (with its 404) or the base path. A config with no
+// BasePath owns every path. Call it on a config with defaults applied.
+func (c SPAConfig) Owns(path string) bool {
+	return strings.HasPrefix(path, c.APIPrefix) || c.BasePath == "" || path == c.BasePath || strings.HasPrefix(path, strings.TrimRight(c.BasePath, "/")+"/")
 }
 
 func (c SPAConfig) withDefaults() SPAConfig {
@@ -138,6 +151,16 @@ func RegisterSPA(engine *gin.Engine, cfg SPAConfig, log *slog.Logger) {
 	)
 
 	engine.NoRoute(func(ctx *gin.Context) {
+		if !cfg.Owns(ctx.Request.URL.Path) {
+			if cfg.Fallthrough == nil {
+				ctx.JSON(404, gin.H{"error": "not found"})
+			} else {
+				cfg.Fallthrough(ctx)
+			}
+
+			return
+		}
+
 		if strings.HasPrefix(ctx.Request.URL.Path, cfg.APIPrefix) {
 			ctx.JSON(404, gin.H{"error": "not found"})
 			return
