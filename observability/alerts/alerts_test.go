@@ -6,6 +6,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/wssto2/go-core/env"
 )
 
 func TestNewAlerting_EnvDisabled(t *testing.T) {
@@ -43,5 +44,21 @@ func TestSetEnabledAndUp(t *testing.T) {
 	a.SetEnabled(true)
 	if v := testutil.ToFloat64(a.enabled.WithLabelValues("svc2")); v != 1 {
 		t.Fatalf("expected enabled 1 after SetEnabled(true), got %v", v)
+	}
+}
+
+func TestNewFromReadsAlertingEnabledThroughTheLookup(t *testing.T) {
+	t.Setenv("ALERTING_ENABLED", "true") // the process says on, the lookup says off
+
+	vars := env.New(func(k string) (string, bool) { return "off", k == "ALERTING_ENABLED" })
+	a := NewFrom(prometheus.NewRegistry(), "svc_lookup", vars)
+
+	if v := testutil.ToFloat64(a.enabled.WithLabelValues("svc_lookup")); v != 0 {
+		t.Fatalf("expected enabled gauge 0, got %v", v)
+	}
+
+	b := NewFrom(prometheus.NewRegistry(), "svc_default", env.New(func(string) (string, bool) { return "", false }))
+	if v := testutil.ToFloat64(b.enabled.WithLabelValues("svc_default")); v != 1 {
+		t.Fatalf("expected enabled gauge 1 by default, got %v", v)
 	}
 }

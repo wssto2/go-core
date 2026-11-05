@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/wssto2/go-core/env"
 )
 
 // Alerting provides minimal metrics and knobs to make the service "alert-ready".
@@ -24,6 +25,12 @@ type Alerting struct {
 // New creates an Alerting instance registering metrics on the provided registry.
 // If registry is nil a new Prometheus registry is created.
 func New(registry *prometheus.Registry, serviceName string) *Alerting {
+	return NewFrom(registry, serviceName, env.New(os.LookupEnv))
+}
+
+// NewFrom is New reading ALERTING_ENABLED through vars, such as app.Env(), so the application's lookup
+// (gocore.WithLookup) applies instead of the process environment.
+func NewFrom(registry *prometheus.Registry, serviceName string, vars *env.Reader) *Alerting {
 	if registry == nil {
 		registry = prometheus.NewRegistry()
 	}
@@ -52,7 +59,7 @@ func New(registry *prometheus.Registry, serviceName string) *Alerting {
 	}
 
 	// Determine initial enabled state from env var ALERTING_ENABLED (default true)
-	val := strings.ToLower(strings.TrimSpace(os.Getenv("ALERTING_ENABLED")))
+	val := strings.ToLower(strings.TrimSpace(vars.String("ALERTING_ENABLED", "")))
 	enabled := true
 	if val == "0" || val == "false" || val == "no" || val == "off" {
 		enabled = false

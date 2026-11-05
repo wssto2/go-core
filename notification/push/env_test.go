@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/wssto2/go-core/env"
 	"github.com/wssto2/go-core/notification/push"
 )
 
@@ -26,4 +27,17 @@ func TestConfigIsOffWhileAValueIsMissing(t *testing.T) {
 
 	assert.False(t, push.ConfigFromEnv().Enabled())
 	assert.False(t, push.Config{}.Enabled())
+}
+
+func TestConfigFromReadsThroughTheLookupNotTheProcess(t *testing.T) {
+	t.Setenv("VAPID_PUBLIC_KEY", "process")
+
+	vars := env.New(func(k string) (string, bool) {
+		v, ok := map[string]string{"VAPID_PUBLIC_KEY": "pub", "VAPID_PRIVATE_KEY": "priv", "VAPID_SUBJECT": "mailto:a@b.c"}[k]
+		return v, ok
+	})
+
+	got := push.ConfigFrom(vars)
+
+	assert.Equal(t, push.Config{PublicKey: "pub", PrivateKey: "priv", Subject: "mailto:a@b.c"}, got)
 }
