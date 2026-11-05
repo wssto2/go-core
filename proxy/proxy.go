@@ -15,6 +15,15 @@ import (
 	"github.com/wssto2/go-core/apperr"
 )
 
+// Transport limits that are not worth a setting.
+const (
+	defaultDial      = 5 * time.Second
+	defaultHeader    = time.Minute
+	handshakeTimeout = 10 * time.Second
+	idlePerHost      = 16 // a site has one pool per hostname it serves
+	idleTimeout      = 90 * time.Second
+)
+
 // Config says where the upstream is and how long to wait for it.
 type Config struct {
 	// Addr is the host:port every request is sent to, whatever its Host.
@@ -48,7 +57,8 @@ func WithPeer(ctx context.Context, p Peer) context.Context {
 
 // New returns a handler that forwards every request to cfg.Addr. A nil log is slog.Default().
 func New(cfg Config, log *slog.Logger) (http.Handler, error) {
-	if _, _, err := net.SplitHostPort(cfg.Addr); err != nil {
+	_, _, err := net.SplitHostPort(cfg.Addr)
+	if err != nil {
 		return nil, fmt.Errorf("proxy: Addr %q is not host:port: %w", cfg.Addr, err)
 	}
 
@@ -56,65 +66,85 @@ func New(cfg Config, log *slog.Logger) (http.Handler, error) {
 		log = slog.Default()
 	}
 
+	//nolint:exhaustruct,exhaustruct_v5 // the rest is the default
+	return &httputil.ReverseProxy{
+		Rewrite:      rewriter(cfg),
+		Transport:    newTransport(cfg),
+		ErrorHandler: failureHandler(cfg, log),
+	}, nil
+}
+
+// newTransport dials cfg.Addr whatever the URL says; the URL host stays the request's Host, which Go uses for the TLS
+// server name and the certificate check.
+func newTransport(cfg Config) *http.Transport {
+	//nolint:exhaustruct,exhaustruct_v5 // the rest is the default
+	dialer := &net.Dialer{Timeout: positive(cfg.DialTimeout, defaultDial)}
+
+	//nolint:exhaustruct,exhaustruct_v5 // the rest is the default
+	return &http.Transport{
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, cfg.Addr)
+		},
+		//nolint:exhaustruct,exhaustruct_v5,gosec // the rest is the default; skipping verification is opt-in
+		TLSClientConfig: &tls.Config{
+			RootCAs: cfg.RootCAs, InsecureSkipVerify: cfg.InsecureSkipVerify, MinVersion: tls.VersionTLS12,
+		},
+		TLSHandshakeTimeout:   handshakeTimeout,
+		ResponseHeaderTimeout: positive(cfg.HeaderTimeout, defaultHeader),
+		MaxIdleConnsPerHost:   idlePerHost,
+		IdleConnTimeout:       idleTimeout,
+	}
+}
+
+// rewriter keeps the Host, points the URL at the upstream's scheme, and sets the forwarding headers.
+func rewriter(cfg Config) func(*httputil.ProxyRequest) {
 	scheme := "http"
 	if cfg.HTTPS {
 		scheme = "https"
 	}
 
-	dialer := &net.Dialer{Timeout: positive(cfg.DialTimeout, 5*time.Second)} //nolint:exhaustruct // the rest is the default
+	return func(pr *httputil.ProxyRequest) { //nolint:varnamelen // the name the standard library documents
+		peer, _ := pr.In.Context().Value(peerKey{}).(Peer)
 
-	//nolint:exhaustruct // the rest is the default
-	transport := &http.Transport{
-		// Always the configured address; the URL host stays the request's Host, which Go uses for SNI and verification.
-		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			return dialer.DialContext(ctx, network, cfg.Addr)
-		},
-		TLSClientConfig:       &tls.Config{RootCAs: cfg.RootCAs, InsecureSkipVerify: cfg.InsecureSkipVerify, MinVersion: tls.VersionTLS12}, //nolint:gosec // opt-in, off by default
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: positive(cfg.HeaderTimeout, time.Minute),
-		MaxIdleConnsPerHost:   16,
-		IdleConnTimeout:       90 * time.Second,
+		pr.Out.URL.Scheme, pr.Out.URL.Host, pr.Out.Host = scheme, pr.In.Host, pr.In.Host
+
+		// Rewrite drops X-Forwarded-*; put back what a trusted proxy said, so the client is appended, not replaced.
+		if peer.Trusted {
+			pr.Out.Header["X-Forwarded-For"] = pr.In.Header.Values("X-Forwarded-For")
+		}
+
+		pr.SetXForwarded()
+
+		if !peer.Trusted {
+			pr.Out.Header.Del("X-Real-IP")
+
+			ip, _, err := net.SplitHostPort(pr.In.RemoteAddr)
+			if err == nil {
+				pr.Out.Header.Set("X-Real-IP", ip)
+			}
+		} else if proto := pr.In.Header.Get("X-Forwarded-Proto"); proto != "" {
+			pr.Out.Header.Set("X-Forwarded-Proto", proto)
+		}
 	}
+}
 
-	//nolint:exhaustruct // the rest is the default
-	return &httputil.ReverseProxy{
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			peer, _ := pr.In.Context().Value(peerKey{}).(Peer)
+// failureHandler answers 502, logs, and hands the failure to the peer's Failed. A client that went away is no failure.
+func failureHandler(cfg Config, log *slog.Logger) func(http.ResponseWriter, *http.Request, error) {
+	return func(resp http.ResponseWriter, req *http.Request, err error) {
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 
-			pr.Out.URL.Scheme, pr.Out.URL.Host, pr.Out.Host = scheme, pr.In.Host, pr.In.Host
+		log.WarnContext(req.Context(), "proxy: upstream failed",
+			"host", req.Host, "path", req.URL.Path, "upstream", cfg.Addr, "error", err)
 
-			// Rewrite drops X-Forwarded-*; put back what a trusted proxy said, so the client is appended, not replaced.
-			if peer.Trusted {
-				pr.Out.Header["X-Forwarded-For"] = pr.In.Header.Values("X-Forwarded-For")
-			}
+		peer, _ := req.Context().Value(peerKey{}).(Peer)
+		if peer.Failed != nil {
+			peer.Failed(apperr.Internal(fmt.Errorf("proxy: upstream %s: %w", cfg.Addr, err)))
+		}
 
-			pr.SetXForwarded()
-
-			if !peer.Trusted {
-				pr.Out.Header.Del("X-Real-IP")
-
-				if ip, _, err := net.SplitHostPort(pr.In.RemoteAddr); err == nil {
-					pr.Out.Header.Set("X-Real-IP", ip)
-				}
-			} else if proto := pr.In.Header.Get("X-Forwarded-Proto"); proto != "" {
-				pr.Out.Header.Set("X-Forwarded-Proto", proto)
-			}
-		},
-		Transport: transport,
-		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			if errors.Is(err, context.Canceled) { // the client went away
-				return
-			}
-
-			log.WarnContext(r.Context(), "proxy: upstream failed", "host", r.Host, "path", r.URL.Path, "upstream", cfg.Addr, "error", err)
-
-			if peer, _ := r.Context().Value(peerKey{}).(Peer); peer.Failed != nil {
-				peer.Failed(apperr.Internal(fmt.Errorf("proxy: upstream %s: %w", cfg.Addr, err)))
-			}
-
-			http.Error(w, "Bad Gateway", http.StatusBadGateway)
-		},
-	}, nil
+		http.Error(resp, "Bad Gateway", http.StatusBadGateway)
+	}
 }
 
 func positive(d, def time.Duration) time.Duration {

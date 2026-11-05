@@ -66,7 +66,9 @@ type SPAConfig struct {
 // Owns says whether the shell side answers path: the API prefix (with its 404) or the base path. A config with no
 // BasePath owns every path. Call it on a config with defaults applied.
 func (c SPAConfig) Owns(path string) bool {
-	return strings.HasPrefix(path, c.APIPrefix) || c.BasePath == "" || path == c.BasePath || strings.HasPrefix(path, strings.TrimRight(c.BasePath, "/")+"/")
+	base := strings.TrimRight(c.BasePath, "/")
+
+	return strings.HasPrefix(path, c.APIPrefix) || c.BasePath == "" || path == base || strings.HasPrefix(path, base+"/")
 }
 
 func (c SPAConfig) withDefaults() SPAConfig {
@@ -153,7 +155,7 @@ func RegisterSPA(engine *gin.Engine, cfg SPAConfig, log *slog.Logger) {
 	engine.NoRoute(func(ctx *gin.Context) {
 		if !cfg.Owns(ctx.Request.URL.Path) {
 			if cfg.Fallthrough == nil {
-				ctx.JSON(404, gin.H{"error": "not found"})
+				ctx.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			} else {
 				cfg.Fallthrough(ctx)
 			}

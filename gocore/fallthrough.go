@@ -1,9 +1,11 @@
 package gocore
 
 import (
+	"errors"
 	"fmt"
-	"net"
 	"net/http"
+	"net/netip"
+	"slices"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/proxy"
@@ -20,13 +22,13 @@ import (
 // With WithSPA the shell must be limited to a base path (WithSPAConfig, SPAConfig.BasePath): the shell answers its
 // base path and the API prefix keeps its JSON 404, everything else goes to h. A request whose method no route
 // accepts is also unmatched, so it goes to h as well.
-func WithFallthrough(h http.Handler) Option {
-	return func(app *App) { app.unmatched = h }
+func WithFallthrough(handler http.Handler) Option {
+	return func(app *App) { app.unmatched = handler }
 }
 
 // WithFallthrough is WithFallthrough for the builder.
-func (b *appBuilder) WithFallthrough(h http.Handler) *appBuilder {
-	b.unmatched = h
+func (b *appBuilder) WithFallthrough(handler http.Handler) *appBuilder {
+	b.unmatched = handler
 
 	return b
 }
@@ -36,8 +38,8 @@ func (b *appBuilder) proxied(ctx *gin.Context) bool {
 	return b.unmatched != nil && ctx.FullPath() == "" && (b.spaConfig == nil || !b.spaConfig.Owns(ctx.Request.URL.Path))
 }
 
-// unlessProxied runs h for every request except the proxied ones.
-func (b *appBuilder) unlessProxied(h gin.HandlerFunc) gin.HandlerFunc {
+// unlessProxied runs next for every request except the proxied ones.
+func (b *appBuilder) unlessProxied(next gin.HandlerFunc) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if b.proxied(ctx) {
 			ctx.Next()
@@ -45,50 +47,40 @@ func (b *appBuilder) unlessProxied(h gin.HandlerFunc) gin.HandlerFunc {
 			return
 		}
 
-		h(ctx)
+		next(ctx)
 	}
 }
+
+// errFallthroughSPA is the wiring error of a shell that would swallow what the fallthrough should answer.
+var errFallthroughSPA = errors.New("fallthrough with the SPA needs SPAConfig.BasePath, or the shell answers all")
 
 // fallthroughHandler is the NoRoute handler: it tells the proxy whether the peer is a trusted proxy (the same list gin
 // uses for the client IP) and where to report an upstream failure.
 func (b *appBuilder) fallthroughHandler() (gin.HandlerFunc, error) {
-	var trusted []*net.IPNet
+	trusted := make([]netip.Prefix, 0, len(b.cfg.HTTP.TrustedProxies))
 
 	for _, entry := range b.cfg.HTTP.TrustedProxies {
-		if ip := net.ParseIP(entry); ip != nil {
-			bits := 8 * len(ip.To16())
-			if ip.To4() != nil {
-				bits = 32
+		prefix, err := netip.ParsePrefix(entry)
+		if err != nil {
+			addr, addrErr := netip.ParseAddr(entry)
+			if addrErr != nil {
+				return nil, fmt.Errorf("trusted proxy %q: %w", entry, err)
 			}
 
-			trusted = append(trusted, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
-
-			continue
+			prefix = netip.PrefixFrom(addr.Unmap(), addr.Unmap().BitLen())
 		}
 
-		_, network, err := net.ParseCIDR(entry)
-		if err != nil {
-			return nil, fmt.Errorf("trusted proxy %q: %w", entry, err)
-		}
-
-		trusted = append(trusted, network)
+		trusted = append(trusted, prefix)
 	}
 
 	return func(ctx *gin.Context) {
-		peer := net.ParseIP(ctx.RemoteIP())
-		isTrusted := false
-
-		for _, network := range trusted {
-			if peer != nil && network.Contains(peer) {
-				isTrusted = true
-
-				break
-			}
-		}
+		peer, _ := netip.ParseAddr(ctx.RemoteIP())
+		isTrusted := slices.ContainsFunc(trusted, func(p netip.Prefix) bool { return p.Contains(peer.Unmap()) })
 
 		// The error is what the incident log and the error handler see; the response is already written.
 		report := func(err error) { _ = ctx.Error(err) }
-		ctx.Request = ctx.Request.WithContext(proxy.WithPeer(ctx.Request.Context(), proxy.Peer{Trusted: isTrusted, Failed: report}))
+		peerInfo := proxy.Peer{Trusted: isTrusted, Failed: report}
+		ctx.Request = ctx.Request.WithContext(proxy.WithPeer(ctx.Request.Context(), peerInfo))
 		b.unmatched.ServeHTTP(ctx.Writer, ctx.Request)
 	}, nil
 }

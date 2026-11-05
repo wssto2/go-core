@@ -443,18 +443,18 @@ func (b *appBuilder) Build() (*lifecycle, error) {
 	}
 
 	if b.unmatched != nil {
-		h, err := b.fallthroughHandler()
+		handler, err := b.fallthroughHandler()
 		if err != nil {
 			return nil, fmt.Errorf("fallthrough: %w", err)
 		}
 
 		switch {
 		case b.spaConfig == nil:
-			b.engine.NoRoute(h)
+			b.engine.NoRoute(handler)
 		case b.spaConfig.BasePath == "":
-			return nil, errors.New("fallthrough with the SPA needs SPAConfig.BasePath (WithSPAConfig): the shell would answer every path")
+			return nil, errFallthroughSPA
 		default:
-			b.spaConfig.Fallthrough = h
+			b.spaConfig.Fallthrough = handler
 		}
 	}
 

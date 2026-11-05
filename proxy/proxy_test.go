@@ -1,4 +1,4 @@
-//nolint:err113,exhaustruct,exhaustruct_v5,noctx,paralleltest,varnamelen,testpackage,gosec,bodyclose // tests in the style of the repository
+//nolint:exhaustruct,exhaustruct_v5,noctx,paralleltest,varnamelen,testpackage,gosec,bodyclose,lll // tests in the style of the repository
 package proxy
 
 import (
@@ -125,7 +125,7 @@ func TestForwardedHeaders(t *testing.T) {
 }
 
 func TestRedirectAndCookiesReachTheClientUntouched(t *testing.T) {
-	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "laravel_session", Value: "abc", Path: "/", Domain: "lavcevic.hr", HttpOnly: true, Secure: true})
 		http.SetCookie(w, &http.Cookie{Name: "XSRF-TOKEN", Value: "t", Path: "/"})
 		w.Header().Set("Location", "https://lavcevic.hr/hr/")
@@ -158,12 +158,12 @@ func TestUpstreamDownAnswers502AndReportsOnce(t *testing.T) {
 }
 
 func TestUpgradePassesThrough(t *testing.T) {
-	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		conn, rw, err := http.NewResponseController(w).Hijack()
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 
 		_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
 		_ = rw.Flush()
@@ -183,7 +183,7 @@ func TestUpgradePassesThrough(t *testing.T) {
 	conn, err := net.Dial("tcp", front.Listener.Addr().String())
 	require.NoError(t, err)
 
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	_, err = io.WriteString(conn, "GET /ws HTTP/1.1\r\nHost: a.test\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
 	require.NoError(t, err)

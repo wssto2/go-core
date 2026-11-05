@@ -1,4 +1,4 @@
-//nolint:testpackage,err113,exhaustruct,exhaustruct_v5,noctx,paralleltest,varnamelen,goconst // tests the unexported builder gocore is built on
+//nolint:testpackage,exhaustruct,exhaustruct_v5,noctx,paralleltest,varnamelen,goconst,bodyclose,lll // tests the unexported builder gocore is built on
 package gocore
 
 import (
@@ -25,8 +25,8 @@ func legacy(t *testing.T) (http.Handler, *http.Request) {
 
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		seen = *r.Clone(r.Context())
-		seen.Body = io.NopCloser(strings.NewReader(string(body)))
+		seen = http.Request{Host: r.Host, Header: r.Header.Clone()}
+
 		w.Header().Set("Content-Security-Policy", "legacy-policy")
 		_, _ = io.WriteString(w, "legacy:"+string(body))
 	}))
@@ -114,7 +114,7 @@ func TestFallthrough_UnmatchedGoesToTheUpstreamWithoutOurSecurityHeaders(t *test
 	assert.Empty(t, rec.Header.Get("X-Frame-Options"))
 	assert.Empty(t, rec.Header.Get("Referrer-Policy"))
 	assert.Empty(t, rec.Header.Get("Strict-Transport-Security"))
-	assert.NotEmpty(t, rec.Header.Get("X-Request-Id"), "request id still applies")
+	assert.NotEmpty(t, rec.Header.Get("X-Request-ID"), "request id still applies")
 	assert.Equal(t, "lavcevic.hr", seen.Host)
 
 	// a method no route accepts is unmatched too
@@ -162,7 +162,7 @@ func TestFallthrough_UpstreamDownAnswers502(t *testing.T) {
 
 func TestFallthrough_SPAOwnsItsBasePathAndTheRestFallsThrough(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "index.html"), []byte(`<html><body>shell</body></html>`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "index.html"), []byte(`<html><body>shell</body></html>`), 0o600))
 
 	h, _ := legacy(t)
 	app := fallthroughApp(t, h, func(b *appBuilder) {
