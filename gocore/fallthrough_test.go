@@ -200,6 +200,10 @@ func TestFallthrough_SPAWithoutABasePathIsAWiringError(t *testing.T) {
 
 	_, err := newBuilder(cfg).DefaultInfrastructure().WithSPA(nil).WithFallthrough(h).Build()
 	require.ErrorContains(t, err, "BasePath")
+
+	_, err = newBuilder(cfg).DefaultInfrastructure().
+		WithSPAConfig(frontend.SPAConfig{BasePath: "/", APIPrefix: "/api"}).WithFallthrough(h).Build()
+	require.ErrorContains(t, err, "BasePath")
 }
 
 func TestWithFallthroughOption_ReachesTheBuiltEngine(t *testing.T) {

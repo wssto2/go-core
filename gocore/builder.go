@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -451,7 +452,7 @@ func (b *appBuilder) Build() (*lifecycle, error) {
 		switch {
 		case b.spaConfig == nil:
 			b.engine.NoRoute(handler)
-		case b.spaConfig.BasePath == "":
+		case strings.TrimRight(b.spaConfig.BasePath, "/") == "": // "/" would own every path too
 			return nil, errFallthroughSPA
 		default:
 			b.spaConfig.Fallthrough = handler
