@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- gocore: `WithLookup(lookup func(key string) (string, bool))` reads everything `New` takes from the environment (APP_*, LOG_*, timeouts, TRUSTED_PROXIES, HTTP_MAX_BODY_BYTES, the `<NAME>_DB_*` connections, tracing) and what `App.Env()` hands to the app through `lookup` instead of the process environment. The order among options does not matter. `LoadEnv` still writes the process environment only.
+
+### Changed
+
+- incident: when neither `Capture.Environment` nor the config names an environment, the fallback `APP_ENV` is read through the app's environment (`App.Env()`, so `WithLookup` applies) instead of `os.Getenv`.
+- Security: golang.org/x/net v0.58.0 to v0.60.0 (GO-2026-6617, GO-2026-6612, GO-2026-6611, GO-2026-6603).
+
 ## v1.29.0 (2026-11-05)
 
 A Go binary can sit in front of a legacy site and answer only the routes it owns; everything else is forwarded.
