@@ -218,3 +218,27 @@ func TestWithFallthroughOption_ReachesTheBuiltEngine(t *testing.T) {
 
 	assert.Equal(t, "legacy:", do(t, booted, http.MethodGet, "/anything", "").Body)
 }
+
+func TestFallthrough_BodylessUpstream404KeepsItsContentType(t *testing.T) {
+	notFound := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	up := httptest.NewServer(notFound)
+	t.Cleanup(up.Close)
+
+	viaProxy, err := proxy.New(proxy.Config{Addr: up.Listener.Addr().String()}, nil)
+	require.NoError(t, err)
+
+	for name, h := range map[string]http.Handler{"handler": notFound, "proxy": viaProxy} {
+		app := fallthroughApp(t, h, nil)
+
+		for _, method := range []string{http.MethodHead, http.MethodGet} {
+			res := do(t, app, method, "/x", "")
+			assert.Equal(t, http.StatusNotFound, res.Code, name+" "+method)
+			assert.Equal(t, "text/html; charset=UTF-8", res.Header.Get("Content-Type"), name+" "+method)
+			assert.Empty(t, res.Body, name+" "+method)
+		}
+	}
+}

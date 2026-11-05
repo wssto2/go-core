@@ -82,5 +82,9 @@ func (b *appBuilder) fallthroughHandler() (gin.HandlerFunc, error) {
 		peerInfo := proxy.Peer{Trusted: isTrusted, Failed: report}
 		ctx.Request = ctx.Request.WithContext(proxy.WithPeer(ctx.Request.Context(), peerInfo))
 		b.unmatched.ServeHTTP(ctx.Writer, ctx.Request)
+		// Commit the status h set: gin only counts a Write as an answer, and otherwise replaces a bodyless 404 (a HEAD,
+		// an empty upstream 404) with its own text/plain "404 page not found". A handler that wrote nothing at all
+		// keeps gin's pre-set 404, now empty.
+		ctx.Writer.WriteHeaderNow()
 	}, nil
 }

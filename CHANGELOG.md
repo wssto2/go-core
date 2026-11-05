@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (v1.30.1)
+
+### Fixed
+
+- gocore: `WithFallthrough` no longer lets gin replace a bodyless response of the handler (a HEAD answered 404, an upstream 404 with an empty body) with `Content-Type: text/plain` and the body `404 page not found`; the status and headers h set are committed as they are. A handler that writes nothing at all answers 404 with an empty body.
+
 ## v1.30.0 (2026-11-05)
 
 ### Added
