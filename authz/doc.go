@@ -58,8 +58,17 @@
 // (for example from an event); the TTL ([DefaultCacheTTL]) is only the backstop
 // for a change made by another process.
 //
-// # MariaDB 10.3
+// # Table names
 //
+// The tables are roles, role_permissions and role_bindings. In a database where
+// roles belongs to another system, give them a prefix: access.WithTablePrefix
+// ("authz_" makes authz_roles, authz_role_permissions, authz_role_bindings), or
+// gormstore.WithTablePrefix with gormstore.MigrateWithPrefix and
+// migrations.WithPrefix. Index and constraint names stay as they are. Without a
+// prefix nothing changes.
+//
+// # MariaDB 10.3
+////
 // The default test run uses SQLite. The SQL is also verified against a real
 // MariaDB 10.3.39 by integration tests that skip unless AUTHZ_MARIADB_DSN is
 // set (GOCORE_MARIADB_DSN works too, see database/dbtest). To run them:
