@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.31.0 (unreleased)
+
+### Added
+
+- access, authz: table names with a prefix, for a database where `roles` belongs to another system. `access.WithTablePrefix("authz_")` gives `authz_roles`, `authz_role_permissions`, `authz_role_bindings` in the store, the migrations and the model migration; `gormstore.WithTablePrefix`, `gormstore.MigrateWithPrefix`, `gormstore.MySQLSchemaWithPrefix` and `migrations.WithPrefix` / `migrations.PrefixSQL` are the pieces. The prefixed goose files are the embedded files with the three table names rewritten, so there is one source. Index and constraint names are not prefixed. No prefix: the schema is byte-identical to before.
+- middlewares: `CrossOrigin(cop *http.CrossOriginProtection)` refuses with 403 an unsafe cross-site request, for cookie-authenticated routes: `app.Use(middlewares.CrossOrigin(http.NewCrossOriginProtection()))`.
+- gocore: `APP_HOST` (`Config.HTTP.Host`) is the address the server binds to; empty listens on all interfaces as before. Read through `WithLookup` like `APP_PORT`.
+- observability/alerts: `NewFrom(registry, service, vars)` reads `ALERTING_ENABLED` through an `env.Reader` (`app.Env()`); `New` still reads the process environment. notification/push: `ConfigFrom(vars)` does the same for `VAPID_*`; `ConfigFromEnv` is unchanged.
+
 ## v1.30.1 (2026-11-05)
 
 ### Fixed
