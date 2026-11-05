@@ -2,7 +2,7 @@ module github.com/wssto2/go-core
 
 go 1.26.0
 
-toolchain go1.26.6
+toolchain go1.26.10
 
 // v1.8.3 was tagged on the wrong commit: it is v1.8.2's code. Its changes are v1.8.4.
 retract v1.8.3
