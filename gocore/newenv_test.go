@@ -210,7 +210,11 @@ func TestWithNameIsTheDefaultAndAppNameWins(t *testing.T) {
 
 // lookupOf is a lookup over a map.
 func lookupOf(vars map[string]string) func(string) (string, bool) {
-	return func(key string) (string, bool) { v, ok := vars[key]; return v, ok }
+	return func(key string) (string, bool) {
+		v, ok := vars[key]
+
+		return v, ok
+	}
 }
 
 func TestWithLookupReplacesTheProcessEnvironment(t *testing.T) {
@@ -248,7 +252,9 @@ func TestWithLookupReplacesTheProcessEnvironment(t *testing.T) {
 }
 
 func TestWithLookupFirstGivesTheSameResult(t *testing.T) {
-	lookup := lookupOf(map[string]string{"APP_PORT": "2222", "LOCAL_DB_DRIVER": "sqlite", "LOCAL_DB_DATABASE": ":memory:", "LOCAL_DB_HOST": "h"})
+	lookup := lookupOf(map[string]string{
+		"APP_PORT": "2222", "LOCAL_DB_DRIVER": "sqlite", "LOCAL_DB_DATABASE": ":memory:", "LOCAL_DB_HOST": "h",
+	})
 
 	app := New(WithLookup(lookup), WithDatabase("local"), WithLogger(quietLogger()))
 	t.Cleanup(app.closeDatabase)

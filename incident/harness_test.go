@@ -155,7 +155,11 @@ type world struct {
 
 // newWorld installs the module with the options, beside four routes of its own: ok, missing, boom (a server error) and
 // panic.
-func newWorld(t *testing.T, opts ...incident.Option) *world { return newWorldOn(t, nil, opts...) }
+func newWorld(t *testing.T, opts ...incident.Option) *world {
+	t.Helper()
+
+	return newWorldOn(t, nil, opts...)
+}
 
 // newWorldOn is newWorld with more options for the app, applied after the harness's own.
 func newWorldOn(t *testing.T, appOpts []gocore.Option, opts ...incident.Option) *world {
