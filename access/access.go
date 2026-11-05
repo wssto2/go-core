@@ -38,6 +38,7 @@ import (
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/gocore"
 	"github.com/wssto2/go-core/identity/serviceaccount"
+	"gorm.io/gorm"
 )
 
 // Routes is the declared HTTP contract (paths under /v1, before the
@@ -90,7 +91,7 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users admin.SubjectDir
 
 	conn := cfg.connections()
 	db := app.Database(conn...)
-	store := gormstore.New(db, cfg.storeOptions()...)
+	store := gormstore.New(db, append(cfg.storeOptions(), gormstore.WithTablePrefix(cfg.prefix))...)
 
 	engine, err := authz.NewEngine(authz.Config{
 		Catalogue: catalogue, Hierarchy: cfg.hierarchy(), Roles: cfg.roles, Store: store,
@@ -115,7 +116,12 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users admin.SubjectDir
 	}
 
 	app.Authorize(engine)
-	app.Schema(gocore.Schema{Files: migrations.Files, Models: gormstore.Migrate}, conn...)
+	schema := gocore.Schema{Files: migrations.Files, Models: gormstore.Migrate}
+	if cfg.prefix != "" {
+		schema = gocore.Schema{Files: migrations.WithPrefix(cfg.prefix), Models: func(db *gorm.DB) error { return gormstore.MigrateWithPrefix(db, cfg.prefix) }}
+	}
+
+	app.Schema(schema, conn...)
 	app.Routes(accesshttp.Declare().To(roles, bindings, engine)...)
 
 	if hasRobots {
@@ -180,6 +186,7 @@ type settings struct {
 	features   authz.FeatureResolver
 	audit      audit.Repository
 	connection database.Connection
+	prefix     string
 
 	cache        *authz.Cache
 	roleCheck    admin.RoleCheck
@@ -230,6 +237,12 @@ func WithSubjectReach(reach admin.SubjectReach) Option { return func(s *settings
 // (authz.NewCache(ttl); the default is authz.DefaultCacheTTL). Evict through
 // the cache or Access.Engine, which uses this very cache.
 func WithCache(cache *authz.Cache) Option { return func(s *settings) { s.cache = cache } }
+
+// WithTablePrefix names the module's tables with a prefix ("authz_" gives
+// authz_roles, authz_role_permissions, authz_role_bindings), for a database where
+// roles is taken. Its migrations follow. Without it the names are roles,
+// role_permissions and role_bindings.
+func WithTablePrefix(prefix string) Option { return func(s *settings) { s.prefix = prefix } }
 
 // On puts the module's tables, and so its migrations, on another connection
 // than the application's primary one.

@@ -1,5 +1,5 @@
 // Package gormstore is an authz.Store on GORM: custom roles, their grants and
-// bindings in the roles, role_permissions and role_bindings tables. Every write
+// bindings in the roles, role_permissions and role_bindings tables (WithTablePrefix renames them). Every write
 // runs in a transaction and, when built WithAudit, writes an audit row with the
 // before and after state inside that same transaction, so a change and its
 // record stand or fall together.
@@ -34,6 +34,7 @@ type Store struct {
 	tx    database.Transactor
 	audit audit.Repository
 	now   func() time.Time
+	names tableNames
 }
 
 var (
@@ -49,9 +50,15 @@ type Option func(*Store)
 // Transactor over the same database (audit.NewRepository).
 func WithAudit(repo audit.Repository) Option { return func(s *Store) { s.audit = repo } }
 
+// WithTablePrefix puts prefix before the names of the three tables ("authz_" gives
+// authz_roles, authz_role_permissions, authz_role_bindings), for a database where
+// roles is taken. Create the tables with MigrateWithPrefix or the migrations'
+// WithPrefix, with the same prefix.
+func WithTablePrefix(prefix string) Option { return func(s *Store) { s.names = namesFor(prefix) } }
+
 // New returns a store on db. Call Migrate first.
 func New(db *gorm.DB, opts ...Option) *Store {
-	s := &Store{db: db, tx: database.NewTransactor(db), now: time.Now}
+	s := &Store{db: db, tx: database.NewTransactor(db), now: time.Now, names: namesFor("")}
 	for _, o := range opts {
 		o(s)
 	}
@@ -71,7 +78,7 @@ func (s *Store) reader(ctx context.Context) *gorm.DB {
 // BindingsFor implements authz.Reader.
 func (s *Store) BindingsFor(ctx context.Context, sub authz.Subject) ([]authz.Binding, error) {
 	var rows []roleBindingModel
-	err := s.reader(ctx).Where("subject_kind = ? AND subject_id = ?", string(sub.Kind), sub.ID).
+	err := s.reader(ctx).Table(s.names.bindings).Where("subject_kind = ? AND subject_id = ?", string(sub.Kind), sub.ID).
 		Order("id").Find(&rows).Error
 	if err != nil {
 		return nil, apperr.Wrap(err, "load bindings", apperr.CodeInternal)
@@ -81,18 +88,18 @@ func (s *Store) BindingsFor(ctx context.Context, sub authz.Subject) ([]authz.Bin
 
 // Role implements authz.Reader.
 func (s *Store) Role(ctx context.Context, id int) (authz.Role, error) {
-	return loadRole(s.reader(ctx), id)
+	return s.loadRole(s.reader(ctx), id)
 }
 
 // ListRoles implements authz.Store.
 func (s *Store) ListRoles(ctx context.Context) ([]authz.Role, error) {
 	db := s.reader(ctx)
 	var rows []roleModel
-	if err := db.Order("id").Find(&rows).Error; err != nil {
+	if err := db.Table(s.names.roles).Order("id").Find(&rows).Error; err != nil {
 		return nil, apperr.Wrap(err, "list roles", apperr.CodeInternal)
 	}
 	var perms []rolePermissionModel
-	if err := db.Order("role_id, permission").Find(&perms).Error; err != nil {
+	if err := db.Table(s.names.perms).Order("role_id, permission").Find(&perms).Error; err != nil {
 		return nil, apperr.Wrap(err, "list role permissions", apperr.CodeInternal)
 	}
 	byRole := map[int][]rolePermissionModel{}
@@ -132,13 +139,13 @@ func (s *Store) SaveRole(ctx context.Context, actor authz.Subject, role authz.Ro
 		if err != nil {
 			return err
 		}
-		if err := insertGrants(tx, id, role.Grants); err != nil {
+		if err := s.insertGrants(tx, id, role.Grants); err != nil {
 			return err
 		}
-		if saved, err = loadRole(tx, id); err != nil {
+		if saved, err = s.loadRole(tx, id); err != nil {
 			return err
 		}
-		affected, err := affectedSubjects(tx, id)
+		affected, err := s.affectedSubjects(tx, id)
 		if err != nil {
 			return err
 		}
@@ -152,7 +159,7 @@ func (s *Store) SaveRole(ctx context.Context, actor authz.Subject, role authz.Ro
 
 func (s *Store) insertRole(tx *gorm.DB, actor authz.Subject, role authz.Role, attrs string) (int, error) {
 	row := roleModel{Name: role.Name, Description: role.Description, Attrs: attrs, CreatedBy: actor.ID, UpdatedBy: actor.ID}
-	if err := tx.Create(&row).Error; err != nil {
+	if err := tx.Table(s.names.roles).Create(&row).Error; err != nil {
 		return 0, apperr.Wrap(err, "create role", apperr.CodeInternal)
 	}
 	return row.ID, nil
@@ -161,24 +168,24 @@ func (s *Store) insertRole(tx *gorm.DB, actor authz.Subject, role authz.Role, at
 // replaceRole updates the role's row and drops its grants; the caller inserts
 // the new ones. It returns the role as it was.
 func (s *Store) replaceRole(tx *gorm.DB, actor authz.Subject, role authz.Role, attrs string) (*authz.Role, error) {
-	existing, err := loadRoleForUpdate(tx, role.ID)
+	existing, err := s.loadRoleForUpdate(tx, role.ID)
 	if err != nil {
 		return nil, err
 	}
-	err = tx.Model(&roleModel{}).Where("id = ?", role.ID).Updates(map[string]any{
+	err = tx.Table(s.names.roles).Where("id = ?", role.ID).Updates(map[string]any{
 		"name": role.Name, "description": role.Description, "attrs": attrs,
 		"updated_by": actor.ID, "updated_at": s.now(),
 	}).Error
 	if err != nil {
 		return nil, apperr.Wrap(err, "update role", apperr.CodeInternal)
 	}
-	if err := tx.Where("role_id = ?", role.ID).Delete(&rolePermissionModel{}).Error; err != nil {
+	if err := tx.Table(s.names.perms).Where("role_id = ?", role.ID).Delete(&rolePermissionModel{}).Error; err != nil {
 		return nil, apperr.Wrap(err, "replace role permissions", apperr.CodeInternal)
 	}
 	return &existing, nil
 }
 
-func insertGrants(tx *gorm.DB, roleID int, grants []authz.Grant) error {
+func (s *Store) insertGrants(tx *gorm.DB, roleID int, grants []authz.Grant) error {
 	if len(grants) == 0 {
 		return nil
 	}
@@ -186,7 +193,7 @@ func insertGrants(tx *gorm.DB, roleID int, grants []authz.Grant) error {
 	for i, g := range grants {
 		perms[i] = rolePermissionModel{RoleID: roleID, Permission: g.Permission, Qualifier: g.Qualifier.String()}
 	}
-	if err := tx.Create(&perms).Error; err != nil {
+	if err := tx.Table(s.names.perms).Create(&perms).Error; err != nil {
 		return apperr.Wrap(err, "store role permissions", apperr.CodeInternal)
 	}
 	return nil
@@ -199,21 +206,21 @@ func (s *Store) DeleteRole(ctx context.Context, actor authz.Subject, id int) err
 		if err != nil {
 			return err
 		}
-		existing, err := loadRoleForUpdate(tx, id)
+		existing, err := s.loadRoleForUpdate(tx, id)
 		if err != nil {
 			return err
 		}
 		var n int64
-		if err := tx.Model(&roleBindingModel{}).Where("role_id = ?", id).Count(&n).Error; err != nil {
+		if err := tx.Table(s.names.bindings).Where("role_id = ?", id).Count(&n).Error; err != nil {
 			return apperr.Wrap(err, "count role bindings", apperr.CodeInternal)
 		}
 		if n > 0 {
 			return fmt.Errorf("%w: id %d", authz.ErrRoleInUse, id)
 		}
-		if err := tx.Where("role_id = ?", id).Delete(&rolePermissionModel{}).Error; err != nil {
+		if err := tx.Table(s.names.perms).Where("role_id = ?", id).Delete(&rolePermissionModel{}).Error; err != nil {
 			return apperr.Wrap(err, "delete role permissions", apperr.CodeInternal)
 		}
-		if err := tx.Where("id = ?", id).Delete(&roleModel{}).Error; err != nil {
+		if err := tx.Table(s.names.roles).Where("id = ?", id).Delete(&roleModel{}).Error; err != nil {
 			return apperr.Wrap(err, "delete role", apperr.CodeInternal)
 		}
 		return s.record(ctx, actor, EntityRole, id, "delete", snapshotRole(&existing), nil, nil)
@@ -222,13 +229,13 @@ func (s *Store) DeleteRole(ctx context.Context, actor authz.Subject, id int) err
 
 // Binding implements authz.Store.
 func (s *Store) Binding(ctx context.Context, id int) (authz.Binding, error) {
-	return loadBinding(s.reader(ctx), id)
+	return s.loadBinding(s.reader(ctx), id)
 }
 
 // BindingsForRole implements authz.Store.
 func (s *Store) BindingsForRole(ctx context.Context, roleID int) ([]authz.Binding, error) {
 	var rows []roleBindingModel
-	if err := s.reader(ctx).Where("role_id = ?", roleID).Order("id").Find(&rows).Error; err != nil {
+	if err := s.reader(ctx).Table(s.names.bindings).Where("role_id = ?", roleID).Order("id").Find(&rows).Error; err != nil {
 		return nil, apperr.Wrap(err, "load role bindings", apperr.CodeInternal)
 	}
 	return bindingsFrom(rows), nil
@@ -238,7 +245,7 @@ func (s *Store) BindingsForRole(ctx context.Context, roleID int) ([]authz.Bindin
 // here rather than in SQL: COUNT(DISTINCT a, b) is not portable to SQLite.
 func (s *Store) HolderCounts(ctx context.Context) (authz.HolderCounts, error) {
 	var rows []roleBindingModel
-	err := s.reader(ctx).Model(&roleBindingModel{}).
+	err := s.reader(ctx).Table(s.names.bindings).
 		Select("DISTINCT role_id, role_key, subject_kind, subject_id").Find(&rows).Error
 	if err != nil {
 		return authz.HolderCounts{}, apperr.Wrap(err, "count role holders", apperr.CodeInternal)
@@ -259,7 +266,7 @@ func (s *Store) HoldersOf(ctx context.Context, ref authz.RoleRef) ([]authz.Bindi
 	if !ref.Valid() {
 		return nil, nil
 	}
-	q := s.reader(ctx).Order("id")
+	q := s.reader(ctx).Table(s.names.bindings).Order("id")
 	if ref.ID > 0 {
 		q = q.Where("role_id = ?", ref.ID)
 	} else {
@@ -287,7 +294,7 @@ func (s *Store) Bind(ctx context.Context, actor authz.Subject, b authz.Binding) 
 			CreatedBy: actor.ID, CreatedAt: s.now(),
 		}
 		var n int64
-		err = tx.Model(&roleBindingModel{}).Where(
+		err = tx.Table(s.names.bindings).Where(
 			"subject_kind = ? AND subject_id = ? AND role_id = ? AND role_key = ? AND scope_level = ? AND scope_id = ?",
 			row.SubjectKind, row.SubjectID, row.RoleID, row.RoleKey, row.ScopeLevel, row.ScopeID).Count(&n).Error
 		if err != nil {
@@ -296,7 +303,7 @@ func (s *Store) Bind(ctx context.Context, actor authz.Subject, b authz.Binding) 
 		if n > 0 {
 			return authz.ErrDuplicateBinding
 		}
-		if err := tx.Create(&row).Error; err != nil {
+		if err := tx.Table(s.names.bindings).Create(&row).Error; err != nil {
 			// a concurrent identical Bind may have committed after our pre-check; under
 			// REPEATABLE READ we cannot see it, but the unique index refuses the insert
 			if database.IsDuplicateKey(err) {
@@ -320,11 +327,11 @@ func (s *Store) Unbind(ctx context.Context, actor authz.Subject, id int) error {
 		if err != nil {
 			return err
 		}
-		existing, err := loadBinding(tx, id)
+		existing, err := s.loadBinding(tx, id)
 		if err != nil {
 			return err
 		}
-		res := tx.Where("id = ?", id).Delete(&roleBindingModel{})
+		res := tx.Table(s.names.bindings).Where("id = ?", id).Delete(&roleBindingModel{})
 		if res.Error != nil {
 			return apperr.Wrap(res.Error, "delete binding", apperr.CodeInternal)
 		}
@@ -358,36 +365,36 @@ func txFrom(ctx context.Context, db *gorm.DB) (*gorm.DB, error) {
 }
 
 // loadRoleForUpdate reads the role's row under a write lock (a no-op on SQLite).
-func loadRoleForUpdate(tx *gorm.DB, id int) (authz.Role, error) {
+func (s *Store) loadRoleForUpdate(tx *gorm.DB, id int) (authz.Role, error) {
 	var row roleModel
-	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).Take(&row).Error
+	err := tx.Table(s.names.roles).Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", id).Take(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return authz.Role{}, fmt.Errorf("%w: id %d", authz.ErrRoleNotFound, id)
 	}
 	if err != nil {
 		return authz.Role{}, apperr.Wrap(err, "load role", apperr.CodeInternal)
 	}
-	return loadRole(tx, row.ID)
+	return s.loadRole(tx, row.ID)
 }
 
-func loadRole(db *gorm.DB, id int) (authz.Role, error) {
+func (s *Store) loadRole(db *gorm.DB, id int) (authz.Role, error) {
 	var row roleModel
-	if err := db.Where("id = ?", id).Take(&row).Error; err != nil {
+	if err := db.Table(s.names.roles).Where("id = ?", id).Take(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return authz.Role{}, fmt.Errorf("%w: id %d", authz.ErrRoleNotFound, id)
 		}
 		return authz.Role{}, apperr.Wrap(err, "load role", apperr.CodeInternal)
 	}
 	var perms []rolePermissionModel
-	if err := db.Where("role_id = ?", id).Order("permission").Find(&perms).Error; err != nil {
+	if err := db.Table(s.names.perms).Where("role_id = ?", id).Order("permission").Find(&perms).Error; err != nil {
 		return authz.Role{}, apperr.Wrap(err, "load role permissions", apperr.CodeInternal)
 	}
 	return toRole(row, perms)
 }
 
-func loadBinding(db *gorm.DB, id int) (authz.Binding, error) {
+func (s *Store) loadBinding(db *gorm.DB, id int) (authz.Binding, error) {
 	var row roleBindingModel
-	if err := db.Where("id = ?", id).Take(&row).Error; err != nil {
+	if err := db.Table(s.names.bindings).Where("id = ?", id).Take(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return authz.Binding{}, fmt.Errorf("%w: id %d", authz.ErrBindingNotFound, id)
 		}
@@ -397,9 +404,9 @@ func loadBinding(db *gorm.DB, id int) (authz.Binding, error) {
 }
 
 // affectedSubjects lists who holds the role, for the audit trail.
-func affectedSubjects(tx *gorm.DB, roleID int) ([]string, error) {
+func (s *Store) affectedSubjects(tx *gorm.DB, roleID int) ([]string, error) {
 	var rows []roleBindingModel
-	if err := tx.Where("role_id = ?", roleID).Order("id").Find(&rows).Error; err != nil {
+	if err := tx.Table(s.names.bindings).Where("role_id = ?", roleID).Order("id").Find(&rows).Error; err != nil {
 		return nil, apperr.Wrap(err, "load role holders", apperr.CodeInternal)
 	}
 	seen := map[string]bool{}

@@ -1,13 +1,31 @@
 package gormstore
 
-import "gorm.io/gorm"
+import (
+	"github.com/wssto2/go-core/authz/migrations"
+	"gorm.io/gorm"
+)
 
 // Migrate creates or updates the authz tables (roles, role_permissions,
 // role_bindings). Call it at start-up, like audit.Migrate. The audit_logs table
 // is separate: call audit.Migrate too when the store is built WithAudit.
-func Migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&roleModel{}, &rolePermissionModel{}, &roleBindingModel{})
+func Migrate(db *gorm.DB) error { return MigrateWithPrefix(db, "") }
+
+// MigrateWithPrefix is Migrate for a store built WithTablePrefix(prefix).
+func MigrateWithPrefix(db *gorm.DB, prefix string) error {
+	n := namesFor(prefix)
+	for _, t := range []struct {
+		name  string
+		model any
+	}{{n.roles, &roleModel{}}, {n.perms, &rolePermissionModel{}}, {n.bindings, &roleBindingModel{}}} {
+		if err := db.Table(t.name).AutoMigrate(t.model); err != nil {
+			return err
+		}
+	}
+	return nil
 }
+
+// MySQLSchemaWithPrefix is MySQLSchema for the tables named with prefix.
+func MySQLSchemaWithPrefix(prefix string) string { return migrations.PrefixSQL(MySQLSchema, prefix) }
 
 // MySQLSchema is the same schema as SQL for MariaDB 10.3+ and MySQL, for
 // applications that run their migrations as SQL scripts instead of calling

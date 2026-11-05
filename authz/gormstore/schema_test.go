@@ -8,8 +8,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/wssto2/go-core/authz"
 	"github.com/wssto2/go-core/authz/gormstore"
 	"github.com/wssto2/go-core/authz/migrations"
+	"github.com/wssto2/go-core/authz/storetest"
 	"github.com/wssto2/go-core/database"
 	"github.com/wssto2/go-core/database/dbtest"
 	"github.com/wssto2/go-core/database/migrate"
@@ -18,16 +20,18 @@ import (
 
 // sqlOf is the statements of the migration files in version order, without the
 // comments and goose markers, whitespace squeezed.
-func sqlOf(t *testing.T) string {
+func sqlOf(t *testing.T) string { return sqlOfFS(t, migrations.Files) }
+
+func sqlOfFS(t *testing.T, files fs.FS) string {
 	t.Helper()
 
-	entries, err := fs.ReadDir(migrations.Files, ".")
+	entries, err := fs.ReadDir(files, ".")
 	require.NoError(t, err)
 
 	var b strings.Builder
 
 	for _, e := range entries {
-		src, err := fs.ReadFile(migrations.Files, e.Name())
+		src, err := fs.ReadFile(files, e.Name())
 		require.NoError(t, err)
 
 		for _, line := range strings.Split(string(src), "\n") {
@@ -160,4 +164,53 @@ func deref(s *string) string {
 	}
 
 	return *s
+}
+
+// The prefixed files are MySQLSchemaWithPrefix, and a prefix of "" changes nothing.
+func TestPrefixedMigrationsArePrefixedMySQLSchema(t *testing.T) {
+	squeeze := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+	require.Equal(t, squeeze(gormstore.MySQLSchemaWithPrefix("authz_")), sqlOfFS(t, migrations.WithPrefix("authz_")))
+	require.Equal(t, gormstore.MySQLSchema, gormstore.MySQLSchemaWithPrefix(""))
+	require.Equal(t, sqlOf(t), sqlOfFS(t, migrations.WithPrefix("")))
+	require.Contains(t, gormstore.MySQLSchemaWithPrefix("authz_"), "CREATE TABLE IF NOT EXISTS authz_roles (")
+	require.Contains(t, gormstore.MySQLSchemaWithPrefix("authz_"), "UNIQUE KEY uq_role_bindings (")
+}
+
+// Prefixed tables: the goose files and the models agree on the columns, and the store
+// passes its conformance suite on them, beside a roles table of someone else's.
+func TestPrefixedTablesOnEveryDatabase(t *testing.T) {
+	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+		require.NoError(t, db.Exec("CREATE TABLE roles (id INT PRIMARY KEY)").Error)
+
+		if db.Name() == "sqlite" {
+			require.NoError(t, gormstore.MigrateWithPrefix(db, "authz_"))
+		} else {
+			reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
+			reg.AddConnection("scratch", db)
+			require.NoError(t, migrate.New(reg, nil, slog.New(slog.DiscardHandler)).Add("scratch", migrations.WithPrefix("authz_")).Up(context.Background()))
+
+			// a CHECK name is unique per schema: free it for the second set
+			require.NoError(t, db.Exec("ALTER TABLE authz_role_bindings DROP CONSTRAINT chk_role_bindings_role").Error)
+			require.NoError(t, gormstore.MigrateWithPrefix(db, "model_"))
+
+			for _, table := range []string{"roles", "role_permissions", "role_bindings"} {
+				want, got := columnsOf(t, db, "authz_"+table), columnsOf(t, db, "model_"+table)
+				require.Len(t, got, len(want), table)
+
+				for i := range want {
+					require.Equal(t, want[i].Name, got[i].Name, table)
+					require.Equal(t, family(want[i].Type), family(got[i].Type), table+"."+want[i].Name)
+				}
+			}
+		}
+
+		storetest.Run(t, func(t *testing.T) authz.Store {
+			for _, table := range []string{"authz_role_bindings", "authz_role_permissions", "authz_roles"} {
+				require.NoError(t, db.Exec("DELETE FROM "+table).Error)
+			}
+			return gormstore.New(db, gormstore.WithTablePrefix("authz_"))
+		})
+
+	}, dbtest.SQLite, dbtest.MySQL, dbtest.MariaDB)
 }

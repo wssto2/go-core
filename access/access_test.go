@@ -392,3 +392,37 @@ func TestWithCacheIsTheCacheTheEngineUses(t *testing.T) {
 	acc.Engine.Evict(person)
 	assert.Equal(t, 0, cache.Len())
 }
+
+// WithTablePrefix keeps the module off a roles table another system owns: the
+// tables, their migrations and the store all follow the prefix.
+func TestWithTablePrefixLeavesAForeignRolesTableAlone(t *testing.T) {
+	dbtest.Run(t, func(t *testing.T, db *gorm.DB) {
+		require.NoError(t, db.Exec("CREATE TABLE roles (id INT PRIMARY KEY, title VARCHAR(20))").Error)
+		require.NoError(t, db.Exec("INSERT INTO roles (id, title) VALUES (1, 'laravel')").Error)
+
+		app, acc := newApp(db, func(app *gocore.App) *access.Access {
+			return access.Install(app, permissions(), team{}, access.WithRoles(roles()...), access.On(local),
+				access.WithTablePrefix("authz_"))
+		})
+
+		if db.Name() != "sqlite" {
+			require.NoError(t, app.Migrate(t.Context()))
+		}
+
+		require.NoError(t, acc.Seed(t.Context(), authz.Subject{Kind: authz.KindUser, ID: 1}, "webmaster"))
+
+		status, data := call(t, app, 1, "POST", "/api/v1/iam/roles", accesshttp.CreateRoleInput{
+			Name: "Clerk", Grants: []accesshttp.GrantInput{{Permission: "crm.customer:view", Qualifier: "all"}},
+		})
+		require.Equal(t, http.StatusOK, status, string(data))
+
+		var n int64
+
+		require.NoError(t, db.Table("authz_roles").Count(&n).Error)
+		assert.EqualValues(t, 1, n)
+		require.NoError(t, db.Table("authz_role_bindings").Count(&n).Error)
+		assert.EqualValues(t, 1, n, "the seeded administrator")
+		require.NoError(t, db.Table("roles").Count(&n).Error)
+		assert.EqualValues(t, 1, n, "the foreign row only")
+	})
+}

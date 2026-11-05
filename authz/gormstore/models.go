@@ -43,3 +43,10 @@ type roleBindingModel struct {
 }
 
 func (roleBindingModel) TableName() string { return "role_bindings" }
+
+// tableNames are the three table names a store uses.
+type tableNames struct{ roles, perms, bindings string }
+
+func namesFor(prefix string) tableNames {
+	return tableNames{prefix + "roles", prefix + "role_permissions", prefix + "role_bindings"}
+}
