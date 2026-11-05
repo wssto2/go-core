@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+A Go binary can sit in front of a legacy site and answer only the routes it owns; everything else is forwarded.
+
+### Added
+
+- proxy: new package. `New(cfg, log)` returns an `http.Handler` (`httputil.ReverseProxy`) that sends every request to `Config.Addr` (`HTTPS`, `DialTimeout` 5s, `HeaderTimeout` 60s, `RootCAs`, `InsecureSkipVerify` off) while the request keeps its Host; over HTTPS that Host is the SNI and the certificate is verified against it. Redirects and cookies pass unchanged, `X-Forwarded-For` is appended to, `Upgrade` (WebSocket) passes through, and an upstream failure answers 502 and is logged. `WithPeer(ctx, Peer{Trusted, Failed})` tells the handler whether the sender is a trusted proxy (its `X-Forwarded-*` and `X-Real-IP` are believed only then; without it nobody is trusted) and where to report a failure.
+- gocore: `WithFallthrough(h)` answers every request no route matches with `h`. The security headers (CSP, `WithTrustedOrigins`, `WithCSP`, nosniff, HSTS, frame options), CORS and idempotency do not run for those requests; request id, tracing, logging, metrics, panic recovery, the error handler, the body limit, the rate limits and `App.Use` middleware do. A trusted peer is one of `TRUSTED_PROXIES`; an upstream failure is an error of the request, so `incident` counts it.
+- frontend: `SPAConfig.BasePath` limits the shell to that path, `SPAConfig.Fallthrough` answers the paths outside it, and `SPAConfig.Owns(path)`. With `WithFallthrough` the shell must have a `BasePath` (`WithSPAConfig`), else `Build` fails.
+
 ## v1.28.0 (2026-11-04)
 
 What an app wired by hand: an operator's switch for a noisy category, the prune and VAPID commands, tracing from the environment, the record guard that hides what a person may not see, and four architecture rules an app configures instead of writing.

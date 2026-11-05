@@ -138,6 +138,7 @@ ticket := gocoretest.Decode[Ticket](t, rec)
 * `lock` → named leases across processes and servers: `Acquire / Refresh / Release` and `Hold(ctx, key, ttl, fn)` with a heartbeat (see "Locks"; store `lock/gormstore`, conformance suite `lock/storetest`, migrations `lock/migrations`)
 * `savedview` → a person's saved list views: the filters and search of a list kept under a name and applied again with one click (see "Saved views"; core `savedview/core`, store `savedview/gormstore`, conformance suite `savedview/storetest`, migrations `savedview/migrations`)
 * `storage` → named disks of files, private or public, and `web.Serve` to stream one (see "Storage disks"; drivers `storage/local` and `storage/memory`)
+* `proxy` → a reverse proxy to a legacy site that keeps the request's Host (and TLS server name) while dialling a fixed address; `gocore.WithFallthrough(h)` sends it every unmatched request, without go-core's security headers (see "Falling through to a legacy site")
 * `navigation` → the menu tree an application declares and the filter by held permissions
 
 ### Utility Packages
@@ -754,6 +755,23 @@ url, _ := photos.URL(ctx, "123/photos/front.jpg")        // "/media/vehicles/123
 * **`local`** resolves its root, refuses a symlinked file or directory inside it, and writes through a temporary file renamed into place. **`memory`** has the same capabilities, for tests.
 
 ---
+
+## Falling through to a legacy site
+
+A Go binary can replace a site route by route: register the routes you own, and forward the rest to the unchanged site.
+
+```go
+up, err := proxy.New(proxy.Config{Addr: "85.10.250.115:7081", HTTPS: true}, app.Log())
+if err != nil { log.Fatal(err) }
+
+app := gocore.New(gocore.WithFallthrough(up))
+```
+
+Every request is sent to `Addr` with its own Host; with `HTTPS` that Host is also the TLS server name and the certificate is verified against it (`RootCAs` for a private CA; `InsecureSkipVerify` exists and is off). One process can therefore front many hostnames on one upstream IP. Redirects and cookies reach the client as the upstream wrote them. `X-Forwarded-For` is appended to; `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Real-IP` sent by a peer outside `TRUSTED_PROXIES` are replaced, not believed. An unreachable upstream answers 502, is logged, and is counted by `incident` when installed.
+
+A request that reaches the fallthrough skips what would alter another site's pages: the security headers (CSP, nosniff, HSTS, frame options), `WithTrustedOrigins`, `WithCSP`, CORS and idempotency. Request id, tracing, logging, metrics, panic recovery, the error handler, the body limit (`HTTP_MAX_BODY_BYTES`; multipart is exempt), the rate limits and `App.Use` middleware still run. A request whose method no route accepts is unmatched too.
+
+With `WithSPA`, give the shell a base path: `WithSPAConfig(frontend.SPAConfig{BasePath: "/app", ...})`. The shell answers `/app` and what is under it, the API prefix keeps its JSON 404, and everything else falls through. `Build` fails when both are set and the shell has no `BasePath`.
 
 ## Audit Logging
 
