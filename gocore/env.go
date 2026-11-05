@@ -27,6 +27,9 @@ import (
 // there is one; drop the errors.Is to require it. A file that does not parse
 // is an error and sets nothing.
 //
+// It writes the process environment only; an App built with WithLookup reads through its lookup, not necessarily
+// there.
+//
 // The forms read are:
 //
 //	# a comment line, and a blank line

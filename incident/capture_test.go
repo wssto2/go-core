@@ -237,3 +237,19 @@ func TestACaptureNeverBreaksTheRequest(t *testing.T) {
 
 var _ gin.HandlerFunc = signIn
 var _ authz.Authorizer = permissions
+
+func TestTheIncidentEnvironmentFollowsTheAppsLookup(t *testing.T) {
+	t.Setenv("APP_ENV", "production") // the process environment is not the app's
+
+	cfg := gocore.DefaultConfig()
+	cfg.App.Env = "" // nothing in the config, so the app's environment reader decides
+
+	lookup := func(key string) (string, bool) { return "staging", key == "APP_ENV" }
+	w := newWorldOn(t, []gocore.Option{gocore.WithConfig(cfg), gocore.WithLookup(lookup)})
+
+	w.as(ana, http.MethodGet, prefix+"/v1/test/boom", nil)
+
+	rows := w.rows("incidents")
+	require.Len(t, rows, 1)
+	assert.Equal(t, "staging", rows[0]["environment"])
+}

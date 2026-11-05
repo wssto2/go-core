@@ -241,6 +241,16 @@ func WithConfig(cfg Config) Option {
 	return func(app *App) { app.cfg, app.cfgSet = cfg, true }
 }
 
+// WithLookup reads every setting New and App.Env take from the environment through lookup instead of the process
+// environment: APP_*, LOG_*, TRUSTED_PROXIES, the HTTP and timeout settings, the connections declared with WithDatabase,
+// tracing, and what features read through App.Env. Use it when the settings come from elsewhere, such as an env file
+// filtered and mapped by the app, with the process environment consulted by lookup itself where it should win. The
+// order among options does not matter. LoadEnv is unrelated: it writes a file into the process environment, which
+// lookup sees only if it reads os.LookupEnv.
+func WithLookup(lookup func(key string) (string, bool)) Option {
+	return func(app *App) { app.env = env.New(lookup) }
+}
+
 // New creates an App. It reads its configuration from the environment (see Config; APP_ENV, APP_PORT, LOG_*,
 // TRUSTED_PROXIES, and the connections declared with WithDatabase), unless WithConfig gives one. A value that cannot be
 // read, opening the logger and opening the database connections can fail; the failure is held and reported by Run

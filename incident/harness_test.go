@@ -155,7 +155,10 @@ type world struct {
 
 // newWorld installs the module with the options, beside four routes of its own: ok, missing, boom (a server error) and
 // panic.
-func newWorld(t *testing.T, opts ...incident.Option) *world {
+func newWorld(t *testing.T, opts ...incident.Option) *world { return newWorldOn(t, nil, opts...) }
+
+// newWorldOn is newWorld with more options for the app, applied after the harness's own.
+func newWorldOn(t *testing.T, appOpts []gocore.Option, opts ...incident.Option) *world {
 	t.Helper()
 
 	reg, cleanup := database.NewTestRegistry("local")
@@ -164,10 +167,11 @@ func newWorld(t *testing.T, opts ...incident.Option) *world {
 
 	w := &world{t: t, now: time.Date(2026, time.March, 4, 10, 0, 0, 0, time.UTC)}
 
-	app := gocore.New(
+	app := gocore.New(append([]gocore.Option{
 		gocore.WithConfig(gocore.DefaultConfig()), gocore.WithRegistry(reg), gocore.WithAutoMigrate(t.Context()), gocore.WithLogger(slog.New(slog.DiscardHandler)),
 		gocore.WithAuthentication(signIn), gocore.WithAuthorizer(permissions), gocore.WithPrefix(prefix),
-		gocore.WithClock(fixedClock{at: &w.now}))
+		gocore.WithClock(fixedClock{at: &w.now}),
+	}, appOpts...)...)
 
 	catalogue := authz.NewCatalogue()
 	require.NoError(t, incident.DefinePermissions(catalogue))

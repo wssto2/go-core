@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"reflect"
 	"regexp"
 	"runtime/debug"
@@ -63,7 +62,7 @@ func newCapturer(app *gocore.App, service *core.Service, cfg Capture) *capturer 
 	}
 
 	if capt.env == "" {
-		capt.env = strings.TrimSpace(os.Getenv("APP_ENV"))
+		capt.env = strings.TrimSpace(app.Env().String("APP_ENV", ""))
 	}
 
 	return capt

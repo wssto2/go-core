@@ -207,3 +207,64 @@ func TestWithNameIsTheDefaultAndAppNameWins(t *testing.T) {
 		t.Fatalf("APP_NAME must win: %q", got)
 	}
 }
+
+// lookupOf is a lookup over a map.
+func lookupOf(vars map[string]string) func(string) (string, bool) {
+	return func(key string) (string, bool) { v, ok := vars[key]; return v, ok }
+}
+
+func TestWithLookupReplacesTheProcessEnvironment(t *testing.T) {
+	t.Setenv("APP_PORT", "1111")
+	t.Setenv("READ_TIMEOUT_SEC", "11")
+	t.Setenv("LOG_LEVEL", "error")
+	t.Setenv("TRUSTED_PROXIES", "192.168.0.1")
+	t.Setenv("LOCAL_DB_HOST", "process-host")
+	t.Setenv("LOCAL_DB_DRIVER", "sqlite")
+	t.Setenv("LOCAL_DB_DATABASE", ":memory:")
+	t.Setenv("SOMETHING", "process")
+
+	lookup := lookupOf(map[string]string{
+		"APP_PORT": "2222", "READ_TIMEOUT_SEC": "22", "LOG_LEVEL": "debug", "TRUSTED_PROXIES": "10.0.0.1",
+		"LOCAL_DB_HOST": "file-host", "LOCAL_DB_DRIVER": "sqlite", "LOCAL_DB_DATABASE": ":memory:", "SOMETHING": "file",
+	})
+
+	// WithLookup comes last, after WithDatabase: the order of options does not matter.
+	app := New(WithLogger(quietLogger()), WithDatabase("local"), WithLookup(lookup))
+	t.Cleanup(app.closeDatabase)
+
+	cfg := app.Config()
+	if cfg.HTTP.Port != 2222 || cfg.HTTP.ReadTimeout != 22*time.Second || cfg.Log.Level != "debug" ||
+		strings.Join(cfg.HTTP.TrustedProxies, "|") != "10.0.0.1" {
+		t.Fatalf("config = %+v", cfg)
+	}
+
+	if len(cfg.Database.Connections) != 1 || cfg.Database.Connections[0].Host != "file-host" {
+		t.Fatalf("connections = %+v", cfg.Database.Connections)
+	}
+
+	if got := app.Env().String("SOMETHING", ""); got != "file" {
+		t.Fatalf("Env() = %q", got)
+	}
+}
+
+func TestWithLookupFirstGivesTheSameResult(t *testing.T) {
+	lookup := lookupOf(map[string]string{"APP_PORT": "2222", "LOCAL_DB_DRIVER": "sqlite", "LOCAL_DB_DATABASE": ":memory:", "LOCAL_DB_HOST": "h"})
+
+	app := New(WithLookup(lookup), WithDatabase("local"), WithLogger(quietLogger()))
+	t.Cleanup(app.closeDatabase)
+
+	if app.Config().HTTP.Port != 2222 || app.Config().Database.Connections[0].Host != "h" {
+		t.Fatalf("config = %+v", app.Config())
+	}
+}
+
+func TestAMalformedValueFromTheLookupStopsStartUpNamingTheVariable(t *testing.T) {
+	t.Setenv("APP_PORT", "1234") // fine in the process; the lookup's value is the one read
+
+	app := New(WithLogger(quietLogger()), WithLookup(lookupOf(map[string]string{"APP_PORT": "80a0"})))
+
+	err := app.Check()
+	if err == nil || !strings.Contains(err.Error(), "APP_PORT=80a0") {
+		t.Fatalf("err = %v", err)
+	}
+}
