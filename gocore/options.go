@@ -133,6 +133,7 @@ func (a *App) readConfig() Config {
 
 	cfg.App.Name = vars.String("APP_NAME", cmp.Or(a.name, cfg.App.Name))
 	cfg.App.Env = vars.String("APP_ENV", cfg.App.Env)
+	cfg.HTTP.Host = vars.String("APP_HOST", cfg.HTTP.Host)
 	cfg.HTTP.Port = vars.Int("APP_PORT", cfg.HTTP.Port)
 	cfg.HTTP.ReadTimeout = sec("READ_TIMEOUT_SEC", cfg.HTTP.ReadTimeout)
 	cfg.HTTP.WriteTimeout = sec("WRITE_TIMEOUT_SEC", cfg.HTTP.WriteTimeout)

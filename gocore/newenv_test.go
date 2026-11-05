@@ -274,3 +274,28 @@ func TestAMalformedValueFromTheLookupStopsStartUpNamingTheVariable(t *testing.T)
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestAppHostComesFromTheLookupAndSetsTheListenAddress(t *testing.T) {
+	t.Setenv("APP_HOST", "10.9.9.9") // the lookup's value is the one read
+
+	for host, want := range map[string]string{"": ":4321", "127.0.0.1": "127.0.0.1:4321", "::1": "[::1]:4321"} {
+		vars := map[string]string{"APP_PORT": "4321"}
+		if host != "" {
+			vars["APP_HOST"] = host
+		}
+
+		app := New(WithLogger(quietLogger()), WithLookup(lookupOf(vars)))
+		if got := app.Config().HTTP.Host; got != host {
+			t.Fatalf("Host = %q, want %q", got, host)
+		}
+
+		built, err := newBuilder(app.Config()).DefaultInfrastructure().WithHTTP().Build()
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+
+		if got := built.httpServer.(*serverWrapper).srv.Addr; got != want {
+			t.Errorf("host %q: Addr = %q, want %q", host, got, want)
+		}
+	}
+}

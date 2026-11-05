@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -372,7 +374,7 @@ func (b *appBuilder) WithHTTP() *appBuilder {
 	}
 
 	srv := &http.Server{
-		Addr:              fmt.Sprintf(":%d", port),
+		Addr:              net.JoinHostPort(b.cfg.HTTP.Host, strconv.Itoa(port)),
 		Handler:           b.engine,
 		ReadTimeout:       positive(b.cfg.HTTP.ReadTimeout, fallbackTimeout),
 		WriteTimeout:      positive(b.cfg.HTTP.WriteTimeout, fallbackTimeout),

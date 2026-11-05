@@ -46,6 +46,10 @@ func (a AppConfig) Validate() error {
 }
 
 type HTTPConfig struct {
+	// Host is the address the server binds to (APP_HOST); empty listens on all interfaces. "127.0.0.1" keeps a
+	// site behind its reverse proxy off the network.
+	Host string
+
 	// Port number on which the HTTP server will listen for incoming requests.
 	Port int
 
