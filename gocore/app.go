@@ -246,8 +246,7 @@ func WithConfig(cfg Config) Option {
 // WithDatabase, tracing, and what features read through App.Env. Use it when the settings come from elsewhere, such as
 // an env file filtered and mapped by the app, with the process environment consulted by lookup itself where it should
 // win. The order among options does not matter. LoadEnv is unrelated: it writes a file into the process environment,
-// which
-// lookup sees only if it reads os.LookupEnv.
+// which lookup sees only if it reads os.LookupEnv.
 func WithLookup(lookup func(key string) (string, bool)) Option {
 	return func(app *App) { app.env = env.New(lookup) }
 }
