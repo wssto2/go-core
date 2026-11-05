@@ -188,7 +188,8 @@ func TestPrefixedTablesOnEveryDatabase(t *testing.T) {
 		} else {
 			reg := database.NewRegistry(slog.New(slog.DiscardHandler), database.RegistryConfig{})
 			reg.AddConnection("scratch", db)
-			require.NoError(t, migrate.New(reg, nil, slog.New(slog.DiscardHandler)).Add("scratch", migrations.WithPrefix("authz_")).Up(context.Background()))
+			runner := migrate.New(reg, nil, slog.New(slog.DiscardHandler)).Add("scratch", migrations.WithPrefix("authz_"))
+			require.NoError(t, runner.Up(context.Background()))
 
 			// a CHECK name is unique per schema: free it for the second set
 			require.NoError(t, db.Exec("ALTER TABLE authz_role_bindings DROP CONSTRAINT chk_role_bindings_role").Error)

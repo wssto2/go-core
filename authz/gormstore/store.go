@@ -235,7 +235,8 @@ func (s *Store) Binding(ctx context.Context, id int) (authz.Binding, error) {
 // BindingsForRole implements authz.Store.
 func (s *Store) BindingsForRole(ctx context.Context, roleID int) ([]authz.Binding, error) {
 	var rows []roleBindingModel
-	if err := s.reader(ctx).Table(s.names.bindings).Where("role_id = ?", roleID).Order("id").Find(&rows).Error; err != nil {
+	q := s.reader(ctx).Table(s.names.bindings)
+	if err := q.Where("role_id = ?", roleID).Order("id").Find(&rows).Error; err != nil {
 		return nil, apperr.Wrap(err, "load role bindings", apperr.CodeInternal)
 	}
 	return bindingsFrom(rows), nil

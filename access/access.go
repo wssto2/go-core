@@ -118,7 +118,10 @@ func Install(app *gocore.App, catalogue *authz.Catalogue, users admin.SubjectDir
 	app.Authorize(engine)
 	schema := gocore.Schema{Files: migrations.Files, Models: gormstore.Migrate}
 	if cfg.prefix != "" {
-		schema = gocore.Schema{Files: migrations.WithPrefix(cfg.prefix), Models: func(db *gorm.DB) error { return gormstore.MigrateWithPrefix(db, cfg.prefix) }}
+		schema = gocore.Schema{
+			Files:  migrations.WithPrefix(cfg.prefix),
+			Models: func(db *gorm.DB) error { return gormstore.MigrateWithPrefix(db, cfg.prefix) },
+		}
 	}
 
 	app.Schema(schema, conn...)

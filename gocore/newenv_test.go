@@ -294,7 +294,7 @@ func TestAppHostComesFromTheLookupAndSetsTheListenAddress(t *testing.T) {
 			t.Fatalf("Build: %v", err)
 		}
 
-		if got := built.httpServer.(*serverWrapper).srv.Addr; got != want {
+		if got := built.httpServer.(*serverWrapper).srv.Addr; got != want { //nolint:forcetypeassert // the builder makes a serverWrapper
 			t.Errorf("host %q: Addr = %q, want %q", host, got, want)
 		}
 	}

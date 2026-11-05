@@ -14,7 +14,7 @@ func TestCrossOrigin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cop := http.NewCrossOriginProtection()
-	cop.AddTrustedOrigin("https://admin.example.com")
+	require.NoError(t, cop.AddTrustedOrigin("https://admin.example.com"))
 
 	r := gin.New()
 	r.Use(middlewares.CrossOrigin(cop))
