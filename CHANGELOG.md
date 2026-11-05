@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.29.0 (2026-11-05)
 
 A Go binary can sit in front of a legacy site and answer only the routes it owns; everything else is forwarded.
 
