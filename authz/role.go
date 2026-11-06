@@ -3,6 +3,8 @@ package authz
 import (
 	"fmt"
 	"sort"
+
+	"github.com/wssto2/go-core/apperr"
 )
 
 // Grant is one permission a role holds, with the qualifier that says whose
@@ -20,6 +22,27 @@ func Grants(q Qualifier, permissions ...string) []Grant {
 		out[i] = Grant{Permission: p, Qualifier: q}
 	}
 	return out
+}
+
+// CheckQualifiers refuses grants whose qualifier is not own, own_location or all, the zero value included: it means
+// nothing, and a stored "invalid" could not be read back. A Store calls it before it writes; the error is a bad request
+// listing every such grant (ProblemInvalidQualifier). Role.Validate reports the same problem among the others.
+func CheckQualifiers(grants []Grant) error {
+	var problems []Problem
+
+	for _, g := range grants {
+		if !g.Qualifier.Valid() {
+			problems = append(problems, Problem{
+				Code: ProblemInvalidQualifier, Permission: g.Permission, Detail: fmt.Sprintf("qualifier %d", int(g.Qualifier)),
+			})
+		}
+	}
+
+	if len(problems) == 0 {
+		return nil
+	}
+
+	return apperr.BadRequestFrom(&ValidationError{Problems: problems})
 }
 
 // Role is a named set of grants. A role has no scope and no tenant: those

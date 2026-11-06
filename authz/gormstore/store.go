@@ -119,8 +119,14 @@ func (s *Store) ListRoles(ctx context.Context) ([]authz.Role, error) {
 
 // SaveRole implements authz.Store.
 func (s *Store) SaveRole(ctx context.Context, actor authz.Subject, role authz.Role) (authz.Role, error) {
+	err := authz.CheckQualifiers(role.Grants)
+	if err != nil {
+		return authz.Role{}, err //nolint:wrapcheck // the validation error of the contract, answered as it is
+	}
+
 	var saved authz.Role
-	err := s.tx.WithinTransaction(ctx, func(ctx context.Context) error {
+
+	err = s.tx.WithinTransaction(ctx, func(ctx context.Context) error {
 		tx, err := txFrom(ctx, s.db) //nolint:varnamelen // tx is the transaction, as everywhere in this file
 		if err != nil {
 			return err

@@ -76,6 +76,10 @@ func (m *MemoryStore) ListRoles(_ context.Context) ([]authz.Role, error) {
 
 // SaveRole implements authz.Store.
 func (m *MemoryStore) SaveRole(_ context.Context, _ authz.Subject, role authz.Role) (authz.Role, error) {
+	err := authz.CheckQualifiers(role.Grants)
+	if err != nil {
+		return authz.Role{}, err //nolint:wrapcheck // the validation error of the contract, as the real stores answer it
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if role.ID == 0 {

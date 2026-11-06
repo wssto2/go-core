@@ -86,6 +86,7 @@ func Run(t *testing.T, newStore Factory) {
 		"RoleRoundTrip":                roleRoundTrip,
 		"RoleUpdateReplacesEverything": roleUpdate,
 		"RoleNotFound":                 roleNotFound,
+		"RefusesAZeroQualifier":        refusesZeroQualifier,
 		"RolesAreListedByID":           listRoles,
 		"BindingRoundTrip":             bindingRoundTrip,
 		"BindingsAreKeptPerSubject":    bindingsPerSubject,
@@ -163,6 +164,23 @@ func roleUpdate(c check, s authz.Store) {
 	roles, err := s.ListRoles(ctx)
 	c.noErr(err, "list")
 	c.equal(1, len(roles), "an update does not create a second role")
+}
+
+// refusesZeroQualifier: a grant without a qualifier is a validation error at the store,
+// not a role that cannot be read back.
+func refusesZeroQualifier(c check, s authz.Store) { //nolint:varnamelen // c is the check, as in every case here
+	ctx := context.Background()
+	//nolint:exhaustruct,exhaustruct_v5 // a draft
+	zero := authz.Role{Name: "Zero", Grants: []authz.Grant{{Permission: "vehicle.stock:view"}}}
+	_, err := s.SaveRole(ctx, actor(), zero)
+
+	var invalid *authz.ValidationError
+
+	c.true(errors.As(err, &invalid) && invalid.Has(authz.ProblemInvalidQualifier), "a grant with the zero qualifier")
+
+	roles, err := s.ListRoles(ctx)
+	c.noErr(err, "list")
+	c.equal(0, len(roles), "the refused role was not stored")
 }
 
 func roleNotFound(c check, s authz.Store) {
