@@ -775,6 +775,10 @@ A request that reaches the fallthrough skips what would alter another site's pag
 
 With `WithSPA`, give the shell a base path: `WithSPAConfig(frontend.SPAConfig{BasePath: "/app", ...})`. The shell answers `/app` and what is under it, the API prefix keeps its JSON 404, and everything else falls through. `Build` fails when both are set and the shell has no `BasePath`.
 
+`app.Forward(ctx, path)` hands the current request to the fallthrough from a route or a middleware (`path` empty keeps the request's; otherwise the fallthrough sees that path, with the query), sets the peer as an unmatched request gets it, removes go-core's security and CORS headers that already stand on the answer (`middlewares.StripSecurityHeaders`) and stops the chain. `middlewares.Under("/admin", mw)` runs `mw` only for `/admin` and below, so a guard such as `CrossOrigin` can be `app.Use`d for one part of a site.
+
+The SPA's files can be embedded: `SPAConfig.FS` (an `embed.FS` of `frontend/dist` and `frontend/templates`) replaces the disk; `TemplatesPath` and `Vite.ManifestPath` are then paths inside it. The built files are served under `Vite.AssetsURLPrefix`: the files the Vite manifest names (entries, their CSS and assets, hashed by content) get `Cache-Control: public, max-age=31536000, immutable` (a build that turns the hashes off must not use this), others none, and a missing file, a source map or a directory is a plain 404, not the shell page. `App.Use` middleware and the rate limits run for these routes too. `Exchange.Secure()` believes `X-Forwarded-Proto: https` only from a peer in `TRUSTED_PROXIES`.
+
 ## Audit Logging
 
 * Tracks entity changes

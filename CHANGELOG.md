@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.32.0 (unreleased)
+
+### Added
+
+- frontend: `SPAConfig.FS` (an `fs.FS`, such as an `embed.FS`) holds the templates and the built files instead of the disk: `TemplatesPath` and `Vite.ManifestPath` are read inside it, and the directory two levels above the manifest is served under `Vite.AssetsURLPrefix`. Paths keep working. `SPAConfig.BuiltFiles()` returns that file system and the manifest's file names.
+- gocore: `(*App).Forward(ctx *gin.Context, path string)` hands the current request to the `WithFallthrough` handler from a route or middleware, optionally under another path (the query stays), with the peer set as for an unmatched request, and aborts the chain. go-core's security and CORS headers already on the answer are removed (no `WithFallthrough`: an internal error).
+- middlewares: `StripSecurityHeaders(h)` removes the headers `Security`, `WithTrustedOrigins`, `WithCSP` and `Cors` set. `Under(prefix, mw)` runs `mw` only for `prefix` and the paths below it: `app.Use(middlewares.Under("/admin", middlewares.CrossOrigin(cop)))`.
+- authz: `CheckQualifiers(grants)` refuses a grant whose qualifier is not own, own_location or all, the zero value included. The stores call it; `storetest` has a conformance case (`RefusesAZeroQualifier`) every store must pass.
+
+### Changed
+
+- gocore: the static routes (the SPA's built files under `Vite.AssetsURLPrefix`, `STATIC_URL`) are mounted in `Build` after the engine middleware, so `App.Use` middleware, the rate limits (global, per IP) and `WithCSP`/`WithTrustedOrigins` now reach them. Before, they were mounted earlier and none of it ran.
+- gocore: files the Vite manifest names (entries, their CSS and assets) are sent with `Cache-Control: public, max-age=31536000, immutable`. They are content-hashed by Vite's defaults; a build that removes the hash from `entryFileNames`/`assetFileNames` must not rely on this release. Other files get no `Cache-Control`, as before.
+
+### Fixed
+
+- gocore: a missing file under `Vite.AssetsURLPrefix` or `STATIC_URL` answers 404; the SPA shell used to answer it with the page and 200. A directory URL there is a 404 too (it was an empty listing).
+- authz: the stores refuse a role with a zero-qualifier grant with a 400 validation error (`invalid_qualifier`); `gormstore` stored the text `invalid`, which could not be read back and ended in a 500 on every later load of the role. `Role.Validate`, the role API and `Admin` already refused it.
+
+### Security
+
+- route: **behaviour change.** `Exchange.Secure()` believes `X-Forwarded-Proto: https` only when the peer is a trusted proxy (the engine's trusted proxies, `TRUSTED_PROXIES`, as for `ClientIP`); any client could send the header before. Behind nginx or another proxy, `TRUSTED_PROXIES` must name it (`127.0.0.1`) or `Secure()` is false: `identity`'s cookies lose their `Secure` flag, which follows `Secure()`. A direct HTTPS connection is unaffected. `middlewares.Security` still decides HSTS from the header when `TRUSTED_PROXIES` is not empty (unchanged).
+
 ## v1.31.0 (2026-11-05)
 
 ### Added
