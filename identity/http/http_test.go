@@ -191,6 +191,22 @@ func TestSecureCookiesFollowTheRequest(t *testing.T) {
 	assert.True(t, r.cookie("access_token").Secure)
 }
 
+//nolint:paralleltest // like the tests around it
+func TestSecureCookiesIgnoreForwardedProtoFromAnUntrustedPeer(t *testing.T) {
+	h := newHarness(t, nil)
+	require.NoError(t, h.engine.SetTrustedProxies([]string{"10.0.0.0/8"}))
+
+	login := func(peer string) *nethttp.Cookie {
+		r := h.do(nethttp.MethodPost, "/v1/auth/login", map[string]string{"login": "ana", "password": "secret"},
+			func(r *nethttp.Request) { r.Header.Set("X-Forwarded-Proto", "https"); r.RemoteAddr = peer + ":4000" })
+
+		return r.cookie("access_token")
+	}
+
+	assert.True(t, login("10.1.1.1").Secure, "the proxy says https")
+	assert.False(t, login("203.0.113.5").Secure, "a client's own header is not believed")
+}
+
 // IAM-USER-001 on the wire: one answer for an unknown login and a wrong password.
 func TestFailedSignInsAnswerAlike(t *testing.T) {
 	h := newHarness(t, nil)

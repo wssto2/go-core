@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -127,4 +128,63 @@ func TestSetHeaderOnSuccessAndError(t *testing.T) {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
+}
+
+const trustedNet = "10.0.0.0/8"
+
+// secureOf answers x.Secure() for a request from peer carrying X-Forwarded-Proto: https, and the X-Forwarded-For seen.
+//
+//nolint:exhaustruct,exhaustruct_v5,lll // a public route needs no security
+func secureOf(t *testing.T, proxies []string, peer string, forwardedFor string) (bool, string) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	require.NoError(t, engine.SetTrustedProxies(proxies))
+
+	var seenXFF string
+
+	require.NoError(t, route.Get[route.None, bool]("/s").Public().To(func(ctx context.Context, _ route.None) (bool, error) {
+		secure := route.ExchangeOf(ctx).Secure()
+		seenXFF = route.ExchangeOf(ctx).Header("X-Forwarded-For")
+
+		return secure, nil
+	}).Mount(engine, route.Security{}))
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/s", nil)
+	req.RemoteAddr = peer + ":1234"
+	req.Header.Set("X-Forwarded-Proto", "https")
+
+	if forwardedFor != "" {
+		req.Header.Set("X-Forwarded-For", forwardedFor)
+	}
+
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+
+	return strings.Contains(rec.Body.String(), `"data":true`), seenXFF
+}
+
+//nolint:paralleltest // gin.SetMode is global
+func TestSecureTrustsForwardedProtoOnlyFromATrustedProxy(t *testing.T) {
+	secure, _ := secureOf(t, []string{trustedNet}, "10.1.2.3", "")
+	assert.True(t, secure, "a trusted proxy says https")
+
+	secure, _ = secureOf(t, []string{trustedNet}, "203.0.113.9", "")
+	assert.False(t, secure, "any other client can send the header")
+
+	secure, _ = secureOf(t, nil, "10.1.2.3", "")
+	assert.False(t, secure, "no trusted proxies: nobody is trusted")
+
+	secure, _ = secureOf(t, nil, "192.0.2.1", "")
+	assert.False(t, secure, "a peer that is the probe address itself")
+}
+
+//nolint:paralleltest // gin.SetMode is global
+func TestSecureLeavesTheForwardedForHeaderAlone(t *testing.T) {
+	_, seen := secureOf(t, []string{trustedNet}, "10.1.2.3", "198.51.100.7, 10.0.0.1")
+	assert.Equal(t, "198.51.100.7, 10.0.0.1", seen)
+
+	_, seen = secureOf(t, []string{trustedNet}, "10.1.2.3", "")
+	assert.Empty(t, seen)
 }
