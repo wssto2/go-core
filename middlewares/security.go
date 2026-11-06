@@ -10,11 +10,12 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/wssto2/go-core/internal/forwarded"
 )
 
 type SecurityConfig struct {
 	ContentSecurityPolicy string // if empty, use a safe default
-	TrustProxy            bool   // if true, trust X-Forwarded-Proto header for HSTS
+	TrustProxy            bool   // if true, trust X-Forwarded-Proto for HSTS, from a trusted proxy only
 }
 
 // Helper to generate a random string
@@ -180,7 +181,7 @@ func Security(isDev bool, cfg ...SecurityConfig) gin.HandlerFunc {
 		ctx.Header("Content-Security-Policy", csp)
 		// HSTS must only be sent over HTTPS (RFC 6797 §7.2).
 		isHTTPS := ctx.Request.TLS != nil ||
-			(len(cfg) > 0 && cfg[0].TrustProxy && ctx.GetHeader("X-Forwarded-Proto") == "https")
+			(len(cfg) > 0 && cfg[0].TrustProxy && forwarded.Secure(ctx))
 		if isHTTPS {
 			ctx.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 		}

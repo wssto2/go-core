@@ -26,6 +26,7 @@ func (s *Sink) Send(_ context.Context, m Message) error {
 	}
 
 	m.To = slices.Clone(m.To)
+	m.ReplyTo = slices.Clone(m.ReplyTo)
 	m.Inline = slices.Clone(m.Inline)
 
 	for i := range m.Inline {

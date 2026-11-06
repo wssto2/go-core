@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.33.0 (unreleased)
+
+### Added
+
+- gocore: `WithMetricsAccess(allow func(*http.Request) bool)` decides who may read `/metrics`; a request `allow` refuses answers 404, like an unknown path. `WithoutMetrics()` answers 404 to everyone (metrics are still recorded). Default: open, as before.
+- mail: `Message.ReplyTo []string` (a list, as the header is one; same address forms as `To`) is written as a `Reply-To` header by the SMTP sender and kept by `Sink` and `Redirect`. `Check` refuses an address that is invalid or has CR/LF, as for `To`.
+
+### Security
+
+- middlewares: **behaviour change.** `Security` with `TrustProxy` sends HSTS for `X-Forwarded-Proto: https` only from a trusted proxy (the engine's trusted proxies, as `Exchange.Secure()`; the check is shared in `internal/forwarded`). Any client could trigger the header before. A direct TLS connection is unaffected; behind a proxy, `TRUSTED_PROXIES` must name it or HSTS is no longer sent.
+
 ## v1.32.0 (2026-11-06)
 
 ### Added

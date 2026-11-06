@@ -263,3 +263,26 @@ func TestSinkRecordsInlineParts(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, []mail.Inline{{CID: "l@x", ContentType: "image/png", Data: []byte("PNG")}}, last.Inline, "a copy: the caller's later changes do not reach it")
 }
+
+func TestReplyToIsAHeaderOfEverySender(t *testing.T) {
+	m := mail.Message{To: []string{"ana@example.com"}, ReplyTo: []string{"Visitor <v@example.org>", "w@example.org"}, Subject: "Hi", Text: "Hello"}
+
+	_, got := sendThrough(t, m)
+	require.Contains(t, got, "Reply-To: \"Visitor\" <v@example.org>, <w@example.org>\n")
+
+	sink := mail.NewSink()
+	require.NoError(t, mail.Redirect(sink, "dev@example.com").Send(context.Background(), m))
+	require.Equal(t, m.ReplyTo, sink.Sent()[0].ReplyTo, "the sink and a redirect keep it")
+
+	_, got = sendThrough(t, mail.Message{To: []string{"ana@example.com"}, Subject: "Hi", Text: "Hello"})
+	require.NotContains(t, got, "Reply-To")
+}
+
+func TestReplyToRefusesHeaderInjection(t *testing.T) {
+	for _, bad := range []string{"v@example.org\r\nBcc: x@example.com", "not an address", ""} {
+		m := mail.Message{To: []string{"ana@example.com"}, ReplyTo: []string{bad}, Subject: "Hi", Text: "t"}
+
+		require.ErrorIs(t, m.Check(), mail.ErrPermanent, bad)
+		require.Error(t, mail.NewSink().Send(context.Background(), m), bad)
+	}
+}

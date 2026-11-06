@@ -93,6 +93,7 @@ type App struct {
 	idempotencyTTL time.Duration
 	trustedOrigins []string
 	csp            []gin.HandlerFunc
+	metricsAccess  func(*http.Request) bool // WithMetricsAccess; nil: every request may read /metrics
 	unmatched      http.Handler
 	forward        func(ctx *gin.Context, path string) // from the built app, see Forward
 
@@ -191,6 +192,18 @@ func WithDeadLetterRetention(d time.Duration) Option {
 // 'unsafe-eval' for Zod); production keeps a nonce-only script-src.
 func WithCSP(directive string, sources ...string) Option {
 	return func(app *App) { app.csp = append(app.csp, middlewares.CSPSources(directive, sources...)) }
+}
+
+// WithMetricsAccess decides who may read /metrics: allow is asked for every request, and a request it refuses
+// answers 404, like an unknown path. By default /metrics is open, for a scraper on the private network; an app
+// reachable from the internet restricts it, for example to loopback or a header only its proxy sets.
+func WithMetricsAccess(allow func(*http.Request) bool) Option {
+	return func(app *App) { app.metricsAccess = allow }
+}
+
+// WithoutMetrics makes /metrics answer 404 to everyone. The metrics are still recorded and app.Telemetry() works.
+func WithoutMetrics() Option {
+	return WithMetricsAccess(func(*http.Request) bool { return false })
 }
 
 // WithServiceWorker serves the file at /sw.js, at the root of the site outside

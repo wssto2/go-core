@@ -110,6 +110,26 @@ require.Equal(t, "max-age=31536000; includeSubDomains; preload",
 rec.Header().Get("Strict-Transport-Security"))
 }
 
+//nolint:exhaustruct,exhaustruct_v5,paralleltest,varnamelen // gin.SetMode is global
+func TestSecurityMiddleware_HSTSOnlyFromATrustedPeer(t *testing.T) {
+	for peer, want := range map[string]bool{"10.1.2.3:1": true, "203.0.113.9:1": false} {
+		gin.SetMode(gin.TestMode)
+
+		r := gin.New()
+		require.NoError(t, r.SetTrustedProxies([]string{"10.0.0.0/8"}))
+		r.Use(middlewares.Security(false, middlewares.SecurityConfig{TrustProxy: true}))
+		r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+		req.RemoteAddr = peer
+		req.Header.Set("X-Forwarded-Proto", "https")
+		r.ServeHTTP(rec, req)
+
+		require.Equal(t, want, rec.Header().Get("Strict-Transport-Security") != "", peer)
+	}
+}
+
 // cspOf serves one request through Security and the given middleware and returns the policy.
 func cspOf(t *testing.T, isDev bool, mw ...gin.HandlerFunc) string {
 	t.Helper()

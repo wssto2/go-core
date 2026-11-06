@@ -269,6 +269,7 @@ func (a *App) build() (*lifecycle, error) {
 	builder.unmatched = a.unmatched
 	builder.trustedOrigins = append(builder.trustedOrigins, a.trustedOrigins...)
 	builder.csp = append(builder.csp, a.csp...)
+	builder.metricsAccess = a.metricsAccess
 
 	booted, err := builder.WithComponents(&featuresModule{app: a, mgr: nil, cancel: nil}).WithHTTP().Build()
 	if err != nil {

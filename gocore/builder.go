@@ -47,6 +47,7 @@ type appBuilder struct {
 	log                 *slog.Logger                        // supplied with WithLogger, else built from cfg
 	telemetry           *observability.Telemetry            // supplied with WithTelemetry, else built from cfg
 	engineMiddleware    []gin.HandlerFunc                   // supplied with Use, applied by Build
+	metricsAccess       func(*http.Request) bool            // WithMetricsAccess; nil: open
 	csp                 []gin.HandlerFunc                   // supplied with WithCSP, applied by Build
 	unmatched           http.Handler                        // supplied with WithFallthrough, answers what no route does
 	forward             func(ctx *gin.Context, path string) // set by Build: hands a request to unmatched, App.Forward
@@ -532,7 +533,17 @@ func (b *appBuilder) setupObservability() {
 	// Expose /metrics using the app's own registry — not the global default
 	var opts promhttp.HandlerOpts
 
-	b.engine.GET("/metrics", gin.WrapH(promhttp.HandlerFor(tel.Registry, opts)))
+	handler := gin.WrapH(promhttp.HandlerFor(tel.Registry, opts))
+
+	b.engine.GET("/metrics", func(ctx *gin.Context) {
+		if b.metricsAccess != nil && !b.metricsAccess(ctx.Request) {
+			ctx.AbortWithStatus(http.StatusNotFound)
+
+			return
+		}
+
+		handler(ctx)
+	})
 }
 
 func (b *appBuilder) setupHealth() {

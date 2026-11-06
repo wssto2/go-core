@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/wssto2/go-core/internal/forwarded"
 )
 
 type exchangeKey struct{}
@@ -84,7 +85,7 @@ func (x Exchange) Secure() bool {
 		return false
 	}
 
-	return x.c.Request.TLS != nil || x.c.GetHeader("X-Forwarded-Proto") == "https" && x.peerTrusted()
+	return forwarded.Secure(x.c)
 }
 
 // Cookie is the value of a request cookie, empty when there is none.
@@ -126,28 +127,4 @@ func (x Exchange) SetHeader(name, value string) error {
 	}
 
 	return nil
-}
-
-// peerTrusted says whether the connection's peer is one of the engine's trusted proxies. gin exposes no such check, but
-// ClientIP believes X-Forwarded-For only from a trusted peer, so the header is set to an address that is not the peer's
-// (RFC 5737 documentation addresses) for one call and put back.
-func (x Exchange) peerTrusted() bool {
-	probe := "192.0.2.1"
-	if x.c.RemoteIP() == probe {
-		probe = "192.0.2.2"
-	}
-
-	header := x.c.Request.Header
-	saved, had := header["X-Forwarded-For"]
-
-	header.Set("X-Forwarded-For", probe)
-	trusted := x.c.ClientIP() == probe
-
-	if had {
-		header["X-Forwarded-For"] = saved
-	} else {
-		header.Del("X-Forwarded-For")
-	}
-
-	return trusted
 }

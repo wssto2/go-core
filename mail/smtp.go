@@ -170,6 +170,17 @@ func (s *smtpSender) render(m Message) ([]byte, error) {
 
 	b.WriteString("From: " + s.from.String() + "\r\n")
 	b.WriteString("To: " + strings.Join(to, ", ") + "\r\n")
+
+	if len(m.ReplyTo) > 0 {
+		reply := make([]string, len(m.ReplyTo))
+		for i, r := range m.ReplyTo {
+			addr, _ := mail.ParseAddress(r)
+			reply[i] = addr.String()
+		}
+
+		b.WriteString("Reply-To: " + strings.Join(reply, ", ") + "\r\n")
+	}
+
 	b.WriteString("Subject: " + mime.QEncoding.Encode("UTF-8", m.Subject) + "\r\n")
 	b.WriteString("Date: " + time.Now().UTC().Format(time.RFC1123Z) + "\r\n")
 	b.WriteString("MIME-Version: 1.0\r\n")

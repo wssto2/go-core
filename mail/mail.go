@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"slices"
 	"strings"
 )
 
@@ -33,7 +34,10 @@ import (
 type Message struct {
 	// To is the recipients, plain addresses ("ana@example.com") or with a name
 	// ("Ana <ana@example.com>").
-	To      []string
+	To []string
+	// ReplyTo is where a reply goes instead of the sender, same forms as To; a list, because the header is one.
+	// Empty: no Reply-To header. A contact form puts the visitor's address here, not in the body.
+	ReplyTo []string
 	Subject string
 	Text    string
 	HTML    string
@@ -74,7 +78,7 @@ func (m Message) Check() error {
 		return permanent{errors.New("mail: the message has no recipient: set Message.To")}
 	}
 
-	for _, to := range m.To {
+	for _, to := range slices.Concat(m.To, m.ReplyTo) {
 		if _, err := mail.ParseAddress(to); err != nil || strings.ContainsAny(to, "\r\n") {
 			return permanent{fmt.Errorf("mail: %q is not an e-mail address: use \"ana@example.com\" or \"Ana <ana@example.com>\"", to)}
 		}
