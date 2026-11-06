@@ -8,6 +8,8 @@ import (
 	"slices"
 
 	"github.com/gin-gonic/gin"
+	"github.com/wssto2/go-core/apperr"
+	"github.com/wssto2/go-core/middlewares"
 	"github.com/wssto2/go-core/proxy"
 )
 
@@ -54,12 +56,11 @@ func (b *appBuilder) unlessProxied(next gin.HandlerFunc) gin.HandlerFunc {
 // errFallthroughSPA is the wiring error of a shell that would swallow what the fallthrough should answer.
 var errFallthroughSPA = errors.New("fallthrough with the SPA needs SPAConfig.BasePath, or the shell answers all")
 
-// fallthroughHandler is the NoRoute handler: it tells the proxy whether the peer is a trusted proxy (the same list gin
-// uses for the client IP) and where to report an upstream failure.
-func (b *appBuilder) fallthroughHandler() (gin.HandlerFunc, error) {
-	trusted := make([]netip.Prefix, 0, len(b.cfg.HTTP.TrustedProxies))
+// trustedPeers parses the TRUSTED_PROXIES entries (addresses or CIDRs) once.
+func trustedPeers(entries []string) ([]netip.Prefix, error) {
+	trusted := make([]netip.Prefix, 0, len(entries))
 
-	for _, entry := range b.cfg.HTTP.TrustedProxies {
+	for _, entry := range entries {
 		prefix, err := netip.ParsePrefix(entry)
 		if err != nil {
 			addr, addrErr := netip.ParseAddr(entry)
@@ -73,18 +74,64 @@ func (b *appBuilder) fallthroughHandler() (gin.HandlerFunc, error) {
 		trusted = append(trusted, prefix)
 	}
 
-	return func(ctx *gin.Context) {
-		peer, _ := netip.ParseAddr(ctx.RemoteIP())
-		isTrusted := slices.ContainsFunc(trusted, func(p netip.Prefix) bool { return p.Contains(peer.Unmap()) })
+	return trusted, nil
+}
 
-		// The error is what the incident log and the error handler see; the response is already written.
-		report := func(err error) { _ = ctx.Error(err) }
-		peerInfo := proxy.Peer{Trusted: isTrusted, Failed: report}
-		ctx.Request = ctx.Request.WithContext(proxy.WithPeer(ctx.Request.Context(), peerInfo))
-		b.unmatched.ServeHTTP(ctx.Writer, ctx.Request)
-		// Commit the status h set: gin only counts a Write as an answer, and otherwise replaces a bodyless 404 (a HEAD,
-		// an empty upstream 404) with its own text/plain "404 page not found". A handler that wrote nothing at all
-		// keeps gin's pre-set 404, now empty.
-		ctx.Writer.WriteHeaderNow()
-	}, nil
+// forwardTo hands the request to handler and commits its answer. path, when not empty, replaces the request path for
+// handler (the query stays); the request gin sees, logs and meters keeps its own. handler is told whether the peer is
+// a trusted proxy (the same list gin uses for the client IP) and where to report an upstream failure.
+func forwardTo(handler http.Handler, trusted []netip.Prefix, ctx *gin.Context, path string) {
+	peer, _ := netip.ParseAddr(ctx.RemoteIP())
+	isTrusted := slices.ContainsFunc(trusted, func(p netip.Prefix) bool { return p.Contains(peer.Unmap()) })
+
+	req := ctx.Request
+	if path != "" {
+		req = req.Clone(req.Context())
+		req.URL.Path, req.URL.RawPath = path, ""
+	}
+
+	// The error is what the incident log and the error handler see; the response is already written.
+	report := func(err error) { _ = ctx.Error(err) }
+	req = req.WithContext(proxy.WithPeer(req.Context(), proxy.Peer{Trusted: isTrusted, Failed: report}))
+	handler.ServeHTTP(ctx.Writer, req)
+	// Commit the status h set: gin only counts a Write as an answer, and otherwise replaces a bodyless 404 (a HEAD,
+	// an empty upstream 404) with its own text/plain "404 page not found". A handler that wrote nothing at all
+	// keeps gin's pre-set 404, now empty.
+	ctx.Writer.WriteHeaderNow()
+}
+
+// fallthroughHandler is the NoRoute handler.
+func (b *appBuilder) fallthroughHandler() (gin.HandlerFunc, error) {
+	trusted, err := trustedPeers(b.cfg.HTTP.TrustedProxies)
+	if err != nil {
+		return nil, err
+	}
+
+	b.forward = func(ctx *gin.Context, path string) { forwardTo(b.unmatched, trusted, ctx, path) }
+
+	return func(ctx *gin.Context) { b.forward(ctx, "") }, nil
+}
+
+// errNoFallthrough is the wiring error of App.Forward without WithFallthrough.
+var errNoFallthrough = errors.New("gocore: Forward needs WithFallthrough")
+
+// Forward answers the request from the fallthrough handler (WithFallthrough) and aborts the chain: call it from a route
+// or a middleware to hand a request that would otherwise be the application's to the site behind it. path, when not
+// empty, is the path the fallthrough sees instead of the request's (the query stays); the request the rest of go-core
+// logs and meters keeps its own.
+//
+// The fallthrough gets the peer as it does for an unmatched request (trusted or not, and where to report a failure),
+// and the answer carries none of go-core's security or CORS headers already set on it, as for an unmatched request.
+// Without WithFallthrough the request is an internal error.
+func (a *App) Forward(ctx *gin.Context, path string) {
+	ctx.Abort()
+
+	if a.forward == nil {
+		_ = ctx.Error(apperr.Internal(errNoFallthrough))
+
+		return
+	}
+
+	middlewares.StripSecurityHeaders(ctx.Writer.Header())
+	a.forward(ctx, path)
 }

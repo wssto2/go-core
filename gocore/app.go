@@ -94,6 +94,7 @@ type App struct {
 	trustedOrigins []string
 	csp            []gin.HandlerFunc
 	unmatched      http.Handler
+	forward        func(ctx *gin.Context, path string) // from the built app, see Forward
 
 	disks      *storage.Registry
 	routes     []mounted
@@ -375,7 +376,8 @@ func (a *App) Authenticate(middleware ...gin.HandlerFunc) {
 }
 
 // Use adds engine middleware that runs before every route, those of modules
-// included, in the order given, whenever it is called: a middleware added after
+// and the static files (the SPA's built files, STATIC_URL) included, in the order given, whenever it is called: a
+// middleware added after
 // Routes still runs before them. It runs after the request id, logging,
 // security headers and rate limits the App sets up, and before authentication,
 // so it sees every request, signed in or not.

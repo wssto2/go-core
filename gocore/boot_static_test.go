@@ -23,7 +23,7 @@ func TestServeStaticHidesSourceMaps(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "assets", "main.js.map"), []byte(`{"sources":["main.ts"]}`), 0o600))
 
 	engine := gin.New()
-	serveStatic(engine, "/dist", dir)
+	serveStatic(engine, "/dist", http.Dir(dir), nil)
 
 	for path, want := range map[string]int{
 		"/dist/assets/main.js":     http.StatusOK,

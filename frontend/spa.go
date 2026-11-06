@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"log/slog"
 	"net/http"
+	"path"
+	"path/filepath"
 	"strings"
 	htmpl "text/template"
 
@@ -31,7 +34,12 @@ type SPAConfig struct {
 	// Vite holds Vite dev server and asset resolution config.
 	Vite ViteConfig
 
-	// TemplatesPath is the glob used to load HTML templates.
+	// FS, when set, holds the templates and the built files instead of the disk: TemplatesPath and Vite.ManifestPath are
+	// read in it (slash-separated, "./" allowed), and the files under the manifest's build directory are served from it.
+	// An app embeds them: //go:embed frontend/dist frontend/templates, FS: embedded. Nil reads the paths from disk.
+	FS fs.FS
+
+	// TemplatesPath is the glob used to load HTML templates (in FS, when set).
 	// Defaults to "frontend/templates/*.html".
 	TemplatesPath string
 
@@ -135,11 +143,17 @@ func RegisterSPA(engine *gin.Engine, cfg SPAConfig, log *slog.Logger) {
 		funcs[k] = v
 	}
 	engine.SetFuncMap(funcs)
-	engine.LoadHTMLGlob(cfg.TemplatesPath)
+
+	if cfg.FS != nil {
+		glob := path.Clean(filepath.ToSlash(cfg.TemplatesPath))
+		engine.SetHTMLTemplate(template.Must(template.New("").Funcs(funcs).ParseFS(cfg.FS, glob)))
+	} else {
+		engine.LoadHTMLGlob(cfg.TemplatesPath)
+	}
 
 	var productionAssets *Assets
 	if !cfg.DevMode {
-		a := ResolveAssets(cfg.Vite)
+		a := resolveAssets(cfg.Vite, cfg.FS)
 		if !a.IsDev {
 			productionAssets = &a
 		}
@@ -170,7 +184,7 @@ func RegisterSPA(engine *gin.Engine, cfg SPAConfig, log *slog.Logger) {
 
 		assets := productionAssets
 		if assets == nil {
-			a := ResolveAssets(cfg.Vite)
+			a := resolveAssets(cfg.Vite, cfg.FS)
 			assets = &a
 		}
 
@@ -203,4 +217,34 @@ func RegisterSPA(engine *gin.Engine, cfg SPAConfig, log *slog.Logger) {
 // SPA registration now owns template setup for the common case.
 func RegisterSPAWithTemplates(engine *gin.Engine, cfg SPAConfig, log *slog.Logger) {
 	RegisterSPA(engine, cfg, log)
+}
+
+// BuiltFiles returns the build directory of the Vite output (two levels above the manifest, from FS when set) to serve
+// under Vite.AssetsURLPrefix, and says which of its files the manifest names: entries, their CSS and assets, whose
+// names Vite hashes by content. The manifest is read once; a missing one names nothing.
+func (c SPAConfig) BuiltFiles() (http.FileSystem, func(name string) bool, error) {
+	vite := c.Vite.WithDefaults()
+	named := map[string]bool{}
+
+	manifest, err := readManifest(c.FS, vite.ManifestPath)
+	if err == nil {
+		for _, entry := range manifest {
+			for _, name := range append(append([]string{entry.File}, entry.CSS...), entry.Assets...) {
+				named[strings.TrimLeft(filepath.ToSlash(name), "/")] = true
+			}
+		}
+	}
+
+	isNamed := func(name string) bool { return named[strings.TrimLeft(name, "/")] }
+
+	if c.FS == nil {
+		return http.Dir(filepath.Dir(filepath.Dir(vite.ManifestPath))), isNamed, nil
+	}
+
+	sub, err := fs.Sub(c.FS, path.Dir(path.Dir(path.Clean(filepath.ToSlash(vite.ManifestPath)))))
+	if err != nil {
+		return nil, nil, fmt.Errorf("frontend: the build directory in FS: %w", err)
+	}
+
+	return http.FS(sub), isNamed, nil
 }

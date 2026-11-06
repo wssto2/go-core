@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -184,5 +185,21 @@ func Security(isDev bool, cfg ...SecurityConfig) gin.HandlerFunc {
 			ctx.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 		}
 		ctx.Next()
+	}
+}
+
+// securityHeaders are what Security, TrustedOriginsMiddleware, CSPSources and Cors put on a response.
+//
+//nolint:gochecknoglobals // a read-only list
+var securityHeaders = []string{
+	"Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Strict-Transport-Security",
+	"Access-Control-Allow-Origin", "Access-Control-Allow-Credentials",
+}
+
+// StripSecurityHeaders removes from h the headers those middlewares set, for an answer that is another site's and sets
+// its own. Vary: Origin, which Cors adds, stays: it only makes a cache stricter.
+func StripSecurityHeaders(h http.Header) {
+	for _, name := range securityHeaders {
+		h.Del(name)
 	}
 }

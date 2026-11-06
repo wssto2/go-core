@@ -3,8 +3,10 @@ package frontend
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -78,6 +80,7 @@ type Assets struct {
 type viteManifestEntry struct {
 	File    string   `json:"file"`
 	CSS     []string `json:"css"`
+	Assets  []string `json:"assets"`
 	IsEntry bool     `json:"isEntry"`
 }
 
@@ -87,6 +90,11 @@ type viteManifestEntry struct {
 // In dev mode it returns Vite dev server URLs.
 // In prod mode it resolves the configured entry from Vite's manifest.
 func ResolveAssets(cfg ViteConfig) Assets {
+	return resolveAssets(cfg, nil)
+}
+
+// resolveAssets is ResolveAssets with the manifest read from fsys, or from disk when fsys is nil.
+func resolveAssets(cfg ViteConfig, fsys fs.FS) Assets {
 	cfg = cfg.WithDefaults()
 
 	if IsViteRunning(cfg) {
@@ -98,7 +106,7 @@ func ResolveAssets(cfg ViteConfig) Assets {
 		}
 	}
 
-	manifest, err := readManifest(cfg.ManifestPath)
+	manifest, err := readManifest(fsys, cfg.ManifestPath)
 	if err != nil {
 		return Assets{}
 	}
@@ -120,8 +128,16 @@ func ResolveAssets(cfg ViteConfig) Assets {
 	return assets
 }
 
-func readManifest(path string) (map[string]viteManifestEntry, error) {
-	data, err := os.ReadFile(path)
+func readManifest(fsys fs.FS, name string) (map[string]viteManifestEntry, error) {
+	var data []byte
+
+	var err error
+	if fsys != nil {
+		data, err = fs.ReadFile(fsys, path.Clean(filepath.ToSlash(name)))
+	} else {
+		data, err = os.ReadFile(name) //nolint:gosec // the configured manifest path
+	}
+
 	if err != nil {
 		return nil, err
 	}

@@ -275,6 +275,8 @@ func (a *App) build() (*lifecycle, error) {
 		return nil, fmt.Errorf("gocore: %w", err)
 	}
 
+	a.forward = builder.forward
+
 	return booted, nil
 }
 

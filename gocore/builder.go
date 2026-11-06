@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -44,12 +43,13 @@ type appBuilder struct {
 	spaConfig           *frontend.SPAConfig
 	trustedOrigins      []string
 	idempotencyStore    *middlewares.IdempotencyStore
-	registry            *database.Registry       // supplied with WithRegistry, else opened from cfg
-	log                 *slog.Logger             // supplied with WithLogger, else built from cfg
-	telemetry           *observability.Telemetry // supplied with WithTelemetry, else built from cfg
-	engineMiddleware    []gin.HandlerFunc        // supplied with Use, applied by Build
-	csp                 []gin.HandlerFunc        // supplied with WithCSP, applied by Build
-	unmatched           http.Handler             // supplied with WithFallthrough, answers what no route does
+	registry            *database.Registry                  // supplied with WithRegistry, else opened from cfg
+	log                 *slog.Logger                        // supplied with WithLogger, else built from cfg
+	telemetry           *observability.Telemetry            // supplied with WithTelemetry, else built from cfg
+	engineMiddleware    []gin.HandlerFunc                   // supplied with Use, applied by Build
+	csp                 []gin.HandlerFunc                   // supplied with WithCSP, applied by Build
+	unmatched           http.Handler                        // supplied with WithFallthrough, answers what no route does
+	forward             func(ctx *gin.Context, path string) // set by Build: hands a request to unmatched, App.Forward
 }
 
 // New creates a new appBuilder with the given config.
@@ -359,20 +359,6 @@ func (b *appBuilder) WithHTTP() *appBuilder {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	if b.cfg.Frontend.StaticPath != "" && b.cfg.Frontend.StaticURL != "" {
-		serveStatic(b.engine, b.cfg.Frontend.StaticURL, b.cfg.Frontend.StaticPath)
-	}
-	if b.spaConfig != nil {
-		viteCfg := b.spaConfig.Vite
-		viteCfg = viteCfg.WithDefaults()
-		if viteCfg.ManifestPath != "" && viteCfg.AssetsURLPrefix != "" {
-			// Derive the assets directory from the manifest path:
-			// e.g. "./frontend/dist/.vite/manifest.json" → "./frontend/dist"
-			assetsDir := filepath.Dir(filepath.Dir(viteCfg.ManifestPath))
-			serveStatic(b.engine, viteCfg.AssetsURLPrefix, assetsDir)
-		}
-	}
-
 	srv := &http.Server{
 		Addr:              net.JoinHostPort(b.cfg.HTTP.Host, strconv.Itoa(port)),
 		Handler:           b.engine,
@@ -445,6 +431,11 @@ func (b *appBuilder) Build() (*lifecycle, error) {
 		b.engine.Use(b.engineMiddleware...)
 	}
 
+	err := b.mountStatic()
+	if err != nil {
+		return nil, err
+	}
+
 	if b.unmatched != nil {
 		handler, err := b.fallthroughHandler()
 		if err != nil {
@@ -466,6 +457,28 @@ func (b *appBuilder) Build() (*lifecycle, error) {
 	}
 
 	return newLifecycle(b.cfg, b.log, b.health, b.engine, b.server, b.modules), nil
+}
+
+// mountStatic serves the static directory and the SPA's built files. It runs in Build after the engine middleware is
+// added, so App.Use middleware, the rate limits and the CSP additions reach these routes too (gin gives a route the
+// middleware the engine had when it was mounted).
+func (b *appBuilder) mountStatic() error {
+	if b.cfg.Frontend.StaticPath != "" && b.cfg.Frontend.StaticURL != "" {
+		serveStatic(b.engine, b.cfg.Frontend.StaticURL, http.Dir(b.cfg.Frontend.StaticPath), nil)
+	}
+
+	if b.spaConfig == nil {
+		return nil
+	}
+
+	files, hashed, err := b.spaConfig.BuiltFiles()
+	if err != nil {
+		return fmt.Errorf("serving the SPA's files: %w", err)
+	}
+
+	serveStatic(b.engine, b.spaConfig.Vite.WithDefaults().AssetsURLPrefix, files, hashed)
+
+	return nil
 }
 
 func (b *appBuilder) setupLogger() {

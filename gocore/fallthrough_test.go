@@ -3,6 +3,7 @@ package gocore
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wssto2/go-core/frontend"
+	"github.com/wssto2/go-core/middlewares"
 	"github.com/wssto2/go-core/proxy"
 )
 
@@ -241,4 +243,61 @@ func TestFallthrough_BodylessUpstream404KeepsItsContentType(t *testing.T) {
 			assert.Empty(t, res.Body, name+" "+method)
 		}
 	}
+}
+
+func TestFallthrough_ForwardHandsARouteOfOursToTheUpstream(t *testing.T) {
+	var path, query string
+
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path, query = r.URL.Path, r.URL.RawQuery
+
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN") // the other site's own
+		_, _ = io.WriteString(w, "legacy")
+	}))
+	t.Cleanup(up.Close)
+
+	h, err := proxy.New(proxy.Config{Addr: up.Listener.Addr().String()}, nil)
+	require.NoError(t, err)
+
+	var builder *appBuilder
+
+	app := fallthroughApp(t, h, func(b *appBuilder) {
+		builder = b
+		b.cfg.HTTP.TrustedProxies = []string{"127.0.0.0/8"}
+	})
+	forwarding := &App{forward: builder.forward}
+
+	app.engine.GET("/admin/compat", func(ctx *gin.Context) { forwarding.Forward(ctx, "/admin-legacy/compat") })
+	app.engine.GET("/admin/same", func(ctx *gin.Context) { forwarding.Forward(ctx, "") })
+	app.engine.GET("/admin/never", func(ctx *gin.Context) { forwarding.Forward(ctx, ""); ctx.String(http.StatusOK, "after") })
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/compat?a=1", nil)
+	req.Header.Set("X-Forwarded-For", "203.0.113.9")
+	rec := viaServer(t, app, req)
+	body, _ := io.ReadAll(rec.Body)
+
+	assert.Equal(t, "legacy", string(body))
+	assert.Equal(t, "/admin-legacy/compat", path)
+	assert.Equal(t, "a=1", query)
+	assert.Equal(t, []string{"SAMEORIGIN"}, rec.Header.Values("X-Frame-Options"), "none of ours next to the other site's")
+	assert.Empty(t, rec.Header.Get("Content-Security-Policy"))
+	assert.Empty(t, rec.Header.Get("X-Content-Type-Options"))
+	assert.NotEmpty(t, rec.Header.Get("X-Request-ID"))
+
+	do(t, app, http.MethodGet, "/admin/same", "")
+	assert.Equal(t, "/admin/same", path, "no new path keeps the request's")
+
+	assert.Equal(t, "legacy", do(t, app, http.MethodGet, "/admin/never", "").Body, "the chain stops after Forward")
+}
+
+func TestFallthrough_ForwardWithoutAFallthroughIsAnInternalError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(middlewares.ErrorHandler(slog.New(slog.DiscardHandler), nil, false))
+	engine.GET("/x", func(ctx *gin.Context) { (&App{}).Forward(ctx, "") })
+
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
