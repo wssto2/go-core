@@ -141,7 +141,7 @@ ticket := gocoretest.Decode[Ticket](t, rec)
 * `savedview` → a person's saved list views: the filters and search of a list kept under a name and applied again with one click (see "Saved views"; core `savedview/core`, store `savedview/gormstore`, conformance suite `savedview/storetest`, migrations `savedview/migrations`)
 * `storage` → named disks of files, private or public, and `web.Serve` to stream one (see "Storage disks"; drivers `storage/local` and `storage/memory`)
 * `proxy` → a reverse proxy to a legacy site that keeps the request's Host (and TLS server name) while dialling a fixed address; `gocore.WithFallthrough(h)` sends it every unmatched request, without go-core's security headers (see "Falling through to a legacy site")
-* `navigation` → the menu tree an application declares and the filter by held permissions
+* `navigation` → the menu tree an application declares and the filter by held permissions. A node has a `Route` (a token the client binds) or an `Href` (a path such as `/admin-legacy/pages`, or an `http(s)://` URL, for an entry that leaves the app; JSON `href`, omitted when empty); `navigation.Validate` refuses both set, `javascript:`, `data:` and `//host`, and `identity.Menu` reports that error at sign-in. Permissions filter both alike
 
 ### Utility Packages
 

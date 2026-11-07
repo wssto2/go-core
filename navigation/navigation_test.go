@@ -1,3 +1,4 @@
+//nolint:exhaustruct,exhaustruct_v5,goconst,lll,paralleltest,testifylint // tests in the style of the package's others
 package navigation_test
 
 import (
@@ -8,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/wssto2/go-core/navigation"
 )
+
+const legacy = "/admin-legacy/pages"
 
 func titles(nodes []navigation.Node) []string {
 	out := make([]string, 0, len(nodes))
@@ -107,4 +110,41 @@ func ExampleHeld() {
 	held := navigation.Held("a:view", "b:view")
 	fmt.Println(held("a:view"), held("c:view"))
 	// Output: true false
+}
+
+func TestHrefJSONShape(t *testing.T) {
+	out, err := json.Marshal(navigation.Node{I18n: "old", Href: legacy})
+	assert.NoError(t, err)
+	assert.JSONEq(t, `{"i18n":"old","href":"`+legacy+`"}`, string(out))
+
+	out, err = json.Marshal(navigation.Node{I18n: "in", Route: "a"})
+	assert.NoError(t, err)
+	assert.JSONEq(t, `{"i18n":"in","route":"a"}`, string(out))
+}
+
+func TestValidateHref(t *testing.T) {
+	for _, ok := range []string{legacy, "/", "http://old.example.com/x", "https://old.example.com"} {
+		assert.NoError(t, navigation.Validate([]navigation.Node{{I18n: "n", Href: ok}}), ok)
+	}
+
+	for _, bad := range []string{"javascript:alert(1)", "data:text/html,x", "//evil.example.com", "/\\evil.example.com", "ftp://x.example.com", "https://", "admin/x", "JavaScript:alert(1)"} { //nolint:lll // one list
+		assert.ErrorIs(t, navigation.Validate([]navigation.Node{{I18n: "n", Href: bad}}), navigation.ErrInvalid, bad)
+	}
+
+	both := navigation.Validate([]navigation.Node{{I18n: "n", Route: "a", Href: "/x"}})
+	assert.ErrorIs(t, both, navigation.ErrInvalid)
+	assert.ErrorContains(t, both, "both route and href")
+
+	nested := navigation.Validate([]navigation.Node{group(navigation.Node{I18n: "deep", Href: "//x"})})
+	assert.ErrorContains(t, nested, `"deep"`)
+}
+
+func TestHrefNodesAreFilteredLikeRouteNodes(t *testing.T) {
+	tree := []navigation.Node{group(
+		navigation.Node{I18n: "old", Href: legacy, Permissions: []string{"pages:view"}},
+		navigation.Node{I18n: "open", Href: "https://example.com"},
+	)}
+
+	assert.Equal(t, []string{"open"}, titles(navigation.Filter(tree, navigation.Held())[0].Children))
+	assert.Equal(t, []string{"old", "open"}, titles(navigation.Filter(tree, navigation.Held("pages:view"))[0].Children))
 }

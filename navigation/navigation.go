@@ -15,6 +15,48 @@
 // itself is the application's; go-core only filters it.
 package navigation
 
+import (
+	"errors"
+	"fmt"
+	"net/url"
+	"strings"
+)
+
+// ErrInvalid is a menu node that Validate refuses.
+var ErrInvalid = errors.New("invalid navigation node")
+
+// Validate checks a menu tree: a node has a Route or an Href, never both, and an Href is a path starting with a single
+// "/" or an http:// or https:// URL with a host (no javascript:, data: or protocol-relative //host). The error wraps
+// ErrInvalid and names the node by its I18n key.
+func Validate(nodes []Node) error {
+	for _, node := range nodes {
+		if node.Route != "" && node.Href != "" {
+			return fmt.Errorf("%w: %q has both route and href", ErrInvalid, node.I18n)
+		}
+
+		if node.Href != "" && !validHref(node.Href) {
+			return fmt.Errorf("%w: %q has href %q, which is neither a path nor an http(s) URL", ErrInvalid, node.I18n, node.Href)
+		}
+
+		err := Validate(node.Children)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validHref(href string) bool {
+	if strings.HasPrefix(href, "/") {
+		return !strings.HasPrefix(href, "//") && !strings.HasPrefix(href, "/\\") && !strings.ContainsAny(href, "\r\n\t")
+	}
+
+	u, err := url.Parse(href)
+
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
 // Node is one entry of the menu: a destination (Route set) or a group of Children.
 type Node struct {
 	// I18n is the key of the label; the client translates it.
@@ -22,7 +64,10 @@ type Node struct {
 	// Icon is the icon's name, when there is one.
 	Icon string `json:"icon,omitempty"`
 	// Route is the destination's token, which the client binds to one of its own routes.
-	Route    string `json:"route,omitempty"`
+	Route string `json:"route,omitempty"`
+	// Href is a destination outside the app: a path ("/admin-legacy/pages") or an http(s):// URL, drawn by the client
+	// as an external link. A node has a Route or an Href, never both (Validate).
+	Href     string `json:"href,omitempty"`
 	Children []Node `json:"children,omitempty"`
 	// Permissions gate the node: a person needs at least one to see it. Empty
 	// means everybody who is signed in.

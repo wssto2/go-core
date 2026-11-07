@@ -342,6 +342,13 @@ func WithNavigation(p NavigationProvider) Option {
 
 // Menu is the NavigationProvider of a menu that is the same for everybody.
 func Menu(menu ...navigation.Node) NavigationProvider {
+	err := navigation.Validate(menu)
+	if err != nil {
+		return func(context.Context, account.Account) ([]navigation.Node, error) {
+			return nil, err //nolint:wrapcheck // the error names the node
+		}
+	}
+
 	return func(context.Context, account.Account) ([]navigation.Node, error) { return menu, nil }
 }
 

@@ -55,6 +55,7 @@ export type Node = {
   i18n: string;
   icon?: string;
   route?: string;
+  href?: string;
   children?: Node[];
   permissions?: string[];
 };
