@@ -62,14 +62,14 @@ func prohibitions() []archtest.Banned {
 	var out []archtest.Banned
 
 	for pkg, targets := range map[string][]string{
-		pkgAuth:      {pkgDatabase, pkgEvent},
-		pkgEvent:     {pkgAuth},
-		"audit":      {pkgAuth},
-		pkgDatabase:  {pkgEvent, pkgAuth, pkgGocore, pkgGocoreTest},
-		"health":     {pkgGocore, pkgGocoreTest},
-		pkgRoute:     {pkgGocore, pkgGocoreTest},
-		"contract":   {pkgGocore},
-		"authz":      {pkgGocore, pkgGocoreTest},
+		pkgAuth:     {pkgDatabase, pkgEvent},
+		pkgEvent:    {pkgAuth},
+		"audit":     {pkgAuth},
+		pkgDatabase: {pkgEvent, pkgAuth, pkgGocore, pkgGocoreTest},
+		"health":    {pkgGocore, pkgGocoreTest},
+		pkgRoute:    {pkgGocore, pkgGocoreTest},
+		"contract":  {pkgGocore},
+		"authz":     {pkgGocore, pkgGocoreTest},
 	} {
 		for _, target := range targets {
 			out = append(out, ban(pkg, target))
@@ -91,9 +91,11 @@ func modules() []archtest.Banned {
 
 	// a module's facade is the only package that imports gocore.
 	facade := banned(goCore+pkgGocore, "", "section 1.2: a module's facade is the only package that imports gocore")
-	facade.In = []string{"identity/...", "access/...", "notification/...", "incident/...", "savedview/..."}
+	facade.In = []string{
+		"identity/...", "access/...", "notification/...", "incident/...", "savedview/...", "characteristics/...",
+	}
 	facade.Except = []string{
-		"identity", "access", "notification", "incident", "savedview", "identity/serviceaccount/keynotice",
+		"identity", "access", "notification", "incident", "savedview", "characteristics", "identity/serviceaccount/keynotice",
 	}
 
 	// gocoretest is for _test.go files and test-support packages only.
@@ -115,7 +117,13 @@ func modules() []archtest.Banned {
 	savedviewCore.In = []string{"savedview/core"}
 	savedviewCore.Unless = []string{goCore + "apperr"}
 
-	return []archtest.Banned{pure, arrow, facade, testOnly, core, incidentCore, savedviewCore}
+	// characteristics' core is framework-free too: the standard library and apperr.
+	characteristicsCore := banned("...", "",
+		"section 1.2: characteristics/core takes the standard library and apperr only")
+	characteristicsCore.In = []string{"characteristics/core"}
+	characteristicsCore.Unless = []string{goCore + "apperr"}
+
+	return []archtest.Banned{pure, arrow, facade, testOnly, core, incidentCore, savedviewCore, characteristicsCore}
 }
 
 // TestArchitectureDocument holds go-core to the package dependency rules of

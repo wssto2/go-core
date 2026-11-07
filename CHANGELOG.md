@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.34.0-rc.1 (unreleased)
+
+### Added
+
+- characteristics: a new module, **Karakteristike**: editor-maintained reference data (categories, brands, delivery countries) as a tree of levels in a project's own tables, read and written as they are from a description in code (`core.Tree`: tables, parent and ancestor columns, translations in a JSON column or one column per language, order, active, meta, audit columns and how they are written, extra columns with hr/en label, type, list, read-only and an optional branch). A column the description does not name is never read or written; an invalid description stops start-up and names every problem. `characteristics.Install(app, catalogue, tree, opts...)` with `WithUsage`/`WithoutUsage` (required: where an item is used is the application's to say; a used item is not deleted unless `force`, and "usage unknown" is said as such), `WithMigrations(n)`, `WithCache`, `On`. One `gormstore` serves go-core's tables, site-builder's three levels and arv-next's four (MariaDB 10.3 and MySQL); `storetest` is the conformance suite, run on all three shapes.
+- characteristics/migrations: ready-made tables `characteristics_level1` to `_level3` (name, `name_i18n`, `meta`, order, active, audit columns) for new projects; `First(n)` ships fewer levels.
+- characteristics: permissions `characteristics:view` and `characteristics:edit` with hr/en labels (`characteristics.Labels`) for the webmaster role (`characteristics.Grants()`); routes under `/v1/characteristics` (tree, description, item, branch, usage, create, update, active, position, delete) and `GET /options` for form fields, open to any signed-in caller. `characteristics.Routes` is in `cmd/modulets` (`characteristics/`) for vue-core.
+- archtest: `characteristics/core` takes the standard library and `apperr` only; `characteristics` is a module facade.
+
 ## v1.33.0 (2026-11-06)
 
 ### Added

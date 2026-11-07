@@ -712,6 +712,32 @@ savedview.Install(app) // the table and three routes; no options, no permission
 
 ---
 
+## Characteristics
+
+**Editor-maintained reference data** (news categories, brands, delivery countries) kept as a tree of a few levels in the project's **own tables**, which the module reads and writes as they are from a description the project writes in code. It does not own the tables: site-builder's three `characteristics_level*` tables and arv-next's four `karakteristike*` tables are served by the same store, and a new project gets ready-made ones.
+
+```go
+tree := characteristics.Default(2) // two levels of the ready-made tables
+tree.Levels[1].Fields = append(tree.Levels[1].Fields, core.Field{ // a column the project added in its own migration
+	Column: "code", Label: core.Text{HR: "Kod marke", EN: "Brand code"}, Type: core.TypeText, Max: 20, Null: true,
+	InList: true, Under: &core.Under{Level: 1, ID: 2}, // only below row 2 of level 1
+})
+
+permissions := authz.NewCatalogue()
+characteristics.Install(app, permissions, tree, characteristics.WithMigrations(2), characteristics.WithUsage(pagesAndHosts{}))
+access.Install(app, permissions, users, access.WithRoles(authz.Role{Key: "webmaster", Name: "Webmaster", Grants: characteristics.Grants()}))
+```
+
+* **The description (`characteristics/core`, `core.Tree`)**, per level: `Table`, `ID`, `Parent` (empty at the root), `Ancestors` (the columns holding the ids above the parent, as site-builder's level 3 keeps `level1_id` as well as `level2_id`; all or none), `Name` and `NameMax`, `Translations` (a JSON column `{"hr": "...", "en": "..."}`, or `Columns` with one column per language, or neither), `Order`, `Active`, `Meta` (a JSON object) and `Audit`, each optional. The audit columns are named with how they are written: creator and time on create, editor and time on every update (`UpdatedByOnCreate`, `UpdatedAtOnCreate` say whether create also sets them: Laravel sets the time only, arv-next the editor only), activator and deactivator with their times when the row is switched. **Extra columns** are `Field`s: `Label` (hr/en), `Type` (`TypeText`, `TypeNumber`, `TypeYesNo`, `TypeChoice` with `Choices`), `Max`, `Null` (empty is NULL), `InList`, `ReadOnly`, and `Under` (the field exists only below one row of a higher level: DWS's brand code is `additional_3` under level 2 row 2, read-only). **A column the description does not name is never read into the API or written**; a value in it survives every write. `Prepare` checks the description and `Install` stops start-up listing every problem; once migrations ran, a described column the database lacks stops it too.
+* **Ready-made tables** (`characteristics/migrations`): `characteristics_level1` to `_level3` in the shape site-builder has (`name`, `name_i18n`, `meta`, `order`, `active`, the audit columns, `level1_id`/`level2_id`), **three levels**; `WithMigrations(n)` registers the first n (`migrations.First(n)`), `characteristics.Default(n)` is their description. A project that needs fewer passes a smaller n; one that needs more, or other columns, writes its own migration and description (the module creates no table without `WithMigrations`). The files use `IF NOT EXISTS`, so a project that already has these tables adopts them.
+* **The service (`*core.Service`, what `Install` returns)**: `Tree`, `Branch(level, id)`, `Get`, `Create(actor, level, parent, Input)` (last among its siblings), `Update`, `SetActive`, `Move(level, id, position)`, `Usage`, `Delete(level, id, force)`, `Options`. Reads are cached per tree for a minute (`WithCache`; zero keeps nothing) and dropped on every write through the module; a write by another process, such as Laravel during a migration, shows after the time to live. The store is `characteristics/gormstore` (raw, quoted SQL built from the description, MariaDB 10.3 and MySQL; a flag is written as the text `0`/`1`, which `tinyint` and `enum('0','1')` both read) and passes `characteristics/storetest`, which a project can run on its own tables.
+* **Delete safety (CHARACTERISTICS-DELETE-001)**: the application may implement `core.Usage` (`Uses(ctx, level, id) ([]core.Use, error)`, "2 pages, 1 host"). Like identity's mail it is not optional by accident: `Install` needs `WithUsage(port)` or `WithoutUsage()`. A delete is refused with 409 (`characteristics.in_use`, the uses in the params; `characteristics.has_children`) unless `?force=true`; deactivating is always possible. Without a port the usage answer is `{known: false}` and the delete answer `usage_known: false`.
+* **Permissions (CHARACTERISTICS-PERM-001)**: `characteristics:view` and `characteristics:edit` (needs view), labels in `characteristics.Labels` (hr/en, keys `perm.characteristics.view` and `.edit`). `Install` defines them in the catalogue (before `access.Install` builds the engine) and grants them to nobody; `characteristics.Grants()` is what the webmaster role gets, and a computed role that holds the whole catalogue has them already.
+* **Routes** (`characteristics.Routes`, group `characteristics`, under `/v1/characteristics`): `GET /` (every item, depth first), `GET /description` (levels and fields for the screen's forms), `GET /items/:level/:id`, `.../branch`, `.../usage` (view); `POST /items/:level`, `PUT /items/:level/:id`, `PUT .../active`, `PUT .../position`, `DELETE /items/:level/:id` (edit); and `GET /options?level=&parent=&value=&lang=` for **form fields**, which needs only a signed-in caller: the active items of one branch as `{value, label}`, the label in `lang`, the value the id or a described column (DWS's `additional_3`). A value for a column the description does not name, for a field of another branch, or a change to a read-only field is a 400.
+* The TypeScript contract is `characteristics.Routes` (`cmd/modulets` writes `characteristics/`, which vue-core syncs with `npm run modules:sync`). Rules: `docs/rules/characteristics/characteristics.md`.
+
+---
+
 ## Locks
 
 `lock` is a **named lease with an owner and a time to live**: "only one of these runs at a time" across processes and servers, kept in the database they share.

@@ -56,6 +56,9 @@ Modules — features go-core ships, each a facade that imports gocore (section 1
   audit, authz and its own sub-packages; incident/core is framework-free and takes apperr, pagination and the
   standard library; gormstore imports database, datatable and core; storetest, mailtext and migrations hold the
   conformance suite, the alert wording and the goose files)
+  characteristics (editor-maintained reference data in the project's own tables, described in code: the facade imports gocore,
+  authz and its own sub-packages; characteristics/core is framework-free and takes apperr and the standard library;
+  gormstore imports database and core; storetest holds the conformance suite and migrations the goose files)
 
 Layer 7 — example only:
   go-core-example
@@ -102,7 +105,8 @@ production files (`_test.go` files and `*test` support packages are exempt):
   excepted), and `gocore` imported only by a module's facade;
 - `gocoretest` imported by test code only;
 - `incident/core` taking the standard library, `apperr` and `pagination` only;
-- `identity/account` taking the standard library, `apperr`, `authz`, `mail` and bcrypt only.
+- `identity/account` taking the standard library, `apperr`, `authz`, `mail` and bcrypt only;
+- `characteristics/core` taking the standard library and `apperr` only.
 
 It also holds `archtest`'s route-access rule on go-core's own routes (every route
 says who may call it). Not checked: `fmt.Errorf` wrapping (two `%v` wraps of an
@@ -187,6 +191,7 @@ change between rc tags.
 | `notification`, `notification/*` | The in-app inbox, e-mail and Web Push of notifications. |
 | `incident`, `incident/*` | The incident log: server errors become deduplicated incidents with alerts. |
 | `savedview`, `savedview/*` | A person's named list filters. |
+| `characteristics`, `characteristics/*` | Editor-maintained reference data (categories, brands, countries) in a project's own tables, described in code. |
 | `lock`, `lock/*` | Named leases across processes. |
 | `retention` | Deleting or redacting old rows by policy. |
 | `event` | The transactional outbox: `Define`, `Publish`, `Queue`. |
