@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.34.0-rc.2 (2026-11-08)
 
 ### Fixed
 
