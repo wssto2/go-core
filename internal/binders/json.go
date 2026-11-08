@@ -40,7 +40,7 @@ import (
 // Returns ErrValidation with field-level messages on validation failure.
 // Returns ErrBadRequest if the body is unreadable or malformed JSON.
 func BindRequest[T any](ctx *gin.Context, v *T) error {
-	raw, isMultipart, err := parseRequest(ctx.Request)
+	raw, isMultipart, err := parseRequest(ctx.Request, reflect.TypeFor[T]())
 	if err != nil {
 		return err
 	}
@@ -91,15 +91,19 @@ func bind[T any](subject *T, raw map[string]any, isMultipart bool) error {
 	return nil
 }
 
-func parseRequest(r *http.Request) (map[string]any, bool, error) {
+// parseRequest reads the body; into is the struct it will be bound to (nil: no raw members).
+func parseRequest(r *http.Request, into reflect.Type) (map[string]any, bool, error) {
 	contentType := r.Header.Get("Content-Type")
 	if strings.Contains(contentType, "multipart/form-data") {
 		return parseMultipart(r)
 	}
-	return parseJSON(r)
+	return parseJSON(r, into)
 }
 
-func parseJSON(r *http.Request) (map[string]any, bool, error) {
+// parseJSON decodes the body into a tree of strings, float64s, bools, lists and maps. A member that
+// holds a json.RawMessage somewhere inside (see keepsRaw) stays a json.RawMessage of the body's own
+// bytes in the tree, and coerceValue decodes it when it meets the field.
+func parseJSON(r *http.Request, into reflect.Type) (map[string]any, bool, error) {
 	// The body limit is the application's (web.BodyLimit); a body over it fails the read.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -112,6 +116,32 @@ func parseJSON(r *http.Request) (map[string]any, bool, error) {
 
 	if len(body) == 0 {
 		return make(map[string]any), false, nil
+	}
+
+	if keys := rawKeys(into); len(keys) > 0 {
+		var members map[string]json.RawMessage
+		if err := json.Unmarshal(body, &members); err != nil {
+			return nil, false, apperr.BadRequest("invalid JSON: " + err.Error())
+		}
+
+		raw := make(map[string]any, len(members))
+
+		for key, member := range members {
+			if keys[key] {
+				raw[key] = member
+
+				continue
+			}
+
+			var v any
+			if err := json.Unmarshal(member, &v); err != nil {
+				return nil, false, apperr.BadRequest("invalid JSON: " + err.Error())
+			}
+
+			raw[key] = v
+		}
+
+		return raw, false, nil
 	}
 
 	var raw map[string]any

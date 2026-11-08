@@ -28,6 +28,18 @@ func coerceValue(field reflect.Value, value any, isMultipart bool) *validation.F
 		return coercePointer(field, value, isMultipart)
 	}
 
+	// A member kept as the body's own bytes (see parseJSON).
+	if raw, ok := value.(json.RawMessage); ok {
+		return coerceRaw(field, raw, isMultipart)
+	}
+
+	// any: take the decoded value as it is (a map[string]any or []any member, or a list of them).
+	if field.Kind() == reflect.Interface && field.NumMethod() == 0 {
+		field.Set(reflect.ValueOf(value))
+
+		return nil
+	}
+
 	// Types with custom JSON decoding (e.g. time.Time) are handled by
 	// round-tripping the already-decoded value back through their own
 	// UnmarshalJSON, rather than by the generic kind-based switch below.
@@ -258,4 +270,56 @@ func coerceMapIntoStruct(field reflect.Value, v map[string]interface{}) *validat
 	}
 
 	return nil
+}
+
+// coerceRaw binds a member that parseJSON kept as bytes. A json.RawMessage field gets the bytes as
+// the body had them; a list or an object that holds one is split one level and its members bound the
+// same way; anything else is decoded the usual way.
+func coerceRaw(field reflect.Value, raw json.RawMessage, isMultipart bool) *validation.Failure {
+	if string(raw) == "null" {
+		return nil
+	}
+
+	if field.Type() == rawMessageType {
+		field.SetBytes(append(json.RawMessage(nil), raw...))
+
+		return nil
+	}
+
+	var decoded any
+
+	if keepsRaw(field.Type(), nil) {
+		switch raw[0] {
+		case '[':
+			var items []json.RawMessage
+			if json.Unmarshal(raw, &items) != nil {
+				return new(validation.Fail(validation.CodeInvalidType))
+			}
+
+			list := make([]any, len(items))
+			for i, item := range items {
+				list[i] = item
+			}
+
+			decoded = list
+		case '{':
+			var members map[string]json.RawMessage
+			if json.Unmarshal(raw, &members) != nil {
+				return new(validation.Fail(validation.CodeInvalidType))
+			}
+
+			object := make(map[string]any, len(members))
+			for key, member := range members {
+				object[key] = member
+			}
+
+			decoded = object
+		}
+	}
+
+	if decoded == nil && json.Unmarshal(raw, &decoded) != nil {
+		return new(validation.Fail(validation.CodeInvalidType))
+	}
+
+	return coerceValue(field, decoded, isMultipart)
 }

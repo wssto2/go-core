@@ -19,7 +19,7 @@ func TestParseJSON_EmptyBody_ReturnsEmptyMap(t *testing.T) {
 	req, _ := http.NewRequest("POST", "/", http.NoBody)
 	req.Header.Set("Content-Type", "application/json")
 
-	raw, isMultipart, err := parseJSON(req)
+	raw, isMultipart, err := parseJSON(req, nil)
 	if err != nil {
 		t.Fatalf("expected no error for empty body, got %v", err)
 	}
@@ -35,7 +35,7 @@ func TestParseJSON_InvalidJSON_ReturnsBadRequest(t *testing.T) {
 	req, _ := http.NewRequest("POST", "/", io.NopCloser(strings.NewReader(`{invalid`)))
 	req.Header.Set("Content-Type", "application/json")
 
-	_, _, err := parseJSON(req)
+	_, _, err := parseJSON(req, nil)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -50,7 +50,7 @@ func TestParseJSON_ValidObject_ReturnsFields(t *testing.T) {
 	req, _ := http.NewRequest("POST", "/", io.NopCloser(strings.NewReader(body)))
 	req.Header.Set("Content-Type", "application/json")
 
-	raw, isMultipart, err := parseJSON(req)
+	raw, isMultipart, err := parseJSON(req, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestParseRequest_RoutesByContentType_JSON(t *testing.T) {
 	req, _ := http.NewRequest("POST", "/", io.NopCloser(strings.NewReader(body)))
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 
-	_, isMultipart, err := parseRequest(req)
+	_, isMultipart, err := parseRequest(req, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestParseRequest_RoutesByContentType_Multipart(t *testing.T) {
 	req, _ := http.NewRequest("POST", "/", &buf)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
-	_, isMultipart, err := parseRequest(req)
+	_, isMultipart, err := parseRequest(req, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

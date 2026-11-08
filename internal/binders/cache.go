@@ -1,6 +1,7 @@
 package binders
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"sync"
@@ -86,4 +87,58 @@ func isPromoted(sf reflect.StructField, key string) bool {
 
 func isURLParam(sf reflect.StructField) bool {
 	return sf.Tag.Get("path") != "" || sf.Tag.Get("query") != ""
+}
+
+var rawMessageType = reflect.TypeFor[json.RawMessage]()
+
+// rawKeys lists the keys of struct t whose field holds a json.RawMessage somewhere inside.
+func rawKeys(t reflect.Type) map[string]bool {
+	if t == nil || t.Kind() != reflect.Struct {
+		return nil
+	}
+
+	var keys map[string]bool
+
+	for _, meta := range getFieldMeta(t) {
+		if keepsRaw(meta.structField.Type, nil) {
+			if keys == nil {
+				keys = map[string]bool{}
+			}
+
+			keys[meta.formKey] = true
+		}
+	}
+
+	return keys
+}
+
+// keepsRaw reports whether a value of type t has a json.RawMessage in it, through pointers, lists,
+// maps and structs. seen guards against a type that contains itself.
+func keepsRaw(t reflect.Type, seen map[reflect.Type]bool) bool {
+	if t == rawMessageType {
+		return true
+	}
+
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+		return keepsRaw(t.Elem(), seen)
+	case reflect.Struct:
+		if seen[t] {
+			return false
+		}
+
+		if seen == nil {
+			seen = map[reflect.Type]bool{}
+		}
+
+		seen[t] = true
+
+		for _, meta := range getFieldMeta(t) {
+			if keepsRaw(meta.structField.Type, seen) {
+				return true
+			}
+		}
+	}
+
+	return false
 }

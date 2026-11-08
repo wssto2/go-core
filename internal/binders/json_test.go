@@ -22,7 +22,7 @@ func TestBind_BodyOverTheApplicationsLimit_ReturnsPayloadTooLarge(t *testing.T) 
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
-	_, _, parseErr := parseJSON(req)
+	_, _, parseErr := parseJSON(req, nil)
 	require.Error(t, parseErr)
 
 	var appErr *apperr.AppError
@@ -37,7 +37,7 @@ func TestBind_NormalBody_Succeeds(t *testing.T) {
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
-	raw, isMultipart, parseErr := parseJSON(req)
+	raw, isMultipart, parseErr := parseJSON(req, nil)
 	require.NoError(t, parseErr)
 	assert.False(t, isMultipart)
 	assert.Equal(t, "value", raw["key"])
