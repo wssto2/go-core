@@ -34,6 +34,8 @@ func (f *Float) Scan(value interface{}) error {
 		f.value = float64(v)
 	case int64:
 		f.value = float64(v)
+	case uint64:
+		f.value = float64(v)
 	case []byte:
 		val, err := strconv.ParseFloat(string(v), 64)
 		if err != nil {

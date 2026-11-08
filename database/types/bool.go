@@ -32,6 +32,8 @@ func (b *Bool) Scan(value interface{}) error {
 		b.value = v
 	case int64:
 		b.value = v != 0
+	case uint64:
+		b.value = v != 0
 	case []byte:
 		val, err := strconv.ParseBool(string(v))
 		if err != nil {

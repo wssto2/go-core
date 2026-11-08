@@ -62,6 +62,8 @@ func (e *LegacyBoolEnum) Scan(value any) error {
 		e.value = string(typedValue) == "1"
 	case int64:
 		e.value = typedValue == 1
+	case uint64:
+		e.value = typedValue == 1
 	default:
 		return fmt.Errorf("unsupported type for Enum: %T", value)
 	}

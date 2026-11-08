@@ -47,6 +47,8 @@ func (b *NullBool) Scan(value interface{}) error {
 		boolVal = v
 	case int64:
 		boolVal = v != 0
+	case uint64:
+		boolVal = v != 0
 	case []byte:
 		val, err := strconv.ParseBool(string(v))
 		if err != nil {

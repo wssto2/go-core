@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/goccy/go-json"
@@ -41,6 +42,13 @@ func (i *NullInt) Scan(value interface{}) error {
 	}
 	switch v := value.(type) {
 	case int64:
+		val := int(v)
+		i.value = &val
+	case uint64: // BIGINT UNSIGNED over the text protocol (go-sql-driver >= 1.8)
+		if v > math.MaxInt {
+			return fmt.Errorf("%w: %d", ErrIntOverflow, v)
+		}
+
 		val := int(v)
 		i.value = &val
 	case float64:

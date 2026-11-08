@@ -3,7 +3,9 @@ package types
 import (
 	"context"
 	"database/sql/driver"
+	"errors"
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/goccy/go-json"
@@ -26,9 +28,18 @@ func (i Int) Value() (driver.Value, error) {
 	return int64(i.value), nil
 }
 
+// ErrIntOverflow is an unsigned database value too large for Int or NullInt.
+var ErrIntOverflow = errors.New("value overflows int")
+
 func (i *Int) Scan(value interface{}) error {
 	switch v := value.(type) {
 	case int64:
+		i.value = int(v)
+	case uint64: // BIGINT UNSIGNED over the text protocol (go-sql-driver >= 1.8)
+		if v > math.MaxInt {
+			return fmt.Errorf("%w: %d", ErrIntOverflow, v)
+		}
+
 		i.value = int(v)
 	case float64:
 		i.value = int(v)
