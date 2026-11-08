@@ -17,8 +17,8 @@ export const DraftSchema = z.object({
 export type Draft = z.infer<typeof DraftSchema>;
 
 export const ListInputSchema = z.object({
-  status: z.string().max(20),
-  page: z.number().int(),
+  status: z.string().max(20).optional(),
+  page: z.number().int().optional(),
 });
 
 export type ListInput = z.infer<typeof ListInputSchema>;

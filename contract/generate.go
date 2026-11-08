@@ -420,6 +420,10 @@ func tsType(spec route.Spec, t reflect.Type, lists *bool) (string, []reflect.Typ
 	case reflect.Pointer:
 		expr, st, err := tsType(spec, t.Elem(), lists)
 		return expr + " | null", st, err
+	case reflect.Interface:
+		if t.NumMethod() == 0 {
+			return "unknown", nil, nil
+		}
 	case reflect.Bool:
 		return "boolean", nil, nil
 	case reflect.String:
