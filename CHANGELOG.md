@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- database/types: `Int`, `NullInt`, `Bool`, `NullBool`, `Float`, `NullFloat` and `LegacyBoolEnum` scan `uint64`. go-sql-driver (>= 1.8) returns an unsigned integer column as `uint64` when a query has no bound arguments (the text protocol), and these types refused it with "unsupported type for Int: uint64" (found in site-builder: a `SELECT id, name FROM hosts` on `BIGINT UNSIGNED` ids). `Int` and `NullInt` refuse a value above `math.MaxInt` with `ErrIntOverflow`.
+
 ## v1.34.0-rc.1 (2026-11-07)
 
 ### Added
