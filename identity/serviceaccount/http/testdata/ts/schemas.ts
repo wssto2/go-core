@@ -17,7 +17,7 @@ export type BindInput = z.infer<typeof BindInputSchema>;
 
 export const BindableInputSchema = z.object({
   level: z.string().trim().min(1).max(32),
-  scope_id: z.number().int(),
+  scope_id: z.number().int().optional(),
 });
 
 export type BindableInput = z.infer<typeof BindableInputSchema>;

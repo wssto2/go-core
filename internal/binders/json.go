@@ -92,12 +92,13 @@ func bind[T any](subject *T, raw map[string]any, isMultipart bool) error {
 }
 
 // parseRequest reads the body; into is the struct it will be bound to (nil: no raw members).
-func parseRequest(r *http.Request, into reflect.Type) (map[string]any, bool, error) {
-	contentType := r.Header.Get("Content-Type")
+func parseRequest(req *http.Request, into reflect.Type) (map[string]any, bool, error) {
+	contentType := req.Header.Get("Content-Type")
 	if strings.Contains(contentType, "multipart/form-data") {
-		return parseMultipart(r)
+		return parseMultipart(req)
 	}
-	return parseJSON(r, into)
+
+	return parseJSON(req, into)
 }
 
 // parseJSON decodes the body into a tree of strings, float64s, bools, lists and maps. A member that
@@ -120,7 +121,9 @@ func parseJSON(r *http.Request, into reflect.Type) (map[string]any, bool, error)
 
 	if keys := rawKeys(into); len(keys) > 0 {
 		var members map[string]json.RawMessage
-		if err := json.Unmarshal(body, &members); err != nil {
+
+		err := json.Unmarshal(body, &members)
+		if err != nil {
 			return nil, false, apperr.BadRequest("invalid JSON: " + err.Error())
 		}
 
@@ -133,12 +136,14 @@ func parseJSON(r *http.Request, into reflect.Type) (map[string]any, bool, error)
 				continue
 			}
 
-			var v any
-			if err := json.Unmarshal(member, &v); err != nil {
+			var value any
+
+			err := json.Unmarshal(member, &value)
+			if err != nil {
 				return nil, false, apperr.BadRequest("invalid JSON: " + err.Error())
 			}
 
-			raw[key] = v
+			raw[key] = value
 		}
 
 		return raw, false, nil

@@ -89,17 +89,15 @@ func isURLParam(sf reflect.StructField) bool {
 	return sf.Tag.Get("path") != "" || sf.Tag.Get("query") != ""
 }
 
-var rawMessageType = reflect.TypeFor[json.RawMessage]()
-
-// rawKeys lists the keys of struct t whose field holds a json.RawMessage somewhere inside.
-func rawKeys(t reflect.Type) map[string]bool {
-	if t == nil || t.Kind() != reflect.Struct {
+// rawKeys lists the keys of struct typ whose field holds a json.RawMessage somewhere inside.
+func rawKeys(typ reflect.Type) map[string]bool {
+	if typ == nil || typ.Kind() != reflect.Struct {
 		return nil
 	}
 
 	var keys map[string]bool
 
-	for _, meta := range getFieldMeta(t) {
+	for _, meta := range getFieldMeta(typ) {
 		if keepsRaw(meta.structField.Type, nil) {
 			if keys == nil {
 				keys = map[string]bool{}
@@ -114,16 +112,16 @@ func rawKeys(t reflect.Type) map[string]bool {
 
 // keepsRaw reports whether a value of type t has a json.RawMessage in it, through pointers, lists,
 // maps and structs. seen guards against a type that contains itself.
-func keepsRaw(t reflect.Type, seen map[reflect.Type]bool) bool {
-	if t == rawMessageType {
+func keepsRaw(typ reflect.Type, seen map[reflect.Type]bool) bool {
+	if typ == reflect.TypeFor[json.RawMessage]() {
 		return true
 	}
 
-	switch t.Kind() {
+	switch typ.Kind() { //nolint:exhaustive // only the kinds that can hold one
 	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
-		return keepsRaw(t.Elem(), seen)
+		return keepsRaw(typ.Elem(), seen)
 	case reflect.Struct:
-		if seen[t] {
+		if seen[typ] {
 			return false
 		}
 
@@ -131,9 +129,9 @@ func keepsRaw(t reflect.Type, seen map[reflect.Type]bool) bool {
 			seen = map[reflect.Type]bool{}
 		}
 
-		seen[t] = true
+		seen[typ] = true
 
-		for _, meta := range getFieldMeta(t) {
+		for _, meta := range getFieldMeta(typ) {
 			if keepsRaw(meta.structField.Type, seen) {
 				return true
 			}

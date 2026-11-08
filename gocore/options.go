@@ -22,19 +22,19 @@ type spaOption struct {
 // as appState (state may be nil). The templates, the Vite manifest and the assets are found by convention under
 // ./frontend; WithSPAConfig names them. The API prefix (WithPrefix) is the one path the shell leaves alone.
 func WithSPA(state frontend.AppStateBuilder) Option {
-	return func(app *App) { app.spa = &spaOption{state: state, config: nil} }
+	return func(app *App) { app.spa = &spaOption{state: state, shell: nil, config: nil} }
 }
 
 // WithShell is WithSPA with a state builder on net/http, not gin: build gets the request the shell answers and returns
 // what is rendered as appState (nil build: no state). Prefer it to WithSPA; WithSPA stays for gin code.
 func WithShell(build func(*http.Request) (any, error)) Option {
-	return func(app *App) { app.spa = &spaOption{shell: build} }
+	return func(app *App) { app.spa = &spaOption{state: nil, shell: build, config: nil} }
 }
 
 // WithSPAConfig serves the single-page application with an explicit frontend configuration. The configuration's
 // APIPrefix defaults to the prefix of WithPrefix, and DevMode to the development environment.
 func WithSPAConfig(cfg frontend.SPAConfig) Option {
-	return func(app *App) { app.spa = &spaOption{state: nil, config: &cfg} }
+	return func(app *App) { app.spa = &spaOption{state: nil, shell: nil, config: &cfg} }
 }
 
 // WithRateLimit limits requests with two limiters; either may be nil.

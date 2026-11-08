@@ -43,15 +43,15 @@ type appBuilder struct {
 	spaConfig           *frontend.SPAConfig
 	trustedOrigins      []string
 	idempotencyStore    *middlewares.IdempotencyStore
-	registry            *database.Registry                                                            // supplied with WithRegistry, else opened from cfg
-	log                 *slog.Logger                                                                  // supplied with WithLogger, else built from cfg
-	telemetry           *observability.Telemetry                                                      // supplied with WithTelemetry, else built from cfg
-	engineMiddleware    []gin.HandlerFunc                                                             // supplied with Use, applied by Build
-	metricsAccess       func(*http.Request) bool                                                      // WithMetricsAccess; nil: open
-	csp                 []gin.HandlerFunc                                                             // supplied with WithCSP, applied by Build
-	unmatched           http.Handler                                                                  // supplied with WithFallthrough, answers what no route does
-	forward             func(ctx *gin.Context, path string)                                           // set by Build: hands a request to unmatched, App.Forward
-	forwardHTTP         func(w http.ResponseWriter, r *http.Request, path string, report func(error)) // App.ForwardRequest
+	registry            *database.Registry                  // supplied with WithRegistry, else opened from cfg
+	log                 *slog.Logger                        // supplied with WithLogger, else built from cfg
+	telemetry           *observability.Telemetry            // supplied with WithTelemetry, else built from cfg
+	engineMiddleware    []gin.HandlerFunc                   // supplied with Use, applied by Build
+	metricsAccess       func(*http.Request) bool            // WithMetricsAccess; nil: open
+	csp                 []gin.HandlerFunc                   // supplied with WithCSP, applied by Build
+	unmatched           http.Handler                        // supplied with WithFallthrough, answers what no route does
+	forward             func(ctx *gin.Context, path string) // set by Build: hands a request to unmatched, App.Forward
+	forwardHTTP         forwardFunc                         // set by Build: the same for App.ForwardRequest
 }
 
 // New creates a new appBuilder with the given config.

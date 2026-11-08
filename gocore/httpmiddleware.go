@@ -43,6 +43,7 @@ func ginOf(mw func(http.Handler) http.Handler) gin.HandlerFunc {
 // writes to the gin one (so its status and size stay right).
 type wrappedWriter struct {
 	gin.ResponseWriter
+
 	out http.ResponseWriter
 }
 
@@ -50,9 +51,13 @@ func (w *wrappedWriter) Header() http.Header { return w.out.Header() }
 
 func (w *wrappedWriter) WriteHeader(code int) { w.out.WriteHeader(code) }
 
-func (w *wrappedWriter) Write(p []byte) (int, error) { return w.out.Write(p) }
+func (w *wrappedWriter) Write(p []byte) (int, error) {
+	return w.out.Write(p) //nolint:wrapcheck // the writer's own error
+}
 
-func (w *wrappedWriter) WriteString(s string) (int, error) { return w.out.Write([]byte(s)) }
+func (w *wrappedWriter) WriteString(s string) (int, error) {
+	return w.out.Write([]byte(s)) //nolint:wrapcheck // the writer's own error
+}
 
 func (w *wrappedWriter) Flush() {
 	if f, ok := w.out.(http.Flusher); ok {

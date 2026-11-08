@@ -1,4 +1,4 @@
-//nolint:paralleltest // tests in the style of the package
+//nolint:paralleltest,testpackage,noctx,ireturn,varnamelen // tests in the style of the package
 package binders
 
 import (

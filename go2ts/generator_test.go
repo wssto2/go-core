@@ -250,7 +250,7 @@ func TestGenerateTypes_AliasAppliesBeforeParentIsProcessed(t *testing.T) {
 type routeInput struct {
 	ID     int    `path:"id"`
 	Status string `query:"status" validation:"max:20"`
-	Sort   string `query:"sort" validation:"required"`
+	Sort   string `query:"sort"   validation:"required"`
 	Title  string `json:"title"`
 	Plain  string
 }
@@ -264,7 +264,10 @@ func TestSchemaNamesFieldsByPathAndQueryTags(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(dir, "routeInput.ts")) //nolint:gosec // test temp dir
 	require.NoError(t, err)
 
-	for _, want := range []string{"  id: z.number()", "  status: z.string().max(20).optional()", "  sort: z.string().min(1),", "  title: z.string()", "  Plain: z.string()"} {
+	for _, want := range []string{
+		"  id: z.number()", "  status: z.string().max(20).optional()", "  sort: z.string().min(1),",
+		"  title: z.string()", "  Plain: z.string()",
+	} {
 		assert.Contains(t, string(content), want)
 	}
 }

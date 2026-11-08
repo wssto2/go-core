@@ -280,46 +280,48 @@ func coerceRaw(field reflect.Value, raw json.RawMessage, isMultipart bool) *vali
 		return nil
 	}
 
-	if field.Type() == rawMessageType {
+	if field.Type() == reflect.TypeFor[json.RawMessage]() {
 		field.SetBytes(append(json.RawMessage(nil), raw...))
 
 		return nil
 	}
 
-	var decoded any
-
-	if keepsRaw(field.Type(), nil) {
-		switch raw[0] {
-		case '[':
-			var items []json.RawMessage
-			if json.Unmarshal(raw, &items) != nil {
-				return new(validation.Fail(validation.CodeInvalidType))
-			}
-
-			list := make([]any, len(items))
-			for i, item := range items {
-				list[i] = item
-			}
-
-			decoded = list
-		case '{':
-			var members map[string]json.RawMessage
-			if json.Unmarshal(raw, &members) != nil {
-				return new(validation.Fail(validation.CodeInvalidType))
-			}
-
-			object := make(map[string]any, len(members))
-			for key, member := range members {
-				object[key] = member
-			}
-
-			decoded = object
-		}
-	}
-
-	if decoded == nil && json.Unmarshal(raw, &decoded) != nil {
+	decoded, ok := splitRaw(raw, keepsRaw(field.Type(), nil))
+	if !ok {
 		return new(validation.Fail(validation.CodeInvalidType))
 	}
 
 	return coerceValue(field, decoded, isMultipart)
+}
+
+// splitRaw decodes raw; a list or an object is decoded one level only (its members stay json.RawMessage) when split.
+func splitRaw(raw json.RawMessage, split bool) (any, bool) {
+	var decoded any
+
+	switch {
+	case split && raw[0] == '[':
+		var items []json.RawMessage
+
+		valid := json.Unmarshal(raw, &items) == nil
+		list := make([]any, len(items))
+
+		for i, item := range items {
+			list[i] = item
+		}
+
+		return list, valid
+	case split && raw[0] == '{':
+		var members map[string]json.RawMessage
+
+		valid := json.Unmarshal(raw, &members) == nil
+		object := make(map[string]any, len(members))
+
+		for key, member := range members {
+			object[key] = member
+		}
+
+		return object, valid
+	}
+
+	return decoded, json.Unmarshal(raw, &decoded) == nil
 }

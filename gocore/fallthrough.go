@@ -79,11 +79,15 @@ func trustedPeers(entries []string) ([]netip.Prefix, error) {
 	return trusted, nil
 }
 
+// forwardFunc hands a request to the fallthrough handler, see forwardTo.
+type forwardFunc func(w http.ResponseWriter, r *http.Request, path string, report func(error))
+
 // forwardTo hands the request to handler and commits its answer. path, when not empty, replaces the request path for
 // handler (the query stays); the request gin sees, logs and meters keeps its own. handler is told whether the peer is
 // a trusted proxy (the same list gin uses for the client IP) and where to report an upstream failure.
 func forwardTo(
-	handler http.Handler, trusted []netip.Prefix, writer http.ResponseWriter, req *http.Request, path string, report func(error),
+	handler http.Handler, trusted []netip.Prefix, writer http.ResponseWriter, req *http.Request, path string,
+	report func(error),
 ) {
 	host, _, err := net.SplitHostPort(strings.TrimSpace(req.RemoteAddr))
 	if err != nil {
@@ -119,8 +123,8 @@ func (b *appBuilder) fallthroughHandler() (gin.HandlerFunc, error) {
 	b.forward = func(ctx *gin.Context, path string) {
 		forwardTo(b.unmatched, trusted, ctx.Writer, ctx.Request, path, func(err error) { _ = ctx.Error(err) })
 	}
-	b.forwardHTTP = func(w http.ResponseWriter, r *http.Request, path string, report func(error)) {
-		forwardTo(b.unmatched, trusted, w, r, path, report)
+	b.forwardHTTP = func(writer http.ResponseWriter, req *http.Request, path string, report func(error)) {
+		forwardTo(b.unmatched, trusted, writer, req, path, report)
 	}
 
 	return func(ctx *gin.Context) { b.forward(ctx, "") }, nil
@@ -157,14 +161,14 @@ func (a *App) Forward(ctx *gin.Context, path string) {
 //
 // Without a gin context to hand an upstream failure to, a failure is logged, not an incident. Without WithFallthrough
 // the answer is a plain 500 and the cause is logged. Prefer it to Forward; Forward stays for gin handlers.
-func (a *App) ForwardRequest(w http.ResponseWriter, r *http.Request, path string) {
+func (a *App) ForwardRequest(writer http.ResponseWriter, req *http.Request, path string) {
 	if a.forwardHTTP == nil {
 		a.log.Error("forward_request_failed", "error", errNoFallthrough)
-		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 
 		return
 	}
 
-	middlewares.StripSecurityHeaders(w.Header())
-	a.forwardHTTP(w, r, path, func(err error) { a.log.Error("forward_request_failed", "error", err) })
+	middlewares.StripSecurityHeaders(writer.Header())
+	a.forwardHTTP(writer, req, path, func(err error) { a.log.Error("forward_request_failed", "error", err) })
 }

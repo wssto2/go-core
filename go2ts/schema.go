@@ -499,7 +499,8 @@ func structToZod(s interface{}, ctx *GenContext) (typeName string, output string
 
 		// A field Go leaves out of the JSON when it is empty may be left out of the
 		// request: optional in the schema, unless validation requires it.
-		if (jsonOmitsEmpty(jsonTag) || optionalQuery(field)) && !hasValRule(parseValidationTag(validationTag), "required") && !strings.HasSuffix(zodExpr, ".optional()") {
+		required := hasValRule(parseValidationTag(validationTag), "required")
+		if (jsonOmitsEmpty(jsonTag) || optionalQuery(field)) && !required && !strings.HasSuffix(zodExpr, ".optional()") {
 			zodExpr += ".optional()"
 		}
 
@@ -641,8 +642,8 @@ func jsonOmitsEmpty(tag string) bool {
 	return false
 }
 
-// optionalQuery: a query parameter may be left out of the URL, unless the field is required (the callers
-// check that). A path parameter is part of the path and is never optional.
+// optionalQuery: a query parameter may be left out of the URL (the callers check that it is not required). A path
+// parameter is part of the path and is never optional.
 func optionalQuery(field reflect.StructField) bool {
 	name := field.Tag.Get("query")
 

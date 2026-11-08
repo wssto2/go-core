@@ -1,4 +1,4 @@
-//nolint:paralleltest // tests in the style of the package
+//nolint:paralleltest,testpackage,noctx,varnamelen,exhaustruct,exhaustruct_v5,wrapcheck,wsl_v5 // test style
 package gocore
 
 import (

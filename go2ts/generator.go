@@ -206,7 +206,8 @@ func structToTs(s interface{}, ctx *GenContext) (string, string, map[string]inte
 
 		jsonName := wireName(field)
 
-		canBeUndefined := jsonOmitsEmpty(jsonTag) || (optionalQuery(field) && !hasValRule(parseValidationTag(field.Tag.Get("validation")), "required"))
+		required := hasValRule(parseValidationTag(field.Tag.Get("validation")), "required")
+		canBeUndefined := jsonOmitsEmpty(jsonTag) || (optionalQuery(field) && !required)
 
 		fieldType := mapGoTypeToTs(field.Type, typeName, children, ctx)
 

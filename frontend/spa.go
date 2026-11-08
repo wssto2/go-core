@@ -195,6 +195,7 @@ func RegisterSPA(engine *gin.Engine, cfg SPAConfig, log *slog.Logger) {
 		}
 
 		var appState any
+
 		if cfg.StateBuilder != nil || cfg.StateBuilderHTTP != nil {
 			var (
 				state any
