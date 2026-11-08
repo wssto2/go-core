@@ -242,3 +242,37 @@ func TestRegisterSPA_StateBuilderErrorAnswers503PlainPageAndIsReported(t *testin
 	assert.Contains(t, reported.Error(), "the session store is down")
 	assert.Contains(t, logged.String(), "the session store is down")
 }
+
+func TestRegisterSPA_StateBuilderHTTP_GetsTheRequestAndWinsOverTheGinOne(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "index.html"), []byte(`<html>{{ .AppState }}</html>`), 0o600))
+
+	engine := gin.New()
+	RegisterSPA(engine, SPAConfig{
+		TemplatesPath:    filepath.Join(dir, "*.html"),
+		TemplateName:     "index.html",
+		DevMode:          true,
+		StateBuilder:     func(*gin.Context) (any, error) { return "gin", nil },
+		StateBuilderHTTP: func(r *http.Request) (any, error) { return "http " + r.URL.Path, nil },
+	}, nil)
+
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/dashboard", nil))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "<html>http /dashboard</html>", w.Body.String())
+
+	failing := gin.New()
+	RegisterSPA(failing, SPAConfig{
+		TemplatesPath:    filepath.Join(dir, "*.html"),
+		TemplateName:     "index.html",
+		DevMode:          true,
+		StateBuilderHTTP: func(*http.Request) (any, error) { return nil, errors.New("down") },
+	}, nil)
+
+	w = httptest.NewRecorder()
+	failing.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/dashboard", nil))
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}

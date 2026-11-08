@@ -22,6 +22,9 @@ import (
 // reported like a handler error: logged, and an incident when incidents are installed.
 type StateBuilder func(ctx *gin.Context) (any, error)
 
+// StateBuilderHTTP is StateBuilder on net/http: the request is the one the shell answers. Prefer it to StateBuilder.
+type StateBuilderHTTP func(r *http.Request) (any, error)
+
 // AppStateBuilder is kept as an alias for the SPA state builder type.
 type AppStateBuilder = StateBuilder
 
@@ -61,6 +64,9 @@ type SPAConfig struct {
 	// StateBuilder is optional. If provided, its return value is exposed to the
 	// template as appState.
 	StateBuilder StateBuilder
+
+	// StateBuilderHTTP is StateBuilder without gin, and is used instead of it when both are set.
+	StateBuilderHTTP StateBuilderHTTP
 
 	// ExtraFuncs allows the application to add template functions on top of the
 	// built-in toJSON helper.
@@ -189,8 +195,18 @@ func RegisterSPA(engine *gin.Engine, cfg SPAConfig, log *slog.Logger) {
 		}
 
 		var appState any
-		if cfg.StateBuilder != nil {
-			state, err := cfg.StateBuilder(ctx)
+		if cfg.StateBuilder != nil || cfg.StateBuilderHTTP != nil {
+			var (
+				state any
+				err   error
+			)
+
+			if cfg.StateBuilderHTTP != nil {
+				state, err = cfg.StateBuilderHTTP(ctx.Request)
+			} else {
+				state, err = cfg.StateBuilder(ctx)
+			}
+
 			if err != nil {
 				_ = ctx.Error(apperr.Internal(fmt.Errorf("frontend: building the SPA state: %w", err)))
 				ctx.Data(http.StatusServiceUnavailable, "text/html; charset=utf-8", []byte(unavailablePage))

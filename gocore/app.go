@@ -95,7 +95,8 @@ type App struct {
 	csp            []gin.HandlerFunc
 	metricsAccess  func(*http.Request) bool // WithMetricsAccess; nil: every request may read /metrics
 	unmatched      http.Handler
-	forward        func(ctx *gin.Context, path string) // from the built app, see Forward
+	forward        func(ctx *gin.Context, path string)                                           // from the built app, see Forward
+	forwardHTTP    func(w http.ResponseWriter, r *http.Request, path string, report func(error)) // see ForwardRequest
 
 	disks      *storage.Registry
 	routes     []mounted

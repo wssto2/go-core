@@ -3,9 +3,11 @@ package gocore
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
 	"slices"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/wssto2/go-core/apperr"
@@ -80,24 +82,31 @@ func trustedPeers(entries []string) ([]netip.Prefix, error) {
 // forwardTo hands the request to handler and commits its answer. path, when not empty, replaces the request path for
 // handler (the query stays); the request gin sees, logs and meters keeps its own. handler is told whether the peer is
 // a trusted proxy (the same list gin uses for the client IP) and where to report an upstream failure.
-func forwardTo(handler http.Handler, trusted []netip.Prefix, ctx *gin.Context, path string) {
-	peer, _ := netip.ParseAddr(ctx.RemoteIP())
+func forwardTo(
+	handler http.Handler, trusted []netip.Prefix, writer http.ResponseWriter, req *http.Request, path string, report func(error),
+) {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(req.RemoteAddr))
+	if err != nil {
+		host = req.RemoteAddr
+	}
+
+	peer, _ := netip.ParseAddr(host)
 	isTrusted := slices.ContainsFunc(trusted, func(p netip.Prefix) bool { return p.Contains(peer.Unmap()) })
 
-	req := ctx.Request
 	if path != "" {
 		req = req.Clone(req.Context())
 		req.URL.Path, req.URL.RawPath = path, ""
 	}
 
 	// The error is what the incident log and the error handler see; the response is already written.
-	report := func(err error) { _ = ctx.Error(err) }
 	req = req.WithContext(proxy.WithPeer(req.Context(), proxy.Peer{Trusted: isTrusted, Failed: report}))
-	handler.ServeHTTP(ctx.Writer, req)
+	handler.ServeHTTP(writer, req)
 	// Commit the status h set: gin only counts a Write as an answer, and otherwise replaces a bodyless 404 (a HEAD,
 	// an empty upstream 404) with its own text/plain "404 page not found". A handler that wrote nothing at all
 	// keeps gin's pre-set 404, now empty.
-	ctx.Writer.WriteHeaderNow()
+	if gw, ok := writer.(interface{ WriteHeaderNow() }); ok {
+		gw.WriteHeaderNow()
+	}
 }
 
 // fallthroughHandler is the NoRoute handler.
@@ -107,7 +116,12 @@ func (b *appBuilder) fallthroughHandler() (gin.HandlerFunc, error) {
 		return nil, err
 	}
 
-	b.forward = func(ctx *gin.Context, path string) { forwardTo(b.unmatched, trusted, ctx, path) }
+	b.forward = func(ctx *gin.Context, path string) {
+		forwardTo(b.unmatched, trusted, ctx.Writer, ctx.Request, path, func(err error) { _ = ctx.Error(err) })
+	}
+	b.forwardHTTP = func(w http.ResponseWriter, r *http.Request, path string, report func(error)) {
+		forwardTo(b.unmatched, trusted, w, r, path, report)
+	}
 
 	return func(ctx *gin.Context) { b.forward(ctx, "") }, nil
 }
@@ -134,4 +148,23 @@ func (a *App) Forward(ctx *gin.Context, path string) {
 
 	middlewares.StripSecurityHeaders(ctx.Writer.Header())
 	a.forward(ctx, path)
+}
+
+// ForwardRequest is Forward for a handler or middleware written on net/http: it answers the request from the
+// fallthrough handler (WithFallthrough) and the caller must not write or call next after it. path, when not empty,
+// is the path the fallthrough sees (the query stays). The fallthrough gets the peer, and the answer loses go-core's
+// security and CORS headers, as for Forward.
+//
+// Without a gin context to hand an upstream failure to, a failure is logged, not an incident. Without WithFallthrough
+// the answer is a plain 500 and the cause is logged. Prefer it to Forward; Forward stays for gin handlers.
+func (a *App) ForwardRequest(w http.ResponseWriter, r *http.Request, path string) {
+	if a.forwardHTTP == nil {
+		a.log.Error("forward_request_failed", "error", errNoFallthrough)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+
+		return
+	}
+
+	middlewares.StripSecurityHeaders(w.Header())
+	a.forwardHTTP(w, r, path, func(err error) { a.log.Error("forward_request_failed", "error", err) })
 }

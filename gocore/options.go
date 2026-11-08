@@ -2,6 +2,7 @@ package gocore
 
 import (
 	"cmp"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 // spaOption is what WithSPA or WithSPAConfig asked for.
 type spaOption struct {
 	state  frontend.AppStateBuilder
+	shell  frontend.StateBuilderHTTP
 	config *frontend.SPAConfig
 }
 
@@ -21,6 +23,12 @@ type spaOption struct {
 // ./frontend; WithSPAConfig names them. The API prefix (WithPrefix) is the one path the shell leaves alone.
 func WithSPA(state frontend.AppStateBuilder) Option {
 	return func(app *App) { app.spa = &spaOption{state: state, config: nil} }
+}
+
+// WithShell is WithSPA with a state builder on net/http, not gin: build gets the request the shell answers and returns
+// what is rendered as appState (nil build: no state). Prefer it to WithSPA; WithSPA stays for gin code.
+func WithShell(build func(*http.Request) (any, error)) Option {
+	return func(app *App) { app.spa = &spaOption{shell: build} }
 }
 
 // WithSPAConfig serves the single-page application with an explicit frontend configuration. The configuration's

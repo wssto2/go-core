@@ -247,6 +247,7 @@ func (a *App) build() (*lifecycle, error) {
 			builder.WithSPAConfig(*a.spa.config)
 		} else {
 			builder.WithSPA(a.spa.state)
+			builder.spaConfig.StateBuilderHTTP = a.spa.shell
 		}
 	}
 
@@ -277,6 +278,7 @@ func (a *App) build() (*lifecycle, error) {
 	}
 
 	a.forward = builder.forward
+	a.forwardHTTP = builder.forwardHTTP
 
 	return booted, nil
 }

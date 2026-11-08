@@ -82,7 +82,7 @@ batch := app.Env().Int("IMPORT_BATCH", 500) // IMPORT_BATCH=5o0 stops start-up i
 
 Cookie-authenticated routes are guarded against cross-site writes with the standard library's check: `app.Use(middlewares.CrossOrigin(http.NewCrossOriginProtection()))` answers 403 to an unsafe request a browser says came from another site (add `AddTrustedOrigin` for a second front end); it also covers the fallthrough, so a legacy form posted from another origin is refused too.
 
-The site's HTTP options are options of `New`: `WithSPA(state)` (or `WithSPAConfig`), `WithRateLimit(perUser, perIP)`, `WithIdempotency(ttl)`, `WithTrustedOrigins(...)`, `WithCSP(...)`, `WithServiceWorker(...)`. `/health` (liveness) and `/ready` (a ping of the primary connection) are served by `Run` and by `Handler`.
+The site's HTTP options are options of `New`: `WithShell(func(*http.Request) (any, error))` (or the gin `WithSPA(state)`, or `WithSPAConfig`), `WithRateLimit(perUser, perIP)`, `WithIdempotency(ttl)`, `WithTrustedOrigins(...)`, `WithCSP(...)`, `WithServiceWorker(...)`. `/health` (liveness) and `/ready` (a ping of the primary connection) are served by `Run` and by `Handler`.
 
 A command is one more call, and runs like `./myapp db:prune --dry-run` with the databases open and nothing served (see "Commands and the .env file"):
 
@@ -802,6 +802,8 @@ A request that reaches the fallthrough skips what would alter another site's pag
 With `WithSPA`, give the shell a base path: `WithSPAConfig(frontend.SPAConfig{BasePath: "/app", ...})`. The shell answers `/app` and what is under it, the API prefix keeps its JSON 404, and everything else falls through. `Build` fails when both are set and the shell has no `BasePath`.
 
 `app.Forward(ctx, path)` hands the current request to the fallthrough from a route or a middleware (`path` empty keeps the request's; otherwise the fallthrough sees that path, with the query), sets the peer as an unmatched request gets it, removes go-core's security and CORS headers that already stand on the answer (`middlewares.StripSecurityHeaders`) and stops the chain. `middlewares.Under("/admin", mw)` runs `mw` only for `/admin` and below, so a guard such as `CrossOrigin` can be `app.Use`d for one part of a site.
+
+Without gin: `app.UseHTTP(mw...)` takes `func(http.Handler) http.Handler` middleware (in line with `app.Use`), `app.ForwardRequest(w, r, path)` is `Forward` for a net/http handler or middleware (an upstream failure is logged, as it has no gin context to report to), `WithShell` takes a `func(*http.Request) (any, error)` and `frontend.SPAConfig.StateBuilderHTTP` is the same for `WithSPAConfig`. Prefer them; `Use`, `Forward`, `WithSPA` and `StateBuilder` stay for gin code.
 
 The SPA's files can be embedded: `SPAConfig.FS` (an `embed.FS` of `frontend/dist` and `frontend/templates`) replaces the disk; `TemplatesPath` and `Vite.ManifestPath` are then paths inside it. The built files are served under `Vite.AssetsURLPrefix`: the files the Vite manifest names (entries, their CSS and assets, hashed by content) get `Cache-Control: public, max-age=31536000, immutable` (a build that turns the hashes off must not use this), others none, and a missing file, a source map or a directory is a plain 404, not the shell page. `App.Use` middleware and the rate limits run for these routes too. `Exchange.Secure()` believes `X-Forwarded-Proto: https` only from a peer in `TRUSTED_PROXIES`.
 

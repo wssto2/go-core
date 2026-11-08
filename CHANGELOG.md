@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.34.0-rc.3 (unreleased)
+
+### Added
+
+- gocore: `(*App).UseHTTP(func(http.Handler) http.Handler...)`, `(*App).ForwardRequest(w, r, path)` and `WithShell(func(*http.Request) (any, error))`; frontend: `StateBuilderHTTP` and `SPAConfig.StateBuilderHTTP`. The net/http forms of `Use`, `Forward` and `WithSPA`'s state builder, preferred; the gin ones stay. `UseHTTP` runs in line with `Use`; a middleware that wraps the writer or replaces the request is seen by the rest of the chain. `ForwardRequest` logs an upstream failure (no gin context to report it to).
+- contract: a `map[string]any` (or `any`) output row or list element is `Record<string, unknown>` (`unknown`) instead of an error, so such a route can be in a `Contract`.
+
+### Changed
+
+- route: **behaviour change.** A `json.RawMessage` field of a typed route's input (top level, in a list item, a nested struct or behind a pointer) gets the bytes the body had for that member, as they were: member order, spacing, `1.0` and integers above 2^53 are kept (it was re-marshalled from a map: sorted keys, float64 numbers). A JSON `null` leaves it empty, as before. Other fields are unchanged.
+- contract: **generated change.** A query field (`query:"…"`) without `validation:"required"` is optional (`name: z....optional()` in `schemas.ts`) in the input schema; only the query fields of an embedded struct were optional before. Path fields stay required.
+
+### Fixed
+
+- route: a `map[string]any` or `[]any` member of an input (a list item's included) binds; it was refused with `invalid_type`.
+
 ## v1.34.0-rc.2 (2026-11-08)
 
 ### Fixed
