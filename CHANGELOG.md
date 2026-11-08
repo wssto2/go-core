@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.34.0-rc.3 (unreleased)
+## v1.34.0-rc.3 (2026-11-08)
 
 ### Added
 
